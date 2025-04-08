@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import './App.css';
 import {
     GetSavedTracks,
@@ -23,34 +23,39 @@ function App() {
     const [currentPage, setCurrentPage] = useState<number>(1);
     const [totalTracks, setTotalTracks] = useState<number>(0);
     const [currentlyPlaying, setCurrentlyPlaying] = useState<string | null>(null);
-    const [nowPlayingTrack, setNowPlayingTrack] = useState<spotify.Track | spotify.SimpleTrack | null>(null);
+    const [nowPlayingTrack, setNowPlayingTrack] = useState<spotify.Track | spotify.SimpleTrack | spotify.SuggestedTrackInfo | null>(null);
     const [isFavoritesCollapsed, setIsFavoritesCollapsed] = useState<boolean>(false);
 
     const [isProcessingLibrary, setIsProcessingLibrary] = useState<boolean>(false);
     const [suggestionError, setSuggestionError] = useState<string | null>(null);
-    const [suggestedTrack, setSuggestedTrack] = useState<{ name: string; artist: string; id: string } | null>(null);
+    const [suggestedTrack, setSuggestedTrack] = useState<spotify.SuggestedTrackInfo | null>(null);
     const [showSuggestionSection, setShowSuggestionSection] = useState<boolean>(false);
 
     const ITEMS_PER_PAGE = 20;
 
+    const hasInitialized = useRef<boolean>(false);
+
     useEffect(() => {
-        initializeApp();
+        if (!hasInitialized.current) {
+            hasInitialized.current = true;
+            initializeApp();
+        }
     }, []);
 
     const initializeApp = async () => {
+        console.log('initializeApp called...');
+
         try {
-            console.log('Initializing app...');
+            console.log('Starting core initialization...');
             setIsLoading(true);
             setError(null);
             setSuggestionError(null);
 
-            // Get current user
             const currentUser = await GetCurrentUser();
             if (currentUser) {
                 setUser(currentUser);
-                await loadSavedTracks(1); // Load first page for display
+                await loadSavedTracks(1);
 
-                // Check suggestion state
                 console.log('Checking initial suggestion state...');
                 const needsProcessing = await GetInitialSuggestionState();
                 console.log('Needs processing:', needsProcessing);
@@ -58,45 +63,34 @@ function App() {
                 if (needsProcessing) {
                     console.log('Starting initial library processing...');
                     setIsProcessingLibrary(true);
-                    setShowSuggestionSection(true); // Show the section with loader
+                    setShowSuggestionSection(true); 
                     try {
-                        const firstSuggestionMsg = await ProcessLibraryAndGetFirstSuggestion();
-                        console.log('First suggestion received:', firstSuggestionMsg);
-                        if (firstSuggestionMsg && firstSuggestionMsg.content) {
-                            try {
-                                const parsedSuggestion = JSON.parse(firstSuggestionMsg.content);
-                                console.log('Parsed suggestion:', parsedSuggestion);
-                                if (parsedSuggestion.id && parsedSuggestion.name && parsedSuggestion.artist) {
-                                    setSuggestedTrack(parsedSuggestion);
-                                } else {
-                                    console.error('Invalid suggestion format:', parsedSuggestion);
-                                    setSuggestionError('Received invalid suggestion format from AI.');
-                                }
-                            } catch (parseErr) {
-                                console.error('Failed to parse suggestion JSON:', parseErr, 'Content:', firstSuggestionMsg.content);
-                                setSuggestionError('Failed to understand AI suggestion (JSON parse error).');
-                            }
+                        const firstSuggestion = await ProcessLibraryAndGetFirstSuggestion();
+                        console.log('First suggestion received:', firstSuggestion);
+                        if (firstSuggestion && firstSuggestion.id) {
+                            setSuggestedTrack(firstSuggestion);
                         } else {
-                            setSuggestionError('Received empty suggestion from AI.');
+                            console.error('Invalid suggestion format or missing ID:', firstSuggestion);
+                            setSuggestionError('Received invalid suggestion from backend.');
                         }
                     } catch (processErr) {
                         console.error('Failed during initial processing:', processErr);
-                        setSuggestionError(processErr instanceof Error ? processErr.message : 'Failed to process library for suggestions.');
-                        setShowSuggestionSection(false); // Hide section on error?
+                        const errorMsg = processErr instanceof Error ? processErr.message : 'Failed to get initial suggestion.';
+                        setSuggestionError(`Suggestion failed: ${errorMsg}`); 
+                        setSuggestedTrack(null); 
                     } finally {
-                         setIsProcessingLibrary(false);
+                        setIsProcessingLibrary(false);
                     }
                 } else {
-                     // Library already processed or not first time, just show the button potentially
-                     // We might need to fetch the *last* suggestion from history if needed
-                     setShowSuggestionSection(true); // Or maybe only show if history exists?
+                    setShowSuggestionSection(true);
                 }
             }
-        } catch (err) { // Catch errors from GetCurrentUser or loadSavedTracks
+        } catch (err) { 
             console.error('Failed to initialize app:', err);
             setError(err instanceof Error ? err.message : 'An error occurred during initialization');
         } finally {
             setIsLoading(false);
+            console.log('Core initialization finished.');
         }
     };
 
@@ -144,7 +138,7 @@ function App() {
         }
     };
 
-    const handlePlay = (track: spotify.Track | spotify.SimpleTrack, previewUrl: string | null) => {
+    const handlePlay = (track: spotify.Track | spotify.SimpleTrack | spotify.SuggestedTrackInfo, previewUrl: string | null) => {
         if (previewUrl) {
             if (currentlyPlaying === previewUrl) {
                 setCurrentlyPlaying(null);
@@ -178,24 +172,62 @@ function App() {
         }
     };
 
-    const getTrackInfo = (track: spotify.Track | spotify.SimpleTrack) => {
-        if ('artists' in track) {
+    const getTrackInfo = (track: spotify.Track | spotify.SimpleTrack | spotify.SuggestedTrackInfo | null): 
+        { name: string; artist: string; album: string; albumArtUrl: string; previewUrl: string | null } => 
+    {
+        if (!track) {
+             return {
+                name: 'No Track',
+                artist: '',
+                album: '',
+                albumArtUrl: '',
+                previewUrl: null,
+            };
+        }
+        
+        // Check for Full Track (has artists array and album object)
+        if ('artists' in track && Array.isArray(track.artists) && 'album' in track && typeof track.album === 'object' && track.album !== null && 'images' in track.album) {
             return {
                 name: track.name,
                 artist: track.artists[0]?.name || '',
                 album: track.album.name,
                 albumArtUrl: track.album.images[0]?.url || '',
-                previewUrl: track.preview_url,
-            };
-        } else {
-            return {
-                name: track.name,
-                artist: track.artist,
-                album: track.album,
-                albumArtUrl: track.albumArtUrl,
-                previewUrl: track.previewUrl,
+                previewUrl: track.preview_url || null, // Ensure null if missing
             };
         }
+        
+        // Check for Simple Track (has artist string and album string)
+        // Note: SimpleTrack mapping in client.go puts album name in track.album
+        if ('artist' in track && typeof track.artist === 'string' && 'album' in track && typeof track.album === 'string' && 'albumArtUrl' in track) {
+             return {
+                name: track.name,
+                artist: track.artist, 
+                album: track.album, 
+                albumArtUrl: track.albumArtUrl || '', // Ensure string
+                previewUrl: track.previewUrl || null, // Ensure null if missing
+            };
+        }
+
+        // Check for Suggested Track Info (has artist string, no album field)
+        if ('artist' in track && typeof track.artist === 'string' && !('album' in track) && 'albumArtUrl' in track) {
+             return {
+                name: track.name,
+                artist: track.artist,
+                album: '', // No album info for suggestions
+                albumArtUrl: track.albumArtUrl || '', // Ensure string
+                previewUrl: track.previewUrl || null, // Ensure null if missing
+            };
+        }
+        
+        // Fallback for unknown type
+        console.warn("Unknown track type passed to getTrackInfo:", track);
+        return {
+            name: track.name || 'Unknown Track', // Try to get name at least
+            artist: ('artist' in track && typeof track.artist === 'string') ? track.artist : 'Unknown Artist', // Try basic artist
+            album: '',
+            albumArtUrl: ('albumArtUrl' in track && typeof track.albumArtUrl === 'string') ? track.albumArtUrl : '', // Try basic art
+            previewUrl: ('previewUrl' in track && typeof track.previewUrl === 'string') ? track.previewUrl : null, // Try basic preview
+        };
     };
 
     const TrackCard = ({ track, isSaved = false }: { track: spotify.Track | spotify.SimpleTrack, isSaved?: boolean }) => {
@@ -232,7 +264,7 @@ function App() {
                 </div>
                 {currentlyPlaying === previewUrl && (
                     <audio
-                        src={previewUrl}
+                        src={previewUrl || ''}
                         autoPlay
                         onEnded={() => {
                             setCurrentlyPlaying(null);
@@ -317,32 +349,23 @@ function App() {
     // Handler to request a new suggestion from the backend
     const handleRequestSuggestion = async () => {
         setSuggestionError(null);
-        setIsProcessingLibrary(true); // Use same loader state for subsequent requests
-        setSuggestedTrack(null); // Clear previous suggestion
+        setIsProcessingLibrary(true); 
+        setSuggestedTrack(null); 
         try {
             console.log('Requesting new suggestion...');
-            const suggestionMsg = await RequestNewSuggestion();
-            console.log('New suggestion received:', suggestionMsg);
-            if (suggestionMsg && suggestionMsg.content) {
-                try {
-                    const parsedSuggestion = JSON.parse(suggestionMsg.content);
-                    console.log('Parsed suggestion:', parsedSuggestion);
-                    if (parsedSuggestion.id && parsedSuggestion.name && parsedSuggestion.artist) {
-                        setSuggestedTrack(parsedSuggestion);
-                    } else {
-                        console.error('Invalid suggestion format:', parsedSuggestion);
-                        setSuggestionError('Received invalid suggestion format from AI.');
-                    }
-                } catch (parseErr) {
-                    console.error('Failed to parse suggestion JSON:', parseErr, 'Content:', suggestionMsg.content);
-                    setSuggestionError('Failed to understand AI suggestion (JSON parse error).');
-                }
+            const newSuggestion = await RequestNewSuggestion();
+            console.log('New suggestion received:', newSuggestion);
+            if (newSuggestion && newSuggestion.id) {
+                setSuggestedTrack(newSuggestion);
             } else {
-                setSuggestionError('Received empty suggestion from AI.');
+                console.error('Invalid suggestion format or missing ID:', newSuggestion);
+                setSuggestionError('Received invalid suggestion from backend.');
             }
         } catch (err) {
-            console.error('Failed to request suggestion:', err);
-            setSuggestionError(err instanceof Error ? err.message : 'Failed to get suggestion.');
+           // Display error, user can manually retry with button
+           console.error('Failed to request suggestion:', err);
+           const errorMsg = err instanceof Error ? err.message : 'Failed to get suggestion.';
+           setSuggestionError(`Suggestion failed: ${errorMsg}`);
         } finally {
             setIsProcessingLibrary(false);
         }
@@ -391,22 +414,48 @@ function App() {
                         {isProcessingLibrary ? (
                             <div className="loading-indicator">Asking the AI for a suggestion...</div>
                         ) : suggestionError ? (
-                            <div className="error-message">Error: {suggestionError} <button onClick={handleRequestSuggestion}>Try Again?</button></div>
+                            // Show error and the suggest button
+                            <div className="suggestion-error-state">
+                                <div className="error-message">{suggestionError}</div>
+                                <button onClick={handleRequestSuggestion}>Suggest a song</button>
+                            </div>
                         ) : suggestedTrack ? (
                             <div className="suggested-track-display">
-                                <div>
-                                    <p><strong>{suggestedTrack.name}</strong></p>
-                                    <p>by {suggestedTrack.artist}</p>
-                                    <p><small>(ID: {suggestedTrack.id})</small></p>
-                                </div>
-                                <div className="suggestion-controls">
-                                    <button onClick={() => handleSuggestionFeedback('like')}>👍 Like</button>
-                                    <button onClick={() => handleSuggestionFeedback('dislike')}>👎 Dislike</button>
-                                    <button onClick={handleAddSuggestionToLibrary}>➕ Add to Library</button>
-                                    <button onClick={handleRequestSuggestion}>Next Suggestion</button>
-                                </div>
+                                <div className="suggestion-art-and-info">
+                                    {/* Album art */} 
+                                    {suggestedTrack.albumArtUrl && (
+                                        <img 
+                                            src={suggestedTrack.albumArtUrl} 
+                                            alt={suggestedTrack.name} 
+                                            className="suggestion-album-art" 
+                                        />
+                                    )}
+                                    {/* Track info + Play button */} 
+                                    <div className="suggestion-track-info">
+                                        <p><strong>{suggestedTrack.name}</strong></p>
+                                        <p>by {suggestedTrack.artist}</p>
+                                        {suggestedTrack.previewUrl && (
+                                            <button 
+                                                className={`play-button suggestion-play-button ${currentlyPlaying === suggestedTrack.previewUrl ? 'playing' : ''}`}
+                                                onClick={() => handlePlay(suggestedTrack, suggestedTrack.previewUrl ?? null)}
+                                            >
+                                                {currentlyPlaying === suggestedTrack.previewUrl ? '⏸' : '▶'}
+                                            </button>
+                                        )}
+                                    </div>
+                                    {/* Controls moved inside */} 
+                                    <div className="suggestion-controls">
+                                        <button onClick={() => handleSuggestionFeedback('like')}>👍 Like</button>
+                                        <button onClick={() => handleSuggestionFeedback('dislike')}>👎 Dislike</button>
+                                        <button onClick={handleAddSuggestionToLibrary}>➕ Add to Library</button>
+                                        <button onClick={handleRequestSuggestion}>Next Suggestion</button>
+                                    </div>
+                                </div> {/* End of suggestion-art-and-info wrapper */} 
+                                
+                                {/* Controls block is no longer here */}
                             </div>
                         ) : (
+                            // Initial state or after successful feedback/add 
                             <button onClick={handleRequestSuggestion}>Suggest a song</button>
                         )}
                     </div>
@@ -489,21 +538,43 @@ function App() {
                 )}
             </div>
 
+            {/* Ensure Now Playing bar uses getTrackInfo correctly */}
             {nowPlayingTrack && (
                 <div className="now-playing">
-                    <img src={getTrackInfo(nowPlayingTrack).albumArtUrl} alt={getTrackInfo(nowPlayingTrack).name} />
-                    <div className="now-playing-info">
-                        <h4>{getTrackInfo(nowPlayingTrack).name}</h4>
-                        <p>{getTrackInfo(nowPlayingTrack).artist}</p>
-                    </div>
-                    <div className="now-playing-controls">
-                        <button
-                            className="play-button playing"
-                            onClick={() => handlePlay(nowPlayingTrack, getTrackInfo(nowPlayingTrack).previewUrl)}
-                        >
-                            ⏸
-                        </button>
-                    </div>
+                    {(() => {
+                        const info = getTrackInfo(nowPlayingTrack);
+                        return (
+                            <>
+                                <img src={info.albumArtUrl} alt={info.name} />
+                                <div className="now-playing-info">
+                                    <h4>{info.name}</h4>
+                                    <p>{info.artist}</p>
+                                </div>
+                                <div className="now-playing-controls">
+                                    <button
+                                        className="play-button playing"
+                                        // Call handlePlay directly, relying on its internal null check
+                                        // Pass info.previewUrl which is string | null
+                                        onClick={() => handlePlay(nowPlayingTrack, info.previewUrl)}
+                                        disabled={info.previewUrl === null} // Still disable if no preview
+                                    >
+                                        ⏸
+                                    </button>
+                                </div>
+                                {/* Render audio only if playing this specific track */}
+                                {currentlyPlaying === info.previewUrl && info.previewUrl !== null && (
+                                    <audio
+                                        src={info.previewUrl} // Safe due to check
+                                        autoPlay
+                                        onEnded={() => {
+                                            setCurrentlyPlaying(null);
+                                            setNowPlayingTrack(null);
+                                        }}
+                                    />
+                                )}
+                            </>
+                        );
+                    })()}
                 </div>
             )}
         </div>

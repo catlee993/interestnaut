@@ -7,16 +7,18 @@ import (
 	keyring "github.com/zalando/go-keyring"
 )
 
-const serviceName = "com.interestnaut.app"
+// ServiceName is the identifier used for the OS keyring service.
+const ServiceName = "com.interestnaut.app"
 
 var (
+	// SpotifyRefreshTokenKey is the key used for storing the refresh token.
 	SpotifyRefreshTokenKey = "SPOTIFY_REFRESH_TOKEN"
 	openaiApiKey           string
 )
 
 // SaveSpotifyCreds saves Spotify refresh token to the OS keychain.
 func SaveSpotifyCreds(token string) error {
-	if err := keyring.Set(serviceName, SpotifyRefreshTokenKey, token); err != nil {
+	if err := keyring.Set(ServiceName, SpotifyRefreshTokenKey, token); err != nil {
 		return fmt.Errorf("failed to set Spotify refresh token: %w", err)
 	}
 	return nil
@@ -24,7 +26,7 @@ func SaveSpotifyCreds(token string) error {
 
 // GetSpotifyCreds retrieves Spotify refresh token from the OS keychain.
 func GetSpotifyCreds() (string, error) {
-	token, err := keyring.Get(serviceName, SpotifyRefreshTokenKey)
+	token, err := keyring.Get(ServiceName, SpotifyRefreshTokenKey)
 	if err != nil {
 		return "", fmt.Errorf("failed to get Spotify refresh token: %w", err)
 	}
@@ -33,7 +35,7 @@ func GetSpotifyCreds() (string, error) {
 
 // SaveOpenAICreds saves the OpenAI API key to the OS keychain.
 func SaveOpenAICreds(apiKey string) error {
-	if err := keyring.Set(serviceName, "OPENAI_API_KEY", apiKey); err != nil {
+	if err := keyring.Set(ServiceName, "OPENAI_API_KEY", apiKey); err != nil {
 		return fmt.Errorf("failed to set OpenAI API key: %w", err)
 	}
 	return nil
@@ -41,7 +43,7 @@ func SaveOpenAICreds(apiKey string) error {
 
 // GetOpenAICreds retrieves the OpenAI API key from the OS keychain.
 func GetOpenAICreds() (string, error) {
-	apiKey, err := keyring.Get(serviceName, "OPENAI_API_KEY")
+	apiKey, err := keyring.Get(ServiceName, "OPENAI_API_KEY")
 	if err != nil {
 		return "", fmt.Errorf("failed to get OpenAI API key: %w", err)
 	}

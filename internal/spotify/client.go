@@ -3,6 +3,7 @@ package spotify
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 
 	request "github.com/catlee993/go-request"
@@ -15,6 +16,7 @@ type Client interface {
 	SearchTracks(ctx context.Context, query string, limit int) ([]*SimpleTrack, error)
 	SaveTrack(ctx context.Context, trackID string) error
 	RemoveTrack(ctx context.Context, trackID string) error
+	GetTrackDetails(ctx context.Context, trackID string, market string) (*Track, error)
 }
 
 // client represents a Spotify API client.
@@ -39,6 +41,7 @@ func NewClientWithAuth(authConfig *AuthConfig) Client {
 	}
 }
 
+// GetSavedTracks retrieves the user's saved tracks.
 func (c *client) GetSavedTracks(ctx context.Context, limit, offset int) (*SavedTracks, error) {
 	token, err := GetValidToken(ctx)
 	if err != nil {
@@ -71,6 +74,7 @@ func (c *client) GetSavedTracks(ctx context.Context, limit, offset int) (*SavedT
 	return &tracks, nil
 }
 
+// SearchTracks searches for tracks matching the query.
 func (c *client) SearchTracks(ctx context.Context, query string, limit int) ([]*SimpleTrack, error) {
 	token, err := GetValidToken(ctx)
 	if err != nil {
@@ -126,6 +130,7 @@ func (c *client) SearchTracks(ctx context.Context, query string, limit int) ([]*
 	return simpleTracks, nil
 }
 
+// SaveTrack saves a track to the user's library.
 func (c *client) SaveTrack(ctx context.Context, trackID string) error {
 	token, err := GetValidToken(ctx)
 	if err != nil {
@@ -155,6 +160,7 @@ func (c *client) SaveTrack(ctx context.Context, trackID string) error {
 	return nil
 }
 
+// RemoveTrack removes a track from the user's library.
 func (c *client) RemoveTrack(ctx context.Context, trackID string) error {
 	token, err := GetValidToken(ctx)
 	if err != nil {
@@ -184,6 +190,7 @@ func (c *client) RemoveTrack(ctx context.Context, trackID string) error {
 	return nil
 }
 
+// GetCurrentUser retrieves the current user's profile.
 func (c *client) GetCurrentUser(ctx context.Context) (*UserProfile, error) {
 	token, err := GetValidToken(ctx)
 	if err != nil {
@@ -210,4 +217,41 @@ func (c *client) GetCurrentUser(ctx context.Context) (*UserProfile, error) {
 	}
 
 	return &profile, nil
+}
+
+// GetTrackDetails retrieves detailed information using go-request.
+func (c *client) GetTrackDetails(ctx context.Context, trackID string, market string) (*Track, error) {
+	token, err := GetValidToken(ctx)
+	if err != nil {
+		log.Printf("ERROR: GetValidToken failed in GetTrackDetails: %v", err)
+		return nil, err
+	}
+
+	queryArgs := map[string][]string{}
+	if market != "" {
+		queryArgs["market"] = []string{market}
+	}
+
+	req, err := request.NewRequester(
+		request.WithScheme(request.HTTPS),
+		request.WithMethod(request.Get),
+		request.WithHost("api.spotify.com"),
+		request.WithPath("v1", "tracks", trackID),
+		request.WithQueryArgs(queryArgs),
+		request.WithHeaders(map[string][]string{
+			"Authorization": {"Bearer " + token},
+		}),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create track details requester: %w", err)
+	}
+
+	var track Track
+	_, rErr := req.Make(ctx, &track)
+	if rErr != nil {
+		log.Printf("ERROR: GetTrackDetails (go-request) request failed for track %s. Error: %v", trackID, rErr)
+		return nil, fmt.Errorf("track details request failed: %w", rErr)
+	}
+
+	return &track, nil
 }

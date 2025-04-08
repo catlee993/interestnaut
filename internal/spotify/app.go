@@ -13,6 +13,8 @@ import (
 	"github.com/pkg/errors"
 )
 
+// ErrNotAuthenticated definition removed, should be defined in errors.go
+
 // App represents the Spotify application.
 type App struct {
 	client       Client
@@ -149,6 +151,18 @@ func (a *App) GetAllSavedTracks(ctx context.Context) ([]SavedTrackItem, error) {
 
 	log.Printf("Fetched %d total saved tracks.", len(allTracks))
 	return allTracks, nil
+}
+
+// GetTrackDetails retrieves detailed information for a single track.
+func (a *App) GetTrackDetails(ctx context.Context, trackID string, market string) (*Track, error) {
+	a.mu.RLock()
+	client := a.client
+	a.mu.RUnlock()
+
+	if client == nil {
+		return nil, ErrNotAuthenticated
+	}
+	return client.GetTrackDetails(ctx, trackID, market)
 }
 
 // GetCurrentUser retrieves the current user's profile.

@@ -2,18 +2,24 @@ package spotify
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"interestnaut/internal/creds"
 	"interestnaut/internal/server"
+	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
 	request "github.com/catlee993/go-request"
+	"github.com/zalando/go-keyring"
 )
 
 // const variables remain unchanged
@@ -29,6 +35,8 @@ var (
 	currentToken    string
 	currentTokenExp time.Time
 	tokenMutex      sync.RWMutex
+	accessToken     string
+	tokenExpiry     time.Time
 )
 
 // RunInitialAuthFlow starts a local server, opens the browser to start OAuth, and waits for callback to save credentials.
@@ -64,8 +72,11 @@ func RunInitialAuthFlow(ctx context.Context) error {
 
 		// Store the access token and its expiry in memory only
 		tokenMutex.Lock()
+		accessToken = authResp.AccessToken
+		tokenExpiry = time.Now().Add(time.Duration(authResp.ExpiresIn) * time.Second)
 		currentToken = authResp.AccessToken
-		currentTokenExp = time.Now().Add(time.Duration(authResp.ExpiresIn) * time.Second)
+		currentTokenExp = tokenExpiry
+		log.Printf("DEBUG (Callback): Stored initial token expiring at %s", tokenExpiry.Format(time.RFC3339))
 		tokenMutex.Unlock()
 
 		_, _ = fmt.Fprintln(w, "Authentication successful. You can close this window.")
@@ -82,59 +93,108 @@ func RunInitialAuthFlow(ctx context.Context) error {
 	return nil
 }
 
-// GetValidToken returns a valid access token, getting a new one if necessary
+// GetValidToken retrieves a valid Spotify access token, refreshing if necessary.
 func GetValidToken(ctx context.Context) (string, error) {
-	tokenMutex.RLock()
-	token := currentToken
-	expiry := currentTokenExp
-	tokenMutex.RUnlock()
+	tokenMutex.RLock() // Start with read lock
+	if accessToken != "" && time.Now().Before(tokenExpiry) {
+		acToken := accessToken
+		tokenMutex.RUnlock()
+		return acToken, nil
+	}
+	tokenMutex.RUnlock() // Unlock read lock before potentially taking write lock
 
-	// If we have a valid token in memory, return it
-	if token != "" && time.Now().Before(expiry) {
-		return token, nil
+	// If token is invalid or expired, acquire write lock to refresh
+	tokenMutex.Lock()
+	defer tokenMutex.Unlock()
+
+	// Double-check expiry after acquiring write lock
+	if accessToken != "" && time.Now().Before(tokenExpiry) {
+		return accessToken, nil
 	}
 
-	// Get the saved refresh token from keychain
 	refreshToken, err := creds.GetSpotifyCreds()
 	if err != nil {
+		log.Printf("ERROR: Failed to get refresh token from storage: %v", err)
+		return "", ErrNotAuthenticated
+	}
+	if refreshToken == "" {
+		log.Println("ERROR: Retrieved empty refresh token from storage.")
 		return "", ErrNotAuthenticated
 	}
 
-	// Get client credentials from environment
+	// Perform the refresh using the refresh token
 	clientID := os.Getenv("SPOTIFY_CLIENT_ID")
 	clientSecret := os.Getenv("SPOTIFY_CLIENT_SECRET")
 	if clientID == "" || clientSecret == "" {
-		return "", fmt.Errorf("SPOTIFY_CLIENT_ID or SPOTIFY_CLIENT_SECRET not set in environment")
+		log.Println("ERROR: Spotify client ID or secret not found in env for token refresh.")
+		return "", ErrNotAuthenticated
 	}
 
-	// Use the refresh token to get a new access token
-	authResp, err := refreshAccessToken(ctx, clientID, clientSecret, refreshToken)
+	form := url.Values{}
+	form.Set("grant_type", "refresh_token")
+	form.Set("refresh_token", refreshToken)
+
+	req, err := http.NewRequestWithContext(ctx, "POST", "https://accounts.spotify.com/api/token", strings.NewReader(form.Encode()))
 	if err != nil {
-		// If the refresh token is invalid, we need to re-authenticate
-		if err.Error() == "request failed: request failed: response not OK, status: 400, body: {\"error\":\"invalid_grant\",\"error_description\":\"Invalid refresh token\"}" {
-			// Clear the invalid refresh token from keychain
-			_ = creds.SaveSpotifyCreds("")
+		log.Printf("ERROR: Failed to create token refresh request: %v", err)
+		return "", fmt.Errorf("failed to create token refresh request: %w", err)
+	}
+
+	authHeader := base64.StdEncoding.EncodeToString([]byte(clientID + ":" + clientSecret))
+	req.Header.Set("Authorization", "Basic "+authHeader)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	httpClient := &http.Client{Timeout: 10 * time.Second}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		log.Printf("ERROR: Token refresh request failed: %v", err)
+		return "", fmt.Errorf("token refresh request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("ERROR: Failed to read token refresh response body: %v", err)
+		return "", fmt.Errorf("failed to read token refresh response body: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("ERROR: Token refresh failed with status %d: %s", resp.StatusCode, string(body))
+		if strings.Contains(string(body), "invalid_grant") {
+			log.Println("ERROR: Invalid refresh token (invalid_grant). Clearing stored credentials.")
+			if err := keyring.Delete(creds.ServiceName, creds.SpotifyRefreshTokenKey); err != nil {
+				log.Printf("ERROR: Failed to clear invalid credentials from keyring: %v", err)
+			}
+			accessToken = ""
+			tokenExpiry = time.Time{}
 			return "", ErrNotAuthenticated
 		}
-		return "", fmt.Errorf("failed to refresh token: %w", err)
+		return "", fmt.Errorf("token refresh failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
-	// Store the new access token and its expiry in memory
-	tokenMutex.Lock()
-	currentToken = authResp.AccessToken
-	currentTokenExp = time.Now().Add(time.Duration(authResp.ExpiresIn) * time.Second)
-	tokenMutex.Unlock()
+	var authResp AuthResponse
+	if err := json.Unmarshal(body, &authResp); err != nil {
+		log.Printf("ERROR: Failed to unmarshal token refresh response: %v", err)
+		return "", fmt.Errorf("failed to unmarshal token refresh response: %w", err)
+	}
 
-	return currentToken, nil
-}
+	if authResp.AccessToken == "" {
+		log.Println("ERROR: Token refresh response did not contain an access token.")
+		return "", ErrNotAuthenticated
+	}
 
-// refreshAccessToken uses a refresh token to get a new access token
-func refreshAccessToken(ctx context.Context, clientID, clientSecret, refreshToken string) (*AuthResponse, error) {
-	values := url.Values{}
-	values.Set("grant_type", "refresh_token")
-	values.Set("refresh_token", refreshToken)
+	// Update cached token and expiry
+	accessToken = authResp.AccessToken
+	tokenExpiry = time.Now().Add(time.Duration(authResp.ExpiresIn) * time.Second)
 
-	return makeTokenRequest(ctx, clientID, clientSecret, values)
+	// If the response included a *new* refresh token, update storage
+	if authResp.RefreshToken != "" && authResp.RefreshToken != refreshToken {
+		if err := creds.SaveSpotifyCreds(authResp.RefreshToken); err != nil {
+			log.Printf("ERROR: Failed to store new refresh token: %v", err)
+		}
+	}
+
+	return accessToken, nil
 }
 
 // exchangeCodeForToken exchanges an authorization code for access and refresh tokens

@@ -2,6 +2,8 @@ package spotify
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"log"
 	"os"
 	"sync"
@@ -170,9 +172,8 @@ func (w *WailsClient) GetInitialSuggestionState() (needsProcessing bool, err err
 	return needsProcessing, nil
 }
 
-// ProcessLibraryAndGetFirstSuggestion fetches all tracks and gets the first suggestion.
-// This could take a while.
-func (w *WailsClient) ProcessLibraryAndGetFirstSuggestion() (*openai.Message, error) {
+// ProcessLibraryAndGetFirstSuggestion fetches tracks, gets suggestion, searches, and returns details.
+func (w *WailsClient) ProcessLibraryAndGetFirstSuggestion() (*SuggestedTrackInfo, error) {
 	w.mu.RLock()
 	app := w.app
 	w.mu.RUnlock()
@@ -188,52 +189,130 @@ func (w *WailsClient) ProcessLibraryAndGetFirstSuggestion() (*openai.Message, er
 	}
 
 	log.Println("Processing library for first suggestion...")
-	// Fetch all saved tracks (potentially long operation)
-	allTracks, err := app.GetAllSavedTracks(context.Background()) // Use appropriate context
+	allTracks, err := app.GetAllSavedTracks(context.Background())
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to fetch all saved tracks")
 	}
 
-	// Format tracks into a prompt for OpenAI
 	prompt := FormatTracksForInitialPrompt(allTracks)
-
-	// Send to OpenAI
-	// Define the system message instructing OpenAI on the desired output format
+	// Prompt asking for name, artist, album, optional ID
 	systemMessage := openai.Message{
 		Role:    "system",
-		Content: `You are a helpful music suggestion assistant. Based on the user's saved tracks, suggest a single song they might like. Provide the response ONLY as a valid JSON object with keys "name" (string), "artist" (string), and "id" (string, the Spotify track ID). Example: {"name": "Song Title", "artist": "Artist Name", "id": "track_id"}`,
+		Content: `You are a helpful music suggestion assistant. Based on the user's saved tracks, suggest a single song they might like. Provide the response ONLY as a valid JSON object with keys "name" (string, the track name), "artist" (string, the primary artist name), "album" (string, the album name), and optionally "id" (string, the Spotify track ID if you are confident). Example: {"name": "Song Title", "artist": "Artist Name", "album": "Album Name", "id": "track_id_if_known"} or {"name": "Another Song", "artist": "Another Artist", "album": "Another Album"}`,
 	}
 	userPromptMessage := openai.Message{Role: "user", Content: prompt}
 
 	app.mu.Lock()
-	app.chatHistory = []openai.Message{systemMessage, userPromptMessage} // Start history
-	historyForAPI := append([]openai.Message{}, app.chatHistory...)      // Copy history for the API call
+	app.chatHistory = []openai.Message{systemMessage, userPromptMessage}
+	historyForAPI := append([]openai.Message{}, app.chatHistory...)
 	app.mu.Unlock()
 
-	log.Println("Sending initial prompt to OpenAI...")
-	suggestion, err := app.openaiClient.SendMessage(historyForAPI)
+	log.Println("Sending prompt to OpenAI...")
+	suggestionMsg, err := app.openaiClient.SendMessage(historyForAPI)
 	if err != nil {
-		// Clear history if the first call fails?
+		log.Printf("ERROR: OpenAI call failed: %v", err)
 		app.mu.Lock()
-		app.chatHistory = []openai.Message{}
+		app.chatHistory = []openai.Message{} // Clear history on failure
 		app.mu.Unlock()
-		return nil, errors.Wrap(err, "failed to get first suggestion from OpenAI")
+		return nil, errors.Wrap(err, "failed to get suggestion from OpenAI")
 	}
-	log.Println("Received suggestion from OpenAI.")
+	log.Println("Received suggestion message from OpenAI:", suggestionMsg.Content)
 
-	// TODO: Validate the suggestion format (is it valid JSON with the expected keys?)
-	// For now, assume the format is correct.
-
-	// Add AI response to history
 	app.mu.Lock()
-	app.chatHistory = append(app.chatHistory, suggestion)
+	app.chatHistory = append(app.chatHistory, suggestionMsg)
 	app.mu.Unlock()
 
-	return &suggestion, nil
+	// Parse name, artist, album, optional ID
+	var basicSuggestion struct {
+		Name   string `json:"name"`
+		Artist string `json:"artist"`
+		Album  string `json:"album"`
+		ID     string `json:"id"`
+	}
+	if err := json.Unmarshal([]byte(suggestionMsg.Content), &basicSuggestion); err != nil {
+		log.Printf("ERROR: Failed to parse JSON: %v. Content: %s", err, suggestionMsg.Content)
+		return nil, errors.Wrap(err, "failed to parse suggestion JSON from AI")
+	}
+	if basicSuggestion.Name == "" || basicSuggestion.Artist == "" {
+		log.Printf("ERROR: AI suggestion missing name or artist. Content: %s", suggestionMsg.Content)
+		return nil, errors.New("AI suggestion response was missing name or artist")
+	}
+	log.Printf("Parsed suggestion - Name: %s, Artist: %s, Album: %s, ID: %s", basicSuggestion.Name, basicSuggestion.Artist, basicSuggestion.Album, basicSuggestion.ID)
+
+	// --- Search Spotify using Name, Artist, Album (limit 5 for disambiguation) ---
+	var searchResults []*SimpleTrack
+	searchLimit := 5
+
+	// Primary search (with album)
+	searchQuery := fmt.Sprintf("track:\"%s\" artist:\"%s\"", basicSuggestion.Name, basicSuggestion.Artist)
+	if basicSuggestion.Album != "" {
+		searchQuery += fmt.Sprintf(" album:\"%s\"", basicSuggestion.Album)
+	}
+	log.Printf("Searching Spotify with query: %s (Limit: %d)", searchQuery, searchLimit)
+	searchCtx, searchCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	searchResults, err = app.SearchTracks(searchCtx, searchQuery, searchLimit)
+	searchCancel() // Cancel context
+
+	// Fallback search (without album) if needed
+	if err != nil || len(searchResults) == 0 {
+		if err != nil {
+			log.Printf("WARN: Spotify search (with album) failed for query '%s': %v. Trying without album...", searchQuery, err)
+		} else {
+			log.Printf("WARN: Spotify search (with album) returned no results for query '%s'. Trying without album...", searchQuery)
+		}
+		searchQueryMinimal := fmt.Sprintf("track:\"%s\" artist:\"%s\"", basicSuggestion.Name, basicSuggestion.Artist)
+		log.Printf("Searching Spotify with query: %s (Limit: %d)", searchQueryMinimal, searchLimit)
+		searchCtx2, searchCancel2 := context.WithTimeout(context.Background(), 10*time.Second)
+		searchResults, err = app.SearchTracks(searchCtx2, searchQueryMinimal, searchLimit)
+		searchCancel2() // Cancel context
+		if err != nil {
+			log.Printf("ERROR: Spotify search (without album) also failed for query '%s': %v", searchQueryMinimal, err)
+			return nil, errors.Wrapf(err, "Spotify search failed for suggestion '%s' by '%s'", basicSuggestion.Name, basicSuggestion.Artist)
+		}
+		if len(searchResults) == 0 {
+			log.Printf("ERROR: Spotify search (without album) also returned no results for query '%s'", searchQueryMinimal)
+			return nil, errors.Errorf("Could not find '%s' by '%s' on Spotify", basicSuggestion.Name, basicSuggestion.Artist)
+		}
+	}
+
+	// --- Select the best match from results ---
+	var selectedTrack *SimpleTrack = nil
+
+	if basicSuggestion.ID != "" {
+		log.Printf("Attempting to match provided ID '%s' within %d search results...", basicSuggestion.ID, len(searchResults))
+		for _, track := range searchResults {
+			if track.ID == basicSuggestion.ID {
+				log.Printf("Found match for ID %s in search results!", basicSuggestion.ID)
+				selectedTrack = track
+				break
+			}
+		}
+		if selectedTrack == nil {
+			log.Printf("Provided ID '%s' not found in search results. Defaulting to top result.", basicSuggestion.ID)
+		}
+	}
+
+	// Default to the first result if no ID was provided or if the ID didn't match
+	if selectedTrack == nil {
+		selectedTrack = searchResults[0]
+		log.Printf("Using top search result (ID: %s) as no matching ID was provided or found.", selectedTrack.ID)
+	}
+
+	log.Printf("Selected track - ID: %s, Name: %s, Artist: %s", selectedTrack.ID, selectedTrack.Name, selectedTrack.Artist)
+
+	// Construct result from the selected SimpleTrack
+	result := &SuggestedTrackInfo{
+		ID:          selectedTrack.ID,
+		Name:        selectedTrack.Name,
+		Artist:      selectedTrack.Artist,
+		PreviewURL:  selectedTrack.PreviewUrl,
+		AlbumArtURL: selectedTrack.AlbumArtUrl,
+	}
+	return result, nil
 }
 
-// RequestNewSuggestion asks OpenAI for another suggestion based on history.
-func (w *WailsClient) RequestNewSuggestion() (*openai.Message, error) {
+// RequestNewSuggestion uses the same search logic with ID disambiguation.
+func (w *WailsClient) RequestNewSuggestion() (*SuggestedTrackInfo, error) {
 	w.mu.RLock()
 	app := w.app
 	w.mu.RUnlock()
@@ -245,27 +324,123 @@ func (w *WailsClient) RequestNewSuggestion() (*openai.Message, error) {
 		return nil, errors.New("Internal error: OpenAI client not initialized")
 	}
 
-	app.mu.Lock()
-	// Add user request to history
-	app.chatHistory = append(app.chatHistory, openai.Message{Role: "user", Content: "Suggest another song."})
-	history := append([]openai.Message{}, app.chatHistory...) // Copy history
-	app.mu.Unlock()
-
-	suggestion, err := app.openaiClient.SendMessage(history)
+	log.Println("Processing library for first suggestion...")
+	allTracks, err := app.GetAllSavedTracks(context.Background())
 	if err != nil {
-		// Revert history change on error?
-		app.mu.Lock()
-		app.chatHistory = app.chatHistory[:len(app.chatHistory)-1] // Remove user request
-		app.mu.Unlock()
-		return nil, errors.Wrap(err, "failed to get new suggestion from OpenAI")
+		return nil, errors.Wrap(err, "failed to fetch all saved tracks")
 	}
 
-	// Add AI response to history
+	prompt := FormatTracksForInitialPrompt(allTracks)
+	// Prompt asking for name, artist, album, optional ID
+	systemMessage := openai.Message{
+		Role:    "system",
+		Content: `You are a helpful music suggestion assistant. Based on the user's saved tracks, suggest a single song they might like. Provide the response ONLY as a valid JSON object with keys "name" (string, the track name), "artist" (string, the primary artist name), "album" (string, the album name), and optionally "id" (string, the Spotify track ID if you are confident). Example: {"name": "Song Title", "artist": "Artist Name", "album": "Album Name", "id": "track_id_if_known"} or {"name": "Another Song", "artist": "Another Artist", "album": "Another Album"}`,
+	}
+	userPromptMessage := openai.Message{Role: "user", Content: prompt}
+
 	app.mu.Lock()
-	app.chatHistory = append(app.chatHistory, suggestion)
+	app.chatHistory = []openai.Message{systemMessage, userPromptMessage}
+	historyForAPI := append([]openai.Message{}, app.chatHistory...)
 	app.mu.Unlock()
 
-	return &suggestion, nil
+	log.Println("Sending prompt to OpenAI...")
+	suggestionMsg, err := app.openaiClient.SendMessage(historyForAPI)
+	if err != nil {
+		log.Printf("ERROR: OpenAI call failed: %v", err)
+		app.mu.Lock()
+		app.chatHistory = []openai.Message{} // Clear history on failure
+		app.mu.Unlock()
+		return nil, errors.Wrap(err, "failed to get suggestion from OpenAI")
+	}
+	log.Println("Received suggestion message from OpenAI:", suggestionMsg.Content)
+
+	app.mu.Lock()
+	app.chatHistory = append(app.chatHistory, suggestionMsg)
+	app.mu.Unlock()
+
+	// Parse name, artist, album, optional ID
+	var basicSuggestion struct {
+		Name   string `json:"name"`
+		Artist string `json:"artist"`
+		Album  string `json:"album"`
+		ID     string `json:"id"`
+	}
+	if err := json.Unmarshal([]byte(suggestionMsg.Content), &basicSuggestion); err != nil {
+		log.Printf("ERROR: Failed to parse JSON: %v. Content: %s", err, suggestionMsg.Content)
+		return nil, errors.Wrap(err, "failed to parse suggestion JSON from AI")
+	}
+	if basicSuggestion.Name == "" || basicSuggestion.Artist == "" {
+		log.Printf("ERROR: AI suggestion missing name or artist. Content: %s", suggestionMsg.Content)
+		return nil, errors.New("AI suggestion response was missing name or artist")
+	}
+	log.Printf("Parsed suggestion - Name: %s, Artist: %s, Album: %s, ID: %s", basicSuggestion.Name, basicSuggestion.Artist, basicSuggestion.Album, basicSuggestion.ID)
+
+	// --- Search Spotify using Name, Artist, Album (limit 5) ---
+	var searchResults []*SimpleTrack
+	searchLimit := 5
+	// Primary search (with album)
+	searchQuery := fmt.Sprintf("track:\"%s\" artist:\"%s\"", basicSuggestion.Name, basicSuggestion.Artist)
+	if basicSuggestion.Album != "" {
+		searchQuery += fmt.Sprintf(" album:\"%s\"", basicSuggestion.Album)
+	}
+	log.Printf("Searching Spotify with query: %s (Limit: %d)", searchQuery, searchLimit)
+	searchCtx, searchCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	searchResults, err = app.SearchTracks(searchCtx, searchQuery, searchLimit)
+	searchCancel()
+
+	// Fallback search (without album) if needed
+	if err != nil || len(searchResults) == 0 {
+		if err != nil {
+			log.Printf("WARN: Spotify search (with album) failed for query '%s': %v. Trying without album...", searchQuery, err)
+		} else {
+			log.Printf("WARN: Spotify search (with album) returned no results for query '%s'. Trying without album...", searchQuery)
+		}
+		searchQueryMinimal := fmt.Sprintf("track:\"%s\" artist:\"%s\"", basicSuggestion.Name, basicSuggestion.Artist)
+		log.Printf("Searching Spotify with query: %s (Limit: %d)", searchQueryMinimal, searchLimit)
+		searchCtx2, searchCancel2 := context.WithTimeout(context.Background(), 10*time.Second)
+		searchResults, err = app.SearchTracks(searchCtx2, searchQueryMinimal, searchLimit)
+		searchCancel2()
+		if err != nil {
+			log.Printf("ERROR: Spotify search (without album) also failed for query '%s': %v", searchQueryMinimal, err)
+			return nil, errors.Wrapf(err, "Spotify search failed for suggestion '%s' by '%s'", basicSuggestion.Name, basicSuggestion.Artist)
+		}
+		if len(searchResults) == 0 {
+			log.Printf("ERROR: Spotify search (without album) also returned no results for query '%s'", searchQueryMinimal)
+			return nil, errors.Errorf("Could not find '%s' by '%s' on Spotify", basicSuggestion.Name, basicSuggestion.Artist)
+		}
+	}
+
+	// --- Select the best match from results ---
+	var selectedTrack *SimpleTrack = nil
+	if basicSuggestion.ID != "" {
+		log.Printf("Attempting to match provided ID '%s' within %d search results...", basicSuggestion.ID, len(searchResults))
+		for _, track := range searchResults {
+			if track.ID == basicSuggestion.ID {
+				log.Printf("Found match for ID %s in search results!", basicSuggestion.ID)
+				selectedTrack = track
+				break
+			}
+		}
+		if selectedTrack == nil {
+			log.Printf("Provided ID '%s' not found in search results. Defaulting to top result.", basicSuggestion.ID)
+		}
+	}
+	if selectedTrack == nil {
+		selectedTrack = searchResults[0]
+		log.Printf("Using top search result (ID: %s) as no matching ID was provided or found.", selectedTrack.ID)
+	}
+
+	log.Printf("Selected track - ID: %s, Name: %s, Artist: %s", selectedTrack.ID, selectedTrack.Name, selectedTrack.Artist)
+
+	// Construct result from the selected SimpleTrack
+	result := &SuggestedTrackInfo{
+		ID:          selectedTrack.ID,
+		Name:        selectedTrack.Name,
+		Artist:      selectedTrack.Artist,
+		PreviewURL:  selectedTrack.PreviewUrl,
+		AlbumArtURL: selectedTrack.AlbumArtUrl,
+	}
+	return result, nil
 }
 
 // ProvideSuggestionFeedback sends user feedback to OpenAI.
@@ -282,17 +457,8 @@ func (w *WailsClient) ProvideSuggestionFeedback(feedback string) error {
 	}
 
 	app.mu.Lock()
-	// Add user feedback to history
 	app.chatHistory = append(app.chatHistory, openai.Message{Role: "user", Content: feedback})
-	// history := append([]openai.Message{}, app.chatHistory...) // Removed unused variable copy
 	app.mu.Unlock()
-
-	// We might not need an immediate response from OpenAI here, just record the feedback.
-	// Or we could ask for confirmation/acknowledgement if desired.
-	// _, err := app.openaiClient.SendMessage(history) // Optional: Send to OpenAI
-	// if err != nil {
-	//  return errors.Wrap(err, "failed to send feedback to OpenAI")
-	// }
 
 	log.Printf("Feedback received: %s (Added to history)", feedback)
 	return nil

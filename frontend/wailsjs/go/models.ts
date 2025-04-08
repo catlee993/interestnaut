@@ -1,22 +1,3 @@
-export namespace openai {
-	
-	export class Message {
-	    role: string;
-	    content: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new Message(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.role = source["role"];
-	        this.content = source["content"];
-	    }
-	}
-
-}
-
 export namespace spotify {
 	
 	export class Image {
@@ -238,11 +219,32 @@ export namespace spotify {
 	        this.uri = source["uri"];
 	    }
 	}
+	export class SuggestedTrackInfo {
+	    id: string;
+	    name: string;
+	    artist: string;
+	    previewUrl?: string;
+	    albumArtUrl?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SuggestedTrackInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.artist = source["artist"];
+	        this.previewUrl = source["previewUrl"];
+	        this.albumArtUrl = source["albumArtUrl"];
+	    }
+	}
 	
 	export class UserProfile {
 	    id: string;
 	    display_name: string;
 	    email: string;
+	    country: string;
 	    genres: string[];
 	    images: Image[];
 	
@@ -255,6 +257,7 @@ export namespace spotify {
 	        this.id = source["id"];
 	        this.display_name = source["display_name"];
 	        this.email = source["email"];
+	        this.country = source["country"];
 	        this.genres = source["genres"];
 	        this.images = this.convertValues(source["images"], Image);
 	    }
