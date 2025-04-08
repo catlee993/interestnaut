@@ -1,0 +1,37 @@
+# Build directories
+build/
+build/bin
+frontend/dist
+.wails/
+
+# Dependencies
+node_modules
+frontend/node_modules/.vite/
+
+# Environment files
+.env
+frontend/.env.local
+frontend/.env.development.local
+frontend/.env.test.local
+frontend/.env.production.local
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Go specific
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+go.work
+
+# Debug and logs
+*.log
+debug/
