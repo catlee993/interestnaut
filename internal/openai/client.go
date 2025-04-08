@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"regexp"
+	"strings"
 )
 
 const (
@@ -28,6 +30,20 @@ type ChatResponse struct {
 	Choices []struct {
 		Message Message `json:"message"`
 	} `json:"choices"`
+}
+
+// Regex to find JSON within ```json ... ``` fences.
+// Handles potential leading/trailing whitespace around the JSON.
+var jsonRegex = regexp.MustCompile("```json\\s*([\\s\\S]*?)\\s*```")
+
+// extractJsonContent extracts raw JSON string, removing potential markdown fences.
+func extractJsonContent(content string) string {
+	match := jsonRegex.FindStringSubmatch(content)
+	if len(match) > 1 {
+		return strings.TrimSpace(match[1]) // Return the captured group (JSON part)
+	}
+	// If no fences, return the original content, trimmed
+	return strings.TrimSpace(content)
 }
 
 func NewClient() (*Client, error) {
@@ -85,5 +101,9 @@ func (c *Client) SendMessage(messages []Message) (Message, error) {
 		return Message{}, fmt.Errorf("no response choices available")
 	}
 
-	return chatResp.Choices[0].Message, nil
+	// Extract clean JSON content before returning
+	finalMessage := chatResp.Choices[0].Message
+	finalMessage.Content = extractJsonContent(finalMessage.Content)
+
+	return finalMessage, nil
 }

@@ -1,3 +1,22 @@
+export namespace openai {
+	
+	export class Message {
+	    role: string;
+	    content: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Message(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.role = source["role"];
+	        this.content = source["content"];
+	    }
+	}
+
+}
+
 export namespace spotify {
 	
 	export class Image {
@@ -49,6 +68,18 @@ export namespace spotify {
 		    }
 		    return a;
 		}
+	}
+	export class App {
+	
+	
+	    static createFrom(source: any = {}) {
+	        return new App(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	
+	    }
 	}
 	export class Artist {
 	    id: string;

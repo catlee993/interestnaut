@@ -3,6 +3,7 @@ package spotify
 import (
 	"context"
 	"log"
+	"os"
 	"sync"
 	"time"
 
@@ -22,37 +23,48 @@ type WailsClient struct {
 func NewWailsClient() *WailsClient {
 	// Load environment variables for auth config
 	if err := godotenv.Load(); err != nil {
+		// Non-fatal, might be set in the environment already
 		log.Printf("Warning: Error loading .env file for WailsClient: %v", err)
 	}
-	// Note: AuthConfig setup is missing here, might need adjustment
-	// Depending on how authConfig is intended to be populated
-	app, err := NewApp(&AuthConfig{}) // Instantiate App, handle potential error
+
+	// Create AuthConfig from environment variables
+	authCfg := &AuthConfig{
+		ClientID:     os.Getenv("SPOTIFY_CLIENT_ID"),     // Use actual env var names
+		ClientSecret: os.Getenv("SPOTIFY_CLIENT_SECRET"), // Use actual env var names
+		RedirectURI:  "http://localhost:8080/callback",   // Ensure this matches Spotify dev console and auth.go
+	}
+
+	// Validate required AuthConfig fields
+	if authCfg.ClientID == "" || authCfg.ClientSecret == "" {
+		log.Printf("ERROR: SPOTIFY_CLIENT_ID or SPOTIFY_CLIENT_SECRET environment variables not set.")
+		// Return a non-functional client if essential auth details are missing
+		return &WailsClient{}
+	}
+
+	// Instantiate App with the loaded AuthConfig
+	app, err := NewApp(authCfg)
 	if err != nil {
-		// Log the error and potentially return a non-functional client
-		// or panic depending on how critical OpenAI is.
 		log.Printf("ERROR: Failed to initialize core App in WailsClient: %v", err)
-		// Returning a client where app is nil, causing downstream methods to fail cleanly.
 		return &WailsClient{}
 	}
 
 	return &WailsClient{
-		app: app, // Store the App instance
+		app: app,
 	}
 }
 
-// SetSpotifyClient - This function might need re-evaluation.
-// It currently expects a spotify.Client, but we are now using spotify.App.
-// We might need to update how the authenticated client is passed or handled after auth.
-// For now, let's assume the App's internal client gets updated elsewhere.
-/*
+// SetSpotifyClient updates the underlying Spotify client within the App.
+// This should be called after successful authentication.
 func (w *WailsClient) SetSpotifyClient(client Client) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	// How does this interact with w.app?
-	// Maybe: w.app.client = client? Requires exporting or a setter on App.
-	w.client = client
+	if w.app != nil {
+		w.app.SetClient(client) // Call the new setter on App
+		log.Println("WailsClient: Spotify client updated within App.")
+	} else {
+		log.Println("WailsClient ERROR: Attempted to set client, but App is nil.")
+	}
 }
-*/
 
 // GetSpotifyApp returns the underlying Spotify App instance (use with caution)
 func (w *WailsClient) GetSpotifyApp() *App {
@@ -175,51 +187,49 @@ func (w *WailsClient) ProcessLibraryAndGetFirstSuggestion() (*openai.Message, er
 		return nil, ErrNotAuthenticated
 	}
 
+	log.Println("Processing library for first suggestion...")
 	// Fetch all saved tracks (potentially long operation)
-	// TODO: Implement App.GetAllSavedTracks
-	/*
-	   allTracks, err := app.GetAllSavedTracks(context.Background()) // Use appropriate context
-	   if err != nil {
-	       return nil, errors.Wrap(err, "failed to fetch all saved tracks")
-	   }
-	   // TODO: Format tracks into a prompt for OpenAI
-	   prompt := FormatTracksForInitialPrompt(allTracks)
-
-	   // Send to OpenAI
-	   initialMessage := openai.Message{Role: "system", Content: "Based on the user's saved tracks, suggest a song they might like. Provide the response as JSON: {\"name\": \"Song Name\", \"artist\": \"Artist Name\", \"id\": \"spotify_track_id\"}"}
-	   userPromptMessage := openai.Message{Role: "user", Content: prompt}
-
-	   app.mu.Lock()
-	   app.chatHistory = []openai.Message{initialMessage, userPromptMessage}
-	   history := append([]openai.Message{}, app.chatHistory...) // Copy history
-	   app.mu.Unlock()
-
-	   suggestion, err := app.openaiClient.SendMessage(history)
-	   if err != nil {
-	       return nil, errors.Wrap(err, "failed to get first suggestion from OpenAI")
-	   }
-
-	   // Add AI response to history
-	   app.mu.Lock()
-	   app.chatHistory = append(app.chatHistory, suggestion)
-	   app.mu.Unlock()
-
-	   return &suggestion, nil
-	*/
-	// Placeholder until GetAllSavedTracks is implemented
-	log.Println("ProcessLibraryAndGetFirstSuggestion: Placeholder - Not implemented yet")
-	// Simulate a response for testing frontend flow
-	placeholderSuggestion := openai.Message{
-		Role:    "assistant",
-		Content: `{"name": "Placeholder Song", "artist": "Placeholder Artist", "id": "placeholder_id"}`,
+	allTracks, err := app.GetAllSavedTracks(context.Background()) // Use appropriate context
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to fetch all saved tracks")
 	}
+
+	// Format tracks into a prompt for OpenAI
+	prompt := FormatTracksForInitialPrompt(allTracks)
+
+	// Send to OpenAI
+	// Define the system message instructing OpenAI on the desired output format
+	systemMessage := openai.Message{
+		Role:    "system",
+		Content: `You are a helpful music suggestion assistant. Based on the user's saved tracks, suggest a single song they might like. Provide the response ONLY as a valid JSON object with keys "name" (string), "artist" (string), and "id" (string, the Spotify track ID). Example: {"name": "Song Title", "artist": "Artist Name", "id": "track_id"}`,
+	}
+	userPromptMessage := openai.Message{Role: "user", Content: prompt}
+
 	app.mu.Lock()
-	app.chatHistory = []openai.Message{
-		{Role: "system", Content: "Suggest a song."},
-		placeholderSuggestion,
-	}
+	app.chatHistory = []openai.Message{systemMessage, userPromptMessage} // Start history
+	historyForAPI := append([]openai.Message{}, app.chatHistory...)      // Copy history for the API call
 	app.mu.Unlock()
-	return &placeholderSuggestion, nil
+
+	log.Println("Sending initial prompt to OpenAI...")
+	suggestion, err := app.openaiClient.SendMessage(historyForAPI)
+	if err != nil {
+		// Clear history if the first call fails?
+		app.mu.Lock()
+		app.chatHistory = []openai.Message{}
+		app.mu.Unlock()
+		return nil, errors.Wrap(err, "failed to get first suggestion from OpenAI")
+	}
+	log.Println("Received suggestion from OpenAI.")
+
+	// TODO: Validate the suggestion format (is it valid JSON with the expected keys?)
+	// For now, assume the format is correct.
+
+	// Add AI response to history
+	app.mu.Lock()
+	app.chatHistory = append(app.chatHistory, suggestion)
+	app.mu.Unlock()
+
+	return &suggestion, nil
 }
 
 // RequestNewSuggestion asks OpenAI for another suggestion based on history.
@@ -274,7 +284,7 @@ func (w *WailsClient) ProvideSuggestionFeedback(feedback string) error {
 	app.mu.Lock()
 	// Add user feedback to history
 	app.chatHistory = append(app.chatHistory, openai.Message{Role: "user", Content: feedback})
-	history := append([]openai.Message{}, app.chatHistory...) // Copy history
+	// history := append([]openai.Message{}, app.chatHistory...) // Removed unused variable copy
 	app.mu.Unlock()
 
 	// We might not need an immediate response from OpenAI here, just record the feedback.

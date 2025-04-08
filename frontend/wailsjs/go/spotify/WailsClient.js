@@ -6,12 +6,32 @@ export function GetCurrentUser() {
   return window['go']['spotify']['WailsClient']['GetCurrentUser']();
 }
 
+export function GetInitialSuggestionState() {
+  return window['go']['spotify']['WailsClient']['GetInitialSuggestionState']();
+}
+
 export function GetSavedTracks(arg1, arg2) {
   return window['go']['spotify']['WailsClient']['GetSavedTracks'](arg1, arg2);
 }
 
+export function GetSpotifyApp() {
+  return window['go']['spotify']['WailsClient']['GetSpotifyApp']();
+}
+
+export function ProcessLibraryAndGetFirstSuggestion() {
+  return window['go']['spotify']['WailsClient']['ProcessLibraryAndGetFirstSuggestion']();
+}
+
+export function ProvideSuggestionFeedback(arg1) {
+  return window['go']['spotify']['WailsClient']['ProvideSuggestionFeedback'](arg1);
+}
+
 export function RemoveTrack(arg1) {
   return window['go']['spotify']['WailsClient']['RemoveTrack'](arg1);
+}
+
+export function RequestNewSuggestion() {
+  return window['go']['spotify']['WailsClient']['RequestNewSuggestion']();
 }
 
 export function SaveTrack(arg1) {

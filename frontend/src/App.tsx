@@ -5,7 +5,11 @@ import {
     SearchTracks,
     SaveTrack,
     RemoveTrack,
-    GetCurrentUser
+    GetCurrentUser,
+    GetInitialSuggestionState,
+    ProcessLibraryAndGetFirstSuggestion,
+    RequestNewSuggestion,
+    ProvideSuggestionFeedback
 } from "../wailsjs/go/spotify/WailsClient";
 import { spotify } from "../wailsjs/go/models";
 
@@ -21,6 +25,12 @@ function App() {
     const [currentlyPlaying, setCurrentlyPlaying] = useState<string | null>(null);
     const [nowPlayingTrack, setNowPlayingTrack] = useState<spotify.Track | spotify.SimpleTrack | null>(null);
     const [isFavoritesCollapsed, setIsFavoritesCollapsed] = useState<boolean>(false);
+
+    const [isProcessingLibrary, setIsProcessingLibrary] = useState<boolean>(false);
+    const [suggestionError, setSuggestionError] = useState<string | null>(null);
+    const [suggestedTrack, setSuggestedTrack] = useState<{ name: string; artist: string; id: string } | null>(null);
+    const [showSuggestionSection, setShowSuggestionSection] = useState<boolean>(false);
+
     const ITEMS_PER_PAGE = 20;
 
     useEffect(() => {
@@ -32,16 +42,59 @@ function App() {
             console.log('Initializing app...');
             setIsLoading(true);
             setError(null);
-            
+            setSuggestionError(null);
+
             // Get current user
             const currentUser = await GetCurrentUser();
             if (currentUser) {
                 setUser(currentUser);
-                await loadSavedTracks(1);
+                await loadSavedTracks(1); // Load first page for display
+
+                // Check suggestion state
+                console.log('Checking initial suggestion state...');
+                const needsProcessing = await GetInitialSuggestionState();
+                console.log('Needs processing:', needsProcessing);
+
+                if (needsProcessing) {
+                    console.log('Starting initial library processing...');
+                    setIsProcessingLibrary(true);
+                    setShowSuggestionSection(true); // Show the section with loader
+                    try {
+                        const firstSuggestionMsg = await ProcessLibraryAndGetFirstSuggestion();
+                        console.log('First suggestion received:', firstSuggestionMsg);
+                        if (firstSuggestionMsg && firstSuggestionMsg.content) {
+                            try {
+                                const parsedSuggestion = JSON.parse(firstSuggestionMsg.content);
+                                console.log('Parsed suggestion:', parsedSuggestion);
+                                if (parsedSuggestion.id && parsedSuggestion.name && parsedSuggestion.artist) {
+                                    setSuggestedTrack(parsedSuggestion);
+                                } else {
+                                    console.error('Invalid suggestion format:', parsedSuggestion);
+                                    setSuggestionError('Received invalid suggestion format from AI.');
+                                }
+                            } catch (parseErr) {
+                                console.error('Failed to parse suggestion JSON:', parseErr, 'Content:', firstSuggestionMsg.content);
+                                setSuggestionError('Failed to understand AI suggestion (JSON parse error).');
+                            }
+                        } else {
+                            setSuggestionError('Received empty suggestion from AI.');
+                        }
+                    } catch (processErr) {
+                        console.error('Failed during initial processing:', processErr);
+                        setSuggestionError(processErr instanceof Error ? processErr.message : 'Failed to process library for suggestions.');
+                        setShowSuggestionSection(false); // Hide section on error?
+                    } finally {
+                         setIsProcessingLibrary(false);
+                    }
+                } else {
+                     // Library already processed or not first time, just show the button potentially
+                     // We might need to fetch the *last* suggestion from history if needed
+                     setShowSuggestionSection(true); // Or maybe only show if history exists?
+                }
             }
-        } catch (err) {
+        } catch (err) { // Catch errors from GetCurrentUser or loadSavedTracks
             console.error('Failed to initialize app:', err);
-            setError(err instanceof Error ? err.message : 'An error occurred');
+            setError(err instanceof Error ? err.message : 'An error occurred during initialization');
         } finally {
             setIsLoading(false);
         }
@@ -216,6 +269,85 @@ function App() {
         }
     };
 
+    // Handler for providing feedback (Like/Dislike)
+    const handleSuggestionFeedback = async (feedbackType: 'like' | 'dislike') => {
+        if (!suggestedTrack) return;
+
+        const feedbackText = feedbackType === 'like'
+            ? `I liked the suggestion: ${suggestedTrack.name} by ${suggestedTrack.artist}.`
+            : `I disliked the suggestion: ${suggestedTrack.name} by ${suggestedTrack.artist}.`;
+        
+        try {
+            console.log(`Sending feedback (${feedbackType}):`, feedbackText);
+            await ProvideSuggestionFeedback(feedbackText);
+            // Optionally clear the suggestion or request a new one after feedback
+            // For now, just leave the current suggestion displayed
+        } catch (err) {
+            console.error('Failed to send feedback:', err);
+            // Show a temporary error to the user?
+            setSuggestionError(`Failed to send ${feedbackType} feedback.`); 
+            // Clear error after a delay?
+            setTimeout(() => setSuggestionError(null), 3000);
+        }
+    };
+
+    // Handler for adding the suggested track to the library
+    const handleAddSuggestionToLibrary = async () => {
+        if (!suggestedTrack) return;
+
+        try {
+            console.log(`Adding suggested track to library: ${suggestedTrack.id}`);
+            await SaveTrack(suggestedTrack.id);
+            // Also send strong positive feedback
+            const feedbackText = `I liked the suggestion ${suggestedTrack.name} by ${suggestedTrack.artist} so much I added it to my library!`;
+            await ProvideSuggestionFeedback(feedbackText);
+            // Refresh saved tracks view if needed (might automatically update if pagination logic is robust)
+            // loadSavedTracks(currentPage); 
+            
+            // Optionally clear suggestion or request a new one?
+            setSuggestedTrack(null); // Clear suggestion after adding
+            // handleRequestSuggestion(); // Or immediately request next?
+        } catch (err) {
+            console.error('Failed to add suggested track or send feedback:', err);
+            setSuggestionError(`Failed to add track ${suggestedTrack.name}.`);
+            setTimeout(() => setSuggestionError(null), 3000);
+        }
+    };
+
+    // Handler to request a new suggestion from the backend
+    const handleRequestSuggestion = async () => {
+        setSuggestionError(null);
+        setIsProcessingLibrary(true); // Use same loader state for subsequent requests
+        setSuggestedTrack(null); // Clear previous suggestion
+        try {
+            console.log('Requesting new suggestion...');
+            const suggestionMsg = await RequestNewSuggestion();
+            console.log('New suggestion received:', suggestionMsg);
+            if (suggestionMsg && suggestionMsg.content) {
+                try {
+                    const parsedSuggestion = JSON.parse(suggestionMsg.content);
+                    console.log('Parsed suggestion:', parsedSuggestion);
+                    if (parsedSuggestion.id && parsedSuggestion.name && parsedSuggestion.artist) {
+                        setSuggestedTrack(parsedSuggestion);
+                    } else {
+                        console.error('Invalid suggestion format:', parsedSuggestion);
+                        setSuggestionError('Received invalid suggestion format from AI.');
+                    }
+                } catch (parseErr) {
+                    console.error('Failed to parse suggestion JSON:', parseErr, 'Content:', suggestionMsg.content);
+                    setSuggestionError('Failed to understand AI suggestion (JSON parse error).');
+                }
+            } else {
+                setSuggestionError('Received empty suggestion from AI.');
+            }
+        } catch (err) {
+            console.error('Failed to request suggestion:', err);
+            setSuggestionError(err instanceof Error ? err.message : 'Failed to get suggestion.');
+        } finally {
+            setIsProcessingLibrary(false);
+        }
+    };
+
     return (
         <div className="app">
             <header>
@@ -252,7 +384,36 @@ function App() {
                     </div>
                 )}
 
-                {isLoading ? (
+                {/* --- Suggestion Section --- */} 
+                {showSuggestionSection && (
+                    <div className="suggestion-section">
+                        <h2>Song Suggestion</h2>
+                        {isProcessingLibrary ? (
+                            <div className="loading-indicator">Asking the AI for a suggestion...</div>
+                        ) : suggestionError ? (
+                            <div className="error-message">Error: {suggestionError} <button onClick={handleRequestSuggestion}>Try Again?</button></div>
+                        ) : suggestedTrack ? (
+                            <div className="suggested-track-display">
+                                <div>
+                                    <p><strong>{suggestedTrack.name}</strong></p>
+                                    <p>by {suggestedTrack.artist}</p>
+                                    <p><small>(ID: {suggestedTrack.id})</small></p>
+                                </div>
+                                <div className="suggestion-controls">
+                                    <button onClick={() => handleSuggestionFeedback('like')}>👍 Like</button>
+                                    <button onClick={() => handleSuggestionFeedback('dislike')}>👎 Dislike</button>
+                                    <button onClick={handleAddSuggestionToLibrary}>➕ Add to Library</button>
+                                    <button onClick={handleRequestSuggestion}>Next Suggestion</button>
+                                </div>
+                            </div>
+                        ) : (
+                            <button onClick={handleRequestSuggestion}>Suggest a song</button>
+                        )}
+                    </div>
+                )}
+                 {/* --- End Suggestion Section --- */}
+
+                {isLoading && !searchQuery ? (
                     <LoadingSkeleton />
                 ) : (
                     <>

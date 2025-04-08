@@ -663,3 +663,116 @@ button {
     font-size: 0.8rem;
   }
 }
+
+/* --- Suggestion Section Styles --- */
+.suggestion-section {
+    background-color: var(--surface-color);
+    padding: var(--spacing-lg);
+    margin-bottom: var(--spacing-xl);
+    border-radius: var(--border-radius);
+    border: 1px solid var(--surface-hover);
+}
+
+.suggestion-section h2 {
+    margin-top: 0;
+    margin-bottom: var(--spacing-md);
+    color: var(--primary-color);
+    font-size: 1.3rem;
+}
+
+.loading-indicator {
+    color: var(--text-secondary);
+    font-style: italic;
+    text-align: center;
+    padding: var(--spacing-md) 0;
+}
+
+.suggested-track-display {
+    background-color: var(--surface-hover);
+    padding: var(--spacing-md);
+    border-radius: calc(var(--border-radius) - 4px);
+    margin-bottom: var(--spacing-md);
+}
+
+.suggested-track-display p {
+    margin: var(--spacing-xs) 0;
+    color: var(--text-primary);
+}
+
+.suggested-track-display p strong {
+    font-size: 1.1em;
+}
+
+.suggested-track-display p small {
+    color: var(--text-secondary);
+    font-size: 0.8em;
+}
+
+.suggestion-controls {
+    display: flex;
+    gap: var(--spacing-sm);
+    margin-top: var(--spacing-md);
+    flex-wrap: wrap; /* Allow buttons to wrap on smaller screens */
+}
+
+.suggestion-controls button {
+    padding: var(--spacing-sm) var(--spacing-md);
+    border: none;
+    border-radius: calc(var(--border-radius) / 2);
+    cursor: pointer;
+    transition: var(--transition);
+    font-size: 0.9rem;
+    flex-grow: 1; /* Allow buttons to share space */
+}
+
+.suggestion-controls button:nth-child(1) { /* Like */
+    background-color: var(--primary-color);
+    color: var(--text-primary);
+}
+.suggestion-controls button:nth-child(1):hover {
+    background-color: var(--primary-hover);
+}
+
+.suggestion-controls button:nth-child(2) { /* Dislike */
+    background-color: var(--error-color);
+    color: var(--text-primary);
+}
+.suggestion-controls button:nth-child(2):hover {
+    filter: brightness(1.2);
+}
+
+.suggestion-controls button:nth-child(3) { /* Add */
+    background-color: #535353; /* Neutral dark */
+    color: var(--text-primary);
+}
+.suggestion-controls button:nth-child(3):hover {
+    background-color: #636363;
+}
+
+.suggestion-controls button:nth-child(4) { /* Next */
+    background-color: #535353; /* Neutral dark */
+    color: var(--text-primary);
+}
+.suggestion-controls button:nth-child(4):hover {
+    background-color: #636363;
+}
+
+/* Initial Suggest Button */
+.suggestion-section > button {
+    display: block;
+    margin: var(--spacing-md) auto;
+    padding: var(--spacing-md) var(--spacing-lg);
+    background-color: var(--primary-color);
+    color: var(--text-primary);
+    border: none;
+    border-radius: var(--border-radius);
+    font-size: 1rem;
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.suggestion-section > button:hover {
+    background-color: var(--primary-hover);
+}
+
+/* --- End Suggestion Section Styles --- */

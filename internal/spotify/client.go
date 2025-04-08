@@ -19,13 +19,23 @@ type Client interface {
 
 // client represents a Spotify API client.
 type client struct {
-	cli *http.Client
+	cli        *http.Client
+	authConfig *AuthConfig
 }
 
-// NewClient creates a new Spotify API client.
+// NewClient creates a new Spotify API client with default settings.
+// Primarily used before auth config is fully available.
 func NewClient() Client {
 	return &client{
 		cli: http.DefaultClient,
+	}
+}
+
+// NewClientWithAuth creates a new Spotify API client using the provided auth config.
+func NewClientWithAuth(authConfig *AuthConfig) Client {
+	return &client{
+		cli:        http.DefaultClient,
+		authConfig: authConfig,
 	}
 }
 
