@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState, useEffect } from 'react';
 import './App.css';
 import {
     GetSavedTracks,
@@ -9,92 +9,56 @@ import {
 } from "../wailsjs/go/spotify/WailsClient";
 import { spotify } from "../wailsjs/go/models";
 
-interface AuthStatus {
-    isAuthenticated: boolean;
-    isExpired: boolean;
-    expiresIn: number;
-}
-
 function App() {
     const [savedTracks, setSavedTracks] = useState<spotify.SavedTracks | null>(null);
     const [searchResults, setSearchResults] = useState<spotify.SimpleTrack[]>([]);
     const [searchQuery, setSearchQuery] = useState<string>("");
     const [user, setUser] = useState<spotify.UserProfile | null>(null);
     const [error, setError] = useState<string | null>(null);
-    const [isLoading, setIsLoading] = useState<boolean>(false);
+    const [isLoading, setIsLoading] = useState<boolean>(true);
     const [currentPage, setCurrentPage] = useState<number>(1);
     const [totalTracks, setTotalTracks] = useState<number>(0);
     const [currentlyPlaying, setCurrentlyPlaying] = useState<string | null>(null);
-    const [nowPlayingTrack, setNowPlayingTrack] = useState<spotify.SimpleTrack | spotify.Track | null>(null);
-    const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
-    const [isInitialized, setIsInitialized] = useState<boolean>(false);
+    const [nowPlayingTrack, setNowPlayingTrack] = useState<spotify.Track | spotify.SimpleTrack | null>(null);
+    const [isFavoritesCollapsed, setIsFavoritesCollapsed] = useState<boolean>(false);
     const ITEMS_PER_PAGE = 20;
 
     useEffect(() => {
-        const initializeApp = async () => {
-            try {
-                console.log('Initializing app...');
-                setIsLoading(true);
-                setError(null);
-                
-                // Try to load user profile first to check authentication
-                console.log('Loading user profile...');
-                const userProfile = await GetCurrentUser();
-                
-                if (userProfile) {
-                    console.log('User profile loaded successfully:', userProfile.display_name);
-                    setUser(userProfile);
-                    setIsAuthenticated(true);
-                    
-                    // Only load saved tracks after we confirm we're authenticated
-                    console.log('Loading saved tracks...');
-                    const tracks = await GetSavedTracks(ITEMS_PER_PAGE, 0);
-                    
-                    if (tracks) {
-                        console.log('Loaded', tracks.items?.length || 0, 'tracks');
-                        setSavedTracks(tracks);
-                        setTotalTracks(tracks?.total || 0);
-                        setCurrentPage(1);
-                    } else {
-                        console.error('Tracks response is null');
-                        setError('Failed to load saved tracks');
-                    }
-                    
-                    setIsInitialized(true);
-                } else {
-                    console.error('User profile is null');
-                    setError('Failed to load user profile');
-                }
-            } catch (err) {
-                console.error('Failed to initialize app:', err);
-                setError('Not authenticated with Spotify');
-                // Retry after a short delay
-                setTimeout(initializeApp, 2000);
-            } finally {
-                setIsLoading(false);
-            }
-        };
-
         initializeApp();
     }, []);
 
-    const loadSavedTracks = async (page: number) => {
-        if (!isAuthenticated) {
-            console.log('Not authenticated, skipping loadSavedTracks');
-            return;
+    const initializeApp = async () => {
+        try {
+            console.log('Initializing app...');
+            setIsLoading(true);
+            setError(null);
+            
+            // Get current user
+            const currentUser = await GetCurrentUser();
+            if (currentUser) {
+                setUser(currentUser);
+                await loadSavedTracks(1);
+            }
+        } catch (err) {
+            console.error('Failed to initialize app:', err);
+            setError(err instanceof Error ? err.message : 'An error occurred');
+        } finally {
+            setIsLoading(false);
         }
+    };
 
+    const loadSavedTracks = async (page: number) => {
         try {
             console.log('Loading saved tracks for page:', page);
             setIsLoading(true);
             setError(null);
             const offset = (page - 1) * ITEMS_PER_PAGE;
-            const tracks = await GetSavedTracks(ITEMS_PER_PAGE, offset);
+            const response = await GetSavedTracks(ITEMS_PER_PAGE, offset);
             
-            if (tracks) {
-                console.log('Loaded', tracks.items?.length || 0, 'tracks');
-                setSavedTracks(tracks);
-                setTotalTracks(tracks?.total || 0);
+            if (response) {
+                console.log('Loaded', response.items?.length || 0, 'tracks');
+                setSavedTracks(response);
+                setTotalTracks(response.total || 0);
                 setCurrentPage(page);
             } else {
                 console.error('Tracks response is null');
@@ -103,10 +67,6 @@ function App() {
         } catch (err) {
             console.error('Failed to load saved tracks:', err);
             setError('Failed to load saved tracks');
-            // If we get an auth error, update the auth state
-            if (err instanceof Error && err.message.includes('not authenticated')) {
-                setIsAuthenticated(false);
-            }
         } finally {
             setIsLoading(false);
         }
@@ -131,7 +91,7 @@ function App() {
         }
     };
 
-    const handlePlay = (track: spotify.SimpleTrack | spotify.Track, previewUrl: string | null) => {
+    const handlePlay = (track: spotify.Track | spotify.SimpleTrack, previewUrl: string | null) => {
         if (previewUrl) {
             if (currentlyPlaying === previewUrl) {
                 setCurrentlyPlaying(null);
@@ -165,29 +125,29 @@ function App() {
         }
     };
 
-    const getTrackInfo = (track: spotify.SimpleTrack | spotify.Track) => {
-        if ('artist' in track) {
-            return {
-                name: track.name,
-                artist: track.artist,
-                album: track.album,
-                albumArtUrl: track.albumArtUrl || '',
-                previewUrl: track.previewUrl || null,
-            };
-        } else {
+    const getTrackInfo = (track: spotify.Track | spotify.SimpleTrack) => {
+        if ('artists' in track) {
             return {
                 name: track.name,
                 artist: track.artists[0]?.name || '',
                 album: track.album.name,
                 albumArtUrl: track.album.images[0]?.url || '',
-                previewUrl: track.preview_url || null,
+                previewUrl: track.preview_url,
+            };
+        } else {
+            return {
+                name: track.name,
+                artist: track.artist,
+                album: track.album,
+                albumArtUrl: track.albumArtUrl,
+                previewUrl: track.previewUrl,
             };
         }
     };
 
-    const TrackCard = ({ track, isSaved = false }: { track: spotify.SimpleTrack | spotify.Track, isSaved?: boolean }) => {
+    const TrackCard = ({ track, isSaved = false }: { track: spotify.Track | spotify.SimpleTrack, isSaved?: boolean }) => {
         const info = getTrackInfo(track);
-        const previewUrl = info.previewUrl || undefined;
+        const previewUrl = info.previewUrl;
         return (
             <div className="track-card">
                 {info.albumArtUrl && (
@@ -244,6 +204,18 @@ function App() {
         </div>
     );
 
+    const handleNextPage = () => {
+        if (currentPage * ITEMS_PER_PAGE < totalTracks) {
+            setCurrentPage(prev => prev + 1);
+        }
+    };
+
+    const handlePrevPage = () => {
+        if (currentPage > 1) {
+            setCurrentPage(prev => prev - 1);
+        }
+    };
+
     return (
         <div className="app">
             <header>
@@ -251,9 +223,9 @@ function App() {
                 {user && (
                     <div className="user-info">
                         {user.images?.[0]?.url && (
-                            <img src={user.images[0].url} alt={user.display_name} />
+                            <img src={user.images[0].url} alt={user.display_name} className="user-avatar" />
                         )}
-                        <span>Welcome, {user.display_name}</span>
+                        <span className="user-name">Connected as {user.display_name}</span>
                     </div>
                 )}
             </header>
@@ -305,42 +277,48 @@ function App() {
                             </div>
                         ) : (
                             <div className="saved-tracks">
-                                <h2>Your Library</h2>
-                                {savedTracks?.items?.length === 0 ? (
-                                    <div className="no-results">
-                                        No saved tracks yet. Search for tracks to add them to your library.
-                                    </div>
-                                ) : (
+                                <div className="saved-tracks-header">
+                                    <h2>Your Library</h2>
+                                    <button 
+                                        className="collapse-button"
+                                        onClick={() => setIsFavoritesCollapsed(!isFavoritesCollapsed)}
+                                    >
+                                        {isFavoritesCollapsed ? '▼' : '▲'}
+                                    </button>
+                                </div>
+                                {!isFavoritesCollapsed && (
                                     <>
-                                        <div className="track-grid">
-                                            {savedTracks?.items?.map((item) => (
-                                                item.track && (
-                                                    <TrackCard
-                                                        key={item.track.id}
-                                                        track={item.track}
-                                                        isSaved={true}
-                                                    />
-                                                )
-                                            ))}
-                                        </div>
-                                        {totalTracks > ITEMS_PER_PAGE && (
-                                            <div className="pagination">
-                                                <button
-                                                    disabled={currentPage === 1}
-                                                    onClick={() => loadSavedTracks(currentPage - 1)}
-                                                >
-                                                    ← Previous
-                                                </button>
-                                                <span>
-                                                    Page {currentPage} of {Math.ceil(totalTracks / ITEMS_PER_PAGE)}
-                                                </span>
-                                                <button
-                                                    disabled={currentPage >= Math.ceil(totalTracks / ITEMS_PER_PAGE)}
-                                                    onClick={() => loadSavedTracks(currentPage + 1)}
-                                                >
-                                                    Next →
-                                                </button>
+                                        {!savedTracks?.items || savedTracks.items.length === 0 ? (
+                                            <div className="no-results">
+                                                No saved tracks yet. Search for tracks to add them to your library.
                                             </div>
+                                        ) : (
+                                            <>
+                                                <div className="track-grid">
+                                                    {savedTracks.items.map((item) => item.track && (
+                                                        <TrackCard
+                                                            key={item.track.id}
+                                                            track={item.track}
+                                                            isSaved={true}
+                                                        />
+                                                    ))}
+                                                </div>
+                                                <div className="pagination">
+                                                    <button
+                                                        onClick={handlePrevPage}
+                                                        disabled={currentPage === 1}
+                                                    >
+                                                        Previous
+                                                    </button>
+                                                    <span>Page {currentPage} of {Math.ceil(totalTracks / ITEMS_PER_PAGE)}</span>
+                                                    <button
+                                                        onClick={handleNextPage}
+                                                        disabled={currentPage * ITEMS_PER_PAGE >= totalTracks}
+                                                    >
+                                                        Next
+                                                    </button>
+                                                </div>
+                                            </>
                                         )}
                                     </>
                                 )}

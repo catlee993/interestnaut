@@ -36,22 +36,7 @@ func main() {
 		},
 		BackgroundColour: &options.RGBA{R: 27, G: 38, B: 54, A: 1},
 		OnStartup: func(ctx context.Context) {
-			log.Println("Starting application...")
-
-			// Check if we have a valid authorization code
-			_, err := creds.GetSpotifyCreds()
-			if err != nil {
-				log.Println("No valid authorization code found, starting authentication flow...")
-				if err := spotify.RunInitialAuthFlow(ctx); err != nil {
-					log.Printf("Authentication failed: %v", err)
-				} else {
-					log.Println("Authentication successful")
-					wailsClient.SetSpotifyClient(spotify.NewClient())
-				}
-			} else {
-				log.Println("Using existing authorization code")
-				wailsClient.SetSpotifyClient(spotify.NewClient())
-			}
+			onStartup(ctx, wailsClient)
 		},
 		Bind: []interface{}{
 			wailsClient,
@@ -60,5 +45,24 @@ func main() {
 
 	if err != nil {
 		fmt.Println("Error:", err.Error())
+	}
+}
+
+func onStartup(ctx context.Context, wailsClient *spotify.WailsClient) {
+	log.Println("Starting application...")
+
+	// Check if we have a valid authorization code
+	_, err := creds.GetSpotifyCreds()
+	if err != nil {
+		log.Println("No valid authorization code found, starting authentication flow...")
+		if iErr := spotify.RunInitialAuthFlow(ctx); iErr != nil {
+			log.Printf("Authentication failed: %v", iErr)
+		} else {
+			log.Println("Authentication successful")
+			wailsClient.SetSpotifyClient(spotify.NewClient())
+		}
+	} else {
+		log.Println("Using existing authorization code")
+		wailsClient.SetSpotifyClient(spotify.NewClient())
 	}
 }

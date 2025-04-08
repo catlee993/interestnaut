@@ -4,14 +4,18 @@ import (
 	"context"
 	"sync"
 
+	"interestnaut/internal/openai"
+
 	"github.com/pkg/errors"
 )
 
 // App represents the Spotify application.
 type App struct {
-	client     Client
-	authConfig *AuthConfig
-	mu         sync.RWMutex
+	client       Client
+	authConfig   *AuthConfig
+	openaiClient *openai.Client
+	chatHistory  []openai.Message
+	mu           sync.RWMutex
 }
 
 // AuthConfig represents the Spotify OAuth configuration.
@@ -22,11 +26,18 @@ type AuthConfig struct {
 }
 
 // NewApp creates a new Spotify application.
-func NewApp(authConfig *AuthConfig) *App {
-	return &App{
-		authConfig: authConfig,
-		client:     NewClient(),
+func NewApp(authConfig *AuthConfig) (*App, error) {
+	oaiClient, err := openai.NewClient()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to initialize OpenAI client")
 	}
+
+	return &App{
+		authConfig:   authConfig,
+		client:       NewClient(),
+		openaiClient: oaiClient,
+		chatHistory:  make([]openai.Message, 0),
+	}, nil
 }
 
 // GetAuthStatus returns the current authentication status
