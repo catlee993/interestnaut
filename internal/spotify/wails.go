@@ -463,3 +463,70 @@ func (w *WailsClient) ProvideSuggestionFeedback(feedback string) error {
 	log.Printf("Feedback received: %s (Added to history)", feedback)
 	return nil
 }
+
+// GetValidToken exposes the function to get a valid access token for the frontend SDK.
+func (w *WailsClient) GetValidToken() (string, error) {
+	// Directly call the package-level function with a background context
+	return GetValidToken(context.Background())
+}
+
+// GetAuthStatus exposes the App's GetAuthStatus method.
+func (w *WailsClient) GetAuthStatus() map[string]interface{} {
+	w.mu.RLock()
+	app := w.app
+	w.mu.RUnlock()
+	if app == nil {
+		// Return not authenticated if app isn't ready
+		return map[string]interface{}{
+			"isAuthenticated": false,
+		}
+	}
+	return app.GetAuthStatus()
+}
+
+// WailsInit performs startup actions if needed.
+func (w *WailsClient) WailsInit() {
+	log.Println("Wails Spotify Client Initialized")
+}
+
+// --- Add Playback Methods ---
+
+// PlayTrackOnDevice calls the App method to start playback.
+func (w *WailsClient) PlayTrackOnDevice(deviceID string, trackURI string) error {
+	w.mu.RLock()
+	app := w.app
+	w.mu.RUnlock()
+	if app == nil {
+		return errors.New("Internal error: App not initialized")
+	}
+	// Create a background context to pass to the underlying app method
+	return app.PlayTrackOnDevice(context.Background(), deviceID, trackURI)
+}
+
+// PausePlaybackOnDevice calls the App method to pause playback.
+func (w *WailsClient) PausePlaybackOnDevice(deviceID string) error {
+	w.mu.RLock()
+	app := w.app
+	w.mu.RUnlock()
+	if app == nil {
+		return errors.New("Internal error: App not initialized")
+	}
+	// Create a background context to pass to the underlying app method
+	return app.PausePlaybackOnDevice(context.Background(), deviceID)
+}
+
+// ClearSpotifyCredentials clears stored Spotify tokens.
+func (w *WailsClient) ClearSpotifyCredentials() error {
+	w.mu.RLock()
+	app := w.app
+	w.mu.RUnlock()
+	if app == nil {
+		return errors.New("Internal error: App not initialized")
+	}
+	return app.ClearSpotifyCredentials()
+}
+
+// WailsShutdown performs cleanup actions if needed.
+func (w *WailsClient) WailsShutdown() {
+	log.Println("Wails Spotify Client Shutting Down")
+}

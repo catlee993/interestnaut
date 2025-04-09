@@ -33,6 +33,16 @@ func GetSpotifyCreds() (string, error) {
 	return token, nil
 }
 
+// ClearSpotifyCreds removes the Spotify refresh token from the OS keychain.
+func ClearSpotifyCreds() error {
+	err := keyring.Delete(ServiceName, SpotifyRefreshTokenKey)
+	if err != nil && err != keyring.ErrNotFound {
+		// Ignore 'not found' errors, but return others
+		return fmt.Errorf("failed to delete Spotify refresh token: %w", err)
+	}
+	return nil
+}
+
 // SaveOpenAICreds saves the OpenAI API key to the OS keychain.
 func SaveOpenAICreds(apiKey string) error {
 	if err := keyring.Set(ServiceName, "OPENAI_API_KEY", apiKey); err != nil {

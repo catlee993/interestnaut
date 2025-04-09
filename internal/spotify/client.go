@@ -2,7 +2,9 @@ package spotify
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 
@@ -17,6 +19,8 @@ type Client interface {
 	SaveTrack(ctx context.Context, trackID string) error
 	RemoveTrack(ctx context.Context, trackID string) error
 	GetTrackDetails(ctx context.Context, trackID string, market string) (*Track, error)
+	PlayTrackOnDevice(ctx context.Context, deviceID string, trackURI string) error
+	PausePlaybackOnDevice(ctx context.Context, deviceID string) error
 }
 
 // client represents a Spotify API client.
@@ -254,4 +258,92 @@ func (c *client) GetTrackDetails(ctx context.Context, trackID string, market str
 	}
 
 	return &track, nil
+}
+
+// Playback Methods Implementation
+
+func (c *client) PlayTrackOnDevice(ctx context.Context, deviceID string, trackURI string) error {
+	token, err := GetValidToken(ctx)
+	if err != nil {
+		return err
+	}
+
+	body := map[string]interface{}{
+		"uris": []string{trackURI},
+	}
+	bodyBytes, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("failed to marshal play request body: %w", err)
+	}
+
+	req, err := request.NewRequester(
+		request.WithScheme(request.HTTPS),
+		request.WithMethod(request.Put),
+		request.WithHost("api.spotify.com"),
+		request.WithPath("v1", "me", "player", "play"),
+		request.WithQueryArgs(map[string][]string{
+			"device_id": {deviceID},
+		}),
+		request.WithBody(bodyBytes),
+		request.WithHeaders(map[string][]string{
+			"Authorization": {"Bearer " + token},
+			"Content-Type":  {"application/json"},
+		}),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create play request: %w", err)
+	}
+
+	resp, err := req.Make(ctx, nil)
+	if err != nil {
+		log.Printf("ERROR: Play request req.Make failed: %v", err)
+		return fmt.Errorf("play request failed during Make: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		log.Printf("ERROR: Play request returned unexpected status %d. Body: %s", resp.StatusCode, string(bodyBytes))
+		return fmt.Errorf("play request failed with status %d", resp.StatusCode)
+	}
+
+	return nil
+}
+
+func (c *client) PausePlaybackOnDevice(ctx context.Context, deviceID string) error {
+	token, err := GetValidToken(ctx)
+	if err != nil {
+		return err
+	}
+
+	req, err := request.NewRequester(
+		request.WithScheme(request.HTTPS),
+		request.WithMethod(request.Put),
+		request.WithHost("api.spotify.com"),
+		request.WithPath("v1", "me", "player", "pause"),
+		request.WithQueryArgs(map[string][]string{
+			"device_id": {deviceID},
+		}),
+		request.WithHeaders(map[string][]string{
+			"Authorization": {"Bearer " + token},
+		}),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create pause request: %w", err)
+	}
+
+	resp, err := req.Make(ctx, nil)
+	if err != nil {
+		log.Printf("ERROR: Pause request req.Make failed: %v", err)
+		return fmt.Errorf("pause request failed during Make: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		log.Printf("ERROR: Pause request returned unexpected status %d. Body: %s", resp.StatusCode, string(bodyBytes))
+		return fmt.Errorf("pause request failed with status %d", resp.StatusCode)
+	}
+
+	return nil
 }

@@ -26,7 +26,7 @@ import (
 const (
 	authURL     = "https://accounts.spotify.com/authorize"
 	redirectURI = "http://localhost:8080/callback"
-	scope       = "user-read-private user-read-email user-library-read user-read-playback-state user-modify-playback-state"
+	scope       = "user-read-private user-read-email user-library-read user-read-playback-state user-modify-playback-state streaming"
 	tokenURL    = "https://accounts.spotify.com/api/token"
 )
 

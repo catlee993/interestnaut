@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"interestnaut/internal/creds"
 	"interestnaut/internal/openai"
 
 	"github.com/pkg/errors"
@@ -171,6 +172,55 @@ func (a *App) GetCurrentUser(ctx context.Context) (*UserProfile, error) {
 		return nil, errors.New("not authenticated")
 	}
 	return a.client.GetCurrentUser(ctx)
+}
+
+// --- Playback Methods ---
+
+// PlayTrackOnDevice starts playback of a specific track URI on a given device.
+func (a *App) PlayTrackOnDevice(ctx context.Context, deviceID string, trackURI string) error {
+	a.mu.RLock()
+	client := a.client
+	a.mu.RUnlock()
+
+	if client == nil {
+		return ErrNotAuthenticated
+	}
+	return client.PlayTrackOnDevice(ctx, deviceID, trackURI)
+}
+
+// PausePlaybackOnDevice pauses playback on a given device.
+func (a *App) PausePlaybackOnDevice(ctx context.Context, deviceID string) error {
+	a.mu.RLock()
+	client := a.client
+	a.mu.RUnlock()
+
+	if client == nil {
+		return ErrNotAuthenticated
+	}
+	return client.PausePlaybackOnDevice(ctx, deviceID)
+}
+
+// --- Credential Management ---
+
+// ClearSpotifyCredentials clears stored Spotify tokens and resets in-memory state.
+func (a *App) ClearSpotifyCredentials() error {
+	log.Println("Attempting to clear Spotify credentials...")
+	err := creds.ClearSpotifyCreds()
+	if err != nil {
+		log.Printf("ERROR: Failed to clear credentials from storage: %v", err)
+		return errors.Wrap(err, "failed to clear stored credentials")
+	}
+	// Also clear in-memory tokens
+	tokenMutex.Lock()
+	accessToken = ""
+	tokenExpiry = time.Time{}
+	currentToken = "" // Clear legacy variable too
+	currentTokenExp = time.Time{}
+	tokenMutex.Unlock()
+	log.Println("Cleared Spotify credentials from storage and memory.")
+	// Optionally reset the client? Depends on how re-auth is triggered
+	// a.SetClient(nil) // Maybe?
+	return nil
 }
 
 // FormatTracksForInitialPrompt creates a concise string representation of tracks.
