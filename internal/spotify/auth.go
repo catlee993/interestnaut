@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"interestnaut/internal/creds"
 	"interestnaut/internal/server"
@@ -26,7 +27,7 @@ import (
 const (
 	authURL     = "https://accounts.spotify.com/authorize"
 	redirectURI = "http://localhost:8080/callback"
-	scope       = "user-read-private user-read-email user-library-read user-read-playback-state user-modify-playback-state streaming"
+	scope       = "user-read-private user-read-email user-library-read user-library-modify user-read-playback-state user-modify-playback-state streaming"
 	tokenURL    = "https://accounts.spotify.com/api/token"
 )
 
@@ -42,6 +43,7 @@ var (
 // RunInitialAuthFlow starts a local server, opens the browser to start OAuth, and waits for callback to save credentials.
 func RunInitialAuthFlow(ctx context.Context) error {
 	stop := make(chan struct{})
+	errChan := make(chan error, 1)
 
 	clientID := os.Getenv("SPOTIFY_CLIENT_ID")
 	clientSecret := os.Getenv("SPOTIFY_CLIENT_SECRET")
@@ -53,6 +55,7 @@ func RunInitialAuthFlow(ctx context.Context) error {
 	mux.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
 		code := r.URL.Query().Get("code")
 		if code == "" {
+			errChan <- fmt.Errorf("missing 'code' parameter in callback")
 			http.Error(w, "Missing 'code' parameter in callback", http.StatusBadRequest)
 			return
 		}
@@ -60,12 +63,14 @@ func RunInitialAuthFlow(ctx context.Context) error {
 		// Exchange the authorization code for tokens
 		authResp, err := exchangeCodeForToken(ctx, clientID, clientSecret, code)
 		if err != nil {
+			errChan <- fmt.Errorf("failed to exchange code for token: %w", err)
 			http.Error(w, fmt.Sprintf("Failed to exchange code for token: %v", err), http.StatusInternalServerError)
 			return
 		}
 
 		// Save the refresh token in the keychain
 		if err := creds.SaveSpotifyCreds(authResp.RefreshToken); err != nil {
+			errChan <- fmt.Errorf("failed to save refresh token: %w", err)
 			http.Error(w, "Failed to save refresh token", http.StatusInternalServerError)
 			return
 		}
@@ -79,18 +84,69 @@ func RunInitialAuthFlow(ctx context.Context) error {
 		log.Printf("DEBUG (Callback): Stored initial token expiring at %s", tokenExpiry.Format(time.RFC3339))
 		tokenMutex.Unlock()
 
-		_, _ = fmt.Fprintln(w, "Authentication successful. You can close this window.")
+		// Send success response to browser
+		w.Header().Set("Content-Type", "text/html")
+		successHTML := `
+		<html>
+			<body style="background: #1a1a1a; color: #ffffff; font-family: Arial, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0;">
+				<div style="text-align: center; padding: 20px; background: #282828; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+					<h2 style="margin-bottom: 20px;">Authentication Successful!</h2>
+					<p>You can close this window and return to the application.</p>
+					<script>
+						setTimeout(function() {
+							window.close();
+						}, 2000);
+					</script>
+				</div>
+			</body>
+		</html>`
+		_, _ = fmt.Fprint(w, successHTML)
+
+		// Signal successful completion
 		close(stop)
 	})
 
-	go server.Start(ctx, stop, mux)
+	serverCtx, serverCancel := context.WithCancel(ctx)
+	defer serverCancel()
 
+	// Start server and handle errors
+	serverErrChan := make(chan error, 1)
+	go func() {
+		if err := server.Start(serverCtx, stop, mux); err != nil {
+			serverErrChan <- err
+		}
+	}()
+
+	// Start auth flow in browser
 	if err := startAuth(clientID); err != nil {
+		serverCancel() // Cancel server context if browser launch fails
 		return fmt.Errorf("failed to start auth flow: %w", err)
 	}
 
-	<-stop
-	return nil
+	// Wait for either success, error, or context cancellation
+	select {
+	case <-stop:
+		log.Println("Authentication successful")
+		serverCancel() // Ensure server is stopped
+		// Wait for server to stop
+		select {
+		case err := <-serverErrChan:
+			if err != nil && !errors.Is(err, http.ErrServerClosed) {
+				return fmt.Errorf("server error during shutdown: %w", err)
+			}
+		case <-time.After(5 * time.Second):
+			// Timeout waiting for server shutdown
+		}
+		return nil
+	case err := <-errChan:
+		serverCancel() // Ensure server is stopped
+		return err
+	case err := <-serverErrChan:
+		return fmt.Errorf("server error: %w", err)
+	case <-ctx.Done():
+		serverCancel() // Ensure server is stopped
+		return ctx.Err()
+	}
 }
 
 // GetValidToken retrieves a valid Spotify access token, refreshing if necessary.

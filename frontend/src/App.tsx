@@ -363,7 +363,8 @@ function App() {
         try {
             setError(null);
             await SaveTrack(trackId);
-            loadSavedTracks(currentPage);
+            setCurrentPage(1); // Reset to first page
+            loadSavedTracks(1); // Always load first page after adding
         } catch (err) {
             console.error('Failed to save track:', err);
             setError('Failed to save track');
@@ -540,8 +541,10 @@ function App() {
                 message: feedbackType === 'like' ? 'Feedback recorded: liked the suggestion' : 'Feedback recorded: did not like the suggestion',
                 type: feedbackType === 'like' ? 'success' : 'dislike'
             });
-            // Clear the suggestion after successful feedback
-            setSuggestedTrack(null);
+            // Keep the suggestion visible, let user decide when to dismiss
+            if (feedbackType === 'dislike') {
+                setSuggestedTrack(null); // Only clear if disliked
+            }
         } catch (err) {
             console.error('Failed to send feedback:', err);
             setToast({
