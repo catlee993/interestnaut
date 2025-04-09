@@ -159,23 +159,30 @@ function App() {
                 } catch (processErr) {
                     console.error('Failed during initial processing:', processErr);
                     const errorMsg = processErr instanceof Error ? processErr.message : 'Failed to get initial suggestion.';
+                    console.log('Processing error message:', errorMsg);
                     
                     // Check if the error message contains information about a failed search
                     if (typeof errorMsg === 'string' && errorMsg.includes('Could not find')) {
+                        console.log('Found "Could not find" in error message');
                         // Extract track and artist from error message like "Could not find 'Deathcrush' by 'Blanck Mass' on Spotify"
                         const match = errorMsg.match(/Could not find '(.+)' by '(.+)' on Spotify/);
+                        console.log('Regex match result:', match);
                         if (match) {
                             const [_, track, artist] = match;
                             const searchContext = `${track} by ${artist}`;
+                            console.log('Setting suggestion context:', searchContext);
                             setSuggestionContext(searchContext);
-                            setSuggestionError(`Searched for "${searchContext}" on Spotify but couldn't find it.`);
+                            const formattedError = `Searched for "${searchContext}" on Spotify but couldn't find it.`;
+                            console.log('Setting error message:', formattedError);
+                            setSuggestionError(formattedError);
                         } else {
+                            console.log('Could not parse search context from error message');
                             setSuggestionError(errorMsg);
                         }
                     } else {
+                        console.log('Error does not contain search context, using raw message');
                         setSuggestionError(errorMsg);
                     }
-                    setSuggestedTrack(null); 
                 } finally {
                     setIsProcessingLibrary(false);
                 }
