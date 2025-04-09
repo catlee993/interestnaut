@@ -15,7 +15,8 @@ import {
     PlayTrackOnDevice,
     PausePlaybackOnDevice,
     ClearSpotifyCredentials,
-    GetAuthStatus
+    GetAuthStatus,
+    SetUserID
 } from "../wailsjs/go/spotify/WailsClient";
 import { spotify } from "../wailsjs/go/models";
 
@@ -131,6 +132,10 @@ function App() {
             }
             if (!user) setUser(currentUser); // Set user state if not already set
             
+            // Set the user ID in the backend
+            await SetUserID(currentUser.id);
+            console.log("Set user ID in backend:", currentUser.id);
+            
             setIsAuthenticated(true); // Mark as authenticated
             await loadSavedTracks(1);
 
@@ -163,7 +168,7 @@ function App() {
                             const [_, track, artist] = match;
                             const searchContext = `${track} by ${artist}`;
                             setSuggestionContext(searchContext);
-                            setSuggestionError(`We searched for "${searchContext}" on Spotify but couldn't find it. Try searching for it yourself!`);
+                            setSuggestionError(`Searched for "${searchContext}" on Spotify but couldn't find it.`);
                         } else {
                             setSuggestionError(errorMsg);
                         }
@@ -498,14 +503,23 @@ function App() {
         </div>
     );
 
+    // Add effect to handle page changes
+    useEffect(() => {
+        if (isAuthenticated) {
+            loadSavedTracks(currentPage);
+        }
+    }, [currentPage, isAuthenticated]);
+
     const handleNextPage = () => {
         if (currentPage * ITEMS_PER_PAGE < totalTracks) {
+            console.log('Moving to next page:', currentPage + 1);
             setCurrentPage(prev => prev + 1);
         }
     };
 
     const handlePrevPage = () => {
         if (currentPage > 1) {
+            console.log('Moving to previous page:', currentPage - 1);
             setCurrentPage(prev => prev - 1);
         }
     };
@@ -647,7 +661,7 @@ function App() {
                     const searchContext = `${track} by ${artist}`;
                     console.log('Successfully extracted search context:', { track, artist, searchContext });
                     setSuggestionContext(searchContext);
-                    setSuggestionError(`We searched for "${searchContext}" on Spotify but couldn't find it. Try searching for it yourself!`);
+                    setSuggestionError(`Searched for "${searchContext}" on Spotify but couldn't find it.`);
                 } else {
                     console.log('Could not parse search context from error message');
                     setSuggestionError(errorMsg);
@@ -665,12 +679,53 @@ function App() {
         console.log("Attempting to clear Spotify credentials...");
         try {
             await ClearSpotifyCredentials();
-            console.log("Credentials cleared. Please restart the application to re-authenticate.");
-            setError("Credentials cleared. Please restart the application.");
-            // Ideally, Wails would have a restart function, but we might just show message
+            console.log("Credentials cleared successfully.");
+            
+            // Reset all application state
+            setUser(null);
+            setSavedTracks(null);
+            setSearchResults([]);
+            setNowPlayingTrack(null);
+            setSuggestedTrack(null);
+            setIsAuthenticated(false);
+            setShowSuggestionSection(false);
+            
+            // Clear any playing audio
+            audioElement.pause();
+            if (spotifyPlayer) {
+                spotifyPlayer.disconnect();
+            }
+            
+            // Show success message
+            setToast({
+                message: 'Spotify credentials cleared. Please wait for re-authentication...',
+                type: 'success'
+            });
+            
+            // Start polling for new auth
+            if (authCheckInterval.current) clearInterval(authCheckInterval.current);
+            authCheckInterval.current = setInterval(async () => {
+                console.log("Polling GetAuthStatus after credentials clear...");
+                try {
+                    const status = await GetAuthStatus();
+                    if (status.isAuthenticated) {
+                        console.log("Re-authenticated! Loading data...");
+                        if (authCheckInterval.current) clearInterval(authCheckInterval.current);
+                        authCheckInterval.current = null;
+                        setIsLoading(true);
+                        await loadAppData();
+                    }
+                } catch (pollErr) {
+                    console.error("Error polling auth status:", pollErr);
+                }
+            }, 3000);
+            
         } catch (err) {
             console.error("Failed to clear credentials:", err);
-            setError(err instanceof Error ? `Error clearing credentials: ${err.message}` : "Failed to clear credentials.");
+            setToast({
+                message: err instanceof Error ? `Error clearing credentials: ${err.message}` : "Failed to clear credentials",
+                type: 'error'
+            });
         }
     };
 

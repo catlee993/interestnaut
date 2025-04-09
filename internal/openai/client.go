@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"regexp"
@@ -19,6 +20,8 @@ const (
 type Client struct {
 	apiKey     string
 	httpClient *http.Client
+	session    *SessionManager
+	userID     string
 }
 
 type ChatRequest struct {
@@ -52,9 +55,15 @@ func NewClient() (*Client, error) {
 		return nil, fmt.Errorf("OPENAI_API_SECRET environment variable not set")
 	}
 
+	session, err := NewSessionManager()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create session manager: %w", err)
+	}
+
 	return &Client{
 		apiKey:     apiKey,
 		httpClient: &http.Client{},
+		session:    session,
 	}, nil
 }
 
@@ -106,4 +115,42 @@ func (c *Client) SendMessage(messages []Message) (Message, error) {
 	finalMessage.Content = extractJsonContent(finalMessage.Content)
 
 	return finalMessage, nil
+}
+
+// SetUserID sets the current user ID
+func (c *Client) SetUserID(userID string) {
+	c.userID = userID
+}
+
+// GetCurrentUserID gets the current user ID
+func (c *Client) GetCurrentUserID() string {
+	if c.userID == "" {
+		// Fallback to default_user only if no user ID has been set
+		log.Printf("Client.GetCurrentUserID: No user ID set, using default_user")
+		return "default_user"
+	}
+	log.Printf("Client.GetCurrentUserID: Using user ID: %s", c.userID)
+	return c.userID
+}
+
+// HasSuggested checks if a song has been suggested before
+func (c *Client) HasSuggested(songName string, artistName string) bool {
+	return c.session.HasSuggested(c.GetCurrentUserID(), songName, artistName)
+}
+
+// AddSuggestion records a song suggestion with full details
+func (c *Client) AddSuggestion(name string, artist string, album string, spotifyID string, reason string) error {
+	record := SuggestionRecord{
+		Name:      name,
+		Artist:    artist,
+		Album:     album,
+		SpotifyID: spotifyID,
+		Reason:    reason,
+	}
+	return c.session.AddSuggestion(c.GetCurrentUserID(), record)
+}
+
+// UpdateSuggestionOutcome updates the outcome of a suggestion
+func (c *Client) UpdateSuggestionOutcome(songName string, artistName string, outcome SuggestionOutcome) error {
+	return c.session.UpdateSuggestionOutcome(c.GetCurrentUserID(), songName, artistName, outcome)
 }

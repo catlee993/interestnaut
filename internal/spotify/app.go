@@ -18,11 +18,13 @@ import (
 
 // App represents the Spotify application.
 type App struct {
-	client       Client
-	authConfig   *AuthConfig
-	openaiClient *openai.Client
-	chatHistory  []openai.Message
-	mu           sync.RWMutex
+	authConfig         *AuthConfig
+	client             Client
+	openaiClient       *openai.WailsClient
+	chatHistory        []openai.Message
+	hasAnalyzedLibrary bool // Track if we've done initial analysis
+	userID             string
+	mu                 sync.RWMutex
 }
 
 // AuthConfig represents the Spotify OAuth configuration.
@@ -35,7 +37,7 @@ type AuthConfig struct {
 // NewApp creates a new Spotify application.
 func NewApp(authConfig *AuthConfig) (*App, error) {
 	// Initialize OpenAI client
-	oaiClient, err := openai.NewClient()
+	oaiClient, err := openai.NewWailsClient()
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to initialize OpenAI client")
 	}
@@ -55,6 +57,7 @@ func NewApp(authConfig *AuthConfig) (*App, error) {
 		client:       spotifyClient, // Use the client initialized with auth
 		openaiClient: oaiClient,
 		chatHistory:  make([]openai.Message, 0),
+		userID:       "", // Initialize empty user ID
 	}, nil
 }
 
@@ -64,6 +67,19 @@ func (a *App) SetClient(client Client) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.client = client
+
+	// Get the user ID from Spotify and set it on the OpenAI client
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if profile, err := client.GetCurrentUser(ctx); err == nil && profile != nil {
+		a.userID = profile.ID
+		if a.openaiClient != nil {
+			a.openaiClient.SetUserID(profile.ID)
+		}
+	} else {
+		log.Printf("WARNING: Failed to get user ID from Spotify: %v", err)
+	}
 }
 
 // GetAuthStatus returns the current authentication status
@@ -80,34 +96,50 @@ func (a *App) GetAuthStatus() map[string]interface{} {
 
 // GetSavedTracks retrieves the user's saved tracks.
 func (a *App) GetSavedTracks(ctx context.Context, limit, offset int) (*SavedTracks, error) {
-	if a.client == nil {
+	a.mu.RLock()
+	client := a.client
+	a.mu.RUnlock()
+
+	if client == nil {
 		return nil, errors.New("not authenticated")
 	}
-	return a.client.GetSavedTracks(ctx, limit, offset)
+	return client.GetSavedTracks(ctx, limit, offset)
 }
 
 // SearchTracks searches for tracks matching the query.
 func (a *App) SearchTracks(ctx context.Context, query string, limit int) ([]*SimpleTrack, error) {
-	if a.client == nil {
+	a.mu.RLock()
+	client := a.client
+	a.mu.RUnlock()
+
+	if client == nil {
 		return nil, errors.New("not authenticated")
 	}
-	return a.client.SearchTracks(ctx, query, limit)
+	return client.SearchTracks(ctx, query, limit)
 }
 
 // SaveTrack saves a track to the user's library.
 func (a *App) SaveTrack(ctx context.Context, trackID string) error {
-	if a.client == nil {
+	a.mu.RLock()
+	client := a.client
+	a.mu.RUnlock()
+
+	if client == nil {
 		return errors.New("not authenticated")
 	}
-	return a.client.SaveTrack(ctx, trackID)
+	return client.SaveTrack(ctx, trackID)
 }
 
 // RemoveTrack removes a track from the user's library.
 func (a *App) RemoveTrack(ctx context.Context, trackID string) error {
-	if a.client == nil {
+	a.mu.RLock()
+	client := a.client
+	a.mu.RUnlock()
+
+	if client == nil {
 		return errors.New("not authenticated")
 	}
-	return a.client.RemoveTrack(ctx, trackID)
+	return client.RemoveTrack(ctx, trackID)
 }
 
 // GetAllSavedTracks retrieves all saved tracks for the user, handling pagination.
@@ -168,10 +200,21 @@ func (a *App) GetTrackDetails(ctx context.Context, trackID string, market string
 
 // GetCurrentUser retrieves the current user's profile.
 func (a *App) GetCurrentUser(ctx context.Context) (*UserProfile, error) {
-	if a.client == nil {
+	a.mu.RLock()
+	client := a.client
+	a.mu.RUnlock()
+
+	if client == nil {
 		return nil, errors.New("not authenticated")
 	}
-	return a.client.GetCurrentUser(ctx)
+	return client.GetCurrentUser(ctx)
+}
+
+// GetCurrentUserID returns the current user's ID.
+func (a *App) GetCurrentUserID() string {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.userID
 }
 
 // --- Playback Methods ---
@@ -218,41 +261,40 @@ func (a *App) ClearSpotifyCredentials() error {
 	currentTokenExp = time.Time{}
 	tokenMutex.Unlock()
 	log.Println("Cleared Spotify credentials from storage and memory.")
-	// Optionally reset the client? Depends on how re-auth is triggered
-	// a.SetClient(nil) // Maybe?
+
+	// Reset the client to force re-authentication
+	a.mu.Lock()
+	a.client = nil
+	a.mu.Unlock()
+
 	return nil
 }
 
 // FormatTracksForInitialPrompt creates a concise string representation of tracks.
 func FormatTracksForInitialPrompt(tracks []SavedTrackItem) string {
-	// TODO: Consider limits on prompt length. OpenAI has token limits.
-	// We might need to truncate or summarize if the library is huge.
 	var promptBuilder strings.Builder
+	promptBuilder.WriteString("Here are all the tracks in the user's library. Use these to understand their music taste and suggest new songs they might enjoy. IMPORTANT: Only suggest songs that are NOT in this list:\n\n")
 
-	promptBuilder.WriteString("Here are some tracks the user likes:\n")
-
-	limit := 100 // Limit the number of tracks included in the prompt for brevity/cost
-	if len(tracks) > limit {
-		// Optionally shuffle or select a representative sample if truncating
-		tracks = tracks[:limit]
-		promptBuilder.WriteString(fmt.Sprintf("(Showing first %d tracks)\n", limit))
-	}
-
+	// Create a more compact representation to save tokens
+	// Format: "Artist - Song (Album)" one per line
+	// This format uses fewer tokens than the previous verbose format
 	for _, item := range tracks {
 		if item.Track != nil {
-			// Format: "Song Name" by Artist1, Artist2 (Album: Album Name)
 			var artistNames []string
 			for _, artist := range item.Track.Artists {
 				artistNames = append(artistNames, artist.Name)
 			}
-			promptBuilder.WriteString(fmt.Sprintf("- \"%s\" by %s", item.Track.Name, strings.Join(artistNames, ", ")))
+			promptBuilder.WriteString(fmt.Sprintf("%s - %s",
+				strings.Join(artistNames, ", "),
+				item.Track.Name))
 			if item.Track.Album.Name != "" {
-				promptBuilder.WriteString(fmt.Sprintf(" (Album: %s)", item.Track.Album.Name))
+				promptBuilder.WriteString(fmt.Sprintf(" (%s)", item.Track.Album.Name))
 			}
 			promptBuilder.WriteString("\n")
 		}
 	}
-	promptBuilder.WriteString("\nBased on these, suggest a new song.")
+
+	promptBuilder.WriteString(fmt.Sprintf("\nAnalyzed %d tracks. Based on these, suggest songs that match their musical preferences while introducing new artists and styles. DO NOT suggest any songs from the list above. For each suggestion, explain why you think they'll like it based on specific patterns in their library.\n", len(tracks)))
 
 	return promptBuilder.String()
 }

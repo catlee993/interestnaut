@@ -34,6 +34,8 @@ export function SearchTracks(arg1:string,arg2:number):Promise<Array<spotify.Simp
 
 export function SetSpotifyClient(arg1:spotify.Client):Promise<void>;
 
+export function SetUserID(arg1:string):Promise<void>;
+
 export function WailsInit():Promise<void>;
 
 export function WailsShutdown():Promise<void>;

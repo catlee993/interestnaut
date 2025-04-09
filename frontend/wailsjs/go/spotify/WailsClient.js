@@ -66,6 +66,10 @@ export function SetSpotifyClient(arg1) {
   return window['go']['spotify']['WailsClient']['SetSpotifyClient'](arg1);
 }
 
+export function SetUserID(arg1) {
+  return window['go']['spotify']['WailsClient']['SetUserID'](arg1);
+}
+
 export function WailsInit() {
   return window['go']['spotify']['WailsClient']['WailsInit']();
 }

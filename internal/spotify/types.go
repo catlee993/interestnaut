@@ -7,4 +7,5 @@ type SuggestedTrackInfo struct {
 	Artist      string `json:"artist"` // Primary artist name
 	PreviewURL  string `json:"previewUrl,omitempty"`
 	AlbumArtURL string `json:"albumArtUrl,omitempty"`
+	Reason      string `json:"reason,omitempty"` // Explanation for why this track was suggested
 }

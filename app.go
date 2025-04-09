@@ -6,6 +6,7 @@ import (
 	"interestnaut/internal/openai"
 	"interestnaut/internal/spotify"
 	"log"
+	"os"
 	"sync"
 )
 
@@ -27,6 +28,15 @@ func NewApp() *App {
 // startup is called when the app starts. The context is saved
 // so we can call the runtime methods
 func (a *App) startup(ctx context.Context) {
+	// Set up logging to file
+	logFile, err := os.OpenFile("/tmp/interestnaut.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		log.Printf("Failed to open log file: %v", err)
+	} else {
+		log.SetOutput(logFile)
+	}
+	log.Println("Starting application...")
+
 	a.ctx = ctx
 
 	// Initialize Spotify client
@@ -49,9 +59,27 @@ func (a *App) startup(ctx context.Context) {
 	}
 
 	a.userID = user.ID
+	log.Printf("Got Spotify user ID: %s", a.userID)
 
-	// Analyze user's music preferences
-	a.analyzePreferences()
+	// Set the user ID in the OpenAI client
+	a.openaiClient.SetUserID(a.userID)
+	log.Printf("Set user ID in OpenAI WailsClient: %s", a.userID)
+
+	// Also set the user ID in the underlying Client
+	if client, ok := a.openaiClient.GetClient(); ok {
+		client.SetUserID(a.userID)
+		log.Printf("Set user ID in OpenAI Client: %s", a.userID)
+	} else {
+		log.Printf("Warning: Could not access underlying OpenAI Client")
+	}
+
+	// Only analyze preferences if we haven't done it before
+	if !a.openaiClient.HasAnalyzedLibrary(a.userID) {
+		log.Println("First time startup: analyzing music preferences...")
+		a.analyzePreferences()
+	} else {
+		log.Println("Library already analyzed, skipping initial analysis")
+	}
 }
 
 // analyzePreferences analyzes the user's saved tracks to understand their music preferences
