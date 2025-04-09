@@ -18,8 +18,48 @@ body {
     flex-direction: column;
 }
 
+.top-section {
+    background-color: var(--surface-color);
+    border-bottom: 1px solid var(--surface-hover);
+    margin-bottom: 24px;
+    width: 100%;
+}
+
+.top-section-content {
+    width: 90%;
+    max-width: 1100px;
+    margin: 0 auto;
+    position: relative;
+}
+
 header {
-    background-color: #121212;
+    background-color: transparent;
+    position: relative;
+}
+
+.app header {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    padding: 0;
+    background-color: transparent;
+    position: relative;
+}
+
+.search-section {
+    padding: 16px 0;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background-color: transparent;
+}
+
+.main-content {
+    width: 90%;
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 20px;
+    margin-bottom: 60px;
 }
 
 .user-controls {
@@ -65,21 +105,6 @@ header {
   --header-height: 64px;
 }
 
-.app header {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  padding: 0;
-  background-color: #121212;
-  position: relative;
-}
-
-.app header h1 {
-  margin: 0;
-  padding: 20px;
-  text-align: center;
-}
-
 .user-avatar {
   width: 30px;
   height: 30px;
@@ -96,50 +121,6 @@ header {
   height: 32px;
   border-radius: 50%;
   object-fit: cover;
-}
-
-.main-content {
-    width: 90%;
-    max-width: 1100px;
-    margin: 0 auto;
-    padding: 20px;
-    margin-bottom: 60px;
-}
-
-.search-section {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 24px;
-  padding: 0 16px;
-}
-
-.search-icon {
-  font-size: 20px;
-  color: var(--text-secondary);
-  flex-shrink: 0;
-}
-
-.search-input {
-  flex: 1;
-  padding: 12px 16px;
-  border: 1px solid var(--surface-hover);
-  border-radius: 8px;
-  font-size: 16px;
-  background-color: var(--surface-color);
-  color: var(--text-primary);
-  transition: all 0.2s ease;
-}
-
-.search-input:focus {
-  outline: none;
-  border-color: var(--primary-color);
-  box-shadow: 0 0 0 2px rgba(29, 185, 84, 0.2);
-  background-color: var(--surface-hover);
-}
-
-.search-input::placeholder {
-  color: var(--text-secondary);
 }
 
 .track-grid {
@@ -603,12 +584,6 @@ button {
   text-align: center;
 }
 
-.search-section {
-  display: flex;
-  gap: 10px;
-  margin-bottom: 30px;
-}
-
 .search-section input {
   flex: 1;
   padding: 12px;
@@ -838,4 +813,31 @@ button {
 .search-results .track-grid,
 .saved-tracks .track-grid {
     grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+}
+
+.search-icon {
+    font-size: 20px;
+    color: var(--text-secondary);
+    flex-shrink: 0;
+}
+
+.search-input {
+    flex: 1;
+    padding: 12px 16px;
+    border: none;
+    border-radius: 8px;
+    font-size: 16px;
+    background-color: var(--surface-hover);
+    color: var(--text-primary);
+    transition: all 0.2s ease;
+}
+
+.search-input:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(29, 185, 84, 0.2);
+    background-color: var(--surface-hover);
+}
+
+.search-input::placeholder {
+    color: var(--text-secondary);
 }

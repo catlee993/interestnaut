@@ -794,55 +794,56 @@ function App() {
 
     return (
         <div id="App">
-            {/* Add toast container at the top level */}
             {toast && (
                 <div className={`toast ${toast.type}`}>
                     {toast.message}
                 </div>
             )}
-            <header>
-                <div className="user-controls">
-                    {user && (
-                        <div className="user-info">
-                            {user.images?.[0]?.url && (
-                                <img src={user.images[0].url} alt={user.display_name} className="user-avatar" />
+            <div className="top-section">
+                <div className="top-section-content">
+                    <header>
+                        <div className="user-controls">
+                            {user && (
+                                <div className="user-info">
+                                    {user.images?.[0]?.url && (
+                                        <img src={user.images[0].url} alt={user.display_name} className="user-avatar" />
+                                    )}
+                                    <span className="user-name">Connected as {user.display_name}</span>
+                                </div>
                             )}
-                            <span className="user-name">Connected as {user.display_name}</span>
+                            <button onClick={(e) => {
+                                e.stopPropagation();
+                                console.log("Clear auth button clicked");
+                                alert("Clear auth clicked");
+                                handleClearCreds();
+                            }} className="clear-auth-button">
+                                Clear Spotify Auth
+                </button>
+                        </div>
+                        <h1 className="app-title">Spotify Library</h1>
+                    </header>
+                    <div className="search-section">
+                        <span className="search-icon">🔍</span>
+                        <input
+                            type="text"
+                            placeholder="Search tracks..."
+                            value={searchQuery}
+                            onChange={(e) => {
+                                setSearchQuery(e.target.value);
+                                handleSearch(e.target.value);
+                            }}
+                            className="search-input"
+                        />
+                    </div>
+                </div>
             </div>
-                    )}
-                    <button onClick={(e) => {
-                        e.stopPropagation();
-                        console.log("Clear auth button clicked");
-                        alert("Clear auth clicked");
-                        handleClearCreds();
-                    }} className="clear-auth-button">
-                        Clear Spotify Auth
-                    </button>
-                </div>
-                <h1 className="app-title">Spotify Library</h1>
-            </header>
-
             <div className="main-content">
-                <div className="search-section">
-                    <span className="search-icon">🔍</span>
-                    <input
-                        type="text"
-                        placeholder="Search tracks..."
-                        value={searchQuery}
-                        onChange={(e) => {
-                            setSearchQuery(e.target.value);
-                            handleSearch(e.target.value);
-                        }}
-                        className="search-input"
-                    />
-                </div>
-
                 {error && (
                     <div className="error-message">
                         <span>⚠️</span>
                         {error}
-                </div>
-            )}
+                    </div>
+                )}
 
                 {/* --- Suggestion Section --- */} 
                 {showSuggestionSection && (
@@ -869,7 +870,7 @@ function App() {
                                         )}
                                     </div>
                                     <div className="suggestion-controls">
-                                        <button
+                    <button 
                                             className={`play-button ${!isPlaybackPaused && nowPlayingTrack?.id === suggestedTrack.id ? 'playing' : ''}`}
                                             onClick={() => {
                                                 console.log("[Suggestion] Play button clicked for track:", suggestedTrack.name);
@@ -893,10 +894,10 @@ function App() {
                                         {/* Action Buttons */}
                                         <button onClick={handleAddSuggestionToLibrary} className="action-button add-button">
                                             <FaPlus /> Add to Library
-                                        </button>
+                    </button>
                                         <button onClick={handleRequestSuggestion} className="action-button next-button">
                                             Next Suggestion <FaStepForward />
-                                        </button>
+                    </button>
                                     </div>
                                 </div> {/* End of suggestion-art-and-info wrapper */} 
                             </div>
@@ -904,8 +905,8 @@ function App() {
                             // Initial state or after successful feedback/add 
                             <button onClick={handleRequestSuggestion}>Suggest a song</button>
                         )}
-                    </div>
-                )}
+                </div>
+            )}
                  {/* --- End Suggestion Section --- */}
 
                 {isLoading && !searchQuery ? (
