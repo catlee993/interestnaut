@@ -2,6 +2,8 @@ package spotify
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -23,7 +25,7 @@ import (
 	"github.com/zalando/go-keyring"
 )
 
-// const variables remain unchanged
+// Constants remain mostly unchanged
 const (
 	authURL     = "https://accounts.spotify.com/authorize"
 	redirectURI = "http://localhost:8080/callback"
@@ -38,17 +40,37 @@ var (
 	tokenMutex      sync.RWMutex
 	accessToken     string
 	tokenExpiry     time.Time
+
+	// codeVerifier for PKCE (global so it can be referenced during token exchange)
+	codeVerifier string
 )
 
-// RunInitialAuthFlow starts a local server, opens the browser to start OAuth, and waits for callback to save credentials.
+// generateCodeVerifier returns a cryptographically random string for PKCE
+func generateCodeVerifier() (string, error) {
+	// 64 bytes is a typical length
+	b := make([]byte, 64)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	// Base64 URL-encode without padding
+	return base64.RawURLEncoding.EncodeToString(b), nil
+}
+
+// computeCodeChallenge returns the SHA256 hash of the verifier, Base64 URL-encoded (no padding)
+func computeCodeChallenge(verifier string) (string, error) {
+	hash := sha256.Sum256([]byte(verifier))
+	return base64.RawURLEncoding.EncodeToString(hash[:]), nil
+}
+
+// RunInitialAuthFlow starts a local server, opens the browser to start OAuth with PKCE, and waits for callback to save credentials.
 func RunInitialAuthFlow(ctx context.Context) error {
 	stop := make(chan struct{})
 	errChan := make(chan error, 1)
 
+	// Only require the client ID for PKCE flow (client secret is not used here)
 	clientID := os.Getenv("SPOTIFY_CLIENT_ID")
-	clientSecret := os.Getenv("SPOTIFY_CLIENT_SECRET")
-	if clientID == "" || clientSecret == "" {
-		return fmt.Errorf("SPOTIFY_CLIENT_ID or SPOTIFY_CLIENT_SECRET not set in environment")
+	if clientID == "" {
+		return fmt.Errorf("SPOTIFY_CLIENT_ID not set in environment")
 	}
 
 	mux := http.NewServeMux()
@@ -60,8 +82,8 @@ func RunInitialAuthFlow(ctx context.Context) error {
 			return
 		}
 
-		// Exchange the authorization code for tokens
-		authResp, err := exchangeCodeForToken(ctx, clientID, clientSecret, code)
+		// Exchange the authorization code for tokens using PKCE; note that we no longer use clientSecret.
+		authResp, err := exchangeCodeForToken(ctx, clientID, code)
 		if err != nil {
 			errChan <- fmt.Errorf("failed to exchange code for token: %w", err)
 			http.Error(w, fmt.Sprintf("Failed to exchange code for token: %v", err), http.StatusInternalServerError)
@@ -117,7 +139,7 @@ func RunInitialAuthFlow(ctx context.Context) error {
 		}
 	}()
 
-	// Start auth flow in browser
+	// Start auth flow in browser (this now generates PKCE parameters)
 	if err := startAuth(clientID); err != nil {
 		serverCancel() // Cancel server context if browser launch fails
 		return fmt.Errorf("failed to start auth flow: %w", err)
@@ -178,26 +200,24 @@ func GetValidToken(ctx context.Context) (string, error) {
 		return "", ErrNotAuthenticated
 	}
 
-	// Perform the refresh using the refresh token
+	// Perform the refresh using the refresh token (PKCE flow does not use client secret)
 	clientID := os.Getenv("SPOTIFY_CLIENT_ID")
-	clientSecret := os.Getenv("SPOTIFY_CLIENT_SECRET")
-	if clientID == "" || clientSecret == "" {
-		log.Println("ERROR: Spotify client ID or secret not found in env for token refresh.")
+	if clientID == "" {
+		log.Println("ERROR: Spotify client ID not found in env for token refresh.")
 		return "", ErrNotAuthenticated
 	}
 
 	form := url.Values{}
 	form.Set("grant_type", "refresh_token")
 	form.Set("refresh_token", refreshToken)
+	form.Set("client_id", clientID)
 
-	req, err := http.NewRequestWithContext(ctx, "POST", "https://accounts.spotify.com/api/token", strings.NewReader(form.Encode()))
+	req, err := http.NewRequestWithContext(ctx, "POST", tokenURL, strings.NewReader(form.Encode()))
 	if err != nil {
 		log.Printf("ERROR: Failed to create token refresh request: %v", err)
 		return "", fmt.Errorf("failed to create token refresh request: %w", err)
 	}
 
-	authHeader := base64.StdEncoding.EncodeToString([]byte(clientID + ":" + clientSecret))
-	req.Header.Set("Authorization", "Basic "+authHeader)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	httpClient := &http.Client{Timeout: 10 * time.Second}
@@ -253,18 +273,23 @@ func GetValidToken(ctx context.Context) (string, error) {
 	return accessToken, nil
 }
 
-// exchangeCodeForToken exchanges an authorization code for access and refresh tokens
-func exchangeCodeForToken(ctx context.Context, clientID, clientSecret, code string) (*AuthResponse, error) {
+// exchangeCodeForToken exchanges an authorization code for access and refresh tokens using PKCE.
+// Note: The client secret is not used in this flow.
+func exchangeCodeForToken(ctx context.Context, clientID, code string) (*AuthResponse, error) {
 	values := url.Values{}
 	values.Set("grant_type", "authorization_code")
 	values.Set("code", code)
 	values.Set("redirect_uri", redirectURI)
+	// Add PKCE parameters
+	values.Set("client_id", clientID)
+	values.Set("code_verifier", codeVerifier)
 
-	return makeTokenRequest(ctx, clientID, clientSecret, values)
+	return makeTokenRequest(ctx, clientID, values)
 }
 
-// makeTokenRequest makes a request to the Spotify token endpoint
-func makeTokenRequest(ctx context.Context, clientID, clientSecret string, values url.Values) (*AuthResponse, error) {
+// makeTokenRequest makes a request to Spotify's token endpoint.
+// In this PKCE flow, we no longer send a Basic Authorization header.
+func makeTokenRequest(ctx context.Context, clientID string, values url.Values) (*AuthResponse, error) {
 	body := values.Encode()
 
 	req, err := request.NewRequester(
@@ -274,8 +299,7 @@ func makeTokenRequest(ctx context.Context, clientID, clientSecret string, values
 		request.WithPath("api", "token"),
 		request.WithBody([]byte(body)),
 		request.WithHeaders(map[string][]string{
-			"Content-Type":  {"application/x-www-form-urlencoded"},
-			"Authorization": {"Basic " + creds.BasicAuth(clientID, clientSecret)},
+			"Content-Type": {"application/x-www-form-urlencoded"},
 		}),
 	)
 	if err != nil {
@@ -291,15 +315,33 @@ func makeTokenRequest(ctx context.Context, clientID, clientSecret string, values
 	return &authResp, nil
 }
 
-// startAuth initiates the OAuth flow by constructing the authorization URL and opening it in the default browser.
+// startAuth initiates the OAuth flow with PKCE by constructing the authorization URL (including a code challenge)
+// and opening it in the default browser.
 func startAuth(clientID string) error {
-	signinUrl := fmt.Sprintf("%s?client_id=%s&response_type=code&redirect_uri=%s&scope=%s",
-		authURL, clientID, url.QueryEscape(redirectURI), url.QueryEscape(scope))
+	var err error
+	// Generate PKCE code verifier
+	codeVerifier, err = generateCodeVerifier()
+	if err != nil {
+		return fmt.Errorf("failed to generate code verifier: %w", err)
+	}
 
+	// Compute the corresponding code challenge
+	codeChallenge, err := computeCodeChallenge(codeVerifier)
+	if err != nil {
+		return fmt.Errorf("failed to compute code challenge: %w", err)
+	}
+
+	signinUrl := fmt.Sprintf("%s?client_id=%s&response_type=code&redirect_uri=%s&scope=%s&code_challenge=%s&code_challenge_method=S256",
+		authURL,
+		url.QueryEscape(clientID),
+		url.QueryEscape(redirectURI),
+		url.QueryEscape(scope),
+		url.QueryEscape(codeChallenge),
+	)
 	return openBrowser(signinUrl)
 }
 
-// openBrowser opens the default browser with the given URL
+// openBrowser opens the default browser with the given URL.
 func openBrowser(url string) error {
 	var cmd string
 	var args []string

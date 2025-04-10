@@ -32,13 +32,12 @@ func NewWailsClient() *WailsClient {
 
 	// Create AuthConfig from environment variables
 	authCfg := &AuthConfig{
-		ClientID:     os.Getenv("SPOTIFY_CLIENT_ID"),     // Use actual env var names
-		ClientSecret: os.Getenv("SPOTIFY_CLIENT_SECRET"), // Use actual env var names
-		RedirectURI:  "http://localhost:8080/callback",   // Ensure this matches Spotify dev console and auth.go
+		ClientID:    os.Getenv("SPOTIFY_CLIENT_ID"),   // Use actual env var names
+		RedirectURI: "http://localhost:8080/callback", // Ensure this matches Spotify dev console and auth.go
 	}
 
 	// Validate required AuthConfig fields
-	if authCfg.ClientID == "" || authCfg.ClientSecret == "" {
+	if authCfg.ClientID == "" {
 		log.Printf("ERROR: SPOTIFY_CLIENT_ID or SPOTIFY_CLIENT_SECRET environment variables not set.")
 		// Return a non-functional client with nil app
 		return &WailsClient{app: nil}

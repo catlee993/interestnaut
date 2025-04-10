@@ -29,9 +29,8 @@ type App struct {
 
 // AuthConfig represents the Spotify OAuth configuration.
 type AuthConfig struct {
-	ClientID     string
-	ClientSecret string
-	RedirectURI  string
+	ClientID    string
+	RedirectURI string
 }
 
 // NewApp creates a new Spotify application.

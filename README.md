@@ -16,7 +16,6 @@ A desktop application for managing your Spotify library. Built with Wails, Go, a
 2. Create a `.env` file with your Spotify credentials:
    ```
    SPOTIFY_CLIENT_ID=your_client_id
-   SPOTIFY_CLIENT_SECRET=your_client_secret
    ```
 3. Run `wails dev` to start the development server
 
