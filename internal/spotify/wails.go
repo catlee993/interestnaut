@@ -215,26 +215,39 @@ func (w *WailsClient) ProcessLibraryAndGetFirstSuggestion() (*SuggestedTrackInfo
 		return nil, errors.Wrap(err, "failed to fetch all saved tracks")
 	}
 
-	prompt := FormatTracksForInitialPrompt(allTracks)
-
 	// Get the current user ID
 	userID := app.GetCurrentUserID()
 	if userID == "" {
 		return nil, errors.New("no user ID available")
 	}
 
-	// Send the initial prompt to OpenAI
-	suggestionContent, err := app.openaiClient.SendMessage(context.Background(), userID, prompt)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to get suggestion from OpenAI")
+	// Check if we've already analyzed the library by checking the session
+	hasAnalyzed := app.openaiClient.HasAnalyzedLibrary(userID)
+
+	// Only add the track list to the session if we haven't analyzed the library yet
+	if !hasAnalyzed {
+		prompt := FormatTracksForInitialPrompt(allTracks)
+
+		// Send the initial prompt to OpenAI
+		suggestionContent, err := app.openaiClient.SendMessage(context.Background(), userID, prompt)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to get suggestion from OpenAI")
+		}
+
+		return processAISuggestion(app, suggestionContent)
+	} else {
+		// If we've already analyzed the library, just request a new suggestion
+		suggestionContent, err := app.openaiClient.SendMessage(
+			context.Background(),
+			userID,
+			"Please suggest another song based on my library and our conversation so far.",
+		)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to get suggestion from OpenAI")
+		}
+
+		return processAISuggestion(app, suggestionContent)
 	}
-
-	// Mark that we've analyzed the library
-	app.mu.Lock()
-	app.hasAnalyzedLibrary = true
-	app.mu.Unlock()
-
-	return processAISuggestion(app, suggestionContent)
 }
 
 // RequestNewSuggestion gets a new suggestion based on the chat history.
@@ -356,12 +369,12 @@ func processAISuggestion(app *App, content string) (*SuggestedTrackInfo, error) 
 		log.Printf("Using top search result (ID: %s) as no matching ID was provided or found.", selectedTrack.ID)
 	}
 
-	// Record this suggestion in the session
+	// Record this suggestion in the session using the Spotify track's name and artist
 	if app.openaiClient != nil {
 		if err := app.openaiClient.AddSuggestion(
-			suggestion.Name,
-			suggestion.Artist,
-			suggestion.Album,
+			selectedTrack.Name,   // Use Spotify's track name
+			selectedTrack.Artist, // Use Spotify's artist name
+			selectedTrack.Album,
 			selectedTrack.ID,
 			suggestion.Reason,
 		); err != nil {
@@ -395,45 +408,75 @@ func (w *WailsClient) ProvideSuggestionFeedback(feedback string) error {
 
 	// Extract song name and artist from feedback message
 	// Example formats:
-	// "I liked the song 'Song Name' by 'Artist Name'"
-	// "I didn't like the song 'Song Name' by 'Artist Name'"
+	// "I liked the suggestion: Song Name by Artist Name"
+	// "I disliked the suggestion: Song Name by Artist Name"
+	// "I liked the suggestion Song Name by Artist Name so much I added it to my library!"
 	var songName, artistName string
 	var outcome openai.SuggestionOutcome
 
-	if strings.Contains(feedback, "liked") {
-		outcome = openai.OutcomeLiked
-	} else if strings.Contains(feedback, "didn't like") {
+	// More precise string matching to avoid false positives
+	if strings.Contains(feedback, "disliked the suggestion") {
 		outcome = openai.OutcomeDisliked
-	} else if strings.Contains(feedback, "skipped") {
+	} else if strings.Contains(feedback, "skipped the suggestion") {
 		outcome = openai.OutcomeSkipped
-	} else if strings.Contains(feedback, "added") {
+	} else if strings.Contains(feedback, "added it to my library") {
 		outcome = openai.OutcomeAdded
+	} else if strings.Contains(feedback, "liked the suggestion") {
+		outcome = openai.OutcomeLiked
+	} else {
+		log.Printf("WARNING: Could not determine outcome from feedback: %s", feedback)
 	}
 
 	// Extract song name and artist from feedback
-	if songStart := strings.Index(feedback, "'"); songStart != -1 {
-		if songEnd := strings.Index(feedback[songStart+1:], "'"); songEnd != -1 {
-			songName = feedback[songStart+1 : songStart+1+songEnd]
-			if artistStart := strings.Index(feedback, "by '"); artistStart != -1 {
-				if artistEnd := strings.Index(feedback[artistStart+4:], "'"); artistEnd != -1 {
-					artistName = feedback[artistStart+4 : artistStart+4+artistEnd]
-				}
+	// First try the format with colon
+	parts := strings.Split(feedback, ": ")
+	if len(parts) == 2 {
+		nameAndArtist := strings.Split(parts[1], " by ")
+		if len(nameAndArtist) == 2 {
+			songName = strings.TrimSpace(nameAndArtist[0])
+			artistName = strings.TrimSuffix(strings.TrimSpace(nameAndArtist[1]), ".")
+			artistName = strings.TrimSuffix(artistName, " so much I added it to my library!")
+		}
+	} else {
+		// Try alternative format without colon
+		parts = strings.Split(feedback, " the suggestion ")
+		if len(parts) == 2 {
+			nameAndArtist := strings.Split(parts[1], " by ")
+			if len(nameAndArtist) == 2 {
+				songName = strings.TrimSpace(nameAndArtist[0])
+				artistName = strings.TrimSuffix(strings.TrimSpace(nameAndArtist[1]), ".")
+				artistName = strings.TrimSuffix(artistName, " so much I added it to my library!")
 			}
 		}
 	}
 
 	// Update the suggestion outcome if we could parse the song details
 	if songName != "" && artistName != "" {
+		// Ensure we have a valid userID
+		userID := app.GetCurrentUserID()
+		if userID == "" {
+			return errors.New("no user ID available")
+		}
+
+		// Ensure the OpenAI client has the correct userID
+		app.openaiClient.SetUserID(userID)
+
+		log.Printf("Updating suggestion outcome for '%s' by '%s' to %s (userID: %s)", songName, artistName, outcome, userID)
 		if err := app.openaiClient.UpdateSuggestionOutcome(songName, artistName, outcome); err != nil {
 			log.Printf("WARNING: Failed to update suggestion outcome: %v", err)
 		}
+	} else {
+		log.Printf("WARNING: Could not parse song name and artist from feedback: %s", feedback)
 	}
 
+	// Add the feedback to the chat history
 	app.mu.Lock()
-	app.chatHistory = append(app.chatHistory, openai.Message{Role: "user", Content: feedback})
+	app.chatHistory = append(app.chatHistory, openai.Message{
+		Role:    "user",
+		Content: feedback,
+	})
 	app.mu.Unlock()
 
-	log.Printf("Feedback received: %s (Added to history)", feedback)
 	return nil
 }
 

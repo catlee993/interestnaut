@@ -233,7 +233,7 @@ func (sm *SessionManager) HasSuggested(userID string, songName string, artistNam
 		return false
 	}
 
-	key := fmt.Sprintf("%s:%s", songName, artistName)
+	key := fmt.Sprintf("%s|||%s", songName, artistName)
 	_, exists = session.SuggestedSongs[key]
 	return exists
 }
@@ -248,10 +248,12 @@ func (sm *SessionManager) AddSuggestion(userID string, record SuggestionRecord) 
 		return fmt.Errorf("session not found for user %s", userID)
 	}
 
-	key := fmt.Sprintf("%s:%s", record.Name, record.Artist)
+	// Normalize the key by trimming spaces and converting to lowercase
+	key := fmt.Sprintf("%s|||%s", strings.ToLower(strings.TrimSpace(record.Name)), strings.ToLower(strings.TrimSpace(record.Artist)))
 	record.Timestamp = time.Now().Unix()
 	record.Outcome = OutcomePending
 	session.SuggestedSongs[key] = record
+	log.Printf("Added suggestion to session: %s (key: %s)", record.Name, key)
 	return sm.saveSession(session)
 }
 
@@ -262,16 +264,67 @@ func (sm *SessionManager) UpdateSuggestionOutcome(userID string, songName string
 
 	session, exists := sm.sessions[userID]
 	if !exists {
+		log.Printf("ERROR: Session not found for user %s", userID)
 		return fmt.Errorf("session not found for user %s", userID)
 	}
 
-	key := fmt.Sprintf("%s:%s", songName, artistName)
-	if record, exists := session.SuggestedSongs[key]; exists {
-		record.Outcome = outcome
-		record.FeedbackAt = time.Now().Unix()
-		session.SuggestedSongs[key] = record
-		return sm.saveSession(session)
+	// Normalize inputs
+	normalizedSongName := strings.ToLower(strings.TrimSpace(songName))
+	normalizedArtistName := strings.ToLower(strings.TrimSpace(artistName))
+
+	// Try different key formats
+	possibleKeys := []string{
+		fmt.Sprintf("%s|||%s", normalizedSongName, normalizedArtistName),
+		fmt.Sprintf("%s - %s", normalizedArtistName, normalizedSongName), // Artist - Song format
+		fmt.Sprintf("%s - %s", normalizedSongName, normalizedArtistName), // Song - Artist format
 	}
+
+	log.Printf("Looking for suggestion with normalized song: '%s', artist: '%s'", normalizedSongName, normalizedArtistName)
+	log.Printf("Trying possible keys: %v", possibleKeys)
+	log.Printf("Current suggestions in session: %v", session.SuggestedSongs)
+
+	// Try each possible key format
+	for _, key := range possibleKeys {
+		if record, exists := session.SuggestedSongs[key]; exists {
+			log.Printf("Found suggestion using key: '%s'", key)
+			log.Printf("Previous outcome: %s, New outcome: %s", record.Outcome, outcome)
+			record.Outcome = outcome
+			record.FeedbackAt = time.Now().Unix()
+			session.SuggestedSongs[key] = record
+			if err := sm.saveSession(session); err != nil {
+				log.Printf("ERROR: Failed to save session after updating outcome: %v", err)
+				return err
+			}
+			log.Printf("Successfully updated and saved suggestion outcome")
+			return nil
+		}
+	}
+
+	// If no exact match found, try fuzzy matching
+	log.Printf("No exact match found, trying fuzzy matching...")
+	for k, record := range session.SuggestedSongs {
+		recordSongName := strings.ToLower(strings.TrimSpace(record.Name))
+		recordArtistName := strings.ToLower(strings.TrimSpace(record.Artist))
+
+		// Check if either song name or artist name contains the other
+		if (strings.Contains(recordSongName, normalizedSongName) || strings.Contains(normalizedSongName, recordSongName)) &&
+			(strings.Contains(recordArtistName, normalizedArtistName) || strings.Contains(normalizedArtistName, recordArtistName)) {
+			log.Printf("Found fuzzy match - Record: '%s' by '%s', Input: '%s' by '%s'",
+				record.Name, record.Artist, songName, artistName)
+			log.Printf("Previous outcome: %s, New outcome: %s", record.Outcome, outcome)
+			record.Outcome = outcome
+			record.FeedbackAt = time.Now().Unix()
+			session.SuggestedSongs[k] = record
+			if err := sm.saveSession(session); err != nil {
+				log.Printf("ERROR: Failed to save session after updating outcome: %v", err)
+				return err
+			}
+			log.Printf("Successfully updated and saved suggestion outcome")
+			return nil
+		}
+	}
+
+	log.Printf("ERROR: Failed to find suggestion with any matching method")
 	return fmt.Errorf("suggestion not found: %s by %s", songName, artistName)
 }
 

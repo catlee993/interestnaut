@@ -44,7 +44,7 @@ function App() {
     const [searchQuery, setSearchQuery] = useState<string>("");
     const [user, setUser] = useState<spotify.UserProfile | null>(null);
     const [error, setError] = useState<string | null>(null);
-    const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' | 'dislike' } | null>(null);
+    const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' | 'dislike' | 'skip' } | null>(null);
     const [isLoading, setIsLoading] = useState<boolean>(true);
     const [currentPage, setCurrentPage] = useState<number>(1);
     const [totalTracks, setTotalTracks] = useState<number>(0);
@@ -55,6 +55,7 @@ function App() {
     const [spotifyPlayer, setSpotifyPlayer] = useState<any>(null);
     const [spotifyDeviceId, setSpotifyDeviceId] = useState<string | null>(null);
     const [isUsingPreview, setIsUsingPreview] = useState<boolean>(true);
+    const [hasLikedCurrentSuggestion, setHasLikedCurrentSuggestion] = useState<boolean>(false);
 
     const [isProcessingLibrary, setIsProcessingLibrary] = useState<boolean>(false);
     const [suggestionError, setSuggestionError] = useState<string | null>(null);
@@ -121,7 +122,47 @@ function App() {
         };
     }, [audioElement]);
 
-    // Separate function to load core data after auth
+    // Helper function to handle suggestion errors consistently
+    const handleSuggestionError = (err: unknown) => {
+        console.error('Suggestion error:', err);
+        let errorMsg = '';
+        
+        if (err && typeof err === 'object') {
+            console.log('Error is an object with properties:', Object.keys(err));
+            errorMsg = (err as any).error || // Wails error format
+                      (err as Error).message || // Standard Error format
+                      (err as any).message || // Generic object with message
+                      (typeof err === 'string' ? err : ''); // String error
+        } else if (typeof err === 'string') {
+            errorMsg = err;
+        }
+        
+        if (!errorMsg) {
+            console.log('No error message found in error object, using default');
+            errorMsg = 'Failed to get suggestion.';
+        }
+        
+        console.log('Final extracted error message:', errorMsg);
+        
+        if (errorMsg.includes('Could not find')) {
+            console.log('Error indicates a failed search, attempting to extract context');
+            const match = errorMsg.match(/Could not find '(.+)' by '(.+)' on Spotify/);
+            if (match) {
+                const [_, track, artist] = match;
+                const searchContext = `${track} by ${artist}`;
+                console.log('Successfully extracted search context:', { track, artist, searchContext });
+                setSuggestionContext(searchContext);
+                setSuggestionError(`Searched for "${searchContext}" on Spotify but couldn't find it.`);
+            } else {
+                console.log('Could not parse search context from error message');
+                setSuggestionError(errorMsg);
+            }
+        } else {
+            console.log('Error does not contain search context, using raw message');
+            setSuggestionError(errorMsg);
+        }
+    };
+
     const loadAppData = async () => {
         console.log("loadAppData: Loading core application data...");
         try {
@@ -148,8 +189,16 @@ function App() {
                 setIsProcessingLibrary(true);
                 setShowSuggestionSection(true); 
                 try {
+                    console.log('Requesting first suggestion...');
                     const firstSuggestion = await ProcessLibraryAndGetFirstSuggestion();
                     console.log('First suggestion received:', firstSuggestion);
+                    
+                    if (!firstSuggestion) {
+                        console.error('Received null response');
+                        setSuggestionError('Failed to get suggestion.');
+                        return;
+                    }
+
                     if (firstSuggestion && firstSuggestion.id) {
                         setSuggestedTrack(firstSuggestion);
                     } else {
@@ -157,32 +206,7 @@ function App() {
                         setSuggestionError('Received invalid suggestion from backend.');
                     }
                 } catch (processErr) {
-                    console.error('Failed during initial processing:', processErr);
-                    const errorMsg = processErr instanceof Error ? processErr.message : 'Failed to get initial suggestion.';
-                    console.log('Processing error message:', errorMsg);
-                    
-                    // Check if the error message contains information about a failed search
-                    if (typeof errorMsg === 'string' && errorMsg.includes('Could not find')) {
-                        console.log('Found "Could not find" in error message');
-                        // Extract track and artist from error message like "Could not find 'Deathcrush' by 'Blanck Mass' on Spotify"
-                        const match = errorMsg.match(/Could not find '(.+)' by '(.+)' on Spotify/);
-                        console.log('Regex match result:', match);
-                        if (match) {
-                            const [_, track, artist] = match;
-                            const searchContext = `${track} by ${artist}`;
-                            console.log('Setting suggestion context:', searchContext);
-                            setSuggestionContext(searchContext);
-                            const formattedError = `Searched for "${searchContext}" on Spotify but couldn't find it.`;
-                            console.log('Setting error message:', formattedError);
-                            setSuggestionError(formattedError);
-                        } else {
-                            console.log('Could not parse search context from error message');
-                            setSuggestionError(errorMsg);
-                        }
-                    } else {
-                        console.log('Error does not contain search context, using raw message');
-                        setSuggestionError(errorMsg);
-                    }
+                    handleSuggestionError(processErr);
                 } finally {
                     setIsProcessingLibrary(false);
                 }
@@ -192,6 +216,8 @@ function App() {
             }
         } catch (err) {
             console.error('Failed to load app data:', err);
+            console.log('Outer error type:', typeof err);
+            console.log('Outer error object:', err);
             setError(err instanceof Error ? err.message : 'An error occurred loading data');
             setIsAuthenticated(false); // Ensure auth state reflects potential failure
         } finally {
@@ -537,8 +563,8 @@ function App() {
         if (!suggestedTrack) return;
 
         const feedbackText = feedbackType === 'like'
-            ? `I liked the suggestion: ${suggestedTrack.name} by ${suggestedTrack.artist}.`
-            : `I disliked the suggestion: ${suggestedTrack.name} by ${suggestedTrack.artist}.`;
+            ? `I liked the suggestion: ${suggestedTrack.name} by ${suggestedTrack.artist}`
+            : `I disliked the suggestion: ${suggestedTrack.name} by ${suggestedTrack.artist}`;
         
         try {
             console.log(`Sending feedback (${feedbackType}):`, feedbackText);
@@ -548,6 +574,10 @@ function App() {
                 message: feedbackType === 'like' ? 'Feedback recorded: liked the suggestion' : 'Feedback recorded: did not like the suggestion',
                 type: feedbackType === 'like' ? 'success' : 'dislike'
             });
+            // Set the liked state if the user liked the suggestion
+            if (feedbackType === 'like') {
+                setHasLikedCurrentSuggestion(true);
+            }
             // Keep the suggestion visible, let user decide when to dismiss
             if (feedbackType === 'dislike') {
                 setSuggestedTrack(null); // Only clear if disliked
@@ -602,16 +632,41 @@ function App() {
     // Update handleRequestSuggestion to better handle errors
     const handleRequestSuggestion = async () => {
         console.log('Starting new suggestion request...');
+        
+        // Record feedback for the current suggestion before requesting a new one
+        if (suggestedTrack) {
+            try {
+                let feedbackText;
+                if (hasLikedCurrentSuggestion) {
+                    feedbackText = `I liked the suggestion: ${suggestedTrack.name} by ${suggestedTrack.artist}`;
+                    // Don't show a toast for liked suggestions that are already recorded
+                    await ProvideSuggestionFeedback(feedbackText);
+                } else {
+                    feedbackText = `I skipped the suggestion: ${suggestedTrack.name} by ${suggestedTrack.artist}`;
+                    await ProvideSuggestionFeedback(feedbackText);
+                    // Only show toast for skipped suggestions
+                    setToast({
+                        message: 'Feedback recorded: skipped the suggestion',
+                        type: 'skip'
+                    });
+                }
+                console.log('Recording feedback for current suggestion:', feedbackText);
+            } catch (err) {
+                console.error('Failed to record feedback:', err);
+                // Continue with new suggestion request even if feedback recording fails
+            }
+        }
+        
         setSuggestionError(null);
         setIsProcessingLibrary(true); 
         setSuggestedTrack(null); 
         setSuggestionContext(null);
+        setHasLikedCurrentSuggestion(false);
         try {
             console.log('Requesting new suggestion...');
             const response = await RequestNewSuggestion();
             console.log('Raw suggestion response:', response);
             
-            // If response is null, it means there was an error
             if (!response) {
                 console.error('Received null response');
                 setSuggestionError('Failed to get suggestion.');
@@ -626,7 +681,6 @@ function App() {
                     originalQuery: 'originalQuery' in response ? response.originalQuery : undefined
                 });
                 setSuggestedTrack(response);
-                // Store what the AI suggested
                 const context = 'originalQuery' in response && typeof response.originalQuery === 'string' ? 
                     response.originalQuery : 
                     `${response.name} by ${response.artist}`;
@@ -637,51 +691,34 @@ function App() {
                 setSuggestionError('Received invalid suggestion from backend.');
             }
         } catch (err) {
-            console.error('Failed to request suggestion. Full error:', err);
-            console.log('Error stringified:', JSON.stringify(err, null, 2));
-            
-            // First try to extract error from error object
-            let errorMsg = '';
-            if (err && typeof err === 'object') {
-                console.log('Error is an object with properties:', Object.keys(err));
-                // Try to get the error message from various possible locations
-                errorMsg = (err as any).error || // Wails error format
-                          (err as Error).message || // Standard Error format
-                          (err as any).message || // Generic object with message
-                          (typeof err === 'string' ? err : ''); // String error
-            } else if (typeof err === 'string') {
-                errorMsg = err;
-            }
-            
-            // If we couldn't extract an error message, use a default
-            if (!errorMsg) {
-                console.log('No error message found in error object, using default');
-                errorMsg = 'Failed to get suggestion.';
-            }
-            
-            console.log('Final extracted error message:', errorMsg);
-            
-            // Check if the error message contains information about a failed search
-            if (errorMsg.includes('Could not find')) {
-                console.log('Error indicates a failed search, attempting to extract context');
-                // Extract track and artist from error message like "Could not find 'Deathcrush' by 'Blanck Mass' on Spotify"
-                const match = errorMsg.match(/Could not find '(.+)' by '(.+)' on Spotify/);
-                if (match) {
-                    const [_, track, artist] = match;
-                    const searchContext = `${track} by ${artist}`;
-                    console.log('Successfully extracted search context:', { track, artist, searchContext });
-                    setSuggestionContext(searchContext);
-                    setSuggestionError(`Searched for "${searchContext}" on Spotify but couldn't find it.`);
-                } else {
-                    console.log('Could not parse search context from error message');
-                    setSuggestionError(errorMsg);
-                }
-            } else {
-                console.log('Error does not contain search context, using raw message');
-                setSuggestionError(errorMsg);
-            }
+            handleSuggestionError(err);
         } finally {
             setIsProcessingLibrary(false);
+        }
+    };
+
+    // Handler for skipping a suggestion
+    const handleSkipSuggestion = async () => {
+        if (!suggestedTrack) return;
+
+        try {
+            console.log(`Skipping suggestion: ${suggestedTrack.name}`);
+            const feedbackText = `I skipped the suggestion: ${suggestedTrack.name} by ${suggestedTrack.artist}`;
+            await ProvideSuggestionFeedback(feedbackText);
+            setToast({
+                message: 'Skipped suggestion',
+                type: 'success'
+            });
+            // Clear the suggestion immediately after successful feedback
+            setSuggestedTrack(null);
+            // Request a new suggestion
+            handleRequestSuggestion();
+        } catch (err) {
+            console.error('Failed to send skip feedback:', err);
+            setToast({
+                message: 'Failed to record skip feedback',
+                type: 'error'
+            });
         }
     };
 

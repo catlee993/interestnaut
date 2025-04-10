@@ -781,6 +781,11 @@ button {
     background-color: #f44336;
 }
 
+.toast.skip {
+    background-color: #ffc107;
+    color: #000;
+}
+
 @keyframes slideIn {
     from {
         transform: translateX(100%);
