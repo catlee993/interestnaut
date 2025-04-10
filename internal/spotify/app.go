@@ -266,6 +266,19 @@ func (a *App) ClearSpotifyCredentials() error {
 	a.client = nil
 	a.mu.Unlock()
 
+	// Start a new authentication flow
+	ctx := context.Background()
+	if err := RunInitialAuthFlow(ctx); err != nil {
+		log.Printf("ERROR: Failed to start new auth flow after clearing credentials: %v", err)
+		return errors.Wrap(err, "failed to start new auth flow")
+	}
+
+	// Create a new client with the auth config
+	spotifyClient := NewClientWithAuth(a.authConfig)
+	a.mu.Lock()
+	a.client = spotifyClient
+	a.mu.Unlock()
+
 	return nil
 }
 
