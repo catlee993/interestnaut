@@ -216,7 +216,7 @@ export function ClipboardSetText(text) {
  *
  * @export
  * @param {OnFileDropCallback} callback - Callback for OnFileDrop returns a slice of file path strings when a drop is finished.
- * @param {boolean} [useDropTarget=true] - Only call the callback when the drop finished on an element that has the drop target style. (--bindings-drop-target)
+ * @param {boolean} [useDropTarget=true] - Only call the callback when the drop finished on an element that has the drop target style. (--wails-drop-target)
  */
 export function OnFileDrop(callback, useDropTarget) {
     return window.runtime.OnFileDrop(callback, useDropTarget);

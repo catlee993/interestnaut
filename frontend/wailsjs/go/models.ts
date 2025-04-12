@@ -1,3 +1,15 @@
+export namespace session {
+	
+	export enum Outcome {
+	    liked = "liked",
+	    disliked = "disliked",
+	    skipped = "skipped",
+	    added = "added",
+	    pending = "pending",
+	}
+
+}
+
 export namespace spotify {
 	
 	export class Image {
@@ -49,18 +61,6 @@ export namespace spotify {
 		    }
 		    return a;
 		}
-	}
-	export class App {
-	
-	
-	    static createFrom(source: any = {}) {
-	        return new App(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	
-	    }
 	}
 	export class Artist {
 	    id: string;

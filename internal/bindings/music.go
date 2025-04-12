@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/pkg/errors"
+	"interestnaut/internal/creds"
 	"interestnaut/internal/directives"
 	"interestnaut/internal/llm"
 	"interestnaut/internal/openai"
@@ -61,28 +62,28 @@ func (m *Music) SetSpotifyClient(client spotify.Client) {
 }
 
 // GetSavedTracks retrieves the user's saved tracks.
-func (m *Music) GetSavedTracks(ctx context.Context, limit, offset int) (*spotify.SavedTracks, error) {
-	return m.spotifyClient.GetSavedTracks(ctx, limit, offset)
+func (m *Music) GetSavedTracks(limit, offset int) (*spotify.SavedTracks, error) {
+	return m.spotifyClient.GetSavedTracks(context.Background(), limit, offset)
 }
 
 // SearchTracks searches for tracks matching the query.
-func (m *Music) SearchTracks(ctx context.Context, query string, limit int) ([]*spotify.SimpleTrack, error) {
-	return m.spotifyClient.SearchTracks(ctx, query, limit)
+func (m *Music) SearchTracks(query string, limit int) ([]*spotify.SimpleTrack, error) {
+	return m.spotifyClient.SearchTracks(context.Background(), query, limit)
 }
 
 // SaveTrack saves a track to the user's library.
-func (m *Music) SaveTrack(ctx context.Context, trackID string) error {
-	return m.spotifyClient.SaveTrack(ctx, trackID) // Call method on App
+func (m *Music) SaveTrack(trackID string) error {
+	return m.spotifyClient.SaveTrack(context.Background(), trackID) // Call method on App
 }
 
 // RemoveTrack removes a track from the user's library.
-func (m *Music) RemoveTrack(ctx context.Context, trackID string) error {
-	return m.spotifyClient.RemoveTrack(ctx, trackID)
+func (m *Music) RemoveTrack(trackID string) error {
+	return m.spotifyClient.RemoveTrack(context.Background(), trackID)
 }
 
 // GetCurrentUser retrieves the current user's profile.
-func (m *Music) GetCurrentUser(ctx context.Context) (*spotify.UserProfile, error) {
-	return m.spotifyClient.GetCurrentUser(ctx)
+func (m *Music) GetCurrentUser() (*spotify.UserProfile, error) {
+	return m.spotifyClient.GetCurrentUser(context.Background())
 }
 
 type SuggestionResponse struct {
@@ -92,7 +93,8 @@ type SuggestionResponse struct {
 }
 
 // RequestNewSuggestion gets a new suggestion based on the chat history.
-func (m *Music) RequestNewSuggestion(ctx context.Context) (*spotify.SuggestedTrackInfo, error) {
+func (m *Music) RequestNewSuggestion() (*spotify.SuggestedTrackInfo, error) {
+	ctx := context.Background()
 	sess := m.manager.GetOrCreateSession(ctx, m.manager.Key(), m.taskFunc, m.baselineFunc)
 	message, err := m.llmClient.ComposeMessage(ctx, &sess.Content)
 	if err != nil {
@@ -148,7 +150,8 @@ func (m *Music) RequestNewSuggestion(ctx context.Context) (*spotify.SuggestedTra
 }
 
 // ProvideSuggestionFeedback sends user feedback to OpenAI and records the outcome.
-func (m *Music) ProvideSuggestionFeedback(ctx context.Context, outcome session.Outcome, title, artist, album string) error {
+func (m *Music) ProvideSuggestionFeedback(outcome session.Outcome, title, artist, album string) error {
+	ctx := context.Background()
 	sess := m.manager.GetOrCreateSession(ctx, m.manager.Key(), m.taskFunc, m.baselineFunc)
 	key := session.KeyerMusicInfo(title, artist, album)
 	if err := m.manager.UpdateSuggestionOutcome(ctx, sess, key, outcome); err != nil {
@@ -159,8 +162,8 @@ func (m *Music) ProvideSuggestionFeedback(ctx context.Context, outcome session.O
 }
 
 // GetValidToken exposes the function to get a valid access token for the frontend SDK.
-func (m *Music) GetValidToken(ctx context.Context) (string, error) {
-	return spotify.GetValidToken(ctx)
+func (m *Music) GetValidToken() (string, error) {
+	return spotify.GetValidToken(context.Background())
 }
 
 // GetAuthStatus exposes the App's GetAuthStatus method.
@@ -171,20 +174,20 @@ func (m *Music) GetAuthStatus() map[string]interface{} {
 }
 
 // PlayTrackOnDevice calls the App method to start playback.
-func (m *Music) PlayTrackOnDevice(ctx context.Context, deviceID string, trackURI string) error {
+func (m *Music) PlayTrackOnDevice(deviceID string, trackURI string) error {
 	// Create a background context to pass to the underlying app method
-	return m.spotifyClient.PlayTrackOnDevice(ctx, deviceID, trackURI)
+	return m.spotifyClient.PlayTrackOnDevice(context.Background(), deviceID, trackURI)
 }
 
 // PausePlaybackOnDevice calls the App method to pause playback.
-func (m *Music) PausePlaybackOnDevice(ctx context.Context, deviceID string) error {
+func (m *Music) PausePlaybackOnDevice(deviceID string) error {
 	// Create a background context to pass to the underlying app method
-	return m.spotifyClient.PausePlaybackOnDevice(ctx, deviceID)
+	return m.spotifyClient.PausePlaybackOnDevice(context.Background(), deviceID)
 }
 
 // ClearSpotifyCredentials clears stored Spotify tokens.
 func (m *Music) ClearSpotifyCredentials() error {
-	if err := m.ClearSpotifyCredentials(); err != nil {
+	if err := creds.ClearSpotifyToken(); err != nil {
 		return errors.Wrap(err, "failed to clear Spotify credentials")
 	}
 

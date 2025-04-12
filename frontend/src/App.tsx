@@ -7,8 +7,6 @@ import {
     SaveTrack,
     RemoveTrack,
     GetCurrentUser,
-    GetInitialSuggestionState,
-    ProcessLibraryAndGetFirstSuggestion,
     RequestNewSuggestion,
     ProvideSuggestionFeedback,
     GetValidToken,
@@ -16,9 +14,8 @@ import {
     PausePlaybackOnDevice,
     ClearSpotifyCredentials,
     GetAuthStatus,
-    SetUserID
-} from "../wailsjs/go/spotify/WailsClient";
-import { spotify } from "../wailsjs/go/models";
+} from "../wailsjs/go/bindings/Music";
+import { spotify, session } from "../wailsjs/go/models";
 
 // Declare Spotify types for TypeScript (if not already globally available)
 declare global {
@@ -39,6 +36,7 @@ declare global {
 }
 
 function App() {
+    const ctx = {}; // Empty object as context for now
     const [savedTracks, setSavedTracks] = useState<spotify.SavedTracks | null>(null);
     const [searchResults, setSearchResults] = useState<spotify.SimpleTrack[]>([]);
     const [searchQuery, setSearchQuery] = useState<string>("");
@@ -90,12 +88,12 @@ function App() {
             console.log("[Audio] Track ended");
             setIsPlaybackPaused(true);
         };
-        
+
         const handlePause = () => {
             console.log("[Audio] Track paused");
             setIsPlaybackPaused(true);
         };
-        
+
         const handlePlay = () => {
             console.log("[Audio] Track started playing");
             setIsPlaybackPaused(false);
@@ -126,7 +124,7 @@ function App() {
     const handleSuggestionError = (err: unknown) => {
         console.error('Suggestion error:', err);
         let errorMsg = '';
-        
+
         if (err && typeof err === 'object') {
             console.log('Error is an object with properties:', Object.keys(err));
             errorMsg = (err as any).error || // Wails error format
@@ -136,14 +134,14 @@ function App() {
         } else if (typeof err === 'string') {
             errorMsg = err;
         }
-        
+
         if (!errorMsg) {
             console.log('No error message found in error object, using default');
             errorMsg = 'Failed to get suggestion.';
         }
-        
+
         console.log('Final extracted error message:', errorMsg);
-        
+
         if (errorMsg.includes('Could not find')) {
             console.log('Error indicates a failed search, attempting to extract context');
             const match = errorMsg.match(/Could not find '(.+)' by '(.+)' on Spotify/);
@@ -167,53 +165,18 @@ function App() {
         console.log("loadAppData: Loading core application data...");
         try {
             // Ensure user is loaded first
-            const currentUser = user ?? await GetCurrentUser(); 
+            const currentUser = user ?? await GetCurrentUser();
             if (!currentUser) {
                 throw new Error("Failed to load current user after authentication.");
             }
             if (!user) setUser(currentUser); // Set user state if not already set
-            
-            // Set the user ID in the backend
-            await SetUserID(currentUser.id);
-            console.log("Set user ID in backend:", currentUser.id);
-            
+
             setIsAuthenticated(true); // Mark as authenticated
             await loadSavedTracks(1);
 
-            console.log('Checking initial suggestion state...');
-            const needsProcessing = await GetInitialSuggestionState();
-            console.log('Needs processing:', needsProcessing);
-
-            if (needsProcessing) {
-                console.log('Starting initial library processing...');
-                setIsProcessingLibrary(true);
-                setShowSuggestionSection(true); 
-                try {
-                    console.log('Requesting first suggestion...');
-                    const firstSuggestion = await ProcessLibraryAndGetFirstSuggestion();
-                    console.log('First suggestion received:', firstSuggestion);
-                    
-                    if (!firstSuggestion) {
-                        console.error('Received null response');
-                        setSuggestionError('Failed to get suggestion.');
-                        return;
-                    }
-
-                    if (firstSuggestion && firstSuggestion.id) {
-                        setSuggestedTrack(firstSuggestion);
-                    } else {
-                        console.error('Invalid suggestion format or missing ID:', firstSuggestion);
-                        setSuggestionError('Received invalid suggestion from backend.');
-                    }
-                } catch (processErr) {
-                    handleSuggestionError(processErr);
-                } finally {
-                    setIsProcessingLibrary(false);
-                }
-            } else {
-                // If not processing, still show the section for user interaction
-                setShowSuggestionSection(true);
-            }
+            // Show suggestion section and request first suggestion
+            setShowSuggestionSection(true);
+            await handleRequestSuggestion();
         } catch (err) {
             console.error('Failed to load app data:', err);
             console.log('Outer error type:', typeof err);
@@ -231,14 +194,14 @@ function App() {
         setIsLoading(true);
         setError(null);
         setSuggestionError(null);
-        
+
         try {
             console.log("Attempting initial user fetch...");
             const currentUser = await GetCurrentUser();
             setUser(currentUser);
             console.log("Initial user fetch successful.");
             // If user fetch worked, we are authenticated, load data
-            await loadAppData(); 
+            await loadAppData();
         } catch (err) {
             const errorMsg = err instanceof Error ? err.message.toLowerCase() : "";
             if (errorMsg.includes("not authenticated")) {
@@ -291,12 +254,12 @@ function App() {
             setIsLoading(true);
             setError(null);
             const offset = (page - 1) * ITEMS_PER_PAGE;
-            const response = await GetSavedTracks(ITEMS_PER_PAGE, offset);
-            
-            if (response) {
-                console.log('Loaded', response.items?.length || 0, 'tracks');
-                setSavedTracks(response);
-                setTotalTracks(response.total || 0);
+            const tracks = await GetSavedTracks(ITEMS_PER_PAGE, offset);
+
+            if (tracks) {
+                console.log('Loaded', tracks.items?.length || 0, 'tracks');
+                setSavedTracks(tracks);
+                setTotalTracks(tracks.total || 0);
                 setCurrentPage(page);
             } else {
                 console.error('Tracks response is null');
@@ -319,7 +282,7 @@ function App() {
         try {
             setIsLoading(true);
             setError(null);
-            const results = await SearchTracks(query, 20);
+            const results = await SearchTracks(query, 10);
             setSearchResults(results || []);
         } catch (err) {
             console.error('Failed to search tracks:', err);
@@ -331,10 +294,10 @@ function App() {
 
     const handlePlay = async (track: spotify.Track | spotify.SimpleTrack | spotify.SuggestedTrackInfo) => {
         console.log("[handlePlay] Called for track:", track?.name);
-        
+
         const info = getTrackInfo(track);
         console.log("[handlePlay] Track info:", info);
-        
+
         // Check if we're trying to pause the current track
         if (nowPlayingTrack?.id === track.id && !isPlaybackPaused) {
             console.log("[handlePlay] Pausing current track");
@@ -357,10 +320,10 @@ function App() {
             try {
                 console.log("[handlePlay] Attempting full song playback");
                 // For suggested tracks, we need to construct the URI
-                const trackUri = 'uri' in track ? 
-                    track.uri : 
+                const trackUri = 'uri' in track ?
+                    track.uri :
                     `spotify:track:${track.id}`;
-                
+
                 console.log("[handlePlay] Using track URI:", trackUri);
                 await PlayTrackOnDevice(spotifyDeviceId, trackUri);
                 setNowPlayingTrack(track);
@@ -372,7 +335,7 @@ function App() {
                 // Fall back to preview if available
             }
         }
-        
+
         // Fall back to preview URL playback
         if (info.previewUrl) {
             console.log("[handlePlay] Using preview URL playback");
@@ -415,8 +378,8 @@ function App() {
         }
     };
 
-    const getTrackInfo = (track: spotify.Track | spotify.SimpleTrack | spotify.SuggestedTrackInfo | null): 
-        { name: string; artist: string; album: string; albumArtUrl: string; previewUrl: string | null } => 
+    const getTrackInfo = (track: spotify.Track | spotify.SimpleTrack | spotify.SuggestedTrackInfo | null):
+        { name: string; artist: string; album: string; albumArtUrl: string; previewUrl: string | null } =>
     {
         if (!track) {
              return {
@@ -427,7 +390,7 @@ function App() {
                 previewUrl: null,
             };
         }
-        
+
         // Check for Full Track (has artists array and album object)
         if ('artists' in track && Array.isArray(track.artists) && 'album' in track && typeof track.album === 'object' && track.album !== null && 'images' in track.album) {
             return {
@@ -438,14 +401,14 @@ function App() {
                 previewUrl: track.preview_url || null, // Ensure null if missing
             };
         }
-        
+
         // Check for Simple Track (has artist string and album string)
         // Note: SimpleTrack mapping in client.go puts album name in track.album
         if ('artist' in track && typeof track.artist === 'string' && 'album' in track && typeof track.album === 'string' && 'albumArtUrl' in track) {
              return {
                 name: track.name,
-                artist: track.artist, 
-                album: track.album, 
+                artist: track.artist,
+                album: track.album,
                 albumArtUrl: track.albumArtUrl || '', // Ensure string
                 previewUrl: track.previewUrl || null, // Ensure null if missing
             };
@@ -461,7 +424,7 @@ function App() {
                 previewUrl: track.previewUrl || null, // Ensure null if missing
             };
         }
-        
+
         // Fallback for unknown type
         console.warn("Unknown track type passed to getTrackInfo:", track);
         return {
@@ -478,7 +441,7 @@ function App() {
         const isPlayingThis = !isPlaybackPaused && nowPlayingTrack?.id === track.id;
         const hasUri = 'uri' in track && track.uri;
         const canPlay = hasUri || info.previewUrl;
-        
+
         console.log(`[TrackCard] Track "${track.name}" playability:`, {
             hasUri,
             hasPreview: !!info.previewUrl,
@@ -562,13 +525,14 @@ function App() {
     const handleSuggestionFeedback = async (feedbackType: 'like' | 'dislike') => {
         if (!suggestedTrack) return;
 
-        const feedbackText = feedbackType === 'like'
-            ? `I liked the suggestion: ${suggestedTrack.name} by ${suggestedTrack.artist}`
-            : `I disliked the suggestion: ${suggestedTrack.name} by ${suggestedTrack.artist}`;
-        
         try {
-            console.log(`Sending feedback (${feedbackType}):`, feedbackText);
-            await ProvideSuggestionFeedback(feedbackText);
+            const outcome = feedbackType === 'like' ? session.Outcome.liked : session.Outcome.disliked;
+            await ProvideSuggestionFeedback(
+                outcome,
+                suggestedTrack.name,
+                suggestedTrack.artist,
+                '' // No album needed
+            );
             // Only show toast after successful API call
             setToast({
                 message: feedbackType === 'like' ? 'Feedback recorded: liked the suggestion' : 'Feedback recorded: did not like the suggestion',
@@ -592,20 +556,22 @@ function App() {
     };
 
     // Handler for adding the suggested track to the library
-    const handleAddSuggestionToLibrary = async () => {
+    const handleAddToLibrary = async () => {
         if (!suggestedTrack) return;
-
         try {
             console.log(`Adding suggested track to library: ${suggestedTrack.id}`);
             await SaveTrack(suggestedTrack.id);
             // Also send strong positive feedback
-            const feedbackText = `I liked the suggestion ${suggestedTrack.name} by ${suggestedTrack.artist} so much I added it to my library!`;
-            await ProvideSuggestionFeedback(feedbackText);
+            await ProvideSuggestionFeedback(
+                session.Outcome.liked,
+                suggestedTrack.name,
+                suggestedTrack.artist,
+                '' // No album needed
+            );
             setToast({
                 message: 'Added to your library! 🎵',
                 type: 'success'
             });
-            setSuggestedTrack(null);
         } catch (err) {
             console.error('Failed to add suggested track or send feedback:', err);
             setToast({
@@ -632,7 +598,7 @@ function App() {
     // Update handleRequestSuggestion to better handle errors
     const handleRequestSuggestion = async () => {
         console.log('Starting new suggestion request...');
-        
+
         // Record feedback for the current suggestion before requesting a new one
         if (suggestedTrack) {
             try {
@@ -640,10 +606,10 @@ function App() {
                 if (hasLikedCurrentSuggestion) {
                     feedbackText = `I liked the suggestion: ${suggestedTrack.name} by ${suggestedTrack.artist}`;
                     // Don't show a toast for liked suggestions that are already recorded
-                    await ProvideSuggestionFeedback(feedbackText);
+                    await ProvideSuggestionFeedback(session.Outcome.liked, suggestedTrack.name, suggestedTrack.artist, '');
                 } else {
                     feedbackText = `I skipped the suggestion: ${suggestedTrack.name} by ${suggestedTrack.artist}`;
-                    await ProvideSuggestionFeedback(feedbackText);
+                    await ProvideSuggestionFeedback(session.Outcome.disliked, suggestedTrack.name, suggestedTrack.artist, '');
                     // Only show toast for skipped suggestions
                     setToast({
                         message: 'Feedback recorded: skipped the suggestion',
@@ -656,38 +622,38 @@ function App() {
                 // Continue with new suggestion request even if feedback recording fails
             }
         }
-        
+
         setSuggestionError(null);
-        setIsProcessingLibrary(true); 
-        setSuggestedTrack(null); 
+        setIsProcessingLibrary(true);
+        setSuggestedTrack(null);
         setSuggestionContext(null);
         setHasLikedCurrentSuggestion(false);
         try {
             console.log('Requesting new suggestion...');
-            const response = await RequestNewSuggestion();
-            console.log('Raw suggestion response:', response);
-            
-            if (!response) {
+            const suggestion = await RequestNewSuggestion();
+            console.log('Raw suggestion response:', suggestion);
+
+            if (!suggestion) {
                 console.error('Received null response');
                 setSuggestionError('Failed to get suggestion.');
                 return;
             }
 
-            if (response && response.id) {
+            if (suggestion && suggestion.id) {
                 console.log('Valid suggestion received:', {
-                    id: response.id,
-                    name: response.name,
-                    artist: response.artist,
-                    originalQuery: 'originalQuery' in response ? response.originalQuery : undefined
+                    id: suggestion.id,
+                    name: suggestion.name,
+                    artist: suggestion.artist,
+                    originalQuery: 'originalQuery' in suggestion ? suggestion.originalQuery : undefined
                 });
-                setSuggestedTrack(response);
-                const context = 'originalQuery' in response && typeof response.originalQuery === 'string' ? 
-                    response.originalQuery : 
-                    `${response.name} by ${response.artist}`;
+                setSuggestedTrack(suggestion);
+                const context = 'originalQuery' in suggestion && typeof suggestion.originalQuery === 'string' ?
+                    suggestion.originalQuery :
+                    `${suggestion.name} by ${suggestion.artist}`;
                 console.log('Setting suggestion context:', context);
                 setSuggestionContext(context);
             } else {
-                console.error('Invalid suggestion format:', response);
+                console.error('Invalid suggestion format:', suggestion);
                 setSuggestionError('Received invalid suggestion from backend.');
             }
         } catch (err) {
@@ -700,23 +666,23 @@ function App() {
     // Handler for skipping a suggestion
     const handleSkipSuggestion = async () => {
         if (!suggestedTrack) return;
-
         try {
             console.log(`Skipping suggestion: ${suggestedTrack.name}`);
-            const feedbackText = `I skipped the suggestion: ${suggestedTrack.name} by ${suggestedTrack.artist}`;
-            await ProvideSuggestionFeedback(feedbackText);
+            await ProvideSuggestionFeedback(
+                session.Outcome.disliked,
+                suggestedTrack.name,
+                suggestedTrack.artist,
+                '' // No album needed
+            );
             setToast({
                 message: 'Skipped suggestion',
-                type: 'success'
+                type: 'skip'
             });
-            // Clear the suggestion immediately after successful feedback
-            setSuggestedTrack(null);
-            // Request a new suggestion
-            handleRequestSuggestion();
+            await handleRequestSuggestion();
         } catch (err) {
-            console.error('Failed to send skip feedback:', err);
+            console.error('Error skipping suggestion:', err);
             setToast({
-                message: 'Failed to record skip feedback',
+                message: 'Failed to skip suggestion',
                 type: 'error'
             });
         }
@@ -727,7 +693,7 @@ function App() {
         try {
             await ClearSpotifyCredentials();
             console.log("Credentials cleared successfully.");
-            
+
             // Reset all application state
             setUser(null);
             setSavedTracks(null);
@@ -736,19 +702,19 @@ function App() {
             setSuggestedTrack(null);
             setIsAuthenticated(false);
             setShowSuggestionSection(false);
-            
+
             // Clear any playing audio
             audioElement.pause();
             if (spotifyPlayer) {
                 spotifyPlayer.disconnect();
             }
-            
+
             // Show success message
             setToast({
                 message: 'Spotify credentials cleared. Please wait for re-authentication...',
                 type: 'success'
             });
-            
+
             // Start polling for new auth
             if (authCheckInterval.current) clearInterval(authCheckInterval.current);
             authCheckInterval.current = setInterval(async () => {
@@ -766,7 +732,7 @@ function App() {
                     console.error("Error polling auth status:", pollErr);
                 }
             }, 3000);
-            
+
         } catch (err) {
             console.error("Failed to clear credentials:", err);
             setToast({
@@ -782,7 +748,7 @@ function App() {
     const handleNowPlayingClick = () => {
         // Check if there's a track currently set as now playing
         if (nowPlayingTrack) {
-            handlePlay(nowPlayingTrack); 
+            handlePlay(nowPlayingTrack);
         } else {
             console.warn("Play/Pause clicked but no track is set as 'nowPlayingTrack'.");
         }
@@ -889,7 +855,7 @@ function App() {
                     </div>
                 )}
 
-                {/* --- Suggestion Section --- */} 
+                {/* --- Suggestion Section --- */}
                 {showSuggestionSection && (
                     <div className="suggestion-section">
                         <h2>Song Suggestion</h2>
@@ -914,7 +880,7 @@ function App() {
                                         )}
                                     </div>
                                     <div className="suggestion-controls">
-                    <button 
+                    <button
                                             className={`play-button ${!isPlaybackPaused && nowPlayingTrack?.id === suggestedTrack.id ? 'playing' : ''}`}
                                             onClick={() => {
                                                 console.log("[Suggestion] Play button clicked for track:", suggestedTrack.name);
@@ -936,14 +902,14 @@ function App() {
                                             <FaThumbsDown /> Dislike
                                         </button>
                                         {/* Action Buttons */}
-                                        <button onClick={handleAddSuggestionToLibrary} className="action-button add-button">
+                                        <button onClick={handleAddToLibrary} className="action-button add-button">
                                             <FaPlus /> Add to Library
                     </button>
                                         <button onClick={handleRequestSuggestion} className="action-button next-button">
                                             Next Suggestion <FaStepForward />
                     </button>
                                     </div>
-                                </div> {/* End of suggestion-art-and-info wrapper */} 
+                                </div> {/* End of suggestion-art-and-info wrapper */}
                             </div>
                         ) : (
                             // Initial state or after successful feedback/add 
@@ -980,7 +946,7 @@ function App() {
                             <div className="saved-tracks">
                                 <div className="saved-tracks-header">
                                     <h2>Your Library</h2>
-                                    <button 
+                                    <button
                                         className="collapse-button"
                                         onClick={() => setIsFavoritesCollapsed(!isFavoritesCollapsed)}
                                     >
@@ -1012,7 +978,7 @@ function App() {
                                                         Previous
                                                     </button>
                                                     <span>Page {currentPage} of {Math.ceil(totalTracks / ITEMS_PER_PAGE)}</span>
-                                <button 
+                                <button
                                                         onClick={handleNextPage}
                                                         disabled={currentPage * ITEMS_PER_PAGE >= totalTracks}
                                                     >
@@ -1042,7 +1008,7 @@ function App() {
                                     <p>{info.artist}</p>
                                     <p className="playback-type">{isUsingPreview ? '(Preview)' : '(Full Song)'}</p>
                                 </div>
-                                <button 
+                                <button
                                     className={`play-pause-button ${isPlaybackPaused ? '' : 'playing'}`}
                                     onClick={() => {
                                         console.log("[NowPlaying] Play/Pause clicked, current state:", {
