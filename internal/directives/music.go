@@ -3,6 +3,7 @@ package directives
 import (
 	"context"
 	"fmt"
+	"interestnaut/internal/spotify"
 	"log"
 	"strings"
 )
@@ -31,8 +32,8 @@ Do not include any other text in your response, only the JSON object.
 `
 
 // GetMusicBaseline generates a music baseline for the user based on their concatenated liked tracks
-func (d *director) GetMusicBaseline(ctx context.Context) string {
-	tracks, err := d.Client.GetAllLikedTracks(ctx)
+func GetMusicBaseline(ctx context.Context, client spotify.Client) string {
+	tracks, err := client.GetAllLikedTracks(ctx)
 	if err != nil {
 		log.Printf("failed to get liked tracks: %v", err)
 		return ""

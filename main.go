@@ -4,6 +4,7 @@ import (
 	"context"
 	"embed"
 	"fmt"
+	"interestnaut/internal/bindings"
 	"interestnaut/internal/session"
 	"log"
 
@@ -25,7 +26,11 @@ func main() {
 		log.Printf("Warning: Error loading .env file: %v", err)
 	}
 
-	wailsClient := spotify.NewWailsClient()
+	ctx := context.Background()
+	cm, err := session.NewCentralManager(ctx, session.DefaultUserID)
+	if err != nil {
+		log.Fatalf("Failed to create central manager: %v", err)
+	}
 
 	var suggestionOutcome = []struct {
 		Value  session.Outcome
@@ -38,8 +43,10 @@ func main() {
 		{session.Pending, "pending"},
 	}
 
+	music := bindings.NewMusicBinder(ctx, cm)
+
 	// Create application with options
-	err := wails.Run(&options.App{
+	rErr := wails.Run(&options.App{
 		Title:  "Interestnaut",
 		Width:  1024,
 		Height: 768,
@@ -48,22 +55,22 @@ func main() {
 		},
 		BackgroundColour: &options.RGBA{R: 27, G: 38, B: 54, A: 1},
 		OnStartup: func(ctx context.Context) {
-			onStartup(ctx, wailsClient)
+			onStartup(ctx)
 		},
 		Bind: []interface{}{
-			wailsClient,
+			music,
 		},
 		EnumBind: []interface{}{
 			suggestionOutcome,
 		},
 	})
 
-	if err != nil {
-		fmt.Println("Error:", err.Error())
+	if rErr != nil {
+		fmt.Println("Error:", rErr.Error())
 	}
 }
 
-func onStartup(ctx context.Context, wailsClient *spotify.WailsClient) {
+func onStartup(ctx context.Context) {
 	log.Println("Starting application...")
 
 	// Check if we have a valid authorization code
@@ -74,10 +81,8 @@ func onStartup(ctx context.Context, wailsClient *spotify.WailsClient) {
 			log.Printf("Authentication failed: %v", iErr)
 		} else {
 			log.Println("Authentication successful")
-			wailsClient.SetSpotifyClient(spotify.NewClient())
 		}
 	} else {
 		log.Println("Using existing authorization code")
-		wailsClient.SetSpotifyClient(spotify.NewClient())
 	}
 }

@@ -4,19 +4,27 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"interestnaut/internal/directives"
-	"interestnaut/internal/spotify"
 	"log"
 	"os"
 	"path/filepath"
-	"reflect"
 	"sync"
 )
 
+type subject string
+
+const (
+	music     subject = "music"
+	movie     subject = "movie"
+	book      subject = "book"
+	tv        subject = "tv"
+	videoGame subject = "video_game"
+)
+
 type Manager[T Media] interface {
-	GetOrCreateSession(context.Context, Key) *Session[T]
+	GetOrCreateSession(ctx context.Context, key Key, directive, baseline func() string) *Session[T]
 	AddSuggestion(context.Context, *Session[T], Suggestion[T], Comparator[T], MapKeyer[T]) error
 	UpdateSuggestionOutcome(ctx context.Context, session *Session[T], suggestionKey string, outcome Outcome) error
+	Key() Key
 }
 
 type CentralManager interface {
@@ -29,13 +37,12 @@ type CentralManager interface {
 
 type manager[T Media] struct {
 	sessions map[Key]*Session[T]
-	director directives.Director
 	mu       sync.RWMutex
 	dataDir  string
+	key      Key
 }
 
 type centralManager struct {
-	userID           string
 	musicManager     Manager[Music]
 	movieManager     Manager[Movie]
 	tvShowManager    Manager[TVShow]
@@ -43,7 +50,48 @@ type centralManager struct {
 	videoGameManager Manager[VideoGame]
 }
 
-func (m *manager[T]) GetOrCreateSession(ctx context.Context, key Key) *Session[T] {
+func newManager[T Media](ctx context.Context, userID, dataDir string, subject subject) Manager[T] {
+	m := &manager[T]{
+		sessions: make(map[Key]*Session[T]),
+		dataDir:  dataDir,
+	}
+
+	key := Key(fmt.Sprintf("%s_%s", userID, subject))
+	m.key = key
+
+	if err := m.loadSession(ctx, key); err != nil {
+		log.Printf("Failed to load session for user %s: %v", userID, err)
+	}
+
+	return m
+}
+
+func NewCentralManager(ctx context.Context, userID string) (CentralManager, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user home directory: %w", err)
+	}
+	dataDir := filepath.Join(homeDir, ".interestnaut", "sessions")
+	if err := os.MkdirAll(dataDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create data directory: %w", err)
+	}
+
+	cm := &centralManager{
+		musicManager:     newManager[Music](ctx, userID, dataDir, music),
+		movieManager:     newManager[Movie](ctx, userID, dataDir, movie),
+		tvShowManager:    newManager[TVShow](ctx, userID, dataDir, tv),
+		bookManager:      newManager[Book](ctx, userID, dataDir, book),
+		videoGameManager: newManager[VideoGame](ctx, userID, dataDir, videoGame),
+	}
+
+	return cm, nil
+}
+
+func (m *manager[T]) Key() Key {
+	return m.key
+}
+
+func (m *manager[T]) GetOrCreateSession(ctx context.Context, key Key, directive, baseline func() string) *Session[T] {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -66,7 +114,7 @@ func (m *manager[T]) GetOrCreateSession(ctx context.Context, key Key) *Session[T
 	// If still not found, create new session
 	if session == nil {
 		log.Printf("Creating new session for key %s", key)
-		session = composeSession[T](ctx, m.director)
+		session = composeSession[T](ctx, key, directive, baseline)
 		m.sessions[key] = session
 		if err := m.saveSession(ctx, session); err != nil {
 			log.Printf("Warning: failed to save new session: %v", err)
@@ -144,64 +192,6 @@ func (c centralManager) TVShow() Manager[TVShow] {
 
 func (c centralManager) VideoGame() Manager[VideoGame] {
 	return c.videoGameManager
-}
-
-func newManager[T Media](ctx context.Context, userID, dataDir string, director directives.Director) Manager[T] {
-	m := &manager[T]{
-		sessions: make(map[Key]*Session[T]),
-		dataDir:  dataDir,
-		director: director,
-	}
-
-	var t T
-	tType := reflect.TypeOf(t)
-
-	var suffix string
-	switch tType {
-	case reflect.TypeOf(Music{}):
-		suffix = "music"
-	case reflect.TypeOf(Movie{}):
-		suffix = "movie"
-	case reflect.TypeOf(Book{}):
-		suffix = "book"
-	case reflect.TypeOf(TVShow{}):
-		suffix = "tv"
-	case reflect.TypeOf(VideoGame{}):
-		suffix = "video_game"
-	default:
-		return nil
-	}
-
-	key := Key(fmt.Sprintf("%s_%s", userID, suffix))
-
-	if err := m.loadSession(ctx, key); err != nil {
-		log.Printf("Failed to load session for user %s: %v", userID, err)
-	}
-
-	return m
-}
-
-func NewCentralManager(ctx context.Context, userID string, sClient spotify.Client) (CentralManager, error) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get user home directory: %w", err)
-	}
-	dataDir := filepath.Join(homeDir, ".interestnaut", "sessions")
-	if err := os.MkdirAll(dataDir, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create data directory: %w", err)
-	}
-
-	director := directives.NewDirector(sClient)
-
-	cm := &centralManager{
-		musicManager:     newManager[Music](ctx, userID, dataDir, director),
-		movieManager:     newManager[Movie](ctx, userID, dataDir, director),
-		tvShowManager:    newManager[TVShow](ctx, userID, dataDir, director),
-		bookManager:      newManager[Book](ctx, userID, dataDir, director),
-		videoGameManager: newManager[VideoGame](ctx, userID, dataDir, director),
-	}
-
-	return cm, nil
 }
 
 func (m *manager[T]) saveSession(_ context.Context, session *Session[T]) error {
@@ -298,28 +288,19 @@ func (m *manager[T]) UpdateSuggestionOutcome(
 	return nil
 }
 
-func composeSession[T Media](ctx context.Context, d directives.Director) *Session[T] {
-	var t T
-	var s Session[T]
-	tType := reflect.TypeOf(t)
-
-	switch tType {
-	case reflect.TypeOf(Music{}):
-		s.PrimeDirective = PrimeDirective{
-			Task:     directives.MusicDirective,
-			Baseline: d.GetMusicBaseline(ctx),
-		}
-	case reflect.TypeOf(Movie{}):
-
-	case reflect.TypeOf(Book{}):
-
-	case reflect.TypeOf(TVShow{}):
-
-	case reflect.TypeOf(VideoGame{}):
-
-	default:
-
+func composeSession[T Media](
+	_ context.Context,
+	key Key,
+	directive func() string,
+	baseline func() string,
+) *Session[T] {
+	return &Session[T]{
+		Key: key,
+		Content: Content[T]{
+			PrimeDirective: PrimeDirective{
+				Task:     directive(),
+				Baseline: baseline(),
+			},
+		},
 	}
-
-	return nil
 }

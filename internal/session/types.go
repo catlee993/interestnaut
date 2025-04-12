@@ -2,9 +2,9 @@ package session
 
 import "encoding/json"
 
-type Key string
+const DefaultUserID string = "default_user" // TODO: no plan to support multiple users yet, but will think about it later
 
-const DefaultUser Key = "default_user" // TODO: no plan to support multiple users yet, but will think about it later
+type Key string
 
 type Outcome string
 

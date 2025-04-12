@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/pkg/errors"
+	"interestnaut/internal/directives"
 	"interestnaut/internal/llm"
 	"interestnaut/internal/openai"
 	"interestnaut/internal/session"
@@ -16,15 +17,15 @@ import (
 )
 
 type Music struct {
-	spotifyAuthConfig *spotify.AuthConfig
-	spotifyClient     spotify.Client
-	llmClient         llm.Client[session.Music]
-	manager           session.Manager[session.Music]
-	key               session.Key
-	mu                sync.RWMutex
+	spotifyAuthConfig      *spotify.AuthConfig
+	spotifyClient          spotify.Client
+	llmClient              llm.Client[session.Music]
+	manager                session.Manager[session.Music]
+	baselineFunc, taskFunc func() string
+	mu                     sync.RWMutex
 }
 
-func NewMusicBinder(cm session.CentralManager) *Music {
+func NewMusicBinder(ctx context.Context, cm session.CentralManager) *Music {
 	sac := &spotify.AuthConfig{
 		ClientID:    os.Getenv("SPOTIFY_CLIENT_ID"),
 		RedirectURI: "http://localhost:8080/callback",
@@ -34,12 +35,20 @@ func NewMusicBinder(cm session.CentralManager) *Music {
 		log.Printf("ERROR: Failed to create OpenAI client: %v", err)
 		return nil
 	}
+	spotifyClient := spotify.NewClient()
+	baselineFunc := func() string {
+		return directives.GetMusicBaseline(ctx, spotifyClient)
+	}
+	taskFunc := func() string {
+		return directives.MusicDirective
+	}
 	return &Music{
 		spotifyAuthConfig: sac,
-		spotifyClient:     spotify.NewClientWithAuth(sac),
+		spotifyClient:     spotifyClient,
 		llmClient:         llmClient,
 		manager:           cm.Music(),
-		key:               session.DefaultUser,
+		baselineFunc:      baselineFunc,
+		taskFunc:          taskFunc,
 	}
 }
 
@@ -84,7 +93,7 @@ type SuggestionResponse struct {
 
 // RequestNewSuggestion gets a new suggestion based on the chat history.
 func (m *Music) RequestNewSuggestion(ctx context.Context) (*spotify.SuggestedTrackInfo, error) {
-	sess := m.manager.GetOrCreateSession(ctx, m.key)
+	sess := m.manager.GetOrCreateSession(ctx, m.manager.Key(), m.taskFunc, m.baselineFunc)
 	message, err := m.llmClient.ComposeMessage(ctx, &sess.Content)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to compose message for OpenAI")
@@ -110,7 +119,7 @@ func (m *Music) RequestNewSuggestion(ctx context.Context) (*spotify.SuggestedTra
 	if content.Album != "" {
 		searchQuery += fmt.Sprintf(" album:\"%s\"", content.Album)
 	}
-	searchCtx, searchCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	searchCtx, searchCancel := context.WithTimeout(ctx, 10*time.Second)
 	tracks, err := m.spotifyClient.SearchTracks(searchCtx, content.Title, 5)
 	searchCancel()
 
@@ -140,7 +149,7 @@ func (m *Music) RequestNewSuggestion(ctx context.Context) (*spotify.SuggestedTra
 
 // ProvideSuggestionFeedback sends user feedback to OpenAI and records the outcome.
 func (m *Music) ProvideSuggestionFeedback(ctx context.Context, outcome session.Outcome, title, artist, album string) error {
-	sess := m.manager.GetOrCreateSession(context.Background(), m.key)
+	sess := m.manager.GetOrCreateSession(ctx, m.manager.Key(), m.taskFunc, m.baselineFunc)
 	key := session.KeyerMusicInfo(title, artist, album)
 	if err := m.manager.UpdateSuggestionOutcome(ctx, sess, key, outcome); err != nil {
 		return errors.Wrap(err, "failed to update suggestion outcome")
@@ -179,10 +188,7 @@ func (m *Music) ClearSpotifyCredentials() error {
 		return errors.Wrap(err, "failed to clear Spotify credentials")
 	}
 
-	spotifyClient := spotify.NewClientWithAuth(&spotify.AuthConfig{
-		ClientID:    os.Getenv("SPOTIFY_CLIENT_ID"),
-		RedirectURI: "http://localhost:8080/callback",
-	})
+	spotifyClient := spotify.NewClient()
 
 	m.SetSpotifyClient(spotifyClient)
 

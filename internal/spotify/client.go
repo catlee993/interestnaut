@@ -32,16 +32,16 @@ type client struct {
 	authConfig *AuthConfig
 }
 
+const authRedirectURI = "http://localhost:8080/callback"
+const spotifyClientID = "3bb48a30577342869a9ffcb176dee7d2"
+
 // NewClient creates a new Spotify API client with default settings.
 // Primarily used before auth config is fully available.
 func NewClient() Client {
-	return &client{
-		cli: http.DefaultClient,
+	authConfig := &AuthConfig{
+		ClientID:    spotifyClientID,
+		RedirectURI: authRedirectURI,
 	}
-}
-
-// NewClientWithAuth creates a new Spotify API client using the provided auth config.
-func NewClientWithAuth(authConfig *AuthConfig) Client {
 	return &client{
 		cli:        http.DefaultClient,
 		authConfig: authConfig,
@@ -301,7 +301,9 @@ func (c *client) PlayTrackOnDevice(ctx context.Context, deviceID string, trackUR
 		log.Printf("ERROR: Play request req.Make failed: %v", err)
 		return fmt.Errorf("play request failed during Make: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode != http.StatusNoContent {
 		bodyBytes, _ := io.ReadAll(resp.Body)
@@ -339,7 +341,9 @@ func (c *client) PausePlaybackOnDevice(ctx context.Context, deviceID string) err
 		log.Printf("ERROR: Pause request req.Make failed: %v", err)
 		return fmt.Errorf("pause request failed during Make: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode != http.StatusNoContent {
 		bodyBytes, _ := io.ReadAll(resp.Body)
