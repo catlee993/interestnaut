@@ -1,7 +1,7 @@
 package creds
 
 import (
-	"encoding/base64"
+	"errors"
 	"fmt"
 
 	keyring "github.com/zalando/go-keyring"
@@ -16,16 +16,16 @@ var (
 	openaiApiKey           string
 )
 
-// SaveSpotifyCreds saves Spotify refresh token to the OS keychain.
-func SaveSpotifyCreds(token string) error {
+// SaveSpotifyToken saves Spotify refresh token to the OS keychain.
+func SaveSpotifyToken(token string) error {
 	if err := keyring.Set(ServiceName, SpotifyRefreshTokenKey, token); err != nil {
 		return fmt.Errorf("failed to set Spotify refresh token: %w", err)
 	}
 	return nil
 }
 
-// GetSpotifyCreds retrieves Spotify refresh token from the OS keychain.
-func GetSpotifyCreds() (string, error) {
+// GetSpotifyToken retrieves Spotify refresh token from the OS keychain.
+func GetSpotifyToken() (string, error) {
 	token, err := keyring.Get(ServiceName, SpotifyRefreshTokenKey)
 	if err != nil {
 		return "", fmt.Errorf("failed to get Spotify refresh token: %w", err)
@@ -33,10 +33,10 @@ func GetSpotifyCreds() (string, error) {
 	return token, nil
 }
 
-// ClearSpotifyCreds removes the Spotify refresh token from the OS keychain.
-func ClearSpotifyCreds() error {
+// ClearSpotifyToken removes the Spotify refresh token from the OS keychain.
+func ClearSpotifyToken() error {
 	err := keyring.Delete(ServiceName, SpotifyRefreshTokenKey)
-	if err != nil && err != keyring.ErrNotFound {
+	if err != nil && !errors.Is(err, keyring.ErrNotFound) {
 		// Ignore 'not found' errors, but return others
 		return fmt.Errorf("failed to delete Spotify refresh token: %w", err)
 	}
@@ -60,7 +60,12 @@ func GetOpenAICreds() (string, error) {
 	return apiKey, nil
 }
 
-// BasicAuth returns a base64 encoded string of "id:secret"
-func BasicAuth(id string, secret string) string {
-	return base64.StdEncoding.EncodeToString([]byte(id + ":" + secret))
+// ClearOpenAICreds removes the OpenAI API key from the OS keychain.
+func ClearOpenAICreds() error {
+	err := keyring.Delete(ServiceName, "OPENAI_API_KEY")
+	if err != nil && !errors.Is(err, keyring.ErrNotFound) {
+		// Ignore 'not found' errors, but return others
+		return fmt.Errorf("failed to delete OpenAI API key: %w", err)
+	}
+	return nil
 }

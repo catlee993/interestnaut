@@ -34,12 +34,9 @@ const (
 )
 
 var (
-	// In-memory storage for the current access token and its expiry
-	currentToken    string
-	currentTokenExp time.Time
-	tokenMutex      sync.RWMutex
-	accessToken     string
-	tokenExpiry     time.Time
+	tokenMutex  sync.RWMutex
+	accessToken string
+	tokenExpiry time.Time
 
 	// codeVerifier for PKCE (global so it can be referenced during token exchange)
 	codeVerifier string
@@ -47,7 +44,6 @@ var (
 
 // generateCodeVerifier returns a cryptographically random string for PKCE
 func generateCodeVerifier() (string, error) {
-	// 64 bytes is a typical length
 	b := make([]byte, 64)
 	if _, err := rand.Read(b); err != nil {
 		return "", err
@@ -62,12 +58,13 @@ func computeCodeChallenge(verifier string) (string, error) {
 	return base64.RawURLEncoding.EncodeToString(hash[:]), nil
 }
 
-// RunInitialAuthFlow starts a local server, opens the browser to start OAuth with PKCE, and waits for callback to save credentials.
+// RunInitialAuthFlow starts a local server, opens the browser to start OAuth with PKCE, and waits
+// for callback to save credentials.
 func RunInitialAuthFlow(ctx context.Context) error {
 	stop := make(chan struct{})
 	errChan := make(chan error, 1)
 
-	// Only require the client ID for PKCE flow (client secret is not used here)
+	// Only require the client ID for PKCE flow
 	clientID := os.Getenv("SPOTIFY_CLIENT_ID")
 	if clientID == "" {
 		return fmt.Errorf("SPOTIFY_CLIENT_ID not set in environment")
@@ -82,7 +79,7 @@ func RunInitialAuthFlow(ctx context.Context) error {
 			return
 		}
 
-		// Exchange the authorization code for tokens using PKCE; note that we no longer use clientSecret.
+		// Exchange the authorization code for tokens using PKCE
 		authResp, err := exchangeCodeForToken(ctx, clientID, code)
 		if err != nil {
 			errChan <- fmt.Errorf("failed to exchange code for token: %w", err)
@@ -91,7 +88,7 @@ func RunInitialAuthFlow(ctx context.Context) error {
 		}
 
 		// Save the refresh token in the keychain
-		if err := creds.SaveSpotifyCreds(authResp.RefreshToken); err != nil {
+		if err := creds.SaveSpotifyToken(authResp.RefreshToken); err != nil {
 			errChan <- fmt.Errorf("failed to save refresh token: %w", err)
 			http.Error(w, "Failed to save refresh token", http.StatusInternalServerError)
 			return
@@ -101,8 +98,6 @@ func RunInitialAuthFlow(ctx context.Context) error {
 		tokenMutex.Lock()
 		accessToken = authResp.AccessToken
 		tokenExpiry = time.Now().Add(time.Duration(authResp.ExpiresIn) * time.Second)
-		currentToken = authResp.AccessToken
-		currentTokenExp = tokenExpiry
 		log.Printf("DEBUG (Callback): Stored initial token expiring at %s", tokenExpiry.Format(time.RFC3339))
 		tokenMutex.Unlock()
 
@@ -139,7 +134,7 @@ func RunInitialAuthFlow(ctx context.Context) error {
 		}
 	}()
 
-	// Start auth flow in browser (this now generates PKCE parameters)
+	// Start auth flow in browser
 	if err := startAuth(clientID); err != nil {
 		serverCancel() // Cancel server context if browser launch fails
 		return fmt.Errorf("failed to start auth flow: %w", err)
@@ -171,6 +166,30 @@ func RunInitialAuthFlow(ctx context.Context) error {
 	}
 }
 
+// ClearSpotifyCredentials clears stored Spotify tokens and resets in-memory state.
+func ClearSpotifyCredentials(ctx context.Context) error {
+	log.Println("Attempting to clear Spotify credentials...")
+	err := creds.ClearSpotifyToken()
+	if err != nil {
+		log.Printf("ERROR: Failed to clear credentials from storage: %v", err)
+		return fmt.Errorf("failed to clear stored credentials %v", err)
+	}
+	// Also clear in-memory tokens
+	tokenMutex.Lock()
+	accessToken = ""
+	tokenExpiry = time.Time{}
+	tokenMutex.Unlock()
+	log.Println("Cleared Spotify credentials from storage and memory.")
+
+	// Start a new authentication flow
+	if err := RunInitialAuthFlow(ctx); err != nil {
+		log.Printf("ERROR: Failed to start new auth flow after clearing credentials: %v", err)
+		return fmt.Errorf("failed to start new auth flow after clearing credentials: %w", err)
+	}
+
+	return nil
+}
+
 // GetValidToken retrieves a valid Spotify access token, refreshing if necessary.
 func GetValidToken(ctx context.Context) (string, error) {
 	tokenMutex.RLock() // Start with read lock
@@ -190,7 +209,7 @@ func GetValidToken(ctx context.Context) (string, error) {
 		return accessToken, nil
 	}
 
-	refreshToken, err := creds.GetSpotifyCreds()
+	refreshToken, err := creds.GetSpotifyToken()
 	if err != nil {
 		log.Printf("ERROR: Failed to get refresh token from storage: %v", err)
 		return "", ErrNotAuthenticated
@@ -200,7 +219,7 @@ func GetValidToken(ctx context.Context) (string, error) {
 		return "", ErrNotAuthenticated
 	}
 
-	// Perform the refresh using the refresh token (PKCE flow does not use client secret)
+	// Perform the refresh using the refresh token
 	clientID := os.Getenv("SPOTIFY_CLIENT_ID")
 	if clientID == "" {
 		log.Println("ERROR: Spotify client ID not found in env for token refresh.")
@@ -265,7 +284,7 @@ func GetValidToken(ctx context.Context) (string, error) {
 
 	// If the response included a *new* refresh token, update storage
 	if authResp.RefreshToken != "" && authResp.RefreshToken != refreshToken {
-		if err := creds.SaveSpotifyCreds(authResp.RefreshToken); err != nil {
+		if err := creds.SaveSpotifyToken(authResp.RefreshToken); err != nil {
 			log.Printf("ERROR: Failed to store new refresh token: %v", err)
 		}
 	}
@@ -284,12 +303,12 @@ func exchangeCodeForToken(ctx context.Context, clientID, code string) (*AuthResp
 	values.Set("client_id", clientID)
 	values.Set("code_verifier", codeVerifier)
 
-	return makeTokenRequest(ctx, clientID, values)
+	return makeTokenRequest(ctx, values)
 }
 
 // makeTokenRequest makes a request to Spotify's token endpoint.
 // In this PKCE flow, we no longer send a Basic Authorization header.
-func makeTokenRequest(ctx context.Context, clientID string, values url.Values) (*AuthResponse, error) {
+func makeTokenRequest(ctx context.Context, values url.Values) (*AuthResponse, error) {
 	body := values.Encode()
 
 	req, err := request.NewRequester(

@@ -12,6 +12,9 @@ import (
 	"time"
 )
 
+// Start initializes and starts the HTTP server; this is currently only used to respond
+// to Spotify's auth code callback to exchange for a token; should be short-lived,
+// and shouldn't run when a refresh token is available in the keychain
 func Start(ctx context.Context, stop <-chan struct{}, handler http.Handler) error {
 	srv := &http.Server{
 		Addr:    ":8080",
@@ -46,7 +49,7 @@ func Start(ctx context.Context, stop <-chan struct{}, handler http.Handler) erro
 	defer cancel()
 
 	if err := srv.Shutdown(cCtx); err != nil {
-		return fmt.Errorf("Server Shutdown Failed: %w", err)
+		return fmt.Errorf("server Shutdown Failed: %w", err)
 	}
 	log.Println("Server exited properly")
 	return nil

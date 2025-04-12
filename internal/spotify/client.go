@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/pkg/errors"
 	"io"
 	"log"
 	"net/http"
+	"time"
 
 	request "github.com/catlee993/go-request"
 )
@@ -21,6 +23,7 @@ type Client interface {
 	GetTrackDetails(ctx context.Context, trackID string, market string) (*Track, error)
 	PlayTrackOnDevice(ctx context.Context, deviceID string, trackURI string) error
 	PausePlaybackOnDevice(ctx context.Context, deviceID string) error
+	GetAllLikedTracks(ctx context.Context) ([]SavedTrackItem, error)
 }
 
 // client represents a Spotify API client.
@@ -260,8 +263,7 @@ func (c *client) GetTrackDetails(ctx context.Context, trackID string, market str
 	return &track, nil
 }
 
-// Playback Methods Implementation
-
+// PlayTrackOnDevice Methods Implementation
 func (c *client) PlayTrackOnDevice(ctx context.Context, deviceID string, trackURI string) error {
 	token, err := GetValidToken(ctx)
 	if err != nil {
@@ -346,4 +348,39 @@ func (c *client) PausePlaybackOnDevice(ctx context.Context, deviceID string) err
 	}
 
 	return nil
+}
+
+func (c *client) GetAllLikedTracks(ctx context.Context) ([]SavedTrackItem, error) {
+	var allTracks []SavedTrackItem
+	limit := 50 // Max allowed by Spotify API
+	offset := 0
+
+	for {
+		pageCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		page, err := c.GetSavedTracks(pageCtx, limit, offset)
+		cancel() // Release context resources promptly
+
+		if err != nil {
+			// Consider retries for transient errors?
+			return nil, errors.Wrapf(err, "failed to get saved tracks page (offset %d)", offset)
+		}
+
+		if page == nil || len(page.Items) == 0 {
+			break // No more tracks
+		}
+
+		allTracks = append(allTracks, page.Items...)
+
+		if len(allTracks) >= page.Total {
+			break // We have fetched all expected tracks
+		}
+
+		offset += limit
+
+		// small delay to avoid hitting rate limits aggressively
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	log.Printf("Fetched %d total saved tracks.", len(allTracks))
+	return allTracks, nil
 }

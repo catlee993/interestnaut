@@ -9,3 +9,9 @@ type SuggestedTrackInfo struct {
 	AlbumArtURL string `json:"albumArtUrl,omitempty"`
 	Reason      string `json:"reason,omitempty"` // Explanation for why this track was suggested
 }
+
+// AuthConfig represents the Spotify OAuth configuration.
+type AuthConfig struct {
+	ClientID    string
+	RedirectURI string
+}

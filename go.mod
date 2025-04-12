@@ -42,4 +42,4 @@ require (
 	golang.org/x/text v0.22.0 // indirect
 )
 
-// replace github.com/wailsapp/wails/v2 v2.10.1 => /Users/catastrophe/go/pkg/mod
+// replace github.com/wailsapp/bindings/v2 v2.10.1 => /Users/catastrophe/go/pkg/mod

@@ -4,6 +4,7 @@ import (
 	"context"
 	"embed"
 	"fmt"
+	"interestnaut/internal/session"
 	"log"
 
 	"github.com/joho/godotenv"
@@ -19,12 +20,23 @@ import (
 var assets embed.FS
 
 func main() {
-	// Load environment variables from .env file
+	// Load environment variables from .env file, dev only
 	if err := godotenv.Load(); err != nil {
 		log.Printf("Warning: Error loading .env file: %v", err)
 	}
 
 	wailsClient := spotify.NewWailsClient()
+
+	var suggestionOutcome = []struct {
+		Value  session.Outcome
+		TSName string
+	}{
+		{session.Liked, "liked"},
+		{session.Disliked, "disliked"},
+		{session.Skipped, "skipped"},
+		{session.Added, "added"},
+		{session.Pending, "pending"},
+	}
 
 	// Create application with options
 	err := wails.Run(&options.App{
@@ -41,6 +53,9 @@ func main() {
 		Bind: []interface{}{
 			wailsClient,
 		},
+		EnumBind: []interface{}{
+			suggestionOutcome,
+		},
 	})
 
 	if err != nil {
@@ -52,7 +67,7 @@ func onStartup(ctx context.Context, wailsClient *spotify.WailsClient) {
 	log.Println("Starting application...")
 
 	// Check if we have a valid authorization code
-	_, err := creds.GetSpotifyCreds()
+	_, err := creds.GetSpotifyToken()
 	if err != nil {
 		log.Println("No valid authorization code found, starting authentication flow...")
 		if iErr := spotify.RunInitialAuthFlow(ctx); iErr != nil {
