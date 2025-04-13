@@ -130,7 +130,11 @@ export function SuggestionDisplay() {
           {suggestionContext &&
             suggestionContext !==
               `${suggestedTrack.name} by ${suggestedTrack.artist}` && (
-              <Typography component="p" className="suggestion-context">
+              <Typography
+                variant="body1"
+                color="text.secondary"
+                sx={{ maxWidth: '800px', mx: 'auto', textAlign: 'center', mb: 2 }}
+              >
                 Based on AI suggestion: "{suggestionContext}"
               </Typography>
             )}

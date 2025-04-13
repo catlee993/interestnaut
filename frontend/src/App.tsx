@@ -20,6 +20,7 @@ import {
   Avatar,
   Button,
   Container,
+  SnackbarContent,
 } from "@mui/material";
 import { theme } from "./theme";
 import { SnackbarProvider, useSnackbar } from "notistack";
@@ -171,10 +172,10 @@ function AppContent() {
     >
       <Box
         className="top-section"
-        sx={{ backgroundColor: theme.palette.background.paper, padding: 2 }}
+        sx={{ backgroundColor: theme.palette.background.paper, padding: 1 }}
       >
-        <Container maxWidth="lg">
-          <Stack spacing={2}>
+        <Container maxWidth="lg" sx={{ px: 0 }}>
+          <Stack spacing={1}>
             <Box
               className="user-controls"
               sx={{
@@ -227,8 +228,8 @@ function AppContent() {
         </Container>
       </Box>
 
-      <Box className="main-content" sx={{ flex: 1, padding: 3 }}>
-        <Container maxWidth="lg">
+      <Box className="main-content" sx={{ flex: 1, padding: 0.25 }}>
+        <Container maxWidth={false} sx={{ px: 0.25 }}>
           {error && (
             <Box
               className="error-message"
@@ -286,7 +287,22 @@ function App() {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <SnackbarProvider maxSnack={3}>
+      <SnackbarProvider 
+        maxSnack={3}
+        Components={{
+          dislike: function DislikeSnackbar(props) {
+            return (
+              <SnackbarContent
+                {...props}
+                style={{
+                  backgroundColor: '#d32f2f',
+                  color: '#fff'
+                }}
+              />
+            );
+          }
+        }}
+      >
         <PlayerProvider>
           <SuggestionProvider>
             <AppContent />

@@ -150,49 +150,35 @@ export function SuggestionProvider({
 
     try {
       setIsProcessingLibrary(true);
-      const outcome =
-        feedbackType === "like"
-          ? session.Outcome.liked
-          : session.Outcome.disliked;
-
-      setCurrentSuggestionOutcome(outcome);
-      if (feedbackType === "like") {
-        setHasLikedCurrentSuggestion(true);
-      }
+      const outcome = feedbackType === "like" ? session.Outcome.liked : session.Outcome.disliked;
 
       await ProvideSuggestionFeedback(
         outcome,
         suggestedTrack.name,
         suggestedTrack.artist,
-        suggestedTrack.album,
+        suggestedTrack.album
       );
 
-      handleToast(
-        feedbackType === "like" ? "Liked suggestion" : "Disliked suggestion",
-        feedbackType === "like" ? 'success' : 'warning'
-      );
-      
-      if (feedbackType === "dislike") {
-        await handleRequestSuggestion();
-      }
-    } catch (error: any) {
-      console.error("Error providing feedback:", error);
-      let errorMessage = "Failed to save feedback";
-      if (error?.error) {
-        if (typeof error.error === 'string') {
-          errorMessage = error.error;
-        } else if (error.error?.message) {
-          errorMessage = error.error.message;
+      enqueueSnackbar(
+        feedbackType === "like"
+          ? "Thanks for the feedback! We'll use this to improve your suggestions."
+          : "Got it - we'll avoid similar songs in the future.",
+        { 
+          variant: feedbackType === "like" ? "success" : "error",
+          autoHideDuration: 3000
         }
-      } else if (error?.message) {
-        errorMessage = error.message;
-      }
-      setCurrentSuggestionOutcome(session.Outcome.pending);
+      );
+
       if (feedbackType === "like") {
-        setHasLikedCurrentSuggestion(false);
+        setHasLikedCurrentSuggestion(true);
       }
-      setSuggestionError(errorMessage);
-      handleToast(errorMessage, 'error');
+      setCurrentSuggestionOutcome(outcome);
+      
+      // Request a new suggestion after feedback
+      handleRequestSuggestion();
+    } catch (error) {
+      console.error("Error providing suggestion feedback:", error);
+      enqueueSnackbar("Failed to save your feedback", { variant: "error" });
     } finally {
       setIsProcessingLibrary(false);
     }

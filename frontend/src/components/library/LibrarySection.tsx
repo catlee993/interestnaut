@@ -31,9 +31,9 @@ const Grid = styled(Box)(({ theme }) => ({
   [theme.breakpoints.up('lg')]: {
     gridTemplateColumns: 'repeat(3, 1fr)',
   },
-  padding: theme.spacing(3),
-  maxWidth: '100%',
-  margin: '0 auto',
+  paddingTop: theme.spacing(3),
+  paddingBottom: theme.spacing(3),
+  width: '100%'
 }));
 
 export const LibrarySection: React.FC<LibrarySectionProps> = ({
@@ -50,7 +50,7 @@ export const LibrarySection: React.FC<LibrarySectionProps> = ({
   onPrevPage,
 }) => {
   return (
-    <Box sx={{ p: 3, backgroundColor: 'transparent' }}>
+    <Box sx={{ py: 3, backgroundColor: 'transparent' }}>
       <Typography variant="h6" sx={{ mb: 2, color: 'text.primary' }}>
         Your Library
       </Typography>
