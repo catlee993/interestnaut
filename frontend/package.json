@@ -14,7 +14,8 @@
     "react-icons": "^5.5.0"
   },
   "devDependencies": {
-    "@types/react": "^18.2.0",
+    "@types/node": "^22.14.1",
+    "@types/react": "^18.3.20",
     "@types/react-dom": "^18.2.0",
     "@vitejs/plugin-react": "^2.0.1",
     "prettier": "3.5.3",
