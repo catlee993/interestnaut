@@ -1,28 +1,18 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useSnackbar, VariantType } from 'notistack';
 
-export type ToastType = 'success' | 'error' | 'dislike' | 'skip';
+export function useToast() {
+  const { enqueueSnackbar } = useSnackbar();
 
-export interface Toast {
-  message: string;
-  type: ToastType;
-}
+  const showToast = (message: string, type: VariantType = 'default') => {
+    enqueueSnackbar(message, {
+      variant: type,
+      anchorOrigin: { vertical: 'top', horizontal: 'center' },
+      style: {
+        fontSize: '1.1rem',
+        padding: '12px 24px',
+      }
+    });
+  };
 
-export const useToast = () => {
-  const [toast, setToast] = useState<Toast | null>(null);
-
-  const showToast = useCallback((newToast: Toast | null) => {
-    setToast(newToast);
-  }, []);
-
-  // Automatically clear toast after 3 seconds
-  useEffect(() => {
-    if (toast) {
-      const timer = setTimeout(() => {
-        setToast(null);
-      }, 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [toast]);
-
-  return { toast, showToast };
-}; 
+  return showToast;
+} 

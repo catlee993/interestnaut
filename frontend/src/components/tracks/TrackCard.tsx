@@ -1,14 +1,80 @@
 import { FaPause, FaPlay } from "react-icons/fa";
 import { spotify } from "../../../wailsjs/go/models";
+import { Box, Card, Typography, IconButton, Button } from '@mui/material';
+import { styled } from '@mui/material/styles';
 
 interface TrackCardProps {
   track: spotify.Track | spotify.SimpleTrack;
   isSaved?: boolean;
   isPlaying?: boolean;
   onPlay: (track: spotify.Track | spotify.SimpleTrack) => Promise<void>;
-  onSave?: (trackId: string) => Promise<void>;
-  onRemove?: (trackId: string) => Promise<void>;
+  onSave?: (track: spotify.SimpleTrack) => Promise<void>;
+  onRemove?: (track: spotify.SimpleTrack) => Promise<void>;
 }
+
+const StyledCard = styled(Card, {
+  shouldForwardProp: (prop) => prop !== 'isPlaying',
+})<{ isPlaying?: boolean }>(({ theme, isPlaying }) => ({
+  height: '100%',
+  position: 'relative',
+  overflow: 'hidden',
+  backgroundColor: theme.palette.grey[800],
+  transition: 'all 0.2s ease-in-out',
+  aspectRatio: '1',
+  border: `2px solid ${theme.palette.grey[900]}`,
+  '&:hover': {
+    transform: 'translateY(-4px)',
+    '&::before': {
+      backgroundColor: theme.palette.primary.main,
+    },
+  },
+  '&::before': {
+    content: '""',
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: '4px',
+    backgroundColor: isPlaying ? theme.palette.primary.main : 'transparent',
+    transition: 'background-color 0.2s ease-in-out',
+    zIndex: 2,
+  },
+}));
+
+const PlayButton = styled(IconButton)(({ theme }) => ({
+  backgroundColor: theme.palette.primary.main,
+  color: theme.palette.primary.contrastText,
+  width: '42px',
+  height: '42px',
+  '& svg': {
+    width: '20px',
+    height: '20px',
+  },
+  '&:hover': {
+    backgroundColor: theme.palette.primary.dark,
+    transform: 'scale(1.1)',
+  },
+  '&.Mui-disabled': {
+    backgroundColor: theme.palette.action.disabledBackground,
+  },
+  transition: 'all 0.2s ease-in-out',
+}));
+
+const Overlay = styled(Box)(({ theme }) => ({
+  position: 'absolute',
+  bottom: 0,
+  left: 0,
+  right: 0,
+  background: 'linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.7) 40%, transparent 100%)',
+  padding: theme.spacing(2),
+  color: theme.palette.common.white,
+}));
+
+const Controls = styled(Box)(({ theme }) => ({
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+}));
 
 export function TrackCard({
   track,
@@ -23,48 +89,83 @@ export function TrackCard({
   const canPlay = hasUri || info.previewUrl;
 
   return (
-    <div className="track-card">
-      {info.albumArtUrl && (
-        <img src={info.albumArtUrl} alt={info.album} className="album-art" />
-      )}
-      <div className="track-info">
-        <h3>{info.name}</h3>
-        <p>{info.artist}</p>
-        <p className="album-name">{info.album}</p>
-        {!canPlay && (
-          <p className="preview-unavailable">Playback unavailable</p>
-        )}
-      </div>
-      <div className="track-controls">
-        <button
-          className={`play-button ${isPlaying ? "playing" : ""} ${!canPlay ? "no-preview" : ""}`}
-          onClick={() => onPlay(track)}
-          disabled={!canPlay}
-          title={
-            !canPlay
-              ? "Playback unavailable"
-              : hasUri
-                ? "Play full song"
-                : "Play preview"
-          }
-        >
-          {isPlaying ? <FaPause /> : <FaPlay />}
-          {!canPlay && <span className="no-preview-icon">🚫</span>}
-        </button>
-        {isSaved ? (
-          <button
-            className="remove-button"
-            onClick={() => onRemove?.(track.id)}
+    <StyledCard isPlaying={isPlaying}>
+      <Box
+        sx={{
+          position: 'relative',
+          width: '100%',
+          height: '100%',
+          backgroundColor: 'background.paper',
+          backgroundImage: `url(${info.albumArtUrl})`,
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+        }}
+      />
+      <Overlay>
+        <Controls>
+          <PlayButton
+            onClick={() => onPlay(track)}
+            disabled={!canPlay}
+            title={
+              !canPlay
+                ? "Playback unavailable"
+                : hasUri
+                  ? "Play full song"
+                  : "Play preview"
+            }
           >
-            Remove
-          </button>
-        ) : (
-          <button className="save-button" onClick={() => onSave?.(track.id)}>
-            Save
-          </button>
-        )}
-      </div>
-    </div>
+            {isPlaying ? <FaPause /> : <FaPlay />}
+          </PlayButton>
+          <Box sx={{ flex: 1, mx: 2, overflow: 'hidden' }}>
+            <Typography variant="subtitle1" noWrap sx={{ color: 'common.white', fontWeight: 500 }}>
+              {info.name}
+            </Typography>
+            <Typography variant="body2" noWrap sx={{ color: 'common.white', opacity: 0.8 }}>
+              {info.artist}
+            </Typography>
+            {!canPlay && (
+              <Typography variant="caption" color="error" sx={{ display: 'block' }}>
+                Playback unavailable
+              </Typography>
+            )}
+          </Box>
+          {isSaved ? (
+            <Button
+              variant="text"
+              color="error"
+              size="small"
+              onClick={() => onRemove?.(track as spotify.SimpleTrack)}
+              sx={{
+                color: 'error.light',
+                minWidth: 'auto',
+                px: 1,
+                '&:hover': {
+                  backgroundColor: 'rgba(244, 67, 54, 0.08)',
+                },
+              }}
+            >
+              Remove
+            </Button>
+          ) : (
+            <Button
+              variant="text"
+              size="small"
+              onClick={() => onSave?.(track as spotify.SimpleTrack)}
+              sx={{
+                color: 'common.white',
+                minWidth: 'auto',
+                px: 1,
+                '&:hover': {
+                  backgroundColor: 'rgba(255, 255, 255, 0.08)',
+                },
+              }}
+            >
+              Save
+            </Button>
+          )}
+        </Controls>
+      </Overlay>
+    </StyledCard>
   );
 }
 

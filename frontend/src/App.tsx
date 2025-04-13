@@ -3,7 +3,6 @@ import "./App.css";
 import { session, spotify } from "../wailsjs/go/models";
 import { SuggestionProvider } from "./contexts/SuggestionContext";
 import { SuggestionDisplay } from "./components/suggestions/SuggestionDisplay";
-import { useToast } from "./hooks/useToast";
 import { LoadingSkeleton } from "./components/tracks/LoadingSkeleton";
 import { NowPlayingBar } from "./components/player/NowPlayingBar";
 import { SearchSection } from "./components/search/SearchSection";
@@ -12,6 +11,18 @@ import { useAuth } from "./hooks/useAuth";
 import { useTracks } from "./hooks/useTracks";
 import { usePlayer } from "./contexts/PlayerContext";
 import { PlayerProvider } from "./contexts/PlayerContext";
+import {
+  ThemeProvider,
+  CssBaseline,
+  Box,
+  Stack,
+  Typography,
+  Avatar,
+  Button,
+  Container,
+} from "@mui/material";
+import { theme } from "./theme";
+import { SnackbarProvider, useSnackbar } from "notistack";
 
 // Add type declarations for Wails modules
 declare module "../wailsjs/go/bindings/Music" {
@@ -92,7 +103,7 @@ const ITEMS_PER_PAGE = 20;
 
 // Create a separate component for the app content to use hooks
 function AppContent() {
-  const { toast, showToast } = useToast();
+  const { enqueueSnackbar } = useSnackbar();
   const {
     user,
     setUser,
@@ -139,7 +150,7 @@ function AppContent() {
         startAuthPolling(loadAppData);
       } catch (error) {
         console.error("[initializeApp] Error initializing app:", error);
-        showToast({ message: "Error initializing app", type: "error" });
+        enqueueSnackbar("Error initializing app", { variant: "error" });
       }
     };
 
@@ -153,91 +164,111 @@ function AppContent() {
     }
   }, [isAuthenticated]);
 
-  // Add toast timeout cleanup
-  useEffect(() => {
-    if (toast) {
-      const timer = setTimeout(() => {
-        showToast(null);
-      }, 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [toast, showToast]);
-
   return (
-    <div id="App">
-      {toast && (
-        <div className={`toast ${toast.type}`} role="alert">
-          {toast.message}
-        </div>
-      )}
-      <div className="top-section">
-        <div className="top-section-content">
-          <div className="user-controls">
-            {user && (
-              <div className="user-info">
-                {user.images?.[0]?.url && (
-                  <img
-                    src={user.images[0].url}
-                    alt={user.display_name}
-                    className="user-avatar"
-                  />
-                )}
-                <span className="user-name" color="green">
-                  Connected as {user.display_name}
-                </span>
-              </div>
-            )}
-            <button onClick={handleClearCreds} className="clear-auth-button">
-              Clear Auth
-            </button>
-          </div>
-          <header>
-            <h1 className="app-title">Spotify Library</h1>
-            <SearchSection
-              onSearch={handleSearch}
-              searchResults={searchResults}
+    <Box
+      id="App"
+      sx={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}
+    >
+      <Box
+        className="top-section"
+        sx={{ backgroundColor: theme.palette.background.paper, padding: 2 }}
+      >
+        <Container maxWidth="lg">
+          <Stack spacing={2}>
+            <Box
+              className="user-controls"
+              sx={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
+            >
+              {user && (
+                <Stack direction="row" spacing={2} alignItems="center">
+                  {user.images?.[0]?.url && (
+                    <Avatar
+                      src={user.images[0].url}
+                      alt={user.display_name}
+                      sx={{ width: 40, height: 40 }}
+                    />
+                  )}
+                  <Typography variant="body1" color="text.primary">
+                    Connected as {user.display_name}
+                  </Typography>
+                </Stack>
+              )}
+              <Button
+                variant="outlined"
+                color="secondary"
+                onClick={handleClearCreds}
+                sx={{ textTransform: "none" }}
+              >
+                Clear Auth
+              </Button>
+            </Box>
+
+            <Box component="header">
+              <Typography variant="h4" component="h1" sx={{ mb: 2 }}>
+                Spotify Library
+              </Typography>
+              <SearchSection
+                onSearch={handleSearch}
+                searchResults={searchResults}
+                savedTracks={savedTracks}
+                isLoading={isLoading}
+                nowPlayingTrack={nowPlayingTrack}
+                isPlaybackPaused={isPlaybackPaused}
+                onPlay={handlePlay}
+                onSave={handleSave}
+                onRemove={handleRemove}
+              />
+            </Box>
+          </Stack>
+        </Container>
+      </Box>
+
+      <Box className="main-content" sx={{ flex: 1, padding: 3 }}>
+        <Container maxWidth="lg">
+          {error && (
+            <Box
+              className="error-message"
+              sx={{
+                mb: 2,
+                p: 2,
+                backgroundColor: theme.palette.error.light,
+                borderRadius: 1,
+              }}
+            >
+              <Stack direction="row" spacing={1} alignItems="center">
+                <Typography>⚠️</Typography>
+                <Typography>{error}</Typography>
+              </Stack>
+            </Box>
+          )}
+
+          <SuggestionProvider>
+            <SuggestionDisplay />
+          </SuggestionProvider>
+
+          {isLoading ? (
+            <LoadingSkeleton />
+          ) : (
+            <LibrarySection
               savedTracks={savedTracks}
-              isLoading={isLoading}
+              currentPage={currentPage}
+              totalTracks={totalTracks}
+              itemsPerPage={ITEMS_PER_PAGE}
               nowPlayingTrack={nowPlayingTrack}
               isPlaybackPaused={isPlaybackPaused}
               onPlay={handlePlay}
               onSave={handleSave}
               onRemove={handleRemove}
+              onNextPage={handleNextPage}
+              onPrevPage={handlePrevPage}
             />
-          </header>
-        </div>
-      </div>
-
-      <div className="main-content">
-        {error && (
-          <div className="error-message">
-            <span>⚠️</span>
-            {error}
-          </div>
-        )}
-
-        <SuggestionProvider>
-          <SuggestionDisplay />
-        </SuggestionProvider>
-
-        {isLoading ? (
-          <LoadingSkeleton />
-        ) : (
-          <LibrarySection
-            savedTracks={savedTracks}
-            currentPage={currentPage}
-            totalTracks={totalTracks}
-            itemsPerPage={ITEMS_PER_PAGE}
-            nowPlayingTrack={nowPlayingTrack}
-            isPlaybackPaused={isPlaybackPaused}
-            onPlay={handlePlay}
-            onSave={handleSave}
-            onRemove={handleRemove}
-            onNextPage={handleNextPage}
-            onPrevPage={handlePrevPage}
-          />
-        )}
-      </div>
+          )}
+        </Container>
+      </Box>
 
       {nowPlayingTrack && (
         <NowPlayingBar
@@ -246,16 +277,23 @@ function AppContent() {
           onPlayPause={handlePlayPause}
         />
       )}
-    </div>
+    </Box>
   );
 }
 
 // Main App component that provides context
 function App() {
   return (
-    <PlayerProvider>
-      <AppContent />
-    </PlayerProvider>
+    <ThemeProvider theme={theme}>
+      <CssBaseline />
+      <SnackbarProvider maxSnack={3}>
+        <PlayerProvider>
+          <SuggestionProvider>
+            <AppContent />
+          </SuggestionProvider>
+        </PlayerProvider>
+      </SnackbarProvider>
+    </ThemeProvider>
   );
 }
 

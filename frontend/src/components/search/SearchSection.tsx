@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { spotify } from "../../../wailsjs/go/models";
 import { TrackCard } from "../tracks/TrackCard";
+import { Box, TextField, Typography, Paper } from '@mui/material';
+import SearchIcon from '@mui/icons-material/Search';
 
 interface SearchSectionProps {
   onSearch: (query: string) => Promise<void>;
@@ -10,8 +12,8 @@ interface SearchSectionProps {
   nowPlayingTrack: spotify.Track | spotify.SimpleTrack | spotify.SuggestedTrackInfo | null;
   isPlaybackPaused: boolean;
   onPlay: (track: spotify.Track | spotify.SimpleTrack) => Promise<void>;
-  onSave: (trackId: string) => Promise<void>;
-  onRemove: (trackId: string) => Promise<void>;
+  onSave: (track: spotify.SimpleTrack) => Promise<void>;
+  onRemove: (track: spotify.SimpleTrack) => Promise<void>;
 }
 
 export function SearchSection({
@@ -33,46 +35,56 @@ export function SearchSection({
   };
 
   return (
-    <div className="search-section">
-      <div className="search-input-container">
-        <span className="search-icon">🔍</span>
-        <input
-          type="text"
+    <Box sx={{ width: '100%' }}>
+      <Box sx={{ position: 'relative', mb: 3 }}>
+        <SearchIcon sx={{ position: 'absolute', left: 12, top: 12 }} />
+        <TextField
+          fullWidth
           placeholder="Search tracks..."
           value={searchQuery}
           onChange={(e) => handleSearchInput(e.target.value)}
-          className="search-input"
+          sx={{
+            '& .MuiOutlinedInput-root': {
+              pl: 3,
+              '& fieldset': {
+                borderRadius: 2,
+              },
+            },
+          }}
         />
-      </div>
+      </Box>
 
       {searchQuery && (
-        <div className="search-results">
-          <h2>Search Results</h2>
+        <Paper sx={{ p: 3, mb: 3 }}>
+          <Typography variant="h6" sx={{ mb: 2 }}>
+            Search Results
+          </Typography>
           {searchResults.length === 0 ? (
-            <div className="no-results">
+            <Typography color="text.secondary">
               No tracks found for "{searchQuery}"
-            </div>
+            </Typography>
           ) : (
-            <div className="track-grid">
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: '1fr 1fr 1fr', lg: 'repeat(4, 1fr)' }, gap: 2 }}>
               {searchResults.map((track) => (
-                <TrackCard
-                  key={track.id}
-                  track={track}
-                  isSaved={savedTracks?.items?.some(
-                    (item) => item.track?.id === track.id,
-                  )}
-                  isPlaying={
-                    !isPlaybackPaused && nowPlayingTrack?.id === track.id
-                  }
-                  onPlay={onPlay}
-                  onSave={onSave}
-                  onRemove={onRemove}
-                />
+                <Box key={track.id}>
+                  <TrackCard
+                    track={track}
+                    isSaved={savedTracks?.items?.some(
+                      (item) => item.track?.id === track.id,
+                    )}
+                    isPlaying={
+                      !isPlaybackPaused && nowPlayingTrack?.id === track.id
+                    }
+                    onPlay={onPlay}
+                    onSave={onSave}
+                    onRemove={onRemove}
+                  />
+                </Box>
               ))}
-            </div>
+            </Box>
           )}
-        </div>
+        </Paper>
       )}
-    </div>
+    </Box>
   );
 } 

@@ -1,11 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import {
   GetAuthStatus,
   ClearSpotifyCredentials,
   GetCurrentUser,
+  GetValidToken,
 } from "../../wailsjs/go/bindings/Music";
 import { spotify } from "../../wailsjs/go/models";
-import { useToast } from "./useToast";
+import { useSnackbar } from 'notistack';
 
 interface AuthStatus {
   isAuthenticated: boolean;
@@ -15,7 +16,7 @@ export function useAuth() {
   const [user, setUser] = useState<spotify.UserProfile | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const authCheckInterval = useRef<ReturnType<typeof setInterval> | null>(null);
-  const { showToast } = useToast();
+  const { enqueueSnackbar } = useSnackbar();
 
   const startAuthPolling = (onAuthenticated: () => Promise<void>) => {
     if (authCheckInterval.current) {
@@ -41,17 +42,17 @@ export function useAuth() {
     }, 1000);
   };
 
-  const handleClearCreds = async () => {
+  const handleClearCreds = useCallback(async () => {
     try {
       await ClearSpotifyCredentials();
-      setUser(null);
       setIsAuthenticated(false);
-      startAuthPolling(() => Promise.resolve());
+      setUser(null);
+      enqueueSnackbar('Cleared Spotify credentials', { variant: 'success' });
     } catch (error) {
-      console.error("Error clearing credentials:", error);
-      showToast({ message: "Error clearing credentials", type: "error" });
+      console.error('Error clearing credentials:', error);
+      enqueueSnackbar('Error clearing credentials', { variant: 'error' });
     }
-  };
+  }, []);
 
   // Check auth status on mount
   useEffect(() => {

@@ -1,11 +1,20 @@
-import { createContext, useContext, useState, ReactNode, useEffect, useRef } from "react";
+import {
+  createContext,
+  useContext,
+  useState,
+  ReactNode,
+  useEffect,
+  useRef,
+} from "react";
 import { spotify } from "../../wailsjs/go/models";
 import { session } from "../../wailsjs/go/models";
 import {
   ProvideSuggestionFeedback,
   RequestNewSuggestion,
 } from "../../wailsjs/go/bindings/Music";
-import { useToast } from "@/hooks/useToast";
+import { useSnackbar } from 'notistack';
+import { Box, Typography, Stack, Button, Card, CardContent, CardMedia, CircularProgress } from "@mui/material";
+import { PlayArrow, SkipNext, ThumbUp, ThumbDown, Add } from '@mui/icons-material';
 
 interface SuggestionContextType {
   suggestedTrack: spotify.SuggestedTrackInfo | null;
@@ -31,17 +40,29 @@ interface SuggestionProviderProps {
 export function SuggestionProvider({
   children,
 }: SuggestionProviderProps): JSX.Element {
-  const { showToast } = useToast();
+  const { enqueueSnackbar } = useSnackbar();
   const [suggestedTrack, setSuggestedTrack] =
     useState<spotify.SuggestedTrackInfo | null>(null);
   const [suggestionError, setSuggestionError] = useState<string | null>(null);
-  const [suggestionContext, setSuggestionContext] = useState<string | null>(null);
+  const [suggestionContext, setSuggestionContext] = useState<string | null>(
+    null,
+  );
   const [currentSuggestionOutcome, setCurrentSuggestionOutcome] =
     useState<session.Outcome>(session.Outcome.pending);
   const [hasLikedCurrentSuggestion, setHasLikedCurrentSuggestion] =
     useState(false);
   const [isProcessingLibrary, setIsProcessingLibrary] = useState(false);
   const hasRequestedInitial = useRef(false);
+
+  const handleToast = (message: string, variant: 'success' | 'error' | 'warning' | 'info') => {
+    enqueueSnackbar(message, { 
+      variant,
+      anchorOrigin: {
+        vertical: 'bottom',
+        horizontal: 'center',
+      },
+    });
+  };
 
   const handleRequestSuggestion = async () => {
     if (isProcessingLibrary) {
@@ -61,7 +82,6 @@ export function SuggestionProvider({
       }
     } catch (error: any) {
       console.error("Error requesting suggestion:", error);
-      // Handle nested error structures
       let errorMessage = "Failed to get suggestion";
       if (error?.error) {
         if (typeof error.error === 'string') {
@@ -74,19 +94,18 @@ export function SuggestionProvider({
       }
       setSuggestionError(errorMessage);
       setSuggestedTrack(null);
-      showToast({ message: errorMessage, type: "error" });
+      handleToast(errorMessage, 'error');
     } finally {
       setIsProcessingLibrary(false);
     }
   };
 
-  // Load initial suggestion only once
   useEffect(() => {
-    if (!hasRequestedInitial.current) {
+    if (!hasRequestedInitial.current && !suggestedTrack && !isProcessingLibrary) {
       hasRequestedInitial.current = true;
       handleRequestSuggestion();
     }
-  }, []);
+  }, [suggestedTrack, isProcessingLibrary]);
 
   const handleSkipSuggestion = async () => {
     if (!suggestedTrack || isProcessingLibrary) return;
@@ -94,7 +113,6 @@ export function SuggestionProvider({
     try {
       setIsProcessingLibrary(true);
       
-      // Set the outcome before making the API call
       setCurrentSuggestionOutcome(session.Outcome.skipped);
       
       await ProvideSuggestionFeedback(
@@ -104,9 +122,8 @@ export function SuggestionProvider({
         suggestedTrack.album,
       );
 
-      showToast({ message: "Skipped suggestion", type: "skip" });
+      handleToast("Skipped suggestion", 'warning');
 
-      // Only request new suggestion after successful skip
       await handleRequestSuggestion();
     } catch (error: any) {
       console.error("Error skipping suggestion:", error);
@@ -120,10 +137,9 @@ export function SuggestionProvider({
       } else if (error?.message) {
         errorMessage = error.message;
       }
-      // Revert the state on error
       setCurrentSuggestionOutcome(session.Outcome.pending);
       setSuggestionError(errorMessage);
-      showToast({ message: errorMessage, type: "error" });
+      handleToast(errorMessage, 'error');
     } finally {
       setIsProcessingLibrary(false);
     }
@@ -139,7 +155,6 @@ export function SuggestionProvider({
           ? session.Outcome.liked
           : session.Outcome.disliked;
 
-      // Set the outcome before making the API call
       setCurrentSuggestionOutcome(outcome);
       if (feedbackType === "like") {
         setHasLikedCurrentSuggestion(true);
@@ -152,12 +167,11 @@ export function SuggestionProvider({
         suggestedTrack.album,
       );
 
-      showToast({
-        message: feedbackType === "like" ? "Liked suggestion" : "Disliked suggestion",
-        type: feedbackType === "like" ? "success" : "dislike"
-      });
+      handleToast(
+        feedbackType === "like" ? "Liked suggestion" : "Disliked suggestion",
+        feedbackType === "like" ? 'success' : 'warning'
+      );
       
-      // Only request new suggestion on dislike after successful feedback
       if (feedbackType === "dislike") {
         await handleRequestSuggestion();
       }
@@ -173,13 +187,12 @@ export function SuggestionProvider({
       } else if (error?.message) {
         errorMessage = error.message;
       }
-      // Revert the state changes on error
       setCurrentSuggestionOutcome(session.Outcome.pending);
       if (feedbackType === "like") {
         setHasLikedCurrentSuggestion(false);
       }
       setSuggestionError(errorMessage);
-      showToast({ message: errorMessage, type: "error" });
+      handleToast(errorMessage, 'error');
     } finally {
       setIsProcessingLibrary(false);
     }
@@ -191,7 +204,6 @@ export function SuggestionProvider({
     try {
       setIsProcessingLibrary(true);
       
-      // Set the outcome before making the API call
       setCurrentSuggestionOutcome(session.Outcome.added);
       setHasLikedCurrentSuggestion(true);
       
@@ -202,7 +214,7 @@ export function SuggestionProvider({
         suggestedTrack.album,
       );
 
-      showToast({ message: "Added to library", type: "success" });
+      handleToast("Added to library", 'success');
     } catch (error: any) {
       console.error("Error adding to library:", error);
       let errorMessage = "Failed to add to library";
@@ -215,11 +227,10 @@ export function SuggestionProvider({
       } else if (error?.message) {
         errorMessage = error.message;
       }
-      // Revert the state on error
       setCurrentSuggestionOutcome(session.Outcome.pending);
       setHasLikedCurrentSuggestion(false);
       setSuggestionError(errorMessage);
-      showToast({ message: errorMessage, type: "error" });
+      handleToast(errorMessage, 'error');
     } finally {
       setIsProcessingLibrary(false);
     }

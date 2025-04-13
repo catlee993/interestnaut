@@ -1,6 +1,8 @@
-import { useState } from "react";
-import { spotify } from "../../../wailsjs/go/models";
-import { TrackCard } from "../tracks/TrackCard";
+import React from 'react';
+import { Box, Typography, Paper, Stack, Button } from '@mui/material';
+import { TrackCard } from '../tracks/TrackCard';
+import { spotify } from '../../../wailsjs/go/models';
+import { styled } from '@mui/material/styles';
 
 interface LibrarySectionProps {
   savedTracks: spotify.SavedTracks | null;
@@ -10,13 +12,31 @@ interface LibrarySectionProps {
   nowPlayingTrack: spotify.Track | spotify.SimpleTrack | spotify.SuggestedTrackInfo | null;
   isPlaybackPaused: boolean;
   onPlay: (track: spotify.Track | spotify.SimpleTrack) => Promise<void>;
-  onSave: (trackId: string) => Promise<void>;
-  onRemove: (trackId: string) => Promise<void>;
+  onSave: (track: spotify.SimpleTrack) => Promise<void>;
+  onRemove: (track: spotify.SimpleTrack) => Promise<void>;
   onNextPage: () => void;
   onPrevPage: () => void;
 }
 
-export function LibrarySection({
+const Grid = styled(Box)(({ theme }) => ({
+  display: 'grid',
+  gap: theme.spacing(3),
+  gridTemplateColumns: '1fr',
+  [theme.breakpoints.up('sm')]: {
+    gridTemplateColumns: 'repeat(2, 1fr)',
+  },
+  [theme.breakpoints.up('md')]: {
+    gridTemplateColumns: 'repeat(2, 1fr)',
+  },
+  [theme.breakpoints.up('lg')]: {
+    gridTemplateColumns: 'repeat(3, 1fr)',
+  },
+  padding: theme.spacing(3),
+  maxWidth: '100%',
+  margin: '0 auto',
+}));
+
+export const LibrarySection: React.FC<LibrarySectionProps> = ({
   savedTracks,
   currentPage,
   totalTracks,
@@ -28,66 +48,56 @@ export function LibrarySection({
   onRemove,
   onNextPage,
   onPrevPage,
-}: LibrarySectionProps) {
-  const [isFavoritesCollapsed, setIsFavoritesCollapsed] = useState(false);
-
+}) => {
   return (
-    <div className="saved-tracks">
-      <div className="saved-tracks-header">
-        <h2>Your Library</h2>
-        <button
-          className="collapse-button"
-          onClick={() => setIsFavoritesCollapsed(!isFavoritesCollapsed)}
-        >
-          {isFavoritesCollapsed ? "▼" : "▲"}
-        </button>
-      </div>
-      
-      {!isFavoritesCollapsed && (
+    <Box sx={{ p: 3, backgroundColor: 'transparent' }}>
+      <Typography variant="h6" sx={{ mb: 2, color: 'text.primary' }}>
+        Your Library
+      </Typography>
+      {!savedTracks?.items || savedTracks.items.length === 0 ? (
+        <Typography color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
+          No saved tracks yet. Search for tracks to add them to your library.
+        </Typography>
+      ) : (
         <>
-          {!savedTracks?.items || savedTracks.items.length === 0 ? (
-            <div className="no-results">
-              No saved tracks yet. Search for tracks to add them to your library.
-            </div>
-          ) : (
-            <>
-              <div className="track-grid">
-                {savedTracks.items.map(
-                  (item) =>
-                    item.track && (
-                      <TrackCard
-                        key={item.track.id}
-                        track={item.track}
-                        isSaved={true}
-                        isPlaying={
-                          !isPlaybackPaused &&
-                          nowPlayingTrack?.id === item.track.id
-                        }
-                        onPlay={onPlay}
-                        onSave={onSave}
-                        onRemove={onRemove}
-                      />
-                    ),
-                )}
-              </div>
-              <div className="pagination">
-                <button onClick={onPrevPage} disabled={currentPage === 1}>
-                  Previous
-                </button>
-                <span>
-                  Page {currentPage} of {Math.ceil(totalTracks / itemsPerPage)}
-                </span>
-                <button
-                  onClick={onNextPage}
-                  disabled={currentPage * itemsPerPage >= totalTracks}
-                >
-                  Next
-                </button>
-              </div>
-            </>
-          )}
+          <Grid>
+            {savedTracks.items.map(
+              (item: spotify.SavedTrackItem) =>
+                item.track && (
+                  <Box key={item.track.id}>
+                    <TrackCard
+                      track={item.track}
+                      isSaved={true}
+                      isPlaying={!isPlaybackPaused && nowPlayingTrack?.id === item.track.id}
+                      onPlay={onPlay}
+                      onSave={onSave}
+                      onRemove={onRemove}
+                    />
+                  </Box>
+                )
+            )}
+          </Grid>
+          <Stack direction="row" spacing={2} justifyContent="center" alignItems="center" sx={{ mt: 3 }}>
+            <Button
+              variant="outlined"
+              onClick={onPrevPage}
+              disabled={currentPage === 1}
+            >
+              Previous
+            </Button>
+            <Typography>
+              Page {currentPage} of {Math.ceil(totalTracks / itemsPerPage)}
+            </Typography>
+            <Button
+              variant="outlined"
+              onClick={onNextPage}
+              disabled={currentPage * itemsPerPage >= totalTracks}
+            >
+              Next
+            </Button>
+          </Stack>
         </>
       )}
-    </div>
+    </Box>
   );
-} 
+};

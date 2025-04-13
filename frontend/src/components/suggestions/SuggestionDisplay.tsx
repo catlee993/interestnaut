@@ -9,6 +9,61 @@ import {
 import { useSuggestion } from "@/contexts/SuggestionContext";
 import { usePlayer } from "@/contexts/PlayerContext";
 import { SaveTrack } from "../../../wailsjs/go/bindings/Music";
+import { Box, Button, CircularProgress, Typography, Stack, IconButton, styled } from '@mui/material';
+
+const StyledButton = styled(Button)(({ theme }) => ({
+  padding: '10px 20px',
+  color: 'white',
+  border: 'none',
+  borderRadius: '20px',
+  cursor: 'pointer',
+  fontWeight: 500,
+  transition: 'background-color 0.2s',
+  textTransform: 'none',
+  display: 'flex',
+  alignItems: 'center',
+  gap: '8px',
+  height: '40px',
+  '&.feedback-button': {
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    border: '1px solid rgba(255, 255, 255, 0.3)',
+    '&:hover': {
+      backgroundColor: 'rgba(0, 0, 0, 0.85)',
+      border: '1px solid rgba(255, 255, 255, 0.4)',
+    }
+  },
+  '&.action-button': {
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    '&:hover': {
+      backgroundColor: 'rgba(255, 255, 255, 0.25)',
+    }
+  }
+}));
+
+const PlayButton = styled(IconButton)(({ theme }) => ({
+  backgroundColor: '#4caf50',
+  color: 'white',
+  padding: 0,
+  border: 'none',
+  borderRadius: '50%',
+  cursor: 'pointer',
+  transition: 'background-color 0.2s',
+  width: '40px',
+  height: '40px',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  '& svg': {
+    width: '20px',
+    height: '20px',
+  },
+  '&:hover': {
+    backgroundColor: '#388e3c',
+  },
+  '&.playing': {
+    backgroundColor: '#388e3c',
+  }
+}));
 
 export function SuggestionDisplay() {
   const {
@@ -26,60 +81,67 @@ export function SuggestionDisplay() {
 
   if (isProcessingLibrary) {
     return (
-      <div className="loading-indicator">
+      <Box className="loading-indicator">
         <div className="loading-spinner"></div>
-        <p>Finding your next song recommendation...</p>
-      </div>
+        <Typography>Finding your next song recommendation...</Typography>
+      </Box>
     );
   }
 
   if (suggestionError) {
     return (
-      <div className="suggestion-error-state">
-        <div className="error-message">{suggestionError}</div>
-        <button onClick={handleRequestSuggestion} className="retry-button">
+      <Box className="suggestion-error-state">
+        <Typography className="error-message">{suggestionError}</Typography>
+        <StyledButton onClick={handleRequestSuggestion} className="retry-button">
           Try getting a suggestion
-        </button>
-      </div>
+        </StyledButton>
+      </Box>
     );
   }
 
   if (!suggestedTrack) {
     return (
-      <div className="empty-suggestion-state">
-        <button
+      <Box className="empty-suggestion-state">
+        <StyledButton
           onClick={handleRequestSuggestion}
           className="request-suggestion-button"
         >
           Get a song suggestion
-        </button>
-      </div>
+        </StyledButton>
+      </Box>
     );
   }
 
   return (
-    <div className="suggested-track-display">
-      <div className="suggestion-art-and-info">
+    <Box className="suggested-track-display">
+      <Box className="suggestion-art-and-info">
         {suggestedTrack.albumArtUrl && (
-          <img
+          <Box
+            component="img"
             src={suggestedTrack.albumArtUrl}
             alt="Suggested album art"
             className="suggested-album-art"
           />
         )}
-        <div className="suggestion-info">
-          <h4>{suggestedTrack.name}</h4>
-          <p>{suggestedTrack.artist}</p>
+        
+        <Box className="suggestion-info">
+          <Typography variant="h4" component="h4">{suggestedTrack.name}</Typography>
+          <Typography component="p">{suggestedTrack.artist}</Typography>
           {suggestionContext &&
             suggestionContext !==
               `${suggestedTrack.name} by ${suggestedTrack.artist}` && (
-              <p className="suggestion-context">
+              <Typography component="p" className="suggestion-context">
                 Based on AI suggestion: "{suggestionContext}"
-              </p>
+              </Typography>
             )}
-        </div>
-        <div className="suggestion-controls">
-          <button
+        </Box>
+
+        <Box className="suggestion-controls" sx={{ 
+          display: 'flex', 
+          alignItems: 'center',
+          gap: '10px'
+        }}>
+          <PlayButton
             className={`play-button ${!isPlaybackPaused && nowPlayingTrack?.id === suggestedTrack.id ? "playing" : ""}`}
             onClick={() => handlePlay(suggestedTrack)}
           >
@@ -88,33 +150,37 @@ export function SuggestionDisplay() {
             ) : (
               <FaPlay />
             )}
-          </button>
-          <button
-            onClick={() => handleSuggestionFeedback("like")}
+          </PlayButton>
+          
+          <StyledButton
             className="feedback-button like-button"
+            onClick={() => handleSuggestionFeedback("like")}
           >
             <FaThumbsUp /> Like
-          </button>
-          <button
-            onClick={() => handleSuggestionFeedback("dislike")}
+          </StyledButton>
+          
+          <StyledButton
             className="feedback-button dislike-button"
+            onClick={() => handleSuggestionFeedback("dislike")}
           >
             <FaThumbsDown /> Dislike
-          </button>
-          <button
-            onClick={handleAddToLibrary}
+          </StyledButton>
+          
+          <StyledButton
             className="action-button add-button"
+            onClick={handleAddToLibrary}
           >
             <FaPlus /> Add to Library
-          </button>
-          <button
-            onClick={handleSkipSuggestion}
+          </StyledButton>
+          
+          <StyledButton
             className="action-button next-button"
+            onClick={handleSkipSuggestion}
           >
             Next Suggestion <FaStepForward />
-          </button>
-        </div>
-      </div>
-    </div>
+          </StyledButton>
+        </Box>
+      </Box>
+    </Box>
   );
 }
