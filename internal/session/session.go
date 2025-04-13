@@ -161,7 +161,7 @@ func (m *manager[T]) loadSession(_ context.Context, key Key) error {
 
 	var session Session[T]
 	session.Key = key
-	if err := json.Unmarshal(data, &session.Content); err != nil {
+	if err := json.Unmarshal(data, &session); err != nil {
 		log.Printf("Failed to unmarshal session for key %s: %v", key, err)
 		return fmt.Errorf("failed to unmarshal session: %w", err)
 	}
@@ -206,7 +206,7 @@ func (m *manager[T]) saveSession(_ context.Context, session *Session[T]) error {
 		return fmt.Errorf("failed to marshal session: %w", err)
 	}
 
-	filePath := filepath.Join(fmt.Sprintf("%s%s", session.Key, ".json"))
+	filePath := filepath.Join(m.dataDir, fmt.Sprintf("%s%s", session.Key, ".json"))
 	log.Printf("Writing session to file: %s", filePath)
 
 	if err := os.WriteFile(filePath, data, 0644); err != nil {
@@ -301,6 +301,8 @@ func composeSession[T Media](
 				Task:     directive(),
 				Baseline: baseline(),
 			},
+			Suggestions:     make(map[string]Suggestion[T]),
+			UserConstraints: []string{},
 		},
 	}
 }

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/pkg/errors"
-	"interestnaut/internal/creds"
 	"interestnaut/internal/directives"
 	"interestnaut/internal/llm"
 	"interestnaut/internal/openai"
@@ -88,21 +87,22 @@ func (m *Music) GetCurrentUser() (*spotify.UserProfile, error) {
 
 type SuggestionResponse struct {
 	session.Music
-	Reason string `json:"reason"`
-	Title  string `json:"title"`
+	Reason       string `json:"reason"`
+	Title        string `json:"title"`
+	PrimaryGenre string `json:"primary_genre"`
 }
 
 // RequestNewSuggestion gets a new suggestion based on the chat history.
 func (m *Music) RequestNewSuggestion() (*spotify.SuggestedTrackInfo, error) {
 	ctx := context.Background()
 	sess := m.manager.GetOrCreateSession(ctx, m.manager.Key(), m.taskFunc, m.baselineFunc)
-	message, err := m.llmClient.ComposeMessage(ctx, &sess.Content)
+	messages, err := m.llmClient.ComposeMessages(ctx, &sess.Content)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to compose message for OpenAI")
 	}
 
 	// Request a new content
-	suggestionContent, err := m.llmClient.SendMessage(ctx, message)
+	suggestionContent, err := m.llmClient.SendMessages(ctx, messages...)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get content from OpenAI")
 	}
@@ -122,7 +122,7 @@ func (m *Music) RequestNewSuggestion() (*spotify.SuggestedTrackInfo, error) {
 		searchQuery += fmt.Sprintf(" album:\"%s\"", content.Album)
 	}
 	searchCtx, searchCancel := context.WithTimeout(ctx, 10*time.Second)
-	tracks, err := m.spotifyClient.SearchTracks(searchCtx, content.Title, 5)
+	tracks, err := m.spotifyClient.SearchTracks(searchCtx, searchQuery, 5)
 	searchCancel()
 
 	if err != nil {
@@ -130,15 +130,44 @@ func (m *Music) RequestNewSuggestion() (*spotify.SuggestedTrackInfo, error) {
 	}
 
 	if len(tracks) == 0 {
-		return nil, fmt.Errorf("could not find '%s' by '%s' on Spotify", content.Title, content.Artist)
+		// try without album before giving up
+		searchQuery = fmt.Sprintf("track:\"%s\" artist:\"%s\"", content.Title, content.Artist)
+		searchCtx, searchCancel = context.WithTimeout(ctx, 10*time.Second)
+		tracks, err = m.spotifyClient.SearchTracks(searchCtx, searchQuery, 5)
+		searchCancel()
+		if err != nil || len(tracks) == 0 {
+			return nil, fmt.Errorf("could not find '%s' by '%s' on Spotify", content.Title, content.Artist)
+		}
 	}
 
 	for _, track := range tracks {
-		if track.Name == content.Title && track.Artist == content.Artist && track.Album == content.Album {
+		if track.Name == content.Title && track.Artist == content.Artist {
+			suggestion := session.Suggestion[session.Music]{
+				Title:        content.Title,
+				PrimaryGenre: content.PrimaryGenre,
+				UserOutcome:  session.Pending,
+				Reasoning:    content.Reason,
+				Content: session.Music{
+					Artist: content.Artist,
+					Album:  content.Album,
+				},
+			}
+			if sErr := m.manager.AddSuggestion(
+				ctx,
+				sess,
+				suggestion,
+				session.EqualMusicSuggestions,
+				session.KeyerMusicSuggestion,
+			); sErr != nil {
+				log.Printf("ERROR: Failed to add suggestion: %v", sErr)
+				return nil, errors.Wrap(sErr, "failed to add suggestion")
+			}
+
 			return &spotify.SuggestedTrackInfo{
 				ID:          track.ID,
 				Name:        track.Name,
 				Artist:      track.Artist,
+				Album:       track.Album,
 				PreviewURL:  track.PreviewUrl,
 				AlbumArtURL: track.AlbumArtUrl,
 				Reason:      content.Reason,
@@ -187,13 +216,10 @@ func (m *Music) PausePlaybackOnDevice(deviceID string) error {
 
 // ClearSpotifyCredentials clears stored Spotify tokens.
 func (m *Music) ClearSpotifyCredentials() error {
-	if err := creds.ClearSpotifyToken(); err != nil {
-		return errors.Wrap(err, "failed to clear Spotify credentials")
-	}
-
+	err := spotify.ClearSpotifyCredentials(context.Background())
 	spotifyClient := spotify.NewClient()
 
 	m.SetSpotifyClient(spotifyClient)
 
-	return nil
+	return err
 }

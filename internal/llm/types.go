@@ -1,7 +1,7 @@
 package llm
 
-type Message struct {
-	Content string `json:"content"`
+type Message interface {
+	GetContent() string
 }
 
 type MusicSuggestion struct {

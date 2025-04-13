@@ -4,10 +4,11 @@ package spotify
 type SuggestedTrackInfo struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
-	Artist      string `json:"artist"` // Primary artist name
+	Artist      string `json:"artist"`
+	Album       string `json:"album"`
 	PreviewURL  string `json:"previewUrl,omitempty"`
 	AlbumArtURL string `json:"albumArtUrl,omitempty"`
-	Reason      string `json:"reason,omitempty"` // Explanation for why this track was suggested
+	Reason      string `json:"reason,omitempty"`
 }
 
 // AuthConfig represents the Spotify OAuth configuration.

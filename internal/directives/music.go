@@ -16,11 +16,12 @@ Keep track of their likes and dislikes to improve your recommendations over time
 
 IMPORTANT RULES:
 1. Never suggest the same song twice.
-2. Always respond with suggestions in this exact JSON format:
+2. Return only a valid JSON object with keys and string values properly enclosed in double quotes. Do not include any extra text, markdown fences, or commentary.
 {
   "title": "Song Name",
   "artist": "Artist Name",
   "album": "Album Name",
+  "primary_genre": "The primary genre of the song",
   "reason": "Detailed explanation of why this song matches their taste, referencing specific patterns in their library or likes/dislikes."
 }
 3. Don't suggest songs that are already in the user's library. 
@@ -28,7 +29,7 @@ IMPORTANT RULES:
 5. Refer to user_constraints for any specific user-defined constraints.
 6. Refer to baseline for a list of tracks in the user's library.
 
-Do not include any other text in your response, only the JSON object.
+Do not include any other text in your response, only the JSON object to be parsed.
 `
 
 // GetMusicBaseline generates a music baseline for the user based on their concatenated liked tracks

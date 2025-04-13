@@ -1,6 +1,9 @@
 package session
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 func EqualMusicSuggestions(a, b Suggestion[Music]) bool {
 	return a.Title == b.Title &&
@@ -9,9 +12,15 @@ func EqualMusicSuggestions(a, b Suggestion[Music]) bool {
 }
 
 func KeyerMusicSuggestion(s Suggestion[Music]) string {
-	return fmt.Sprintf("%s_%s_%s", s.Title, s.Content.Artist, s.Content.Album)
+	return strings.ReplaceAll(
+		strings.ToLower(
+			fmt.Sprintf("%s_%s_%s", s.Title, s.Content.Artist, s.Content.Album),
+		), " ", "",
+	)
 }
 
 func KeyerMusicInfo(title, artist, album string) string {
-	return fmt.Sprintf("%s_%s_%s", title, artist, album)
+	return strings.ReplaceAll(
+		strings.ToLower(fmt.Sprintf("%s_%s_%s", title, artist, album)), " ", "",
+	)
 }

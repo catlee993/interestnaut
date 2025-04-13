@@ -223,6 +223,7 @@ export namespace spotify {
 	    id: string;
 	    name: string;
 	    artist: string;
+	    album: string;
 	    previewUrl?: string;
 	    albumArtUrl?: string;
 	    reason?: string;
@@ -236,6 +237,7 @@ export namespace spotify {
 	        this.id = source["id"];
 	        this.name = source["name"];
 	        this.artist = source["artist"];
+	        this.album = source["album"];
 	        this.previewUrl = source["previewUrl"];
 	        this.albumArtUrl = source["albumArtUrl"];
 	        this.reason = source["reason"];

@@ -6,6 +6,6 @@ import (
 )
 
 type Client[T session.Media] interface {
-	ComposeMessage(context.Context, *session.Content[T]) (Message, error)
-	SendMessage(context.Context, Message) (string, error)
+	ComposeMessages(context.Context, *session.Content[T]) ([]Message, error)
+	SendMessages(context.Context, ...Message) (string, error)
 }
