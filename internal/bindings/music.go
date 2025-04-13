@@ -2,7 +2,6 @@ package bindings
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"interestnaut/internal/directives"
 	"interestnaut/internal/llm"
@@ -86,13 +85,6 @@ func (m *Music) GetCurrentUser() (*spotify.UserProfile, error) {
 	return m.spotifyClient.GetCurrentUser(context.Background())
 }
 
-type SuggestionResponse struct {
-	session.Music
-	Reason       string `json:"reason"`
-	Title        string `json:"title"`
-	PrimaryGenre string `json:"primary_genre"`
-}
-
 // RequestNewSuggestion gets a new suggestion based on the chat history.
 func (m *Music) RequestNewSuggestion() (*spotify.SuggestedTrackInfo, error) {
 	ctx := context.Background()
@@ -103,60 +95,62 @@ func (m *Music) RequestNewSuggestion() (*spotify.SuggestedTrackInfo, error) {
 	}
 
 	// Request a new content
-	suggestionContent, err := m.llmClient.SendMessages(ctx, messages...)
+	suggestion, err := m.llmClient.SendMessages(ctx, messages...)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to get content from OpenAI")
+		return nil, errors.Wrap(err, "failed to get suggestion from LLM")
 	}
 
-	var content SuggestionResponse
-	if uErr := json.Unmarshal([]byte(suggestionContent), &content); uErr != nil {
-		log.Printf("ERROR: Failed to parse JSON: %v. Suggestion: %s", uErr, content)
-		return nil, errors.Wrap(uErr, "failed to parse content JSON from LLM")
-	}
-	if content.Title == "" || content.Artist == "" || content.Album == "" {
-		log.Printf("ERROR: LLM content missing title, artist or album. Content: %s", content)
-		return nil, errors.New("LLM content response was missing title, artist, or album")
+	// Check both top-level and content fields for artist
+	artist := suggestion.Artist
+	if artist == "" {
+		artist = suggestion.Content.Artist
 	}
 
-	searchQuery := fmt.Sprintf("track:\"%s\" artist:\"%s\"", content.Title, content.Artist)
-	if content.Album != "" {
-		searchQuery += fmt.Sprintf(" album:\"%s\"", content.Album)
+	if suggestion.Title == "" || artist == "" {
+		log.Printf("ERROR: LLM content missing title or artist. Content: %+v", suggestion)
+		return nil, errors.New("LLM content response was missing title or artist")
+	}
+
+	searchQuery := fmt.Sprintf("track:\"%s\" artist:\"%s\"", suggestion.Title, artist)
+	if suggestion.Album != "" || suggestion.Content.Album != "" {
+		album := suggestion.Album
+		if album == "" {
+			album = suggestion.Content.Album
+		}
+		searchQuery += fmt.Sprintf(" album:\"%s\"", album)
 	}
 	searchCtx, searchCancel := context.WithTimeout(ctx, 10*time.Second)
 	tracks, err := m.spotifyClient.SearchTracks(searchCtx, searchQuery, 5)
 	searchCancel()
 
 	if err != nil {
-		return nil, errors.Wrap(err, fmt.Sprintf("failed to search for suggested track '%s' by '%s'", content.Title, content.Artist))
+		return nil, errors.Wrap(err, fmt.Sprintf("failed to search for suggested track '%s' by '%s'", suggestion.Title, artist))
 	}
 
 	if len(tracks) == 0 {
 		// try without album before giving up
-		searchQuery = fmt.Sprintf("track:\"%s\" artist:\"%s\"", content.Title, content.Artist)
+		searchQuery = fmt.Sprintf("track:\"%s\" artist:\"%s\"", suggestion.Title, artist)
 		searchCtx, searchCancel = context.WithTimeout(ctx, 10*time.Second)
 		tracks, err = m.spotifyClient.SearchTracks(searchCtx, searchQuery, 5)
 		searchCancel()
 		if err != nil || len(tracks) == 0 {
-			return nil, fmt.Errorf("could not find '%s' by '%s' on Spotify", content.Title, content.Artist)
+			return nil, fmt.Errorf("could not find '%s' by '%s' on Spotify", suggestion.Title, artist)
 		}
 	}
 
 	for _, track := range tracks {
-		if track.Name == content.Title && track.Artist == content.Artist {
-			suggestion := session.Suggestion[session.Music]{
-				Title:        content.Title,
-				PrimaryGenre: content.PrimaryGenre,
+		if track.Name == suggestion.Title && track.Artist == artist {
+			sessionSuggestion := session.Suggestion[session.Music]{
+				Title:        suggestion.Title,
+				PrimaryGenre: suggestion.PrimaryGenre,
 				UserOutcome:  session.Pending,
-				Reasoning:    content.Reason,
-				Content: session.Music{
-					Artist: content.Artist,
-					Album:  content.Album,
-				},
+				Reasoning:    suggestion.Reason,
+				Content:      suggestion.Content,
 			}
 			if sErr := m.manager.AddSuggestion(
 				ctx,
 				sess,
-				suggestion,
+				sessionSuggestion,
 				session.EqualMusicSuggestions,
 				session.KeyerMusicSuggestion,
 			); sErr != nil {
@@ -171,12 +165,12 @@ func (m *Music) RequestNewSuggestion() (*spotify.SuggestedTrackInfo, error) {
 				Album:       track.Album,
 				PreviewURL:  track.PreviewUrl,
 				AlbumArtURL: track.AlbumArtUrl,
-				Reason:      content.Reason,
+				Reason:      suggestion.Reason,
 			}, nil
 		}
 	}
 
-	return nil, fmt.Errorf("could not find '%s' by '%s' on Spotify", content.Title, content.Artist)
+	return nil, fmt.Errorf("could not find '%s' by '%s' on Spotify", suggestion.Title, artist)
 }
 
 // ProvideSuggestionFeedback sends user feedback to OpenAI and records the outcome.

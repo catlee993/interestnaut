@@ -84,7 +84,7 @@ func (c *client[T]) ComposeMessages(_ context.Context, content *session.Content[
 	return msgs, nil
 }
 
-func (c *client[T]) SendMessages(ctx context.Context, msgs ...llm.Message) (string, error) {
+func (c *client[T]) SendMessages(ctx context.Context, msgs ...llm.Message) (*llm.SuggestionResponse[T], error) {
 	reqBody := ChatRequest{
 		Model:    model,
 		Messages: msgs,
@@ -92,7 +92,7 @@ func (c *client[T]) SendMessages(ctx context.Context, msgs ...llm.Message) (stri
 
 	jsonData, err := json.Marshal(reqBody)
 	if err != nil {
-		return "", fmt.Errorf("failed to marshal request: %w", err)
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
 	req, err := request.NewRequester(
@@ -107,22 +107,30 @@ func (c *client[T]) SendMessages(ctx context.Context, msgs ...llm.Message) (stri
 		}),
 	)
 	if err != nil {
-		return "", fmt.Errorf("failed to create request: %w", err)
+		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	var chatResp ChatResponse
 	_, err = req.Make(ctx, &chatResp)
 	if err != nil {
-		return "", fmt.Errorf("API request failed: %w", err)
+		return nil, fmt.Errorf("API request failed: %w", err)
 	}
 
 	if len(chatResp.Choices) == 0 {
-		return "", fmt.Errorf("no response choices available")
+		return nil, fmt.Errorf("no response choices available")
 	}
 
-	// Extract clean JSON content before returning
+	// Extract clean JSON content
 	content := extractJsonContent(chatResp.Choices[0].Message.GetContent())
-	return content, nil
+
+	// Parse the response into our generic type
+	suggestion, err := llm.ParseSuggestionFromString[T](content)
+	if err != nil {
+		log.Printf("WARNING: Failed to parse JSON response: %v. Content: %s", err, content)
+		return nil, fmt.Errorf("failed to parse suggestion: %w", err)
+	}
+
+	return suggestion, nil
 }
 
 func formatSuggestion[T session.Media](suggestion session.Suggestion[T]) string {
