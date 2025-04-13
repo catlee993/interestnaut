@@ -240,22 +240,6 @@ func (m *manager[T]) hasSuggested(
 	return false
 }
 
-func (m *manager[T]) getSuggestion(session *Session[T], suggestionKey string) (*Suggestion[T], bool) {
-	if session == nil {
-		return nil, false
-	}
-
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	suggestion, exists := session.Suggestions[suggestionKey]
-	if !exists {
-		return nil, false
-	}
-
-	return &suggestion, true
-}
-
 // UpdateSuggestionOutcome updates the outcome of a previously suggested song
 func (m *manager[T]) UpdateSuggestionOutcome(
 	ctx context.Context,
@@ -268,17 +252,22 @@ func (m *manager[T]) UpdateSuggestionOutcome(
 		return fmt.Errorf("session is nil")
 	}
 
-	suggestion, found := m.getSuggestion(session, suggestionKey)
-	if !found {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Get the suggestion directly from the map
+	suggestion, exists := session.Suggestions[suggestionKey]
+	if !exists {
 		log.Printf("ERROR: Failed to find suggestion with key %s", suggestionKey)
 		return fmt.Errorf("suggestion not found: %s", suggestionKey)
 	}
 
+	// Update the suggestion
 	suggestion.UserOutcome = outcome
+	// Update the map with the modified suggestion
+	session.Suggestions[suggestionKey] = suggestion
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
+	// Save the session
 	sErr := m.saveSession(ctx, session)
 	if sErr != nil {
 		log.Printf("ERROR: Failed to save session after updating suggestion outcome: %v", sErr)

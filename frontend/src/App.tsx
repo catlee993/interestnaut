@@ -600,7 +600,7 @@ function App() {
         outcome,
         suggestedTrack.name,
         suggestedTrack.artist,
-        suggestedTrack.album,
+        suggestedTrack.album || "",
       );
       // Only show toast after successful API call
       setToast({
@@ -633,12 +633,11 @@ function App() {
     try {
       console.log(`Adding suggested track to library: ${suggestedTrack.id}`);
       await SaveTrack(suggestedTrack.id);
-      // Also send strong positive feedback
       await ProvideSuggestionFeedback(
-        session.Outcome.liked,
+        session.Outcome.added,
         suggestedTrack.name,
         suggestedTrack.artist,
-        "", // No album needed
+        suggestedTrack.album || "",
       );
       setToast({
         message: "Added to your library! 🎵",
@@ -677,20 +676,19 @@ function App() {
         let feedbackText;
         if (hasLikedCurrentSuggestion) {
           feedbackText = `I liked the suggestion: ${suggestedTrack.name} by ${suggestedTrack.artist}`;
-          // Don't show a toast for liked suggestions that are already recorded
           await ProvideSuggestionFeedback(
             session.Outcome.liked,
             suggestedTrack.name,
             suggestedTrack.artist,
-            "",
+            suggestedTrack.album || "",
           );
         } else {
           feedbackText = `I skipped the suggestion: ${suggestedTrack.name} by ${suggestedTrack.artist}`;
           await ProvideSuggestionFeedback(
-            session.Outcome.disliked,
+            session.Outcome.skipped,
             suggestedTrack.name,
             suggestedTrack.artist,
-            "",
+            suggestedTrack.album || "",
           );
           // Only show toast for skipped suggestions
           setToast({

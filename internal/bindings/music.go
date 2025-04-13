@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/pkg/errors"
 	"interestnaut/internal/directives"
 	"interestnaut/internal/llm"
 	"interestnaut/internal/openai"
@@ -14,6 +13,8 @@ import (
 	"os"
 	"sync"
 	"time"
+
+	"github.com/pkg/errors"
 )
 
 type Music struct {
@@ -182,7 +183,17 @@ func (m *Music) RequestNewSuggestion() (*spotify.SuggestedTrackInfo, error) {
 func (m *Music) ProvideSuggestionFeedback(outcome session.Outcome, title, artist, album string) error {
 	ctx := context.Background()
 	sess := m.manager.GetOrCreateSession(ctx, m.manager.Key(), m.taskFunc, m.baselineFunc)
-	key := session.KeyerMusicInfo(title, artist, album)
+
+	// Create a suggestion to use the same keying function
+	suggestion := session.Suggestion[session.Music]{
+		Title: title,
+		Content: session.Music{
+			Artist: artist,
+			Album:  album,
+		},
+	}
+	key := session.KeyerMusicSuggestion(suggestion)
+
 	if err := m.manager.UpdateSuggestionOutcome(ctx, sess, key, outcome); err != nil {
 		return errors.Wrap(err, "failed to update suggestion outcome")
 	}
