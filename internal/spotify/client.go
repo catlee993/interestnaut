@@ -4,11 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/pkg/errors"
 	"io"
 	"log"
 	"net/http"
 	"time"
+
+	"github.com/pkg/errors"
 
 	request "github.com/catlee993/go-request"
 )
@@ -345,7 +346,7 @@ func (c *client) PausePlaybackOnDevice(ctx context.Context, deviceID string) err
 		_ = resp.Body.Close()
 	}()
 
-	if resp.StatusCode != http.StatusNoContent {
+	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body)
 		log.Printf("ERROR: Pause request returned unexpected status %d. Body: %s", resp.StatusCode, string(bodyBytes))
 		return fmt.Errorf("pause request failed with status %d", resp.StatusCode)

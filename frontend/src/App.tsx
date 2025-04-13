@@ -90,6 +90,20 @@ function App() {
   const ITEMS_PER_PAGE = 20;
   const hasInitialized = useRef<boolean>(false);
 
+  const [currentSuggestionOutcome, setCurrentSuggestionOutcome] =
+    useState<session.Outcome>(session.Outcome.pending);
+
+  // Add this state to track the current suggestion's state
+  const [suggestionState, setSuggestionState] = useState<{
+    track: spotify.SuggestedTrackInfo | null;
+    outcome: session.Outcome;
+    isPlaying: boolean;
+  }>({
+    track: null,
+    outcome: session.Outcome.pending,
+    isPlaying: false,
+  });
+
   useEffect(() => {
     if (!hasInitialized.current) {
       hasInitialized.current = true;
@@ -424,7 +438,13 @@ function App() {
     }
   };
 
-  const getTrackInfo = (track: spotify.Track | spotify.SimpleTrack | spotify.SuggestedTrackInfo | null) => {
+  const getTrackInfo = (
+    track:
+      | spotify.Track
+      | spotify.SimpleTrack
+      | spotify.SuggestedTrackInfo
+      | null,
+  ) => {
     if (!track) {
       return {
         name: "Unknown Track",
@@ -436,7 +456,13 @@ function App() {
     }
 
     // Handle full Track type
-    if ('artists' in track && Array.isArray(track.artists) && 'album' in track && track.album && 'images' in track.album) {
+    if (
+      "artists" in track &&
+      Array.isArray(track.artists) &&
+      "album" in track &&
+      track.album &&
+      "images" in track.album
+    ) {
       return {
         name: track.name,
         artist: track.artists[0]?.name || "Unknown Artist",
@@ -447,7 +473,11 @@ function App() {
     }
 
     // Handle SimpleTrack type
-    if ('artist' in track && typeof track.artist === 'string' && 'albumArtUrl' in track) {
+    if (
+      "artist" in track &&
+      typeof track.artist === "string" &&
+      "albumArtUrl" in track
+    ) {
       return {
         name: track.name,
         artist: track.artist,
@@ -458,13 +488,13 @@ function App() {
     }
 
     // Handle SuggestedTrackInfo type
-    if ('artist' in track && typeof track.artist === 'string') {
+    if ("artist" in track && typeof track.artist === "string") {
       return {
         name: track.name,
         artist: track.artist,
         album: "",
-        albumArtUrl: 'albumArtUrl' in track ? track.albumArtUrl || "" : "",
-        previewUrl: 'previewUrl' in track ? track.previewUrl || null : null,
+        albumArtUrl: "albumArtUrl" in track ? track.albumArtUrl || "" : "",
+        previewUrl: "previewUrl" in track ? track.previewUrl || null : null,
       };
     }
 
@@ -587,71 +617,6 @@ function App() {
     }
   };
 
-  // Handler for providing feedback (Like/Dislike)
-  const handleSuggestionFeedback = async (feedbackType: "like" | "dislike") => {
-    if (!suggestedTrack) return;
-
-    try {
-      const outcome =
-        feedbackType === "like"
-          ? session.Outcome.liked
-          : session.Outcome.disliked;
-      await ProvideSuggestionFeedback(
-        outcome,
-        suggestedTrack.name,
-        suggestedTrack.artist,
-        suggestedTrack.album || "",
-      );
-      // Only show toast after successful API call
-      setToast({
-        message:
-          feedbackType === "like"
-            ? "Feedback recorded: liked the suggestion"
-            : "Feedback recorded: did not like the suggestion",
-        type: feedbackType === "like" ? "success" : "dislike",
-      });
-      // Set the liked state if the user liked the suggestion
-      if (feedbackType === "like") {
-        setHasLikedCurrentSuggestion(true);
-      }
-      // Keep the suggestion visible, let user decide when to dismiss
-      if (feedbackType === "dislike") {
-        setSuggestedTrack(null); // Only clear if disliked
-      }
-    } catch (err) {
-      console.error("Failed to send feedback:", err);
-      setToast({
-        message: `Failed to send ${feedbackType} feedback`,
-        type: "error",
-      });
-    }
-  };
-
-  // Handler for adding the suggested track to the library
-  const handleAddToLibrary = async () => {
-    if (!suggestedTrack) return;
-    try {
-      console.log(`Adding suggested track to library: ${suggestedTrack.id}`);
-      await SaveTrack(suggestedTrack.id);
-      await ProvideSuggestionFeedback(
-        session.Outcome.added,
-        suggestedTrack.name,
-        suggestedTrack.artist,
-        suggestedTrack.album || "",
-      );
-      setToast({
-        message: "Added to your library! 🎵",
-        type: "success",
-      });
-    } catch (err) {
-      console.error("Failed to add suggested track or send feedback:", err);
-      setToast({
-        message: `Failed to add ${suggestedTrack.name} to library`,
-        type: "error",
-      });
-    }
-  };
-
   // Add effect to sync playback state with Spotify
   useEffect(() => {
     if (spotifyPlayer) {
@@ -671,32 +636,19 @@ function App() {
     console.log("Starting new suggestion request...");
 
     // Record feedback for the current suggestion before requesting a new one
-    if (suggestedTrack) {
+    if (suggestedTrack && currentSuggestionOutcome === session.Outcome.skipped) {
       try {
-        let feedbackText;
-        if (hasLikedCurrentSuggestion) {
-          feedbackText = `I liked the suggestion: ${suggestedTrack.name} by ${suggestedTrack.artist}`;
-          await ProvideSuggestionFeedback(
-            session.Outcome.liked,
-            suggestedTrack.name,
-            suggestedTrack.artist,
-            suggestedTrack.album || "",
-          );
-        } else {
-          feedbackText = `I skipped the suggestion: ${suggestedTrack.name} by ${suggestedTrack.artist}`;
-          await ProvideSuggestionFeedback(
-            session.Outcome.skipped,
-            suggestedTrack.name,
-            suggestedTrack.artist,
-            suggestedTrack.album || "",
-          );
-          // Only show toast for skipped suggestions
-          setToast({
-            message: "Feedback recorded: skipped the suggestion",
-            type: "skip",
-          });
-        }
-        console.log("Recording feedback for current suggestion:", feedbackText);
+        // Only provide feedback for skipped suggestions here
+        await ProvideSuggestionFeedback(
+          session.Outcome.skipped,
+          suggestedTrack.name,
+          suggestedTrack.artist,
+          suggestedTrack.album || "",
+        );
+        console.log("Recording skipped feedback for current suggestion:", {
+          track: suggestedTrack.name,
+          outcome: session.Outcome.skipped,
+        });
       } catch (err) {
         console.error("Failed to record feedback:", err);
         // Continue with new suggestion request even if feedback recording fails
@@ -708,6 +660,9 @@ function App() {
     setSuggestedTrack(null);
     setSuggestionContext(null);
     setHasLikedCurrentSuggestion(false);
+    setCurrentSuggestionOutcome(session.Outcome.pending);
+    // Scroll to top of page when requesting new suggestion
+    window.scrollTo({ top: 0, behavior: 'smooth' });
     try {
       console.log("Requesting new suggestion...");
       const suggestion = await RequestNewSuggestion();
@@ -748,26 +703,138 @@ function App() {
     }
   };
 
-  // Handler for skipping a suggestion
+  // Update the suggestion state when a new track is suggested
+  useEffect(() => {
+    if (suggestedTrack) {
+      setSuggestionState({
+        track: suggestedTrack,
+        outcome: session.Outcome.pending,
+        isPlaying: false,
+      });
+    }
+  }, [suggestedTrack]);
+
+  // Handle skip action
   const handleSkipSuggestion = async () => {
     if (!suggestedTrack) return;
+
     try {
-      console.log(`Skipping suggestion: ${suggestedTrack.name}`);
+      console.log("[Skip] Starting skip process for track:", suggestedTrack.name);
+
+      // Stop playback first
+      if (!isUsingPreview && spotifyPlayer && spotifyDeviceId) {
+        await PausePlaybackOnDevice(spotifyDeviceId);
+      } else {
+        audioElement.pause();
+      }
+      setIsPlaybackPaused(true);
+
+      // Record the skip feedback
+      console.log("[Skip] Recording feedback for track:", suggestedTrack.name);
       await ProvideSuggestionFeedback(
-        session.Outcome.disliked,
+        session.Outcome.skipped,
         suggestedTrack.name,
         suggestedTrack.artist,
-        "", // No album needed
+        suggestedTrack.album || "",
       );
+
+      // Show toast immediately after feedback is recorded
+      console.log("[Skip] Showing skip toast");
       setToast({
         message: "Skipped suggestion",
         type: "skip",
       });
+
+      // Store the current track info before clearing
+      const currentTrack = suggestedTrack;
+
+      // Clear the suggestion and request next
+      console.log("[Skip] Clearing current suggestion and requesting next");
+      setSuggestedTrack(null);
       await handleRequestSuggestion();
+
+      // Scroll to top
+      window.scrollTo({ top: 0, behavior: "smooth" });
+
+      console.log("[Skip] Skip process completed for track:", currentTrack.name);
     } catch (err) {
-      console.error("Error skipping suggestion:", err);
+      console.error("[Skip] Error during skip process:", err);
+      setToast({ message: "Failed to skip suggestion", type: "error" });
+    }
+  };
+
+  // Handle like/dislike feedback
+  const handleSuggestionFeedback = async (feedbackType: "like" | "dislike") => {
+    if (!suggestedTrack) return;
+
+    try {
+      const outcome = feedbackType === "like" 
+        ? session.Outcome.liked 
+        : session.Outcome.disliked;
+
+      // Record the feedback
+      await ProvideSuggestionFeedback(
+        outcome,
+        suggestedTrack.name,
+        suggestedTrack.artist,
+        suggestedTrack.album || "",
+      );
+
+      // Show toast
       setToast({
-        message: "Failed to skip suggestion",
+        message: feedbackType === "like" 
+          ? "Feedback recorded: liked the suggestion"
+          : "Feedback recorded: did not like the suggestion",
+        type: feedbackType === "like" ? "success" : "dislike",
+      });
+
+      // Handle dislike-specific actions
+      if (feedbackType === "dislike") {
+        if (!isUsingPreview && spotifyPlayer && spotifyDeviceId) {
+          await PausePlaybackOnDevice(spotifyDeviceId);
+        } else {
+          audioElement.pause();
+        }
+        setIsPlaybackPaused(true);
+        setSuggestedTrack(null);
+        await handleRequestSuggestion();
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      } else {
+        setHasLikedCurrentSuggestion(true);
+      }
+    } catch (err) {
+      console.error("Error handling feedback:", err);
+      setToast({
+        message: `Failed to record ${feedbackType} feedback`,
+        type: "error",
+      });
+    }
+  };
+
+  // Handle add to library
+  const handleAddToLibrary = async () => {
+    if (!suggestedTrack) return;
+
+    try {
+      await SaveTrack(suggestedTrack.id);
+      
+      // Record the add
+      await ProvideSuggestionFeedback(
+        session.Outcome.added,
+        suggestedTrack.name,
+        suggestedTrack.artist,
+        suggestedTrack.album || "",
+      );
+
+      // Show toast
+      setToast({
+        message: "Added to your library! 🎵",
+        type: "success",
+      });
+    } catch (err) {
+      console.error("Failed to add track or send feedback:", err);
+      setToast({
+        message: `Failed to add ${suggestedTrack.name} to library`,
         type: "error",
       });
     }
@@ -970,22 +1037,22 @@ function App() {
                   Try another suggestion
                 </button>
               </div>
-            ) : suggestedTrack ? (
+            ) : suggestionState.track ? (
               <div className="suggested-track-display">
                 <div className="suggestion-art-and-info">
-                  {suggestedTrack.albumArtUrl && (
+                  {suggestionState.track.albumArtUrl && (
                     <img
-                      src={suggestedTrack.albumArtUrl}
+                      src={suggestionState.track.albumArtUrl}
                       alt="Suggested album art"
                       className="suggested-album-art"
                     />
                   )}
                   <div className="suggestion-info">
-                    <h4>{suggestedTrack.name}</h4>
-                    <p>{suggestedTrack.artist}</p>
+                    <h4>{suggestionState.track.name}</h4>
+                    <p>{suggestionState.track.artist}</p>
                     {suggestionContext &&
                       suggestionContext !==
-                        `${suggestedTrack.name} by ${suggestedTrack.artist}` && (
+                        `${suggestionState.track.name} by ${suggestionState.track.artist}` && (
                         <p className="suggestion-context">
                           Based on AI suggestion: "{suggestionContext}"
                         </p>
@@ -993,22 +1060,25 @@ function App() {
                   </div>
                   <div className="suggestion-controls">
                     <button
-                      className={`play-button ${!isPlaybackPaused && nowPlayingTrack?.id === suggestedTrack.id ? "playing" : ""}`}
+                      className={`play-button ${!isPlaybackPaused && nowPlayingTrack?.id === suggestionState.track.id ? "playing" : ""}`}
                       onClick={() => {
+                        const track = suggestionState.track;
+                        if (!track) return;
+                        
                         console.log(
                           "[Suggestion] Play button clicked for track:",
-                          suggestedTrack.name,
+                          track.name,
                         );
                         console.log("[Suggestion] Current state:", {
                           isPlaybackPaused,
                           nowPlayingId: nowPlayingTrack?.id,
-                          suggestedId: suggestedTrack.id,
+                          suggestedId: track.id,
                         });
-                        handlePlay(suggestedTrack);
+                        handlePlay(track);
                       }}
                     >
                       {!isPlaybackPaused &&
-                      nowPlayingTrack?.id === suggestedTrack.id ? (
+                      nowPlayingTrack?.id === suggestionState.track.id ? (
                         <FaPause />
                       ) : (
                         <FaPlay />

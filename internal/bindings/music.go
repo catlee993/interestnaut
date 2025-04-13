@@ -178,15 +178,8 @@ func (m *Music) ProvideSuggestionFeedback(outcome session.Outcome, title, artist
 	ctx := context.Background()
 	sess := m.manager.GetOrCreateSession(ctx, m.manager.Key(), m.taskFunc, m.baselineFunc)
 
-	// Create a suggestion to use the same keying function
-	suggestion := session.Suggestion[session.Music]{
-		Title: title,
-		Content: session.Music{
-			Artist: artist,
-			Album:  album,
-		},
-	}
-	key := session.KeyerMusicSuggestion(suggestion)
+	// Use KeyerMusicInfo to generate the key
+	key := session.KeyerMusicInfo(title, artist, album)
 
 	if err := m.manager.UpdateSuggestionOutcome(ctx, sess, key, outcome); err != nil {
 		return errors.Wrap(err, "failed to update suggestion outcome")
