@@ -13,6 +13,7 @@ import {
   SaveTrack,
 } from "@wailsjs/go/bindings/Music";
 import { useSnackbar } from "notistack";
+import { usePlayer } from "@/components/music/player/PlayerContext";
 
 interface SuggestionContextType {
   suggestedTrack: spotify.SuggestedTrackInfo | null;
@@ -48,6 +49,7 @@ export function SuggestionProvider({
   children,
 }: SuggestionProviderProps): JSX.Element {
   const { enqueueSnackbar } = useSnackbar();
+  const { stopPlayback } = usePlayer();
   const [suggestedTrack, setSuggestedTrack] =
     useState<spotify.SuggestedTrackInfo | null>(null);
   const [suggestionError, setSuggestionError] = useState<string | null>(null);
@@ -145,6 +147,8 @@ export function SuggestionProvider({
         handleToast("Skipped suggestion", "warning");
       }
 
+      // Stop playback when skipping
+      await stopPlayback();
       window.scrollTo({ top: 0, behavior: "smooth" });
       await handleRequestSuggestion();
     } catch (error: any) {
@@ -193,6 +197,8 @@ export function SuggestionProvider({
         setSuggestedTrack(null);
         setSuggestionState(prev => ({ ...prev, outcome: outcome, hasAdded: false }));
         handleToast("Dislike recorded", "error");
+        // Stop playback when disliking
+        await stopPlayback();
         window.scrollTo({ top: 0, behavior: "smooth" });
         await handleRequestSuggestion();
       }
@@ -277,7 +283,22 @@ export function SuggestionProvider({
   };
 
   return (
-    <SuggestionContext.Provider value={value}>
+    <SuggestionContext.Provider
+      value={{
+        suggestedTrack,
+        suggestionError,
+        suggestionContext,
+        currentSuggestionOutcome: suggestionState.outcome,
+        hasLikedCurrentSuggestion: suggestionState.hasLiked,
+        hasAddedCurrentSuggestion: suggestionState.hasAdded,
+        isProcessingLibrary: suggestionState.isProcessing,
+        isFetchingSuggestion,
+        handleRequestSuggestion,
+        handleSkipSuggestion,
+        handleSuggestionFeedback,
+        handleAddToLibrary,
+      }}
+    >
       {children}
     </SuggestionContext.Provider>
   );

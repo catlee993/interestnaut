@@ -273,7 +273,14 @@ export function SuggestionDisplay() {
             src={suggestedTrack.albumArtUrl}
             alt="Suggested album art"
             className="suggested-album-art"
-            sx={{ opacity: isProcessingLibrary ? 0.5 : 1 }}
+            sx={{ 
+              opacity: isProcessingLibrary ? 0.5 : 1,
+              border: "2px solid rgba(123, 104, 238, 0.3)",
+              transition: "all 0.2s ease-in-out",
+              "&:hover": {
+                borderColor: "rgba(123, 104, 238, 0.5)",
+              }
+            }}
           />
         )}
 

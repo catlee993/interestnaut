@@ -59,10 +59,8 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
   const maxRetries = 3;
 
   const initializePlayer = useCallback(async () => {
-    if (isConnecting.current || hasInitialized.current) {
-      console.log(
-        "[initializePlayer] Already connecting or initialized, skipping",
-      );
+    if (isConnecting.current) {
+      console.log("[initializePlayer] Already connecting, skipping");
       return;
     }
 
@@ -80,6 +78,14 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
         return;
       }
 
+      // Clean up existing player if it exists
+      if (spotifyPlayer) {
+        console.log("[initializePlayer] Cleaning up existing player");
+        await spotifyPlayer.disconnect();
+        setSpotifyPlayer(null);
+        setSpotifyDeviceId(null);
+      }
+
       const player = new window.Spotify.Player({
         name: "Interestnaut Web Player",
         getOAuthToken: async (cb) => {
@@ -94,6 +100,16 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
           }
         },
         volume: 0.5,
+      });
+
+      // Add error handler for 404s
+      player.addListener("playback_error", (event: SpotifyPlayerEvent) => {
+        // Ignore 404 errors as they don't affect playback
+        if (event.message?.includes("404")) {
+          console.log("[playback_error] Ignoring 404 error - playback continues");
+          return;
+        }
+        console.error("[playback_error]", event.message);
       });
 
       player.addListener("ready", (event: SpotifyPlayerEvent) => {
@@ -114,63 +130,45 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
         setSpotifyPlayer(null);
         setIsInitializing(false);
         isConnecting.current = false;
+        // Try to reconnect when device goes offline
+        setTimeout(() => {
+          console.log("[not_ready] Attempting to reconnect...");
+          hasInitialized.current = false;
+          initializePlayer();
+        }, 2000);
       });
 
-      player.addListener(
-        "player_state_changed",
-        (event: SpotifyPlayerEvent) => {
-          if (event.state) {
-            console.log("[player_state_changed] State:", event.state);
-            const state = event.state as SpotifyPlayerState;
-            setCurrentPosition(state.position);
-            setDuration(state.duration);
-            setIsPlaybackPaused(state.paused);
-          }
-        },
-      );
-
-      player.addListener(
-        "initialization_error",
-        (event: SpotifyPlayerEvent) => {
-          console.error("Failed to initialize:", event.message);
-          if (event.message) {
-            setInitializationError(`Failed to initialize: ${event.message}`);
-          }
-          setIsInitializing(false);
-          isConnecting.current = false;
-        },
-      );
-
-      player.addListener(
-        "authentication_error",
-        (event: SpotifyPlayerEvent) => {
-          console.error("Failed to authenticate:", event.message);
-          if (event.message) {
-            setInitializationError(`Failed to authenticate: ${event.message}`);
-          }
-          setIsInitializing(false);
-          isConnecting.current = false;
-        },
-      );
-
-      player.addListener("account_error", (event: SpotifyPlayerEvent) => {
-        console.error("Failed to validate Spotify account:", event.message);
+      player.addListener("authentication_error", (event: SpotifyPlayerEvent) => {
+        console.error("Failed to authenticate:", event.message);
         if (event.message) {
-          setInitializationError(
-            `Failed to validate Spotify account: ${event.message}`,
-          );
+          setInitializationError(`Failed to authenticate: ${event.message}`);
         }
         setIsInitializing(false);
         isConnecting.current = false;
+        // Try to reconnect on auth error
+        setTimeout(() => {
+          console.log("[authentication_error] Attempting to reconnect...");
+          hasInitialized.current = false;
+          initializePlayer();
+        }, 2000);
+      });
+
+      // Add WebSocket error handler
+      player.addListener("account_error", (event: SpotifyPlayerEvent) => {
+        console.error("WebSocket error:", event.message);
+        setSpotifyDeviceId(null);
+        setSpotifyPlayer(null);
+        setIsInitializing(false);
+        isConnecting.current = false;
+        // Try to reconnect on WebSocket error
+        setTimeout(() => {
+          console.log("[account_error] Attempting to reconnect...");
+          hasInitialized.current = false;
+          initializePlayer();
+        }, 2000);
       });
 
       await player.connect();
-      // If we get here, connection was successful
-      setSpotifyPlayer(player);
-      setIsInitializing(false);
-      isConnecting.current = false;
-      hasInitialized.current = true;
-      retryCount.current = 0;
     } catch (err) {
       console.error("[initializePlayer] Failed to create Spotify player:", err);
       setInitializationError(
@@ -190,7 +188,30 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
         setTimeout(initializePlayer, 2000 * retryCount.current); // Exponential backoff
       }
     }
-  }, []);
+  }, [spotifyPlayer]);
+
+  // Add periodic reconnection check
+  useEffect(() => {
+    const checkConnection = async () => {
+      if (spotifyPlayer && spotifyDeviceId) {
+        try {
+          const state = await spotifyPlayer.getCurrentState();
+          if (!state) {
+            console.log("[checkConnection] Player state not available, attempting to reconnect...");
+            hasInitialized.current = false;
+            await initializePlayer();
+          }
+        } catch (error) {
+          console.error("[checkConnection] Error checking player state:", error);
+          hasInitialized.current = false;
+          await initializePlayer();
+        }
+      }
+    };
+
+    const interval = setInterval(checkConnection, 30000); // Check every 30 seconds
+    return () => clearInterval(interval);
+  }, [spotifyPlayer, spotifyDeviceId, initializePlayer]);
 
   useEffect(() => {
     if (hasInitialized.current) return;
@@ -245,9 +266,16 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
   const handlePlay = async (
     trackOrUri: spotify.Track | spotify.SimpleTrack | spotify.SuggestedTrackInfo | string,
   ) => {
-    if (!spotifyDeviceId) {
-      console.error("No active Spotify device found");
-      return;
+    if (!spotifyPlayer || !spotifyDeviceId) {
+      console.error("Spotify player not ready. Attempting to reinitialize...");
+      hasInitialized.current = false;
+      await initializePlayer();
+      // Wait a bit for the player to initialize
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      if (!spotifyPlayer || !spotifyDeviceId) {
+        console.error("Failed to initialize player after retry");
+        return;
+      }
     }
 
     const trackUri = typeof trackOrUri === 'string' ? trackOrUri : trackOrUri.uri;
@@ -264,6 +292,22 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
       setIsPlaybackPaused(false);
     } catch (error) {
       console.error("Failed to play track:", error);
+      // If the error is due to device not being active, try to reinitialize
+      if (error instanceof Error && (error.message.includes("No active device") || error.message.includes("Device not found"))) {
+        console.log("Device not found, attempting to reinitialize player...");
+        hasInitialized.current = false;
+        await initializePlayer();
+        // Wait a bit for the player to initialize
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        // Try playing again after reinitialization
+        if (spotifyDeviceId) {
+          await PlayTrackOnDevice(spotifyDeviceId, trackUri);
+          if (typeof trackOrUri !== 'string') {
+            setNowPlayingTrack(trackOrUri);
+          }
+          setIsPlaybackPaused(false);
+        }
+      }
     }
   };
 
@@ -271,6 +315,8 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
     if (spotifyPlayer && spotifyDeviceId) {
       try {
         await PausePlaybackOnDevice(spotifyDeviceId);
+        setIsPlaybackPaused(true);
+        setNowPlayingTrack(null);
       } catch (error: unknown) {
         const errorMessage =
           error instanceof Error
@@ -279,7 +325,6 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
         console.error("[stopPlayback]", errorMessage);
       }
     }
-    setIsPlaybackPaused(true);
   };
 
   const handlePlayPause = async () => {
@@ -293,7 +338,8 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
             "uri" in nowPlayingTrack
               ? nowPlayingTrack.uri
               : `spotify:track:${nowPlayingTrack.id}`;
-          await PlayTrackOnDevice(spotifyDeviceId, trackUri!);
+          // Resume playback from current position
+          await spotifyPlayer.resume();
           setIsPlaybackPaused(false);
         } catch (error: unknown) {
           const errorMessage =

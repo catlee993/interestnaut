@@ -54,25 +54,27 @@ export function Header({ user, onSearch }: HeaderProps) {
     <StyledAppBar position="sticky" elevation={0}>
       <StyledToolbar>
         <TopRow>
-          <Tabs
-            value={currentMedia}
-            onChange={handleChange}
-            textColor="inherit"
-            sx={{
-              "& .MuiTab-root": {
-                color: "white",
-                "&.Mui-selected": {
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+            <Tabs
+              value={currentMedia}
+              onChange={handleChange}
+              textColor="inherit"
+              sx={{
+                "& .MuiTab-root": {
                   color: "white",
+                  "&.Mui-selected": {
+                    color: "white",
+                  },
                 },
-              },
-              "& .MuiTabs-indicator": {
-                backgroundColor: "#7B68EE",
-              },
-            }}
-          >
-            <Tab value="music" label="Music" />
-            <Tab value="movies" label="Movies" />
-          </Tabs>
+                "& .MuiTabs-indicator": {
+                  backgroundColor: "#7B68EE",
+                },
+              }}
+            >
+              <Tab value="music" label="Music" />
+              <Tab value="movies" label="Movies" />
+            </Tabs>
+          </Box>
 
           <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
             {currentMedia === "music" && user && (
