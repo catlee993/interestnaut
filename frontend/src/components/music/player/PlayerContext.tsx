@@ -301,24 +301,31 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
   };
 
   const seekTo = useCallback(async (position: number) => {
-    if (!nowPlayingTrack || !spotifyPlayer) return;
+    if (!nowPlayingTrack) return;
 
     try {
       // Convert position from milliseconds to seconds for the API
       const positionMs = Math.floor(position);
       console.log("[seekTo] Seeking to position:", positionMs);
       
-      // Use the Spotify Player's seek method
-      await spotifyPlayer.seek(positionMs);
+      if (spotifyPlayer && "uri" in nowPlayingTrack) {
+        // Use the Spotify Player's seek method for full tracks
+        await spotifyPlayer.seek(positionMs);
+      } else {
+        // For preview tracks, we can only update the UI position
+        setCurrentPosition(positionMs);
+      }
       
-      // Update the UI position after successful seek
+      // Update the UI position
       setCurrentPosition(positionMs);
     } catch (error) {
       console.error("[seekTo] Failed to seek:", error);
       // Revert the UI position if the seek failed
-      const state = await spotifyPlayer.getCurrentState();
-      if (state) {
-        setCurrentPosition(state.position);
+      if (spotifyPlayer) {
+        const state = await spotifyPlayer.getCurrentState();
+        if (state) {
+          setCurrentPosition(state.position);
+        }
       }
     }
   }, [nowPlayingTrack, spotifyPlayer]);

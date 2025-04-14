@@ -162,7 +162,12 @@ function AppContent() {
       <Header user={user} />
       <Container
         maxWidth="lg"
-        sx={{ flex: 1, display: "flex", flexDirection: "column" }}
+        sx={{ 
+          flex: 1, 
+          display: "flex", 
+          flexDirection: "column",
+          pb: 8 // Add bottom padding to account for playbar
+        }}
       >
         {currentMedia === "music" ? (
           <>
@@ -196,7 +201,7 @@ function AppContent() {
           <MovieSection />
         )}
       </Container>
-      {currentMedia === "music" && nowPlayingTrack && <NowPlayingBar />}
+      {nowPlayingTrack && <NowPlayingBar />}
     </Box>
   );
 }

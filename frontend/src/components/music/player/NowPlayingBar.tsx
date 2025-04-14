@@ -26,6 +26,7 @@ const PlayPauseButton = styled(IconButton)(({ theme }) => ({
 const Scrubber = styled(Slider)(({ theme }) => ({
   color: theme.palette.primary.main,
   height: 4,
+  padding: '3px 0',
   '& .MuiSlider-thumb': {
     width: 8,
     height: 8,
@@ -44,6 +45,7 @@ const Scrubber = styled(Slider)(({ theme }) => ({
   '& .MuiSlider-rail': {
     opacity: 0.3,
   },
+  margin: '3px 0',
 }));
 
 const NowPlayingContainer = styled('div')(({ theme }) => ({
@@ -54,6 +56,12 @@ const NowPlayingContainer = styled('div')(({ theme }) => ({
   backgroundColor: theme.palette.background.paper,
   borderRadius: theme.shape.borderRadius,
   width: '100%',
+  position: 'fixed',
+  bottom: 0,
+  left: 0,
+  right: 0,
+  zIndex: 1000,
+  borderTop: `1px solid ${theme.palette.divider}`,
 }));
 
 const TrackInfo = styled('div')(({ theme }) => ({
@@ -74,6 +82,9 @@ const ScrubberContainer = styled(Box)(({ theme }) => ({
   flex: 1,
   minWidth: 0,
   padding: `0 ${theme.spacing(2)}`,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '3px',
 }));
 
 export function NowPlayingBar(): JSX.Element | null {
@@ -92,7 +103,7 @@ export function NowPlayingBar(): JSX.Element | null {
 
   const info = getTrackInfo(nowPlayingTrack);
   // A track is playable if it has either a preview URL or a Spotify URI
-  const hasPlayback = ("previewUrl" in nowPlayingTrack && nowPlayingTrack.previewUrl) || ("uri" in nowPlayingTrack);
+  const hasPlayback = info.previewUrl || ("uri" in nowPlayingTrack && nowPlayingTrack.uri);
 
   const formatTime = (ms: number) => {
     const seconds = Math.floor(ms / 1000);
@@ -122,10 +133,7 @@ export function NowPlayingBar(): JSX.Element | null {
           <strong>{info.name}</strong>
         </Typography>
         <Typography variant="subtitle2" color="text.secondary">
-          {info.artist}
-        </Typography>
-        <Typography variant="caption" color="text.secondary">
-          {info.album}
+          {info.artist} - {info.album}
         </Typography>
       </TrackInfo>
       <ScrubberContainer>
@@ -136,16 +144,20 @@ export function NowPlayingBar(): JSX.Element | null {
           disabled={!hasPlayback}
           valueLabelDisplay="auto"
           valueLabelFormat={formatTime}
-          step={1000} // 1 second steps
+          step={1000}
           marks={false}
         />
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 0.5 }}>
-          <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.7)' }}>
-            {formatTime(currentPosition)}
-          </span>
-          <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.7)' }}>
-            {formatTime(duration)}
-          </span>
+        <Box sx={{ 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          mt: 0,
+          mb: 0.35,
+          fontSize: '0.72rem',
+          color: 'rgba(255,255,255,0.7)',
+          lineHeight: 1.1
+        }}>
+          <span>{formatTime(currentPosition)}</span>
+          <span>{formatTime(duration)}</span>
         </Box>
       </ScrubberContainer>
       <PlayPauseButton
@@ -173,6 +185,7 @@ function getTrackInfo(
       album: "",
       albumArtUrl: "",
       previewUrl: null,
+      uri: null,
     };
   }
 
@@ -190,6 +203,7 @@ function getTrackInfo(
       album: track.album.name,
       albumArtUrl: track.album.images[0]?.url || "",
       previewUrl: track.preview_url || null,
+      uri: track.uri || null,
     };
   }
 
@@ -201,6 +215,7 @@ function getTrackInfo(
       album: track.album || "",
       albumArtUrl: track.albumArtUrl || "",
       previewUrl: track.previewUrl || null,
+      uri: track.uri || null,
     };
   }
 
@@ -212,6 +227,7 @@ function getTrackInfo(
       album: "",
       albumArtUrl: "albumArtUrl" in track ? track.albumArtUrl || "" : "",
       previewUrl: "previewUrl" in track ? track.previewUrl || null : null,
+      uri: "uri" in track ? track.uri || null : null,
     };
   }
 
@@ -223,5 +239,6 @@ function getTrackInfo(
     album: "",
     albumArtUrl: "",
     previewUrl: null,
+    uri: null,
   };
 }

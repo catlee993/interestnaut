@@ -260,6 +260,7 @@ export namespace spotify {
 	    previewUrl?: string;
 	    albumArtUrl?: string;
 	    reason?: string;
+	    uri?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new SuggestedTrackInfo(source);
@@ -274,6 +275,7 @@ export namespace spotify {
 	        this.previewUrl = source["previewUrl"];
 	        this.albumArtUrl = source["albumArtUrl"];
 	        this.reason = source["reason"];
+	        this.uri = source["uri"];
 	    }
 	}
 	

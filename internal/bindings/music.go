@@ -160,6 +160,7 @@ func (m *Music) RequestNewSuggestion() (*spotify.SuggestedTrackInfo, error) {
 		PreviewURL:  matchedTrack.PreviewUrl,
 		AlbumArtURL: matchedTrack.AlbumArtUrl,
 		Reason:      suggestion.Reason,
+		URI:         matchedTrack.URI,
 	}, nil
 }
 

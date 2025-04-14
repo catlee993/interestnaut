@@ -8,7 +8,14 @@ import {
 } from "react-icons/fa";
 import { useSuggestion } from "@/components/music/suggestions/SuggestionContext";
 import { usePlayer } from "@/components/music/player/PlayerContext";
-import { Box, Button, IconButton, styled, Typography, CircularProgress } from "@mui/material";
+import {
+  Box,
+  Button,
+  IconButton,
+  styled,
+  Typography,
+  CircularProgress,
+} from "@mui/material";
 
 const StyledButton = styled(Button)(({ theme }) => ({
   padding: "10px 20px",
@@ -198,7 +205,9 @@ export function SuggestionDisplay() {
     console.log("Displaying suggestion error:", suggestionError);
     return (
       <Box className="suggestion-error-state">
-        <Typography className="error-message" sx={{ color: "error.main" }}>{suggestionError}</Typography>
+        <Typography className="error-message" sx={{ color: "error.main" }}>
+          {suggestionError}
+        </Typography>
         <StyledButton
           onClick={handleRequestSuggestion}
           className="retry-button"
@@ -212,7 +221,16 @@ export function SuggestionDisplay() {
 
   if (isFetchingSuggestion) {
     return (
-      <Box className="loading-state" sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', p: 4 }}>
+      <Box
+        className="loading-state"
+        sx={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          p: 4,
+        }}
+      >
         <CircularProgress size={32} sx={{ mb: 2 }} />
         <Typography variant="body1" color="text.secondary">
           Finding your next favorite song...
@@ -266,7 +284,7 @@ export function SuggestionDisplay() {
                   mb: 2,
                 }}
               >
-                Based on AI suggestion: "{suggestionContext}"
+                <strong>Agent Reasoning</strong>: "{suggestionContext}"
               </Typography>
             )}
         </Box>
