@@ -113,7 +113,21 @@ func (c *client[T]) SendMessages(ctx context.Context, msgs ...llm.Message) (*llm
 	var chatResp ChatResponse
 	_, err = req.Make(ctx, &chatResp)
 	if err != nil {
-		return nil, fmt.Errorf("API request failed: %w", err)
+		// Check if the error is a rate limit error
+		if strings.Contains(err.Error(), "rate_limit_exceeded") {
+			// Extract the original error message
+			var apiError struct {
+				Error struct {
+					Message string `json:"message"`
+					Type    string `json:"type"`
+					Code    string `json:"code"`
+				} `json:"error"`
+			}
+			if jsonErr := json.Unmarshal([]byte(err.Error()), &apiError); jsonErr == nil && apiError.Error.Message != "" {
+				return nil, fmt.Errorf("failed to get suggestion from LLM: %s", apiError.Error.Message)
+			}
+		}
+		return nil, fmt.Errorf("failed to get suggestion from LLM: %w", err)
 	}
 
 	if len(chatResp.Choices) == 0 {

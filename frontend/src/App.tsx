@@ -1,16 +1,16 @@
 import { useEffect, useState, useRef } from "react";
 import "./App.css";
 import { session, spotify } from "../wailsjs/go/models";
-import { SuggestionProvider } from "./contexts/SuggestionContext";
-import { SuggestionDisplay } from "./components/suggestions/SuggestionDisplay";
-import { LoadingSkeleton } from "./components/tracks/LoadingSkeleton";
-import { NowPlayingBar } from "./components/player/NowPlayingBar";
-import { SearchSection } from "./components/search/SearchSection";
-import { LibrarySection } from "./components/library/LibrarySection";
+import { SuggestionProvider } from "@/components/music/suggestions/SuggestionContext";
+import { SuggestionDisplay } from "@/components/music/suggestions/SuggestionDisplay";
+import { LoadingSkeleton } from "@/components/music/tracks/LoadingSkeleton";
+import { NowPlayingBar } from "@/components/music/player/NowPlayingBar";
+import { SearchSection } from "@/components/music/search/SearchSection";
+import { LibrarySection } from "@/components/music/library/LibrarySection";
 import { useAuth } from "./hooks/useAuth";
 import { useTracks } from "./hooks/useTracks";
-import { usePlayer } from "./contexts/PlayerContext";
-import { PlayerProvider } from "./contexts/PlayerContext";
+import { usePlayer } from "@/components/music/player/PlayerContext";
+import { PlayerProvider } from "@/components/music/player/PlayerContext";
 import {
   ThemeProvider,
   CssBaseline,
@@ -69,27 +69,6 @@ declare module "../wailsjs/go/models" {
   }
 }
 
-// Add type declarations for Spotify Web Playback SDK
-declare global {
-  interface Window {
-    onSpotifyWebPlaybackSDKReady: () => void;
-    Spotify: {
-      Player: new (config: {
-        name: string;
-        getOAuthToken: (callback: (token: string) => void) => void;
-        volume: number;
-      }) => {
-        addListener: (
-          event: string,
-          callback: (data: { device_id: string }) => void,
-        ) => void;
-        connect: () => Promise<void>;
-        disconnect: () => void;
-      };
-    };
-  }
-}
-
 // Add type declarations for toast
 interface Toast {
   message: string;
@@ -105,18 +84,11 @@ const ITEMS_PER_PAGE = 20;
 // Create a separate component for the app content to use hooks
 function AppContent() {
   const { enqueueSnackbar } = useSnackbar();
-  const {
-    user,
-    setUser,
-    isAuthenticated,
-    setIsAuthenticated,
-    startAuthPolling,
-    handleClearCreds,
-  } = useAuth();
+  const { user, isAuthenticated, startAuthPolling, handleClearCreds } =
+    useAuth();
 
   const {
     savedTracks,
-    setSavedTracks,
     searchResults,
     isLoading,
     error,
@@ -259,25 +231,31 @@ function AppContent() {
               currentPage={currentPage}
               totalTracks={totalTracks}
               itemsPerPage={ITEMS_PER_PAGE}
+              onNextPage={handleNextPage}
+              onPrevPage={handlePrevPage}
               nowPlayingTrack={nowPlayingTrack}
               isPlaybackPaused={isPlaybackPaused}
               onPlay={handlePlay}
               onSave={handleSave}
               onRemove={handleRemove}
-              onNextPage={handleNextPage}
-              onPrevPage={handlePrevPage}
             />
           )}
         </Container>
       </Box>
 
-      {nowPlayingTrack && (
-        <NowPlayingBar
-          track={nowPlayingTrack}
-          isPlaybackPaused={isPlaybackPaused}
-          onPlayPause={handlePlayPause}
-        />
-      )}
+      <Box
+        sx={{
+          position: 'fixed',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          backgroundColor: theme.palette.background.paper,
+          borderTop: `1px solid ${theme.palette.divider}`,
+          zIndex: 1000,
+        }}
+      >
+        <NowPlayingBar />
+      </Box>
     </Box>
   );
 }
@@ -287,20 +265,24 @@ function App() {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <SnackbarProvider 
+      <SnackbarProvider
         maxSnack={3}
+        anchorOrigin={{
+          vertical: "top",
+          horizontal: "center",
+        }}
         Components={{
-          dislike: function DislikeSnackbar(props) {
-            return (
-              <SnackbarContent
-                {...props}
-                style={{
-                  backgroundColor: '#d32f2f',
-                  color: '#fff'
-                }}
-              />
-            );
-          }
+          default: (props) => (
+            <SnackbarContent
+              {...props}
+              style={{
+                backgroundColor:
+                  props.style?.backgroundColor || theme.palette.grey[800],
+                color: props.style?.color || "#fff",
+                ...props.style,
+              }}
+            />
+          ),
         }}
       >
         <PlayerProvider>

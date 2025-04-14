@@ -1,11 +1,18 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { spotify } from "../../wailsjs/go/models";
-import { GetSavedTracks, SaveTrack, RemoveTrack, SearchTracks } from "../../wailsjs/go/bindings/Music";
-import { useSnackbar } from 'notistack';
+import {
+  GetSavedTracks,
+  SaveTrack,
+  RemoveTrack,
+  SearchTracks,
+} from "../../wailsjs/go/bindings/Music";
+import { useSnackbar } from "notistack";
 
 export function useTracks(itemsPerPage: number = 20) {
   const { enqueueSnackbar } = useSnackbar();
-  const [savedTracks, setSavedTracks] = useState<spotify.SavedTracks | null>(null);
+  const [savedTracks, setSavedTracks] = useState<spotify.SavedTracks | null>(
+    null,
+  );
   const [searchResults, setSearchResults] = useState<spotify.SimpleTrack[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -28,30 +35,33 @@ export function useTracks(itemsPerPage: number = 20) {
     }
   };
 
-  const loadSavedTracks = useCallback(async (page: number) => {
-    try {
-      console.log("Loading saved tracks for page:", page);
-      setLoadingWithMinTime(true);
-      setError(null);
-      const offset = (page - 1) * itemsPerPage;
-      const tracks = await GetSavedTracks(itemsPerPage, offset);
+  const loadSavedTracks = useCallback(
+    async (page: number) => {
+      try {
+        console.log("Loading saved tracks for page:", page);
+        setLoadingWithMinTime(true);
+        setError(null);
+        const offset = (page - 1) * itemsPerPage;
+        const tracks = await GetSavedTracks(itemsPerPage, offset);
 
-      if (tracks) {
-        console.log("Loaded", tracks.items?.length || 0, "tracks");
-        setSavedTracks(spotify.SavedTracks.createFrom(tracks));
-        setTotalTracks(tracks.total || 0);
-        setCurrentPage(page);
-      } else {
-        console.error("Tracks response is null");
+        if (tracks) {
+          console.log("Loaded", tracks.items?.length || 0, "tracks");
+          setSavedTracks(spotify.SavedTracks.createFrom(tracks));
+          setTotalTracks(tracks.total || 0);
+          setCurrentPage(page);
+        } else {
+          console.error("Tracks response is null");
+          setError("Failed to load saved tracks");
+        }
+      } catch (err) {
+        console.error("Failed to load saved tracks:", err);
         setError("Failed to load saved tracks");
+      } finally {
+        setLoadingWithMinTime(false);
       }
-    } catch (err) {
-      console.error("Failed to load saved tracks:", err);
-      setError("Failed to load saved tracks");
-    } finally {
-      setLoadingWithMinTime(false);
-    }
-  }, [itemsPerPage]);
+    },
+    [itemsPerPage],
+  );
 
   // Clean up timeout on unmount
   useEffect(() => {
@@ -62,79 +72,94 @@ export function useTracks(itemsPerPage: number = 20) {
     };
   }, []);
 
-  const handleSearch = useCallback(async (query: string) => {
-    if (!query.trim()) {
-      setSearchResults([]);
-      return;
-    }
+  const handleSearch = useCallback(
+    async (query: string) => {
+      if (!query.trim()) {
+        setSearchResults([]);
+        return;
+      }
 
-    try {
-      setIsLoading(true);
-      setError(null);
-      const results = await SearchTracks(query, itemsPerPage);
-      setSearchResults(results.map(track => spotify.SimpleTrack.createFrom(track)));
-    } catch (err) {
-      console.error("Failed to search tracks:", err);
-      setError("Failed to search tracks");
-    } finally {
-      setIsLoading(false);
-    }
-  }, [itemsPerPage]);
+      try {
+        setIsLoading(true);
+        setError(null);
+        const results = await SearchTracks(query, itemsPerPage);
+        setSearchResults(
+          results.map((track) => spotify.SimpleTrack.createFrom(track)),
+        );
+      } catch (err) {
+        console.error("Failed to search tracks:", err);
+        setError("Failed to search tracks");
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [itemsPerPage],
+  );
 
-  const handleSave = useCallback(async (track: spotify.SimpleTrack) => {
-    try {
-      setIsLoading(true);
-      await SaveTrack(track.id);
-      
-      if (savedTracks) {
-        const newTrack = spotify.Track.createFrom({
-          id: track.id,
-          name: track.name,
-          artists: [{ name: track.artist }],
-          album: { name: track.album, images: [{ url: track.albumArtUrl }] },
-          preview_url: track.previewUrl,
-          uri: track.uri
-        });
-        const newItem = spotify.SavedTrackItem.createFrom({
-          track: newTrack,
-          added_at: new Date().toISOString()
-        });
-        
-        // Update state in a single operation
-        setSavedTracks(prev => {
-          if (!prev) return null;
-          return spotify.SavedTracks.createFrom({
-            ...prev,
-            items: [...prev.items, newItem],
-            total: prev.total + 1
+  const handleSave = useCallback(
+    async (track: spotify.SimpleTrack) => {
+      try {
+        setIsLoading(true);
+        await SaveTrack(track.id);
+
+        if (savedTracks) {
+          const newTrack = spotify.Track.createFrom({
+            id: track.id,
+            name: track.name,
+            artists: [{ name: track.artist }],
+            album: { name: track.album, images: [{ url: track.albumArtUrl }] },
+            preview_url: track.previewUrl,
+            uri: track.uri,
           });
-        });
-      }
-      enqueueSnackbar('Track saved to library', { variant: 'success' });
-    } catch (error) {
-      console.error('Error saving track:', error);
-      enqueueSnackbar('Error saving track', { variant: 'error' });
-    } finally {
-      setIsLoading(false);
-    }
-  }, [savedTracks]);
+          const newItem = spotify.SavedTrackItem.createFrom({
+            track: newTrack,
+            added_at: new Date().toISOString(),
+          });
 
-  const handleRemove = useCallback(async (track: spotify.SimpleTrack) => {
-    try {
-      await RemoveTrack(track.id);
-      if (savedTracks) {
-        setSavedTracks(spotify.SavedTracks.createFrom({
-          ...savedTracks,
-          items: savedTracks.items.filter(item => item.track?.id !== track.id),
-          total: savedTracks.total - 1
-        }));
+          // Update state in a single operation
+          setSavedTracks((prev) => {
+            if (!prev) return null;
+            return spotify.SavedTracks.createFrom({
+              ...prev,
+              items: [...prev.items, newItem],
+              total: prev.total + 1,
+            });
+          });
+        }
+        enqueueSnackbar("Track saved to library", { variant: "success" });
+      } catch (error) {
+        console.error("Error saving track:", error);
+        enqueueSnackbar("Error saving track", { variant: "error" });
+      } finally {
+        setIsLoading(false);
       }
-      enqueueSnackbar('Track removed from library', { variant: 'success' });
-    } catch (error) {
-      console.error('Error removing track:', error);
-      enqueueSnackbar('Error removing track', { variant: 'error' });
-    }
-  }, [savedTracks]);
+    },
+    [savedTracks],
+  );
+
+  const handleRemove = useCallback(
+    async (track: spotify.SimpleTrack) => {
+      try {
+        await RemoveTrack(track.id);
+        if (savedTracks) {
+          setSavedTracks(
+            spotify.SavedTracks.createFrom({
+              ...savedTracks,
+              items: savedTracks.items.filter(
+                (item) => item.track?.id !== track.id,
+              ),
+              total: savedTracks.total - 1,
+            }),
+          );
+        }
+        enqueueSnackbar("Track removed from library", { variant: "success" });
+      } catch (error) {
+        console.error("Error removing track:", error);
+        enqueueSnackbar("Error removing track", { variant: "error" });
+      }
+    },
+    [savedTracks],
+  );
 
   const handleNextPage = () => {
     if (currentPage * itemsPerPage < totalTracks) {
@@ -152,7 +177,6 @@ export function useTracks(itemsPerPage: number = 20) {
 
   return {
     savedTracks,
-    setSavedTracks,
     searchResults,
     isLoading,
     error,
@@ -163,6 +187,6 @@ export function useTracks(itemsPerPage: number = 20) {
     handleSave,
     handleRemove,
     handleNextPage,
-    handlePrevPage
+    handlePrevPage,
   };
-} 
+}

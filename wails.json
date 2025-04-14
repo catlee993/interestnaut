@@ -1,5 +1,5 @@
 {
-  "$schema": "https://wails.io/schemas/config.v3.json",
+  "$schema": "https://wails.io/schemas/config.v2.json",
   "name": "interestnaut",
   "outputfilename": "interestnaut",
   "frontend:install": "npm install",
@@ -9,10 +9,5 @@
   "author": {
     "name": "cat lee",
     "email": "catherine.olivia.lee@gmail.com"
-  },
-  "platform": {
-    "windows": {
-// ... existing code ...
-    }
   }
 }

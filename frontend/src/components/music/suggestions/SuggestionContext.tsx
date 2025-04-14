@@ -6,15 +6,30 @@ import {
   useEffect,
   useRef,
 } from "react";
-import { spotify } from "../../wailsjs/go/models";
-import { session } from "../../wailsjs/go/models";
+import { spotify } from "../../../../wailsjs/go/models";
+import { session } from "../../../../wailsjs/go/models";
 import {
   ProvideSuggestionFeedback,
   RequestNewSuggestion,
-} from "../../wailsjs/go/bindings/Music";
-import { useSnackbar } from 'notistack';
-import { Box, Typography, Stack, Button, Card, CardContent, CardMedia, CircularProgress } from "@mui/material";
-import { PlayArrow, SkipNext, ThumbUp, ThumbDown, Add } from '@mui/icons-material';
+} from "../../../../wailsjs/go/bindings/Music";
+import { useSnackbar } from "notistack";
+import {
+  Box,
+  Typography,
+  Stack,
+  Button,
+  Card,
+  CardContent,
+  CardMedia,
+  CircularProgress,
+} from "@mui/material";
+import {
+  PlayArrow,
+  SkipNext,
+  ThumbUp,
+  ThumbDown,
+  Add,
+} from "@mui/icons-material";
 
 interface SuggestionContextType {
   suggestedTrack: spotify.SuggestedTrackInfo | null;
@@ -23,6 +38,7 @@ interface SuggestionContextType {
   currentSuggestionOutcome: session.Outcome;
   hasLikedCurrentSuggestion: boolean;
   isProcessingLibrary: boolean;
+  isFetchingSuggestion: boolean;
   handleRequestSuggestion: () => Promise<void>;
   handleSkipSuggestion: () => Promise<void>;
   handleSuggestionFeedback: (feedbackType: "like" | "dislike") => Promise<void>;
@@ -53,24 +69,29 @@ export function SuggestionProvider({
     useState(false);
   const [isProcessingLibrary, setIsProcessingLibrary] = useState(false);
   const hasRequestedInitial = useRef(false);
+  const isRequestInProgress = useRef(false);
 
-  const handleToast = (message: string, variant: 'success' | 'error' | 'warning' | 'info') => {
-    enqueueSnackbar(message, { 
+  const handleToast = (
+    message: string,
+    variant: "success" | "error" | "warning" | "info",
+  ) => {
+    enqueueSnackbar(message, {
       variant,
       anchorOrigin: {
-        vertical: 'bottom',
-        horizontal: 'center',
+        vertical: "top",
+        horizontal: "center",
       },
     });
   };
 
   const handleRequestSuggestion = async () => {
-    if (isProcessingLibrary) {
+    if (isProcessingLibrary || isRequestInProgress.current) {
       console.log("Skipping suggestion request - already processing");
       return;
     }
-    
+
     try {
+      isRequestInProgress.current = true;
       setSuggestionError(null);
       setIsProcessingLibrary(true);
       const suggestion = await RequestNewSuggestion();
@@ -83,8 +104,12 @@ export function SuggestionProvider({
     } catch (error: any) {
       console.error("Error requesting suggestion:", error);
       let errorMessage = "Failed to get suggestion";
-      if (error?.error) {
-        if (typeof error.error === 'string') {
+      
+      // Parse the error message
+      if (typeof error === "string") {
+        errorMessage = error;
+      } else if (error?.error) {
+        if (typeof error.error === "string") {
           errorMessage = error.error;
         } else if (error.error?.message) {
           errorMessage = error.error.message;
@@ -92,29 +117,31 @@ export function SuggestionProvider({
       } else if (error?.message) {
         errorMessage = error.message;
       }
+      
+      console.log("Setting suggestion error:", errorMessage);
       setSuggestionError(errorMessage);
       setSuggestedTrack(null);
-      handleToast(errorMessage, 'error');
+      handleToast(errorMessage, "warning");
     } finally {
       setIsProcessingLibrary(false);
+      isRequestInProgress.current = false;
     }
   };
 
   useEffect(() => {
-    if (!hasRequestedInitial.current && !suggestedTrack && !isProcessingLibrary) {
+    if (!hasRequestedInitial.current) {
       hasRequestedInitial.current = true;
       handleRequestSuggestion();
     }
-  }, [suggestedTrack, isProcessingLibrary]);
+  }, []);
 
   const handleSkipSuggestion = async () => {
     if (!suggestedTrack || isProcessingLibrary) return;
 
     try {
       setIsProcessingLibrary(true);
-      
-      setCurrentSuggestionOutcome(session.Outcome.skipped);
-      
+      setSuggestedTrack(null);
+
       await ProvideSuggestionFeedback(
         session.Outcome.skipped,
         suggestedTrack.name,
@@ -122,14 +149,15 @@ export function SuggestionProvider({
         suggestedTrack.album,
       );
 
-      handleToast("Skipped suggestion", 'warning');
+      setCurrentSuggestionOutcome(session.Outcome.skipped);
+      handleToast("Skipped suggestion", "warning");
 
       await handleRequestSuggestion();
     } catch (error: any) {
       console.error("Error skipping suggestion:", error);
       let errorMessage = "Failed to skip track";
       if (error?.error) {
-        if (typeof error.error === 'string') {
+        if (typeof error.error === "string") {
           errorMessage = error.error;
         } else if (error.error?.message) {
           errorMessage = error.error.message;
@@ -139,7 +167,7 @@ export function SuggestionProvider({
       }
       setCurrentSuggestionOutcome(session.Outcome.pending);
       setSuggestionError(errorMessage);
-      handleToast(errorMessage, 'error');
+      handleToast(errorMessage, "error");
     } finally {
       setIsProcessingLibrary(false);
     }
@@ -150,35 +178,42 @@ export function SuggestionProvider({
 
     try {
       setIsProcessingLibrary(true);
-      const outcome = feedbackType === "like" ? session.Outcome.liked : session.Outcome.disliked;
+      const outcome =
+        feedbackType === "like"
+          ? session.Outcome.liked
+          : session.Outcome.disliked;
 
       await ProvideSuggestionFeedback(
         outcome,
         suggestedTrack.name,
         suggestedTrack.artist,
-        suggestedTrack.album
+        suggestedTrack.album,
       );
+
+      setCurrentSuggestionOutcome(outcome);
+      if (feedbackType === "like") {
+        setHasLikedCurrentSuggestion(true);
+      } else {
+        setSuggestedTrack(null);
+      }
 
       enqueueSnackbar(
         feedbackType === "like"
           ? "Thanks for the feedback! We'll use this to improve your suggestions."
           : "Got it - we'll avoid similar songs in the future.",
-        { 
+        {
           variant: feedbackType === "like" ? "success" : "error",
-          autoHideDuration: 3000
-        }
+          autoHideDuration: 3000,
+        },
       );
 
-      if (feedbackType === "like") {
-        setHasLikedCurrentSuggestion(true);
+      if (feedbackType === "dislike") {
+        await handleRequestSuggestion();
       }
-      setCurrentSuggestionOutcome(outcome);
-      
-      // Request a new suggestion after feedback
-      handleRequestSuggestion();
     } catch (error) {
       console.error("Error providing suggestion feedback:", error);
       enqueueSnackbar("Failed to save your feedback", { variant: "error" });
+      setCurrentSuggestionOutcome(session.Outcome.pending);
     } finally {
       setIsProcessingLibrary(false);
     }
@@ -189,10 +224,10 @@ export function SuggestionProvider({
 
     try {
       setIsProcessingLibrary(true);
-      
+
       setCurrentSuggestionOutcome(session.Outcome.added);
       setHasLikedCurrentSuggestion(true);
-      
+
       await ProvideSuggestionFeedback(
         session.Outcome.added,
         suggestedTrack.name,
@@ -200,12 +235,12 @@ export function SuggestionProvider({
         suggestedTrack.album,
       );
 
-      handleToast("Added to library", 'success');
+      handleToast("Added to library", "success");
     } catch (error: any) {
       console.error("Error adding to library:", error);
       let errorMessage = "Failed to add to library";
       if (error?.error) {
-        if (typeof error.error === 'string') {
+        if (typeof error.error === "string") {
           errorMessage = error.error;
         } else if (error.error?.message) {
           errorMessage = error.error.message;
@@ -216,7 +251,7 @@ export function SuggestionProvider({
       setCurrentSuggestionOutcome(session.Outcome.pending);
       setHasLikedCurrentSuggestion(false);
       setSuggestionError(errorMessage);
-      handleToast(errorMessage, 'error');
+      handleToast(errorMessage, "error");
     } finally {
       setIsProcessingLibrary(false);
     }
@@ -229,6 +264,7 @@ export function SuggestionProvider({
     currentSuggestionOutcome,
     hasLikedCurrentSuggestion,
     isProcessingLibrary,
+    isFetchingSuggestion: isRequestInProgress.current,
     handleRequestSuggestion,
     handleSkipSuggestion,
     handleSuggestionFeedback,

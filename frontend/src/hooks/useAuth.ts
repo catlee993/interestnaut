@@ -6,7 +6,7 @@ import {
   GetValidToken,
 } from "../../wailsjs/go/bindings/Music";
 import { spotify } from "../../wailsjs/go/models";
-import { useSnackbar } from 'notistack';
+import { useSnackbar } from "notistack";
 
 interface AuthStatus {
   isAuthenticated: boolean;
@@ -47,10 +47,10 @@ export function useAuth() {
       await ClearSpotifyCredentials();
       setIsAuthenticated(false);
       setUser(null);
-      enqueueSnackbar('Cleared Spotify credentials', { variant: 'success' });
+      enqueueSnackbar("Cleared Spotify credentials", { variant: "success" });
     } catch (error) {
-      console.error('Error clearing credentials:', error);
-      enqueueSnackbar('Error clearing credentials', { variant: 'error' });
+      console.error("Error clearing credentials:", error);
+      enqueueSnackbar("Error clearing credentials", { variant: "error" });
     }
   }, []);
 
@@ -84,9 +84,7 @@ export function useAuth() {
 
   return {
     user,
-    setUser,
     isAuthenticated,
-    setIsAuthenticated,
     startAuthPolling,
     handleClearCreds,
   };
