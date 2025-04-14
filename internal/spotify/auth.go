@@ -281,6 +281,7 @@ func GetValidToken(ctx context.Context) (string, error) {
 	// Update cached token and expiry
 	accessToken = authResp.AccessToken
 	tokenExpiry = time.Now().Add(time.Duration(authResp.ExpiresIn) * time.Second)
+	log.Printf("DEBUG: Successfully refreshed token, new expiry: %s", tokenExpiry.Format(time.RFC3339))
 
 	// If the response included a *new* refresh token, update storage
 	if authResp.RefreshToken != "" && authResp.RefreshToken != refreshToken {

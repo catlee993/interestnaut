@@ -93,14 +93,14 @@ export function Header({ user, onSearch }: HeaderProps) {
                   size="small"
                   onClick={handleClearCreds}
                   sx={{
-                    color: "white",
-                    borderColor: "white",
+                    color: '#EF4444',
+                    borderColor: '#EF4444',
                     padding: "2px 8px",
                     minWidth: "auto",
                     fontSize: "0.75rem",
                     "&:hover": {
-                      borderColor: "white",
-                      backgroundColor: "rgba(255, 255, 255, 0.1)",
+                      borderColor: '#EF4444',
+                      backgroundColor: 'rgba(239, 68, 68, 0.1)',
                     },
                   }}
                 >

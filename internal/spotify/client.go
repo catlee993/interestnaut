@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -299,8 +300,47 @@ func (c *client) PlayTrackOnDevice(ctx context.Context, deviceID string, trackUR
 
 	resp, err := req.Make(ctx, nil)
 	if err != nil {
-		log.Printf("ERROR: Play request req.Make failed: %v", err)
-		return fmt.Errorf("play request failed during Make: %w", err)
+		// Check if the error is due to an expired token
+		if strings.Contains(err.Error(), "401") {
+			// Clear the current token to force a refresh
+			tokenMutex.Lock()
+			accessToken = ""
+			tokenExpiry = time.Time{}
+			tokenMutex.Unlock()
+
+			// Get a fresh token
+			newToken, tokenErr := GetValidToken(ctx)
+			if tokenErr != nil {
+				return fmt.Errorf("failed to refresh token: %w", tokenErr)
+			}
+
+			// Retry the request with the new token
+			req, err = request.NewRequester(
+				request.WithScheme(request.HTTPS),
+				request.WithMethod(request.Put),
+				request.WithHost("api.spotify.com"),
+				request.WithPath("v1", "me", "player", "play"),
+				request.WithQueryArgs(map[string][]string{
+					"device_id": {deviceID},
+				}),
+				request.WithBody(bodyBytes),
+				request.WithHeaders(map[string][]string{
+					"Authorization": {"Bearer " + newToken},
+					"Content-Type":  {"application/json"},
+				}),
+			)
+			if err != nil {
+				return fmt.Errorf("failed to create retry play request: %w", err)
+			}
+
+			resp, err = req.Make(ctx, nil)
+			if err != nil {
+				return fmt.Errorf("retry play request failed: %w", err)
+			}
+		} else {
+			log.Printf("ERROR: Play request req.Make failed: %v", err)
+			return fmt.Errorf("play request failed during Make: %w", err)
+		}
 	}
 	defer func() {
 		_ = resp.Body.Close()

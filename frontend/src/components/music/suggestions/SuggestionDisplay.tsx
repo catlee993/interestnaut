@@ -5,6 +5,7 @@ import {
   FaStepForward,
   FaThumbsDown,
   FaThumbsUp,
+  FaRobot,
 } from "react-icons/fa";
 import { useSuggestion } from "@/components/music/suggestions/SuggestionContext";
 import { usePlayer } from "@/components/music/player/PlayerContext";
@@ -17,6 +18,7 @@ import {
   CircularProgress,
 } from "@mui/material";
 import { session } from "@wailsjs/go/models";
+import { ReasonCard } from "@/components/common/ReasonCard";
 
 const StyledButton = styled(Button)(({ theme }) => ({
   padding: "10px 20px",
@@ -88,132 +90,35 @@ const PlayButton = styled(IconButton)(({ theme }) => ({
   },
 }));
 
-const StyledSuggestionDisplay = styled(Box)(({ theme }) => ({
-  position: 'sticky',
-  top: 0,
-  zIndex: 1,
-  backgroundColor: theme.palette.background.default,
-  padding: theme.spacing(2),
-  marginBottom: theme.spacing(2),
-}));
-
-export function SuggestionDisplay() {
+export const SuggestionDisplay: React.FC = () => {
   const {
     suggestedTrack,
     suggestionContext,
     isProcessingLibrary,
     suggestionError,
-    currentSuggestionOutcome,
+    isFetchingSuggestion,
+    handleRequestSuggestion,
     handleSkipSuggestion,
     handleSuggestionFeedback,
     handleAddToLibrary,
-    handleRequestSuggestion,
-    isFetchingSuggestion,
   } = useSuggestion();
 
   const { nowPlayingTrack, isPlaybackPaused, handlePlay } = usePlayer();
 
-  const LoadingDisplay = () => (
-    <Box
-      className="loading-indicator"
-      sx={{
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 2,
-        minHeight: "300px",
-      }}
-    >
-      <Box className="loading-spinner"></Box>
-      <Typography variant="h6" sx={{ textAlign: "center" }}>
-        Finding your next song recommendation...
-      </Typography>
-    </Box>
-  );
-
-  if (isProcessingLibrary && suggestedTrack && currentSuggestionOutcome !== session.Outcome.liked) {
+  if (isFetchingSuggestion) {
     return (
-      <Box className="suggested-track-display">
-        <Box className="suggestion-art-and-info">
-          {suggestedTrack.albumArtUrl && (
-            <Box
-              component="img"
-              src={suggestedTrack.albumArtUrl}
-              alt="Suggested album art"
-              className="suggested-album-art"
-              sx={{
-                opacity: 0.3,
-                filter: "grayscale(50%)",
-                transition: "all 0.3s",
-              }}
-            />
-          )}
-
-          <Box className="suggestion-info" sx={{ opacity: 0.3 }}>
-            <Typography variant="h4" component="h4">
-              {suggestedTrack.name}
-            </Typography>
-            <Typography component="p">{suggestedTrack.artist}</Typography>
-          </Box>
-
-          <Box
-            sx={{
-              position: "absolute",
-              top: "50%",
-              left: "50%",
-              transform: "translate(-50%, -50%)",
-              textAlign: "center",
-              zIndex: 1,
-            }}
-          >
-            <Box
-              className="loading-spinner"
-              style={{ marginBottom: "16px" }}
-            ></Box>
-            <Typography variant="h6">Loading a new suggestion...</Typography>
-          </Box>
-
-          <Box
-            className="suggestion-controls"
-            sx={{
-              display: "flex",
-              alignItems: "center",
-              gap: "10px",
-              opacity: 0.3,
-            }}
-          >
-            <PlayButton disabled>
-              <FaPlay />
-            </PlayButton>
-
-            <StyledButton className="feedback-button like-button" disabled>
-              <FaThumbsUp /> Like
-            </StyledButton>
-
-            <StyledButton className="feedback-button dislike-button" disabled>
-              <FaThumbsDown /> Dislike
-            </StyledButton>
-
-            <StyledButton className="action-button add-button" disabled>
-              <FaPlus /> Add to Library
-            </StyledButton>
-
-            <StyledButton className="action-button next-button" disabled>
-              Next Suggestion <FaStepForward />
-            </StyledButton>
-          </Box>
-        </Box>
+      <Box
+        display="flex"
+        justifyContent="center"
+        alignItems="center"
+        minHeight="200px"
+      >
+        <CircularProgress sx={{ color: "rgba(123, 104, 238, 0.7)" }} />
       </Box>
     );
   }
 
-  if (isProcessingLibrary) {
-    return <LoadingDisplay />;
-  }
-
   if (suggestionError) {
-    console.log("Displaying suggestion error:", suggestionError);
     return (
       <Box className="suggestion-error-state">
         <Typography className="error-message" sx={{ color: "error.main" }}>
@@ -226,26 +131,6 @@ export function SuggestionDisplay() {
         >
           Try Again
         </StyledButton>
-      </Box>
-    );
-  }
-
-  if (isFetchingSuggestion) {
-    return (
-      <Box
-        className="loading-state"
-        sx={{
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          p: 4,
-        }}
-      >
-        <CircularProgress size={32} sx={{ mb: 2 }} />
-        <Typography variant="body1" color="text.secondary">
-          Finding your next favorite song...
-        </Typography>
       </Box>
     );
   }
@@ -273,13 +158,12 @@ export function SuggestionDisplay() {
             src={suggestedTrack.albumArtUrl}
             alt="Suggested album art"
             className="suggested-album-art"
-            sx={{ 
+            sx={{
               opacity: isProcessingLibrary ? 0.5 : 1,
               border: "2px solid rgba(123, 104, 238, 0.3)",
               transition: "all 0.2s ease-in-out",
-              "&:hover": {
-                borderColor: "rgba(123, 104, 238, 0.5)",
-              }
+              borderColor: "rgba(123, 104, 238, 0.5)",
+              borderWidth: "2px",
             }}
           />
         )}
@@ -289,22 +173,18 @@ export function SuggestionDisplay() {
             {suggestedTrack.name}
           </Typography>
           <Typography component="p">{suggestedTrack.artist}</Typography>
-          {suggestionContext &&
-            suggestionContext !==
-              `${suggestedTrack.name} by ${suggestedTrack.artist}` && (
-              <Typography
-                variant="body1"
-                color="text.secondary"
-                sx={{
-                  maxWidth: "800px",
-                  mx: "auto",
-                  textAlign: "center",
-                  mb: 2,
-                }}
-              >
-                <strong>Agent Reasoning</strong>: "{suggestionContext}"
-              </Typography>
-            )}
+          {suggestionContext && (
+            <Box
+              sx={{
+                maxWidth: "55%",
+                mx: "auto",
+                minWidth: "45%",
+                mt: 2,
+              }}
+            >
+              <ReasonCard reason={suggestionContext} />
+            </Box>
+          )}
         </Box>
 
         <Box
@@ -364,4 +244,4 @@ export function SuggestionDisplay() {
       </Box>
     </Box>
   );
-}
+};

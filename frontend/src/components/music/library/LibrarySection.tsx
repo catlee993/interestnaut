@@ -40,6 +40,26 @@ const Grid = styled(Box)(({ theme }) => ({
   width: "100%",
 }));
 
+const PaginationControls = styled(Box)(({ theme }) => ({
+  display: 'flex',
+  justifyContent: 'center',
+  alignItems: 'center',
+  gap: theme.spacing(2),
+  marginTop: theme.spacing(2),
+  '& button': {
+    color: '#A855F7',
+    borderColor: '#A855F7',
+    '&:hover': {
+      backgroundColor: 'rgba(168, 85, 247, 0.1)',
+      borderColor: '#A855F7',
+    },
+    '&.Mui-disabled': {
+      color: 'rgba(168, 85, 247, 0.3)',
+      borderColor: 'rgba(168, 85, 247, 0.3)',
+    },
+  },
+}));
+
 export const LibrarySection: React.FC<LibrarySectionProps> = ({
   savedTracks,
   currentPage,
@@ -84,13 +104,7 @@ export const LibrarySection: React.FC<LibrarySectionProps> = ({
                 ),
             )}
           </Grid>
-          <Stack
-            direction="row"
-            spacing={2}
-            justifyContent="center"
-            alignItems="center"
-            sx={{ mt: 3 }}
-          >
+          <PaginationControls>
             <Button
               variant="outlined"
               onClick={onPrevPage}
@@ -108,7 +122,7 @@ export const LibrarySection: React.FC<LibrarySectionProps> = ({
             >
               Next
             </Button>
-          </Stack>
+          </PaginationControls>
         </>
       )}
     </Box>
