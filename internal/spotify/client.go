@@ -12,6 +12,8 @@ import (
 
 	"github.com/pkg/errors"
 
+	"interestnaut/internal/creds"
+
 	request "github.com/catlee993/go-request"
 )
 
@@ -428,4 +430,29 @@ func (c *client) GetAllLikedTracks(ctx context.Context) ([]SavedTrackItem, error
 
 	log.Printf("Fetched %d total saved tracks.", len(allTracks))
 	return allTracks, nil
+}
+
+// SaveOpenAICreds saves the OpenAI API key to the OS keychain.
+func SaveOpenAICreds(ctx context.Context, apiKey string) error {
+	if err := creds.SaveOpenAIKey(apiKey); err != nil {
+		return fmt.Errorf("failed to save OpenAI API key: %w", err)
+	}
+	return nil
+}
+
+// GetOpenAICreds retrieves the OpenAI API key from the OS keychain.
+func GetOpenAICreds(ctx context.Context) (string, error) {
+	apiKey, err := creds.GetOpenAIKey()
+	if err != nil {
+		return "", fmt.Errorf("failed to get OpenAI API key: %w", err)
+	}
+	return apiKey, nil
+}
+
+// ClearOpenAICreds removes the OpenAI API key from the OS keychain.
+func ClearOpenAICreds(ctx context.Context) error {
+	if err := creds.ClearOpenAIKey(); err != nil {
+		return fmt.Errorf("failed to clear OpenAI API key: %w", err)
+	}
+	return nil
 }

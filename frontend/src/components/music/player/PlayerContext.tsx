@@ -50,13 +50,12 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
   const [currentPosition, setCurrentPosition] = useState(0);
   const [duration, setDuration] = useState(0);
   const [isInitializing, setIsInitializing] = useState(false);
-  const [initializationError, setInitializationError] = useState<string | null>(
-    null,
-  );
+  const [initializationError, setInitializationError] = useState<string | null>(null);
   const hasInitialized = useRef(false);
   const isConnecting = useRef(false);
   const retryCount = useRef(0);
   const maxRetries = 3;
+  const deviceCheckInterval = useRef<NodeJS.Timeout | null>(null);
 
   const initializePlayer = useCallback(async () => {
     if (isConnecting.current) {
@@ -72,9 +71,7 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
     try {
       // Check if Spotify SDK is already loaded
       if (!window.Spotify) {
-        console.log(
-          "[initializePlayer] Spotify SDK not loaded, waiting for script",
-        );
+        console.log("[initializePlayer] Spotify SDK not loaded, waiting for script");
         return;
       }
 
@@ -104,12 +101,13 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
 
       // Add error handler for 404s
       player.addListener("playback_error", (event: SpotifyPlayerEvent) => {
-        // Ignore 404 errors as they don't affect playback
-        if (event.message?.includes("404")) {
-          console.log("[playback_error] Ignoring 404 error - playback continues");
-          return;
-        }
         console.error("[playback_error]", event.message);
+        // If it's a device not found error, try to reconnect
+        if (event.message?.includes("404") || event.message?.includes("Device not found")) {
+          console.log("[playback_error] Device not found, attempting to reconnect...");
+          hasInitialized.current = false;
+          initializePlayer();
+        }
       });
 
       player.addListener("ready", (event: SpotifyPlayerEvent) => {
@@ -190,28 +188,41 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
     }
   }, [spotifyPlayer]);
 
-  // Add periodic reconnection check
+  const checkDeviceStatus = useCallback(async () => {
+    if (!spotifyPlayer || !spotifyDeviceId) return;
+
+    try {
+      const state = await spotifyPlayer.getCurrentState();
+      if (!state) {
+        console.log("[checkDeviceStatus] Device not active, attempting to reconnect...");
+        hasInitialized.current = false;
+        await initializePlayer();
+      }
+    } catch (error) {
+      console.error("[checkDeviceStatus] Error checking device status:", error);
+      hasInitialized.current = false;
+      await initializePlayer();
+    }
+  }, [spotifyPlayer, spotifyDeviceId, initializePlayer]);
+
+  // Add periodic device status check
   useEffect(() => {
-    const checkConnection = async () => {
-      if (spotifyPlayer && spotifyDeviceId) {
-        try {
-          const state = await spotifyPlayer.getCurrentState();
-          if (!state) {
-            console.log("[checkConnection] Player state not available, attempting to reconnect...");
-            hasInitialized.current = false;
-            await initializePlayer();
-          }
-        } catch (error) {
-          console.error("[checkConnection] Error checking player state:", error);
-          hasInitialized.current = false;
-          await initializePlayer();
-        }
+    if (spotifyPlayer && spotifyDeviceId) {
+      // Clear any existing interval
+      if (deviceCheckInterval.current) {
+        clearInterval(deviceCheckInterval.current);
+      }
+      
+      // Set up new interval
+      deviceCheckInterval.current = setInterval(checkDeviceStatus, 30000); // Check every 30 seconds
+    }
+
+    return () => {
+      if (deviceCheckInterval.current) {
+        clearInterval(deviceCheckInterval.current);
       }
     };
-
-    const interval = setInterval(checkConnection, 30000); // Check every 30 seconds
-    return () => clearInterval(interval);
-  }, [spotifyPlayer, spotifyDeviceId, initializePlayer]);
+  }, [spotifyPlayer, spotifyDeviceId, checkDeviceStatus]);
 
   useEffect(() => {
     if (hasInitialized.current) return;

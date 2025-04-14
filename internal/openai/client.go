@@ -4,11 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"interestnaut/internal/creds"
 	"interestnaut/internal/llm"
 	"interestnaut/internal/session"
 	"log"
 	"net/http"
-	"os"
 	"regexp"
 	"strings"
 
@@ -48,9 +48,12 @@ func extractJsonContent(content string) string {
 }
 
 func NewClient[T session.Media]() (llm.Client[T], error) {
-	apiKey := os.Getenv("OPENAI_API_SECRET")
+	apiKey, err := creds.GetOpenAIKey()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get OpenAI API key from keychain: %w", err)
+	}
 	if apiKey == "" {
-		return nil, fmt.Errorf("OPENAI_API_SECRET environment variable not set")
+		return nil, fmt.Errorf("OpenAI API key not found in keychain")
 	}
 
 	return &client[T]{

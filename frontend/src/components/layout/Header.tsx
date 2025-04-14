@@ -7,12 +7,19 @@ import {
   Avatar,
   Typography,
   Button,
+  Menu,
+  MenuItem,
+  IconButton,
 } from "@mui/material";
 import { styled } from "@mui/material/styles";
 import { useMedia, MediaType } from "@/contexts/MediaContext";
 import { spotify } from "@wailsjs/go/models";
 import { useAuth } from "@/hooks/useAuth";
 import { SearchSection } from "@/components/music/search/SearchSection";
+import { OpenAICredsManager } from "@/components/common/OpenAICredsManager";
+import { useState } from "react";
+import { FaTimes } from "react-icons/fa";
+import { SettingsDrawer } from "./SettingsDrawer";
 
 const StyledAppBar = styled(AppBar)(({ theme }) => ({
   background: "rgba(18, 18, 18, 0.95)",
@@ -45,6 +52,21 @@ interface HeaderProps {
 export function Header({ user, onSearch }: HeaderProps) {
   const { currentMedia, setCurrentMedia } = useMedia();
   const { handleClearCreds } = useAuth();
+  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+  const [showSettings, setShowSettings] = useState(false);
+
+  const handleMenuClick = (event: React.MouseEvent<HTMLElement>) => {
+    setAnchorEl(event.currentTarget);
+  };
+
+  const handleMenuClose = () => {
+    setAnchorEl(null);
+  };
+
+  const handleOpenSettings = () => {
+    setShowSettings(true);
+    handleMenuClose();
+  };
 
   const handleChange = (_: React.SyntheticEvent, newValue: MediaType) => {
     setCurrentMedia(newValue);
@@ -106,6 +128,24 @@ export function Header({ user, onSearch }: HeaderProps) {
                 >
                   Clear Auth
                 </Button>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={handleOpenSettings}
+                  sx={{
+                    color: '#A855F7',
+                    borderColor: '#A855F7',
+                    padding: "2px 8px",
+                    minWidth: "auto",
+                    fontSize: "0.75rem",
+                    "&:hover": {
+                      borderColor: '#A855F7',
+                      backgroundColor: 'rgba(168, 85, 247, 0.1)',
+                    },
+                  }}
+                >
+                  Settings
+                </Button>
               </>
             )}
           </Box>
@@ -113,6 +153,8 @@ export function Header({ user, onSearch }: HeaderProps) {
 
         {currentMedia === "music" && <SearchSection />}
       </StyledToolbar>
+
+      <SettingsDrawer open={showSettings} onClose={() => setShowSettings(false)} />
     </StyledAppBar>
   );
 }

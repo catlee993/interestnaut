@@ -64,6 +64,7 @@ func main() {
 			onStartup(ctx)
 		},
 		Bind: []interface{}{
+			&bindings.Auth{},
 			music,
 			movies,
 		},
