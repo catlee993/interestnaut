@@ -21,9 +21,10 @@ const StyledCard = styled(Card, {
   backgroundColor: theme.palette.grey[800],
   transition: "all 0.2s ease-in-out",
   aspectRatio: "1",
-  border: `2px solid ${theme.palette.grey[900]}`,
+  border: `2px solid rgba(123, 104, 238, 0.3)`,
   "&:hover": {
     transform: "translateY(-4px)",
+    borderColor: "rgba(123, 104, 238, 0.5)",
     "&::before": {
       backgroundColor: theme.palette.primary.main,
     },
@@ -66,7 +67,7 @@ const Overlay = styled(Box)(({ theme }) => ({
   left: 0,
   right: 0,
   background:
-    "linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.7) 40%, transparent 100%)",
+    "linear-gradient(to top, rgba(0,0,0,0.98) 0%, rgba(0,0,0,0.75) 40%, transparent 100%)",
   padding: theme.spacing(2),
   color: theme.palette.common.white,
 }));
