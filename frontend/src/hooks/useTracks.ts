@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { spotify } from "../../wailsjs/go/models";
+import { spotify } from "@wailsjs/go/models";
 import {
   GetSavedTracks,
   SaveTrack,
@@ -69,13 +69,13 @@ export function useTracks(itemsPerPage: number = 20) {
       loadSavedTracks(currentPage);
     };
 
-    window.addEventListener('refreshSavedTracks', handleRefresh);
+    window.addEventListener("refreshSavedTracks", handleRefresh);
 
     return () => {
       if (loadingTimeoutRef.current) {
         clearTimeout(loadingTimeoutRef.current);
       }
-      window.removeEventListener('refreshSavedTracks', handleRefresh);
+      window.removeEventListener("refreshSavedTracks", handleRefresh);
     };
   }, [currentPage, loadSavedTracks]);
 

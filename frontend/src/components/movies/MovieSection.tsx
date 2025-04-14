@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { Box, TextField, Grid } from '@mui/material';
-import { MovieCard } from './MovieCard';
-import { SearchMovies } from '../../../wailsjs/go/bindings/Movies';
-import { MovieWithSavedStatus } from '../../../wailsjs/go/models';
+import { MovieCard } from '@/components/movies/MovieCard';
+import { SearchMovies } from '@wailsjs/go/bindings/Movies';
+import { MovieWithSavedStatus } from '@wailsjs/go/models';
 
 export function MovieSection() {
   const [searchResults, setSearchResults] = useState<MovieWithSavedStatus[]>([]);

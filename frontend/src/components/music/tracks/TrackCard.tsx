@@ -1,5 +1,5 @@
 import { FaPause, FaPlay } from "react-icons/fa";
-import { spotify } from "../../../../wailsjs/go/models";
+import { spotify } from "@wailsjs/go/models";
 import { Box, Card, Typography, IconButton, Button } from "@mui/material";
 import { styled } from "@mui/material/styles";
 

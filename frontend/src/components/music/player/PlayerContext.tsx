@@ -7,7 +7,7 @@ import {
   useRef,
   useCallback,
 } from "react";
-import { spotify } from "../../../../wailsjs/go/models";
+import { spotify } from "@wailsjs/go/models";
 import {
   PausePlaybackOnDevice,
   PlayTrackOnDevice,
@@ -27,7 +27,7 @@ interface PlayerContextType {
   currentPosition: number;
   duration: number;
   handlePlay: (
-    track: spotify.Track | spotify.SimpleTrack | spotify.SuggestedTrackInfo,
+    track: spotify.Track | spotify.SimpleTrack | spotify.SuggestedTrackInfo | string,
   ) => Promise<void>;
   stopPlayback: () => Promise<void>;
   handlePlayPause: () => void;
@@ -50,7 +50,9 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
   const [currentPosition, setCurrentPosition] = useState(0);
   const [duration, setDuration] = useState(0);
   const [isInitializing, setIsInitializing] = useState(false);
-  const [initializationError, setInitializationError] = useState<string | null>(null);
+  const [initializationError, setInitializationError] = useState<string | null>(
+    null,
+  );
   const hasInitialized = useRef(false);
   const isConnecting = useRef(false);
   const retryCount = useRef(0);
@@ -58,7 +60,9 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
 
   const initializePlayer = useCallback(async () => {
     if (isConnecting.current || hasInitialized.current) {
-      console.log("[initializePlayer] Already connecting or initialized, skipping");
+      console.log(
+        "[initializePlayer] Already connecting or initialized, skipping",
+      );
       return;
     }
 
@@ -70,7 +74,9 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
     try {
       // Check if Spotify SDK is already loaded
       if (!window.Spotify) {
-        console.log("[initializePlayer] Spotify SDK not loaded, waiting for script");
+        console.log(
+          "[initializePlayer] Spotify SDK not loaded, waiting for script",
+        );
         return;
       }
 
@@ -110,38 +116,49 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
         isConnecting.current = false;
       });
 
-      player.addListener("player_state_changed", (event: SpotifyPlayerEvent) => {
-        if (event.state) {
-          console.log("[player_state_changed] State:", event.state);
-          const state = event.state as SpotifyPlayerState;
-          setCurrentPosition(state.position);
-          setDuration(state.duration);
-          setIsPlaybackPaused(state.paused);
-        }
-      });
+      player.addListener(
+        "player_state_changed",
+        (event: SpotifyPlayerEvent) => {
+          if (event.state) {
+            console.log("[player_state_changed] State:", event.state);
+            const state = event.state as SpotifyPlayerState;
+            setCurrentPosition(state.position);
+            setDuration(state.duration);
+            setIsPlaybackPaused(state.paused);
+          }
+        },
+      );
 
-      player.addListener("initialization_error", (event: SpotifyPlayerEvent) => {
-        console.error("Failed to initialize:", event.message);
-        if (event.message) {
-          setInitializationError(`Failed to initialize: ${event.message}`);
-        }
-        setIsInitializing(false);
-        isConnecting.current = false;
-      });
+      player.addListener(
+        "initialization_error",
+        (event: SpotifyPlayerEvent) => {
+          console.error("Failed to initialize:", event.message);
+          if (event.message) {
+            setInitializationError(`Failed to initialize: ${event.message}`);
+          }
+          setIsInitializing(false);
+          isConnecting.current = false;
+        },
+      );
 
-      player.addListener("authentication_error", (event: SpotifyPlayerEvent) => {
-        console.error("Failed to authenticate:", event.message);
-        if (event.message) {
-          setInitializationError(`Failed to authenticate: ${event.message}`);
-        }
-        setIsInitializing(false);
-        isConnecting.current = false;
-      });
+      player.addListener(
+        "authentication_error",
+        (event: SpotifyPlayerEvent) => {
+          console.error("Failed to authenticate:", event.message);
+          if (event.message) {
+            setInitializationError(`Failed to authenticate: ${event.message}`);
+          }
+          setIsInitializing(false);
+          isConnecting.current = false;
+        },
+      );
 
       player.addListener("account_error", (event: SpotifyPlayerEvent) => {
         console.error("Failed to validate Spotify account:", event.message);
         if (event.message) {
-          setInitializationError(`Failed to validate Spotify account: ${event.message}`);
+          setInitializationError(
+            `Failed to validate Spotify account: ${event.message}`,
+          );
         }
         setIsInitializing(false);
         isConnecting.current = false;
@@ -156,14 +173,20 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
       retryCount.current = 0;
     } catch (err) {
       console.error("[initializePlayer] Failed to create Spotify player:", err);
-      setInitializationError(err instanceof Error ? err.message : "Unknown error during initialization");
+      setInitializationError(
+        err instanceof Error
+          ? err.message
+          : "Unknown error during initialization",
+      );
       setIsInitializing(false);
       isConnecting.current = false;
 
       // Retry initialization if we haven't exceeded max retries
       if (retryCount.current < maxRetries) {
         retryCount.current += 1;
-        console.log(`[initializePlayer] Retrying initialization (attempt ${retryCount.current}/${maxRetries})`);
+        console.log(
+          `[initializePlayer] Retrying initialization (attempt ${retryCount.current}/${maxRetries})`,
+        );
         setTimeout(initializePlayer, 2000 * retryCount.current); // Exponential backoff
       }
     }
@@ -204,7 +227,10 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
             setDuration(state.duration);
           }
         } catch (error) {
-          console.error("[position tracking] Failed to get current state:", error);
+          console.error(
+            "[position tracking] Failed to get current state:",
+            error,
+          );
         }
       }, 1000); // Update every second
     }
@@ -217,47 +243,27 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
   }, [spotifyPlayer, isPlaybackPaused]);
 
   const handlePlay = async (
-    track: spotify.Track | spotify.SimpleTrack | spotify.SuggestedTrackInfo,
+    trackOrUri: spotify.Track | spotify.SimpleTrack | spotify.SuggestedTrackInfo | string,
   ) => {
-    console.log("[handlePlay] Called for track:", track?.name);
-
-    if (isInitializing) {
-      throw new Error("Spotify player is still initializing. Please wait a moment and try again.");
-    }
-
-    if (initializationError) {
-      throw new Error(`Spotify player initialization failed: ${initializationError}`);
-    }
-
-    // Check if we're trying to pause the current track
-    if (nowPlayingTrack?.id === track.id && !isPlaybackPaused) {
-      console.log("[handlePlay] Pausing current track");
-      await stopPlayback();
+    if (!spotifyDeviceId) {
+      console.error("No active Spotify device found");
       return;
     }
 
-    if (!spotifyPlayer || !spotifyDeviceId) {
-      const error = new Error(
-        `Spotify player not ready. Player: ${!!spotifyPlayer}, Device ID: ${!!spotifyDeviceId}. ` +
-        `Please wait a moment and try again.`
-      );
-      console.error("[handlePlay]", error);
-      throw error;
+    const trackUri = typeof trackOrUri === 'string' ? trackOrUri : trackOrUri.uri;
+    if (!trackUri) {
+      console.error("No track URI provided");
+      return;
     }
 
     try {
-      console.log("[handlePlay] Attempting full song playback");
-      const trackUri = "uri" in track ? track.uri : `spotify:track:${track.id}`;
       await PlayTrackOnDevice(spotifyDeviceId, trackUri);
-      setNowPlayingTrack(track);
+      if (typeof trackOrUri !== 'string') {
+        setNowPlayingTrack(trackOrUri);
+      }
       setIsPlaybackPaused(false);
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error 
-        ? error.message 
-        : "Unknown error occurred while playing track";
-      const detailedError = new Error(`Failed to play track on Spotify: ${errorMessage}`);
-      console.error("[handlePlay]", detailedError);
-      throw detailedError;
+    } catch (error) {
+      console.error("Failed to play track:", error);
     }
   };
 
@@ -266,9 +272,10 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
       try {
         await PausePlaybackOnDevice(spotifyDeviceId);
       } catch (error: unknown) {
-        const errorMessage = error instanceof Error 
-          ? error.message 
-          : "Unknown error occurred while pausing playback";
+        const errorMessage =
+          error instanceof Error
+            ? error.message
+            : "Unknown error occurred while pausing playback";
         console.error("[stopPlayback]", errorMessage);
       }
     }
@@ -282,16 +289,21 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
       // Resume playback
       if (spotifyPlayer && spotifyDeviceId) {
         try {
-          const trackUri = "uri" in nowPlayingTrack 
-            ? nowPlayingTrack.uri 
-            : `spotify:track:${nowPlayingTrack.id}`;
-          await PlayTrackOnDevice(spotifyDeviceId, trackUri);
+          const trackUri =
+            "uri" in nowPlayingTrack
+              ? nowPlayingTrack.uri
+              : `spotify:track:${nowPlayingTrack.id}`;
+          await PlayTrackOnDevice(spotifyDeviceId, trackUri!);
           setIsPlaybackPaused(false);
         } catch (error: unknown) {
-          const errorMessage = error instanceof Error 
-            ? error.message 
-            : "Unknown error occurred while resuming playback";
-          console.error("[handlePlayPause] Failed to resume Spotify playback:", errorMessage);
+          const errorMessage =
+            error instanceof Error
+              ? error.message
+              : "Unknown error occurred while resuming playback";
+          console.error(
+            "[handlePlayPause] Failed to resume Spotify playback:",
+            errorMessage,
+          );
         }
       }
     } else {
@@ -300,35 +312,38 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
     }
   };
 
-  const seekTo = useCallback(async (position: number) => {
-    if (!nowPlayingTrack) return;
+  const seekTo = useCallback(
+    async (position: number) => {
+      if (!nowPlayingTrack) return;
 
-    try {
-      // Convert position from milliseconds to seconds for the API
-      const positionMs = Math.floor(position);
-      console.log("[seekTo] Seeking to position:", positionMs);
-      
-      if (spotifyPlayer && "uri" in nowPlayingTrack) {
-        // Use the Spotify Player's seek method for full tracks
-        await spotifyPlayer.seek(positionMs);
-      } else {
-        // For preview tracks, we can only update the UI position
+      try {
+        // Convert position from milliseconds to seconds for the API
+        const positionMs = Math.floor(position);
+        console.log("[seekTo] Seeking to position:", positionMs);
+
+        if (spotifyPlayer && "uri" in nowPlayingTrack) {
+          // Use the Spotify Player's seek method for full tracks
+          await spotifyPlayer.seek(positionMs);
+        } else {
+          // For preview tracks, we can only update the UI position
+          setCurrentPosition(positionMs);
+        }
+
+        // Update the UI position
         setCurrentPosition(positionMs);
-      }
-      
-      // Update the UI position
-      setCurrentPosition(positionMs);
-    } catch (error) {
-      console.error("[seekTo] Failed to seek:", error);
-      // Revert the UI position if the seek failed
-      if (spotifyPlayer) {
-        const state = await spotifyPlayer.getCurrentState();
-        if (state) {
-          setCurrentPosition(state.position);
+      } catch (error) {
+        console.error("[seekTo] Failed to seek:", error);
+        // Revert the UI position if the seek failed
+        if (spotifyPlayer) {
+          const state = await spotifyPlayer.getCurrentState();
+          if (state) {
+            setCurrentPosition(state.position);
+          }
         }
       }
-    }
-  }, [nowPlayingTrack, spotifyPlayer]);
+    },
+    [nowPlayingTrack, spotifyPlayer],
+  );
 
   const value: PlayerContextType = {
     nowPlayingTrack,

@@ -5,7 +5,7 @@ import {
   GetCurrentUser,
   GetValidToken,
 } from "../../wailsjs/go/bindings/Music";
-import { spotify } from "../../wailsjs/go/models";
+import { spotify } from "@wailsjs/go/models";
 import { useSnackbar } from "notistack";
 
 interface AuthStatus {

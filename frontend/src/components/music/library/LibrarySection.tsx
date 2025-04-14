@@ -1,7 +1,7 @@
 import React from "react";
 import { Box, Typography, Paper, Stack, Button } from "@mui/material";
 import { TrackCard } from "@/components/music/tracks/TrackCard";
-import { spotify } from "../../../../wailsjs/go/models";
+import { spotify } from "@wailsjs/go/models";
 import { styled } from "@mui/material/styles";
 
 interface LibrarySectionProps {

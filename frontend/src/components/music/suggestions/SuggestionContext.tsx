@@ -6,8 +6,7 @@ import {
   useEffect,
   useRef,
 } from "react";
-import { spotify } from "../../../../wailsjs/go/models";
-import { session } from "../../../../wailsjs/go/models";
+import { spotify, session } from "@wailsjs/go/models";
 import {
   ProvideSuggestionFeedback,
   RequestNewSuggestion,
@@ -144,7 +143,7 @@ export function SuggestionProvider({
         handleToast("Skipped suggestion", "warning");
       }
 
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      window.scrollTo({ top: 0, behavior: "smooth" });
       await handleRequestSuggestion();
     } catch (error: any) {
       console.error("Error skipping suggestion:", error);
@@ -192,7 +191,7 @@ export function SuggestionProvider({
       } else {
         setSuggestedTrack(null);
         handleToast("Dislike recorded", "error");
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+        window.scrollTo({ top: 0, behavior: "smooth" });
         await handleRequestSuggestion();
       }
     } catch (error) {
@@ -227,12 +226,12 @@ export function SuggestionProvider({
       );
 
       handleToast("Added to library", "success");
-      
+
       // Reload the likes after adding to library
       await handleRequestSuggestion();
 
       // Trigger a refresh of saved tracks
-      const event = new CustomEvent('refreshSavedTracks');
+      const event = new CustomEvent("refreshSavedTracks");
       window.dispatchEvent(event);
     } catch (error: any) {
       console.error("Error adding to library:", error);

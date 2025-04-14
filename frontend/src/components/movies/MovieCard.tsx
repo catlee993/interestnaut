@@ -1,24 +1,6 @@
-import { Card, CardContent, CardMedia, Typography, IconButton } from '@mui/material';
-import { styled } from '@mui/material/styles';
-import { BookmarkBorder, Bookmark } from '@mui/icons-material';
-import { MovieWithSavedStatus } from '../../../wailsjs/go/models';
-
-const StyledCard = styled(Card)(({ theme }) => ({
-  height: '100%',
-  display: 'flex',
-  flexDirection: 'column',
-  position: 'relative',
-}));
-
-const SaveButton = styled(IconButton)(({ theme }) => ({
-  position: 'absolute',
-  top: theme.spacing(1),
-  right: theme.spacing(1),
-  backgroundColor: 'rgba(255, 255, 255, 0.8)',
-  '&:hover': {
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-  },
-}));
+import { Card, CardContent, CardMedia, Typography, IconButton, Box } from '@mui/material';
+import { Favorite, FavoriteBorder } from '@mui/icons-material';
+import { MovieWithSavedStatus } from '@wailsjs/go/models';
 
 interface MovieCardProps {
   movie: MovieWithSavedStatus;
@@ -27,30 +9,27 @@ interface MovieCardProps {
 }
 
 export function MovieCard({ movie, isSaved, onSave }: MovieCardProps) {
-  const releaseYear = movie.release_date ? new Date(movie.release_date).getFullYear() : 'N/A';
-  const posterUrl = movie.poster_path 
-    ? `https://image.tmdb.org/t/p/w500${movie.poster_path}`
-    : '/placeholder.png';
-
   return (
-    <StyledCard>
+    <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <CardMedia
         component="img"
         height="300"
-        image={posterUrl}
+        image={`https://image.tmdb.org/t/p/w500${movie.poster_path}`}
         alt={movie.title}
       />
-      <SaveButton onClick={() => onSave(movie.id)}>
-        {isSaved ? <Bookmark /> : <BookmarkBorder />}
-      </SaveButton>
-      <CardContent>
+      <CardContent sx={{ flexGrow: 1 }}>
         <Typography gutterBottom variant="h6" component="div">
           {movie.title}
         </Typography>
         <Typography variant="body2" color="text.secondary">
-          {releaseYear}
+          {movie.release_date}
         </Typography>
       </CardContent>
-    </StyledCard>
+      <Box sx={{ p: 1, display: 'flex', justifyContent: 'flex-end' }}>
+        <IconButton onClick={() => onSave(movie.id)}>
+          {isSaved ? <Favorite color="error" /> : <FavoriteBorder />}
+        </IconButton>
+      </Box>
+    </Card>
   );
 } 

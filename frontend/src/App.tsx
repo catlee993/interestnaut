@@ -4,7 +4,6 @@ import { session, spotify, MovieWithSavedStatus } from "../wailsjs/go/models";
 import { SuggestionProvider } from "@/components/music/suggestions/SuggestionContext";
 import { SuggestionDisplay } from "@/components/music/suggestions/SuggestionDisplay";
 import { NowPlayingBar } from "@/components/music/player/NowPlayingBar";
-import { SearchSection } from "@/components/music/search/SearchSection";
 import { LibrarySection } from "@/components/music/library/LibrarySection";
 import { MovieSection } from "@/components/movies/MovieSection";
 import { useAuth } from "./hooks/useAuth";
@@ -18,10 +17,13 @@ import {
   Box,
   Container,
   SnackbarContent,
+  Paper,
+  Typography,
 } from "@mui/material";
 import { theme } from "./theme";
 import { SnackbarProvider, useSnackbar } from "notistack";
 import { Header } from "@/components/layout/Header";
+import { TrackCard } from "@/components/music/tracks/TrackCard";
 
 // Add type declarations for Wails modules
 declare module "../wailsjs/go/bindings/Music" {
@@ -159,30 +161,55 @@ function AppContent() {
       id="App"
       sx={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}
     >
-      <Header user={user} />
+      <Header user={user} onSearch={handleSearch} />
       <Container
         maxWidth="lg"
         sx={{ 
           flex: 1, 
           display: "flex", 
           flexDirection: "column",
-          pb: 8 // Add bottom padding to account for playbar
+          pb: 8
         }}
       >
         {currentMedia === "music" ? (
           <>
             <SuggestionDisplay />
-            <SearchSection
-              onSearch={handleSearch}
-              searchResults={searchResults}
-              savedTracks={savedTracks}
-              isLoading={isLoading}
-              nowPlayingTrack={nowPlayingTrack}
-              isPlaybackPaused={isPlaybackPaused}
-              onPlay={handlePlay}
-              onSave={handleSave}
-              onRemove={handleRemove}
-            />
+            {searchResults.length > 0 && (
+              <Paper sx={{ p: 3, mb: 3 }}>
+                <Typography variant="h6" sx={{ mb: 2 }}>
+                  Search Results
+                </Typography>
+                <Box
+                  sx={{
+                    display: "grid",
+                    gridTemplateColumns: {
+                      xs: "1fr",
+                      sm: "1fr 1fr",
+                      md: "1fr 1fr 1fr",
+                      lg: "repeat(4, 1fr)",
+                    },
+                    gap: 2,
+                  }}
+                >
+                  {searchResults.map((track) => (
+                    <Box key={track.id}>
+                      <TrackCard
+                        track={track}
+                        isSaved={savedTracks?.items?.some(
+                          (item) => item.track?.id === track.id,
+                        )}
+                        isPlaying={
+                          !isPlaybackPaused && nowPlayingTrack?.id === track.id
+                        }
+                        onPlay={handlePlay}
+                        onSave={handleSave}
+                        onRemove={handleRemove}
+                      />
+                    </Box>
+                  ))}
+                </Box>
+              </Paper>
+            )}
             <LibrarySection
               savedTracks={savedTracks}
               currentPage={currentPage}
