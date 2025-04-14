@@ -5,7 +5,7 @@ import {
   SaveTrack,
   RemoveTrack,
   SearchTracks,
-} from "../../wailsjs/go/bindings/Music";
+} from "@wailsjs/go/bindings/Music";
 import { useSnackbar } from "notistack";
 
 export function useTracks(itemsPerPage: number = 20) {

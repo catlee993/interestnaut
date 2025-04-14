@@ -16,6 +16,7 @@ import {
   Typography,
   CircularProgress,
 } from "@mui/material";
+import { session } from "@wailsjs/go/models";
 
 const StyledButton = styled(Button)(({ theme }) => ({
   padding: "10px 20px",
@@ -87,12 +88,22 @@ const PlayButton = styled(IconButton)(({ theme }) => ({
   },
 }));
 
+const StyledSuggestionDisplay = styled(Box)(({ theme }) => ({
+  position: 'sticky',
+  top: 0,
+  zIndex: 1,
+  backgroundColor: theme.palette.background.default,
+  padding: theme.spacing(2),
+  marginBottom: theme.spacing(2),
+}));
+
 export function SuggestionDisplay() {
   const {
     suggestedTrack,
     suggestionContext,
     isProcessingLibrary,
     suggestionError,
+    currentSuggestionOutcome,
     handleSkipSuggestion,
     handleSuggestionFeedback,
     handleAddToLibrary,
@@ -121,7 +132,7 @@ export function SuggestionDisplay() {
     </Box>
   );
 
-  if (isProcessingLibrary && suggestedTrack) {
+  if (isProcessingLibrary && suggestedTrack && currentSuggestionOutcome !== session.Outcome.liked) {
     return (
       <Box className="suggested-track-display">
         <Box className="suggestion-art-and-info">

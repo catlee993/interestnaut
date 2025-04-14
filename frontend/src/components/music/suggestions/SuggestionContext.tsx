@@ -11,7 +11,7 @@ import {
   ProvideSuggestionFeedback,
   RequestNewSuggestion,
   SaveTrack,
-} from "../../../../wailsjs/go/bindings/Music";
+} from "@wailsjs/go/bindings/Music";
 import { useSnackbar } from "notistack";
 
 interface SuggestionContextType {
@@ -37,6 +37,13 @@ interface SuggestionProviderProps {
   children: ReactNode;
 }
 
+interface SuggestionState {
+  outcome: session.Outcome;
+  hasLiked: boolean;
+  hasAdded: boolean;
+  isProcessing: boolean;
+}
+
 export function SuggestionProvider({
   children,
 }: SuggestionProviderProps): JSX.Element {
@@ -44,16 +51,13 @@ export function SuggestionProvider({
   const [suggestedTrack, setSuggestedTrack] =
     useState<spotify.SuggestedTrackInfo | null>(null);
   const [suggestionError, setSuggestionError] = useState<string | null>(null);
-  const [suggestionContext, setSuggestionContext] = useState<string | null>(
-    null,
-  );
-  const [currentSuggestionOutcome, setCurrentSuggestionOutcome] =
-    useState<session.Outcome>(session.Outcome.pending);
-  const [hasLikedCurrentSuggestion, setHasLikedCurrentSuggestion] =
-    useState(false);
-  const [hasAddedCurrentSuggestion, setHasAddedCurrentSuggestion] =
-    useState(false);
-  const [isProcessingLibrary, setIsProcessingLibrary] = useState(false);
+  const [suggestionContext, setSuggestionContext] = useState<string | null>(null);
+  const [suggestionState, setSuggestionState] = useState<SuggestionState>({
+    outcome: session.Outcome.pending,
+    hasLiked: false,
+    hasAdded: false,
+    isProcessing: false,
+  });
   const [isFetchingSuggestion, setIsFetchingSuggestion] = useState(false);
   const hasRequestedInitial = useRef(false);
   const isRequestInProgress = useRef(false);
@@ -72,7 +76,7 @@ export function SuggestionProvider({
   };
 
   const handleRequestSuggestion = async () => {
-    if (isProcessingLibrary || isRequestInProgress.current) {
+    if (suggestionState.isProcessing || isRequestInProgress.current) {
       console.log("Skipping suggestion request - already processing");
       return;
     }
@@ -81,14 +85,12 @@ export function SuggestionProvider({
       isRequestInProgress.current = true;
       setIsFetchingSuggestion(true);
       setSuggestionError(null);
-      setIsProcessingLibrary(true);
+      setSuggestionState(prev => ({ ...prev, isProcessing: true }));
       const suggestion = await RequestNewSuggestion();
       if (suggestion) {
         setSuggestedTrack(suggestion);
         setSuggestionContext(suggestion.reason || null);
-        setCurrentSuggestionOutcome(session.Outcome.pending);
-        setHasLikedCurrentSuggestion(false);
-        setHasAddedCurrentSuggestion(false);
+        setSuggestionState(prev => ({ ...prev, outcome: session.Outcome.pending }));
       }
     } catch (error: any) {
       console.error("Error requesting suggestion:", error);
@@ -112,7 +114,7 @@ export function SuggestionProvider({
     } finally {
       isRequestInProgress.current = false;
       setIsFetchingSuggestion(false);
-      setIsProcessingLibrary(false);
+      setSuggestionState(prev => ({ ...prev, isProcessing: false }));
     }
   };
 
@@ -124,14 +126,14 @@ export function SuggestionProvider({
   }, []);
 
   const handleSkipSuggestion = async () => {
-    if (!suggestedTrack || isProcessingLibrary) return;
+    if (!suggestedTrack || suggestionState.isProcessing) return;
 
     try {
-      setIsProcessingLibrary(true);
+      setSuggestionState(prev => ({ ...prev, isProcessing: true }));
       setSuggestedTrack(null);
 
       // Only send skip feedback if the track hasn't been liked or added
-      if (!hasLikedCurrentSuggestion && !hasAddedCurrentSuggestion) {
+      if (!suggestionState.hasLiked && !suggestionState.hasAdded) {
         await ProvideSuggestionFeedback(
           session.Outcome.skipped,
           suggestedTrack.name,
@@ -139,7 +141,7 @@ export function SuggestionProvider({
           suggestedTrack.album,
         );
 
-        setCurrentSuggestionOutcome(session.Outcome.skipped);
+        setSuggestionState(prev => ({ ...prev, outcome: session.Outcome.skipped }));
         handleToast("Skipped suggestion", "warning");
       }
 
@@ -157,19 +159,18 @@ export function SuggestionProvider({
       } else if (error?.message) {
         errorMessage = error.message;
       }
-      setCurrentSuggestionOutcome(session.Outcome.pending);
+      setSuggestionState(prev => ({ ...prev, outcome: session.Outcome.pending }));
       setSuggestionError(errorMessage);
       handleToast(errorMessage, "error");
     } finally {
-      setIsProcessingLibrary(false);
+      setSuggestionState(prev => ({ ...prev, isProcessing: false }));
     }
   };
 
   const handleSuggestionFeedback = async (feedbackType: "like" | "dislike") => {
-    if (!suggestedTrack || isProcessingLibrary) return;
+    if (!suggestedTrack || suggestionState.isProcessing) return;
 
     try {
-      setIsProcessingLibrary(true);
       const outcome =
         feedbackType === "like"
           ? session.Outcome.liked
@@ -184,12 +185,13 @@ export function SuggestionProvider({
       );
 
       // Update UI state after successful backend call
-      setCurrentSuggestionOutcome(outcome);
       if (feedbackType === "like") {
-        setHasLikedCurrentSuggestion(true);
+        setSuggestionState(prev => ({ ...prev, outcome: outcome, hasLiked: true }));
         handleToast("Like recorded", "success");
       } else {
+        setSuggestionState(prev => ({ ...prev, isProcessing: true }));
         setSuggestedTrack(null);
+        setSuggestionState(prev => ({ ...prev, outcome: outcome, hasAdded: false }));
         handleToast("Dislike recorded", "error");
         window.scrollTo({ top: 0, behavior: "smooth" });
         await handleRequestSuggestion();
@@ -197,26 +199,29 @@ export function SuggestionProvider({
     } catch (error) {
       console.error("Error providing suggestion feedback:", error);
       handleToast("Failed to record feedback", "error");
-      setCurrentSuggestionOutcome(session.Outcome.pending);
-      setHasLikedCurrentSuggestion(false);
-      setHasAddedCurrentSuggestion(false);
+      setSuggestionState(prev => ({ ...prev, outcome: session.Outcome.pending, hasLiked: false, hasAdded: false }));
     } finally {
-      setIsProcessingLibrary(false);
+      if (feedbackType === "dislike") {
+        setSuggestionState(prev => ({ ...prev, isProcessing: false }));
+      }
     }
   };
 
   const handleAddToLibrary = async () => {
-    if (!suggestedTrack || isProcessingLibrary) return;
+    if (!suggestedTrack || suggestionState.isProcessing) return;
 
     try {
-      setIsProcessingLibrary(true);
+      setSuggestionState(prev => ({ ...prev, isProcessing: true }));
 
       // First save the track to Spotify library
       await SaveTrack(suggestedTrack.id);
 
-      setCurrentSuggestionOutcome(session.Outcome.added);
-      setHasAddedCurrentSuggestion(true);
-      setHasLikedCurrentSuggestion(true); // Adding to library implies liking
+      setSuggestionState({
+        outcome: session.Outcome.added,
+        hasLiked: true,
+        hasAdded: true,
+        isProcessing: false,
+      });
 
       await ProvideSuggestionFeedback(
         session.Outcome.added,
@@ -245,13 +250,14 @@ export function SuggestionProvider({
       } else if (error?.message) {
         errorMessage = error.message;
       }
-      setCurrentSuggestionOutcome(session.Outcome.pending);
-      setHasAddedCurrentSuggestion(false);
-      setHasLikedCurrentSuggestion(false);
+      setSuggestionState({
+        outcome: session.Outcome.pending,
+        hasLiked: false,
+        hasAdded: false,
+        isProcessing: false,
+      });
       setSuggestionError(errorMessage);
       handleToast(errorMessage, "error");
-    } finally {
-      setIsProcessingLibrary(false);
     }
   };
 
@@ -259,10 +265,10 @@ export function SuggestionProvider({
     suggestedTrack,
     suggestionError,
     suggestionContext,
-    currentSuggestionOutcome,
-    hasLikedCurrentSuggestion,
-    hasAddedCurrentSuggestion,
-    isProcessingLibrary,
+    currentSuggestionOutcome: suggestionState.outcome,
+    hasLikedCurrentSuggestion: suggestionState.hasLiked,
+    hasAddedCurrentSuggestion: suggestionState.hasAdded,
+    isProcessingLibrary: suggestionState.isProcessing,
     isFetchingSuggestion,
     handleRequestSuggestion,
     handleSkipSuggestion,

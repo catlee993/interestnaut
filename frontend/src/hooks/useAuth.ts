@@ -4,7 +4,7 @@ import {
   ClearSpotifyCredentials,
   GetCurrentUser,
   GetValidToken,
-} from "../../wailsjs/go/bindings/Music";
+} from "@wailsjs/go/bindings/Music";
 import { spotify } from "@wailsjs/go/models";
 import { useSnackbar } from "notistack";
 

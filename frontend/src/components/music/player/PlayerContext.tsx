@@ -12,7 +12,7 @@ import {
   PausePlaybackOnDevice,
   PlayTrackOnDevice,
   GetValidToken,
-} from "../../../../wailsjs/go/bindings/Music";
+} from "@wailsjs/go/bindings/Music";
 import { SpotifyPlayerEvent, SpotifyPlayerState } from "@/types/spotify";
 
 interface PlayerContextType {

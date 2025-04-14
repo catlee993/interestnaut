@@ -22,8 +22,8 @@ const StyledAppBar = styled(AppBar)(({ theme }) => ({
 }));
 
 const StyledToolbar = styled(Toolbar)({
-  minHeight: "48px",
-  padding: "0 16px",
+  minHeight: "32px",
+  padding: "0 8px",
   display: "flex",
   flexDirection: "column",
   alignItems: "stretch",
@@ -34,7 +34,7 @@ const TopRow = styled(Box)({
   justifyContent: "space-between",
   alignItems: "center",
   width: "100%",
-  padding: "8px 0",
+  padding: "2px 0",
 });
 
 interface HeaderProps {
@@ -74,16 +74,16 @@ export function Header({ user, onSearch }: HeaderProps) {
             <Tab value="movies" label="Movies" />
           </Tabs>
 
-          <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
             {currentMedia === "music" && user && (
-              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <>
                 {user.images?.[0]?.url && (
                   <Avatar
                     src={user.images[0].url}
-                    sx={{ width: 32, height: 32 }}
+                    sx={{ width: 24, height: 24 }}
                   />
                 )}
-                <Typography variant="subtitle2" sx={{ color: "white" }}>
+                <Typography variant="subtitle2" sx={{ color: "white", fontSize: "0.75rem" }}>
                   {user.display_name}
                 </Typography>
                 <Button
@@ -93,6 +93,9 @@ export function Header({ user, onSearch }: HeaderProps) {
                   sx={{
                     color: "white",
                     borderColor: "white",
+                    padding: "2px 8px",
+                    minWidth: "auto",
+                    fontSize: "0.75rem",
                     "&:hover": {
                       borderColor: "white",
                       backgroundColor: "rgba(255, 255, 255, 0.1)",
@@ -101,7 +104,7 @@ export function Header({ user, onSearch }: HeaderProps) {
                 >
                   Clear Auth
                 </Button>
-              </Box>
+              </>
             )}
           </Box>
         </TopRow>

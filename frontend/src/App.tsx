@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import "./App.css";
-import { session, spotify, MovieWithSavedStatus } from "../wailsjs/go/models";
+import { session, spotify, MovieWithSavedStatus } from "@wailsjs/go/models";
 import { SuggestionProvider } from "@/components/music/suggestions/SuggestionContext";
 import { SuggestionDisplay } from "@/components/music/suggestions/SuggestionDisplay";
 import { NowPlayingBar } from "@/components/music/player/NowPlayingBar";
@@ -26,7 +26,7 @@ import { Header } from "@/components/layout/Header";
 import { TrackCard } from "@/components/music/tracks/TrackCard";
 
 // Add type declarations for Wails modules
-declare module "../wailsjs/go/bindings/Music" {
+declare module "@wailsjs/go/bindings/Music" {
   export function GetAuthStatus(): Promise<boolean>;
   export function GetCurrentUser(): Promise<spotify.UserProfile | null>;
   export function GetSavedTracks(
@@ -54,14 +54,14 @@ declare module "../wailsjs/go/bindings/Music" {
   ): Promise<spotify.SimpleTrack[]>;
 }
 
-declare module "../wailsjs/go/bindings/Movies" {
+declare module "@wailsjs/go/bindings/Movies" {
   export function SearchMovies(query: string): Promise<MovieWithSavedStatus[]>;
   export function SaveMovie(movieId: number): Promise<void>;
   export function RemoveMovie(movieId: number): Promise<void>;
 }
 
 // Add type declarations for models
-declare module "../wailsjs/go/models" {
+declare module "@wailsjs/go/models" {
   export interface SavedTracks {
     items: Array<{
       track: {
