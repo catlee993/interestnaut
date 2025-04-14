@@ -26,5 +26,3 @@ export function RequestNewSuggestion():Promise<spotify.SuggestedTrackInfo>;
 export function SaveTrack(arg1:string):Promise<void>;
 
 export function SearchTracks(arg1:string,arg2:number):Promise<Array<spotify.SimpleTrack>>;
-
-export function SetSpotifyClient(arg1:spotify.Client):Promise<void>;

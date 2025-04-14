@@ -8,7 +8,7 @@ import {
 } from "react-icons/fa";
 import { useSuggestion } from "@/components/music/suggestions/SuggestionContext";
 import { usePlayer } from "@/components/music/player/PlayerContext";
-import { Box, Button, IconButton, styled, Typography } from "@mui/material";
+import { Box, Button, IconButton, styled, Typography, CircularProgress } from "@mui/material";
 
 const StyledButton = styled(Button)(({ theme }) => ({
   padding: "10px 20px",
@@ -90,6 +90,7 @@ export function SuggestionDisplay() {
     handleSuggestionFeedback,
     handleAddToLibrary,
     handleRequestSuggestion,
+    isFetchingSuggestion,
   } = useSuggestion();
 
   const { nowPlayingTrack, isPlaybackPaused, handlePlay } = usePlayer();
@@ -203,8 +204,19 @@ export function SuggestionDisplay() {
           className="retry-button"
           disabled={isProcessingLibrary}
         >
-          Try getting a suggestion
+          Try Again
         </StyledButton>
+      </Box>
+    );
+  }
+
+  if (isFetchingSuggestion) {
+    return (
+      <Box className="loading-state" sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', p: 4 }}>
+        <CircularProgress size={32} sx={{ mb: 2 }} />
+        <Typography variant="body1" color="text.secondary">
+          Finding your next favorite song...
+        </Typography>
       </Box>
     );
   }
@@ -217,7 +229,7 @@ export function SuggestionDisplay() {
           className="request-suggestion-button"
           disabled={isProcessingLibrary}
         >
-          Get a song suggestion
+          Get a Suggestion
         </StyledButton>
       </Box>
     );

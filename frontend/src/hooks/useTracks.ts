@@ -65,12 +65,19 @@ export function useTracks(itemsPerPage: number = 20) {
 
   // Clean up timeout on unmount
   useEffect(() => {
+    const handleRefresh = () => {
+      loadSavedTracks(currentPage);
+    };
+
+    window.addEventListener('refreshSavedTracks', handleRefresh);
+
     return () => {
       if (loadingTimeoutRef.current) {
         clearTimeout(loadingTimeoutRef.current);
       }
+      window.removeEventListener('refreshSavedTracks', handleRefresh);
     };
-  }, []);
+  }, [currentPage, loadSavedTracks]);
 
   const handleSearch = useCallback(
     async (query: string) => {

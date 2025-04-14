@@ -49,7 +49,3 @@ export function SaveTrack(arg1) {
 export function SearchTracks(arg1, arg2) {
   return window['go']['bindings']['Music']['SearchTracks'](arg1, arg2);
 }
-
-export function SetSpotifyClient(arg1) {
-  return window['go']['bindings']['Music']['SetSpotifyClient'](arg1);
-}

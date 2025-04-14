@@ -16,13 +16,16 @@ import (
 	"github.com/pkg/errors"
 )
 
+const limit = 5
+
+// Music represents the music-related functionality
 type Music struct {
 	spotifyAuthConfig      *spotify.AuthConfig
 	spotifyClient          spotify.Client
 	llmClient              llm.Client[session.Music]
 	manager                session.Manager[session.Music]
 	baselineFunc, taskFunc func() string
-	mu                     sync.RWMutex
+	mu                     sync.Mutex
 }
 
 func NewMusicBinder(ctx context.Context, cm session.CentralManager) *Music {
@@ -52,22 +55,9 @@ func NewMusicBinder(ctx context.Context, cm session.CentralManager) *Music {
 	}
 }
 
-// SetSpotifyClient updates the underlying Spotify client within the App.
-// This should be called after successful authentication.
-func (m *Music) SetSpotifyClient(client spotify.Client) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.spotifyClient = client
-}
-
 // GetSavedTracks retrieves the user's saved tracks.
 func (m *Music) GetSavedTracks(limit, offset int) (*spotify.SavedTracks, error) {
 	return m.spotifyClient.GetSavedTracks(context.Background(), limit, offset)
-}
-
-// SearchTracks searches for tracks matching the query.
-func (m *Music) SearchTracks(query string, limit int) ([]*spotify.SimpleTrack, error) {
-	return m.spotifyClient.SearchTracks(context.Background(), query, limit)
 }
 
 // SaveTrack saves a track to the user's library.
@@ -119,9 +109,7 @@ func (m *Music) RequestNewSuggestion() (*spotify.SuggestedTrackInfo, error) {
 		}
 		searchQuery += fmt.Sprintf(" album:\"%s\"", album)
 	}
-	searchCtx, searchCancel := context.WithTimeout(ctx, 10*time.Second)
-	tracks, err := m.spotifyClient.SearchTracks(searchCtx, searchQuery, 5)
-	searchCancel()
+	tracks, err := m.searchTracks(ctx, searchQuery, limit)
 
 	if err != nil {
 		return nil, errors.Wrap(err, fmt.Sprintf("failed to search for suggested track '%s' by '%s'", suggestion.Title, artist))
@@ -130,47 +118,49 @@ func (m *Music) RequestNewSuggestion() (*spotify.SuggestedTrackInfo, error) {
 	if len(tracks) == 0 {
 		// try without album before giving up
 		searchQuery = fmt.Sprintf("track:\"%s\" artist:\"%s\"", suggestion.Title, artist)
-		searchCtx, searchCancel = context.WithTimeout(ctx, 10*time.Second)
-		tracks, err = m.spotifyClient.SearchTracks(searchCtx, searchQuery, 5)
-		searchCancel()
+		tracks, err = m.searchTracks(ctx, searchQuery, limit)
 		if err != nil || len(tracks) == 0 {
 			return nil, fmt.Errorf("could not find '%s' by '%s' on Spotify", suggestion.Title, artist)
 		}
 	}
 
-	for _, track := range tracks {
-		if track.Name == suggestion.Title && track.Artist == artist {
-			sessionSuggestion := session.Suggestion[session.Music]{
-				Title:        suggestion.Title,
-				PrimaryGenre: suggestion.PrimaryGenre,
-				UserOutcome:  session.Pending,
-				Reasoning:    suggestion.Reason,
-				Content:      suggestion.Content,
-			}
-			if sErr := m.manager.AddSuggestion(
-				ctx,
-				sess,
-				sessionSuggestion,
-				session.EqualMusicSuggestions,
-				session.KeyerMusicSuggestion,
-			); sErr != nil {
-				log.Printf("ERROR: Failed to add suggestion: %v", sErr)
-				return nil, errors.Wrap(sErr, "failed to add suggestion")
-			}
-
-			return &spotify.SuggestedTrackInfo{
-				ID:          track.ID,
-				Name:        track.Name,
-				Artist:      track.Artist,
-				Album:       track.Album,
-				PreviewURL:  track.PreviewUrl,
-				AlbumArtURL: track.AlbumArtUrl,
-				Reason:      suggestion.Reason,
-			}, nil
-		}
+	matchedTrack := m.match(ctx, suggestion.Title, artist, tracks)
+	if matchedTrack == nil {
+		return nil, fmt.Errorf("could not find '%s' by '%s' on Spotify", suggestion.Title, artist)
 	}
 
-	return nil, fmt.Errorf("could not find '%s' by '%s' on Spotify", suggestion.Title, artist)
+	// Use the matched track's information for the session to ensure consistent key matching
+	// This is critical because the agent might suggest slightly off information
+	sessionSuggestion := session.Suggestion[session.Music]{
+		Title:        matchedTrack.Name,
+		PrimaryGenre: suggestion.PrimaryGenre,
+		UserOutcome:  session.Pending,
+		Reasoning:    suggestion.Reason,
+		Content: session.Music{
+			Artist: matchedTrack.Artist,
+			Album:  matchedTrack.Album,
+		},
+	}
+	if sErr := m.manager.AddSuggestion(
+		ctx,
+		sess,
+		sessionSuggestion,
+		session.EqualMusicSuggestions,
+		session.KeyerMusicSuggestion,
+	); sErr != nil {
+		log.Printf("ERROR: Failed to add suggestion: %v", sErr)
+		return nil, errors.Wrap(sErr, "failed to add suggestion")
+	}
+
+	return &spotify.SuggestedTrackInfo{
+		ID:          matchedTrack.ID,
+		Name:        matchedTrack.Name,
+		Artist:      matchedTrack.Artist,
+		Album:       matchedTrack.Album,
+		PreviewURL:  matchedTrack.PreviewUrl,
+		AlbumArtURL: matchedTrack.AlbumArtUrl,
+		Reason:      suggestion.Reason,
+	}, nil
 }
 
 // ProvideSuggestionFeedback sends user feedback to OpenAI and records the outcome.
@@ -217,7 +207,61 @@ func (m *Music) ClearSpotifyCredentials() error {
 	err := spotify.ClearSpotifyCredentials(context.Background())
 	spotifyClient := spotify.NewClient()
 
-	m.SetSpotifyClient(spotifyClient)
+	m.setSpotifyClient(spotifyClient)
 
 	return err
+}
+
+// SearchTracks searches for tracks matching the query.
+func (m *Music) SearchTracks(query string, limit int) ([]*spotify.SimpleTrack, error) {
+	return m.spotifyClient.SearchTracks(context.Background(), query, limit)
+}
+
+func (m *Music) searchTracks(ctx context.Context, query string, limit int) ([]*spotify.SimpleTrack, error) {
+	searchCtx, searchCancel := context.WithTimeout(ctx, 10*time.Second)
+	defer searchCancel()
+	return m.spotifyClient.SearchTracks(searchCtx, query, limit)
+}
+
+// match finds a track that matches the given title and artist, using direct matching first
+// and falling back to fuzzy matching if no direct match is found.
+func (m *Music) match(_ context.Context, title, artist string, tracks []*spotify.SimpleTrack) *spotify.SimpleTrack {
+	// First try direct match
+	for _, track := range tracks {
+		if track.Name == title && track.Artist == artist {
+			return track
+		}
+	}
+
+	// If no direct match, try fuzzy matching
+	var bestMatch *spotify.SimpleTrack
+	bestScore := 0.0
+
+	for _, track := range tracks {
+		titleScore := calculateSimilarity(track.Name, title)
+		artistScore := calculateSimilarity(track.Artist, artist)
+		// Weights don't need to sum to 1, but should be in a reasonable range
+		// Using 0.7 for title and 0.8 for artist to emphasize artist matching
+		score := (titleScore * 0.6) + (artistScore * 0.6)
+
+		if score > bestScore {
+			bestScore = score
+			bestMatch = track
+		}
+	}
+
+	// Adjust threshold proportionally (0.8 * 1.5 = 1.2)
+	if bestScore >= 0.96 {
+		return bestMatch
+	}
+
+	return nil
+}
+
+// setSpotifyClient updates the underlying Spotify client within the App.
+// This should be called after successful authentication.
+func (m *Music) setSpotifyClient(client spotify.Client) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.spotifyClient = client
 }
