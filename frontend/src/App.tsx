@@ -1,29 +1,27 @@
 import { useEffect, useState, useRef } from "react";
 import "./App.css";
-import { session, spotify } from "../wailsjs/go/models";
+import { session, spotify, MovieWithSavedStatus } from "../wailsjs/go/models";
 import { SuggestionProvider } from "@/components/music/suggestions/SuggestionContext";
 import { SuggestionDisplay } from "@/components/music/suggestions/SuggestionDisplay";
-import { LoadingSkeleton } from "@/components/music/tracks/LoadingSkeleton";
 import { NowPlayingBar } from "@/components/music/player/NowPlayingBar";
 import { SearchSection } from "@/components/music/search/SearchSection";
 import { LibrarySection } from "@/components/music/library/LibrarySection";
+import { MovieSection } from "@/components/movies/MovieSection";
 import { useAuth } from "./hooks/useAuth";
 import { useTracks } from "./hooks/useTracks";
 import { usePlayer } from "@/components/music/player/PlayerContext";
 import { PlayerProvider } from "@/components/music/player/PlayerContext";
+import { MediaProvider, useMedia } from "@/contexts/MediaContext";
 import {
   ThemeProvider,
   CssBaseline,
   Box,
-  Stack,
-  Typography,
-  Avatar,
-  Button,
   Container,
   SnackbarContent,
 } from "@mui/material";
 import { theme } from "./theme";
 import { SnackbarProvider, useSnackbar } from "notistack";
+import { Header } from "@/components/layout/Header";
 
 // Add type declarations for Wails modules
 declare module "../wailsjs/go/bindings/Music" {
@@ -54,6 +52,12 @@ declare module "../wailsjs/go/bindings/Music" {
   ): Promise<spotify.SimpleTrack[]>;
 }
 
+declare module "../wailsjs/go/bindings/Movies" {
+  export function SearchMovies(query: string): Promise<MovieWithSavedStatus[]>;
+  export function SaveMovie(movieId: number): Promise<void>;
+  export function RemoveMovie(movieId: number): Promise<void>;
+}
+
 // Add type declarations for models
 declare module "../wailsjs/go/models" {
   export interface SavedTracks {
@@ -66,6 +70,18 @@ declare module "../wailsjs/go/models" {
         }>;
       };
     }>;
+  }
+
+  export interface MovieWithSavedStatus {
+    id: number;
+    title: string;
+    overview: string;
+    poster_path: string;
+    release_date: string;
+    vote_average: number;
+    vote_count: number;
+    genres: string[];
+    isSaved: boolean;
   }
 }
 
@@ -86,6 +102,7 @@ function AppContent() {
   const { enqueueSnackbar } = useSnackbar();
   const { user, isAuthenticated, startAuthPolling, handleClearCreds } =
     useAuth();
+  const { currentMedia } = useMedia();
 
   const {
     savedTracks,
@@ -142,120 +159,44 @@ function AppContent() {
       id="App"
       sx={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}
     >
-      <Box
-        className="top-section"
-        sx={{ backgroundColor: theme.palette.background.paper, padding: 1 }}
+      <Header user={user} />
+      <Container
+        maxWidth="lg"
+        sx={{ flex: 1, display: "flex", flexDirection: "column" }}
       >
-        <Container maxWidth="lg" sx={{ px: 0 }}>
-          <Stack spacing={1}>
-            <Box
-              className="user-controls"
-              sx={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-              }}
-            >
-              {user && (
-                <Stack direction="row" spacing={2} alignItems="center">
-                  {user.images?.[0]?.url && (
-                    <Avatar
-                      src={user.images[0].url}
-                      alt={user.display_name}
-                      sx={{ width: 40, height: 40 }}
-                    />
-                  )}
-                  <Typography variant="body1" color="text.primary">
-                    Connected as {user.display_name}
-                  </Typography>
-                </Stack>
-              )}
-              <Button
-                variant="outlined"
-                color="secondary"
-                onClick={handleClearCreds}
-                sx={{ textTransform: "none" }}
-              >
-                Clear Auth
-              </Button>
-            </Box>
-
-            <Box component="header">
-              <Typography variant="h4" component="h1" sx={{ mb: 2 }}>
-                Spotify Library
-              </Typography>
-              <SearchSection
-                onSearch={handleSearch}
-                searchResults={searchResults}
-                savedTracks={savedTracks}
-                isLoading={isLoading}
-                nowPlayingTrack={nowPlayingTrack}
-                isPlaybackPaused={isPlaybackPaused}
-                onPlay={handlePlay}
-                onSave={handleSave}
-                onRemove={handleRemove}
-              />
-            </Box>
-          </Stack>
-        </Container>
-      </Box>
-
-      <Box className="main-content" sx={{ flex: 1, padding: 0.25 }}>
-        <Container maxWidth={false} sx={{ px: 0.25 }}>
-          {error && (
-            <Box
-              className="error-message"
-              sx={{
-                mb: 2,
-                p: 2,
-                backgroundColor: theme.palette.error.light,
-                borderRadius: 1,
-              }}
-            >
-              <Stack direction="row" spacing={1} alignItems="center">
-                <Typography>⚠️</Typography>
-                <Typography>{error}</Typography>
-              </Stack>
-            </Box>
-          )}
-
-          <SuggestionProvider>
+        {currentMedia === "music" ? (
+          <>
             <SuggestionDisplay />
-          </SuggestionProvider>
-
-          {isLoading ? (
-            <LoadingSkeleton />
-          ) : (
-            <LibrarySection
+            <SearchSection
+              onSearch={handleSearch}
+              searchResults={searchResults}
               savedTracks={savedTracks}
-              currentPage={currentPage}
-              totalTracks={totalTracks}
-              itemsPerPage={ITEMS_PER_PAGE}
-              onNextPage={handleNextPage}
-              onPrevPage={handlePrevPage}
+              isLoading={isLoading}
               nowPlayingTrack={nowPlayingTrack}
               isPlaybackPaused={isPlaybackPaused}
               onPlay={handlePlay}
               onSave={handleSave}
               onRemove={handleRemove}
             />
-          )}
-        </Container>
-      </Box>
-
-      <Box
-        sx={{
-          position: 'fixed',
-          bottom: 0,
-          left: 0,
-          right: 0,
-          backgroundColor: theme.palette.background.paper,
-          borderTop: `1px solid ${theme.palette.divider}`,
-          zIndex: 1000,
-        }}
-      >
-        <NowPlayingBar />
-      </Box>
+            <LibrarySection
+              savedTracks={savedTracks}
+              currentPage={currentPage}
+              totalTracks={totalTracks}
+              itemsPerPage={ITEMS_PER_PAGE}
+              nowPlayingTrack={nowPlayingTrack}
+              isPlaybackPaused={isPlaybackPaused}
+              onPlay={handlePlay}
+              onSave={handleSave}
+              onRemove={handleRemove}
+              onNextPage={handleNextPage}
+              onPrevPage={handlePrevPage}
+            />
+          </>
+        ) : (
+          <MovieSection />
+        )}
+      </Container>
+      {currentMedia === "music" && nowPlayingTrack && <NowPlayingBar />}
     </Box>
   );
 }
@@ -285,11 +226,13 @@ function App() {
           ),
         }}
       >
-        <PlayerProvider>
-          <SuggestionProvider>
-            <AppContent />
-          </SuggestionProvider>
-        </PlayerProvider>
+        <MediaProvider>
+          <PlayerProvider>
+            <SuggestionProvider>
+              <AppContent />
+            </SuggestionProvider>
+          </PlayerProvider>
+        </MediaProvider>
       </SnackbarProvider>
     </ThemeProvider>
   );

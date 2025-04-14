@@ -1,3 +1,36 @@
+export namespace bindings {
+	
+	export class MovieWithSavedStatus {
+	    id: number;
+	    title: string;
+	    overview: string;
+	    poster_path: string;
+	    release_date: string;
+	    vote_average: number;
+	    vote_count: number;
+	    genres: string[];
+	    isSaved: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new MovieWithSavedStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.title = source["title"];
+	        this.overview = source["overview"];
+	        this.poster_path = source["poster_path"];
+	        this.release_date = source["release_date"];
+	        this.vote_average = source["vote_average"];
+	        this.vote_count = source["vote_count"];
+	        this.genres = source["genres"];
+	        this.isSaved = source["isSaved"];
+	    }
+	}
+
+}
+
 export namespace session {
 	
 	export enum Outcome {

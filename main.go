@@ -26,6 +26,7 @@ func main() {
 		log.Printf("Warning: Error loading .env file: %v", err)
 	}
 
+	// Create an instance of the app structure
 	ctx := context.Background()
 	cm, err := session.NewCentralManager(ctx, session.DefaultUserID)
 	if err != nil {
@@ -43,7 +44,12 @@ func main() {
 		{session.Pending, "pending"},
 	}
 
+	// Create new instances of your binders
 	music := bindings.NewMusicBinder(ctx, cm)
+	movies, err := bindings.NewMovieBinder(ctx, cm)
+	if err != nil {
+		log.Fatalf("Failed to create movies binder: %v", err)
+	}
 
 	// Create application with options
 	rErr := wails.Run(&options.App{
@@ -59,6 +65,7 @@ func main() {
 		},
 		Bind: []interface{}{
 			music,
+			movies,
 		},
 		EnumBind: []interface{}{
 			suggestionOutcome,

@@ -50,7 +50,6 @@ func GetMusicBaseline(ctx context.Context, client spotify.Client) string {
 
 	// Create a more compact representation to save tokens
 	// Format: "Artist - Song (Album)" one per line
-	// This format uses fewer tokens than the previous verbose format
 	for _, item := range tracks {
 		if item.Track != nil {
 			var artistNames []string
