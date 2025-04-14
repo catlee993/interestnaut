@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Drawer,
   Box,
@@ -95,6 +95,20 @@ export function SettingsDrawer({ open, onClose }: SettingsDrawerProps) {
   const [continuePlaying, setContinuePlaying] = useState(false);
   const { enqueueSnackbar } = useSnackbar();
 
+  useEffect(() => {
+    const loadOpenAIKey = async () => {
+      try {
+        const key = await GetOpenAIToken();
+        if (key) {
+          setOpenAIKey(key);
+        }
+      } catch (error) {
+        console.error("Failed to load OpenAI API key:", error);
+      }
+    };
+    loadOpenAIKey();
+  }, []);
+
   const handleTabChange = (_: React.SyntheticEvent, newValue: number) => {
     setActiveTab(newValue);
   };
@@ -170,7 +184,7 @@ export function SettingsDrawer({ open, onClose }: SettingsDrawerProps) {
                   <StyledTextField
                     label="OpenAI API Key"
                     type={showOpenAIKey ? "text" : "password"}
-                    value={openAIKey}
+                    value={openAIKey ? (showOpenAIKey ? openAIKey : "********") : ""}
                     onChange={(e) => handleOpenAIKeyChange(e.target.value)}
                     size="small"
                     sx={{ flex: 1 }}

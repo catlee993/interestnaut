@@ -195,6 +195,7 @@ export const SuggestionDisplay: React.FC = () => {
             gap: "10px",
             opacity: isProcessingLibrary ? 0.5 : 1,
             pointerEvents: isProcessingLibrary ? "none" : "auto",
+            mt: 4,
           }}
         >
           <PlayButton
