@@ -27,12 +27,18 @@ type Manager[T Media] interface {
 	Key() Key
 }
 
+type Settings interface {
+	GetContinuousPlayback() bool
+	SetContinuousPlayback(context.Context, bool) error
+}
+
 type CentralManager interface {
 	Music() Manager[Music]
 	Movie() Manager[Movie]
 	Book() Manager[Book]
 	TVShow() Manager[TVShow]
 	VideoGame() Manager[VideoGame]
+	Settings() Settings
 }
 
 type manager[T Media] struct {
@@ -42,12 +48,18 @@ type manager[T Media] struct {
 	key      Key
 }
 
+type settings struct {
+	ContinuousPlayback bool `json:"continuous_playback"`
+	path               string
+}
+
 type centralManager struct {
 	musicManager     Manager[Music]
 	movieManager     Manager[Movie]
 	tvShowManager    Manager[TVShow]
 	bookManager      Manager[Book]
 	videoGameManager Manager[VideoGame]
+	settings         Settings
 }
 
 func newManager[T Media](ctx context.Context, userID, dataDir string, subject subject) Manager[T] {
@@ -83,8 +95,29 @@ func NewCentralManager(ctx context.Context, userID string) (CentralManager, erro
 		bookManager:      newManager[Book](ctx, userID, dataDir, book),
 		videoGameManager: newManager[VideoGame](ctx, userID, dataDir, videoGame),
 	}
+	sErr := cm.loadOrCreateSettings(userID, dataDir)
 
-	return cm, nil
+	return cm, sErr
+}
+
+func (cm centralManager) Music() Manager[Music] {
+	return cm.musicManager
+}
+
+func (cm centralManager) Movie() Manager[Movie] {
+	return cm.movieManager
+}
+
+func (cm centralManager) Book() Manager[Book] {
+	return cm.bookManager
+}
+
+func (cm centralManager) TVShow() Manager[TVShow] {
+	return cm.tvShowManager
+}
+
+func (cm centralManager) VideoGame() Manager[VideoGame] {
+	return cm.videoGameManager
 }
 
 func (m *manager[T]) Key() Key {
@@ -145,99 +178,18 @@ func (m *manager[T]) AddSuggestion(
 	return m.saveSession(ctx, session)
 }
 
-func (m *manager[T]) loadSession(_ context.Context, key Key) error {
-	filePath := filepath.Join(m.dataDir, fmt.Sprintf("%s%s", key, Ext))
-	log.Printf("Attempting to load session from file: %s", filePath)
-
-	data, err := os.ReadFile(filePath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			log.Printf("No session file exists for key %s", key)
-			return nil // Not an error if file doesn't exist
-		}
-		log.Printf("Failed to read session file for key %s: %v", key, err)
-		return fmt.Errorf("failed to read session file: %w", err)
-	}
-
-	var session Session[T]
-	session.Key = key
-	if err := json.Unmarshal(data, &session); err != nil {
-		log.Printf("Failed to unmarshal session for key %s: %v", key, err)
-		return fmt.Errorf("failed to unmarshal session: %w", err)
-	}
-
-	m.mu.Lock()
-	m.sessions[key] = &session
-	m.mu.Unlock()
-
-	log.Printf("Successfully loaded session for key %s with %d suggestions", key, len(session.Suggestions))
-	return nil
+func (cm *centralManager) Settings() Settings {
+	return cm.settings
 }
 
-func (c centralManager) Music() Manager[Music] {
-	return c.musicManager
+func (s *settings) SetContinuousPlayback(_ context.Context, continuous bool) error {
+	s.ContinuousPlayback = continuous
+
+	return s.saveSettings()
 }
 
-func (c centralManager) Movie() Manager[Movie] {
-	return c.movieManager
-}
-
-func (c centralManager) Book() Manager[Book] {
-	return c.bookManager
-}
-
-func (c centralManager) TVShow() Manager[TVShow] {
-	return c.tvShowManager
-}
-
-func (c centralManager) VideoGame() Manager[VideoGame] {
-	return c.videoGameManager
-}
-
-func (m *manager[T]) saveSession(_ context.Context, session *Session[T]) error {
-	if session == nil {
-		log.Printf("Session is nil")
-		return fmt.Errorf("session is nil")
-	}
-
-	data, err := json.Marshal(session)
-	if err != nil {
-		log.Printf("Failed to marshal session for key %s: %v", session.Key, err)
-		return fmt.Errorf("failed to marshal session: %w", err)
-	}
-
-	filePath := filepath.Join(m.dataDir, fmt.Sprintf("%s%s", session.Key, ".json"))
-	log.Printf("Writing session to file: %s", filePath)
-
-	if err := os.WriteFile(filePath, data, 0644); err != nil {
-		log.Printf("Failed to write session file for file %s: %v", session.Key, err)
-		return fmt.Errorf("failed to write session file: %w", err)
-	}
-
-	log.Printf("Successfully saved session for key %s", session.Key)
-	return nil
-}
-
-// hasSuggested checks if a song has been suggested before
-func (m *manager[T]) hasSuggested(
-	_ context.Context,
-	session *Session[T],
-	candidate Suggestion[T],
-	comparator func(Suggestion[T], Suggestion[T]) bool,
-) bool {
-	if session == nil {
-		return false
-	}
-
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	for _, s := range session.Suggestions {
-		if comparator(s, candidate) {
-			return true
-		}
-	}
-	return false
+func (s *settings) GetContinuousPlayback() bool {
+	return s.ContinuousPlayback
 }
 
 // UpdateSuggestionOutcome updates the outcome of a previously suggested song
@@ -294,4 +246,129 @@ func composeSession[T Media](
 			UserConstraints: []string{},
 		},
 	}
+}
+
+func (m *manager[T]) loadSession(_ context.Context, key Key) error {
+	filePath := filepath.Join(m.dataDir, fmt.Sprintf("%s%s", key, Ext))
+	log.Printf("Attempting to load session from file: %s", filePath)
+
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			log.Printf("No session file exists for key %s", key)
+			return nil // Not an error if file doesn't exist
+		}
+		log.Printf("Failed to read session file for key %s: %v", key, err)
+		return fmt.Errorf("failed to read session file: %w", err)
+	}
+
+	var session Session[T]
+	session.Key = key
+	if err := json.Unmarshal(data, &session); err != nil {
+		log.Printf("Failed to unmarshal session for key %s: %v", key, err)
+		return fmt.Errorf("failed to unmarshal session: %w", err)
+	}
+
+	m.mu.Lock()
+	m.sessions[key] = &session
+	m.mu.Unlock()
+
+	log.Printf("Successfully loaded session for key %s with %d suggestions", key, len(session.Suggestions))
+	return nil
+}
+
+func (m *manager[T]) saveSession(_ context.Context, session *Session[T]) error {
+	if session == nil {
+		log.Printf("Session is nil")
+		return fmt.Errorf("session is nil")
+	}
+
+	data, err := json.Marshal(session)
+	if err != nil {
+		log.Printf("Failed to marshal session for key %s: %v", session.Key, err)
+		return fmt.Errorf("failed to marshal session: %w", err)
+	}
+
+	filePath := filepath.Join(m.dataDir, fmt.Sprintf("%s%s", session.Key, ".json"))
+	log.Printf("Writing session to file: %s", filePath)
+
+	if err := os.WriteFile(filePath, data, 0644); err != nil {
+		log.Printf("Failed to write session file for file %s: %v", session.Key, err)
+		return fmt.Errorf("failed to write session file: %w", err)
+	}
+
+	log.Printf("Successfully saved session for key %s", session.Key)
+	return nil
+}
+
+// hasSuggested checks if a song has been suggested before
+func (m *manager[T]) hasSuggested(
+	_ context.Context,
+	session *Session[T],
+	candidate Suggestion[T],
+	comparator func(Suggestion[T], Suggestion[T]) bool,
+) bool {
+	if session == nil {
+		return false
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	for _, s := range session.Suggestions {
+		if comparator(s, candidate) {
+			return true
+		}
+	}
+	return false
+}
+
+func (cm *centralManager) loadOrCreateSettings(userID, dataDir string) error {
+	filePath := filepath.Join(dataDir, fmt.Sprintf("%s%s", userID, SettingsSuffix))
+	log.Printf("Attempting to load settings from file: %s", filePath)
+
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			log.Printf("No settings file exists for user %s, creating default settings", userID)
+			defaultSettings := &settings{ContinuousPlayback: false, path: filePath}
+			if sErr := defaultSettings.saveSettings(); err != nil {
+				return fmt.Errorf("failed to save default settings: %w", sErr)
+			}
+
+			cm.settings = defaultSettings
+
+			return nil
+		}
+		log.Printf("Failed to read settings file %s: %v", filePath, err)
+		return fmt.Errorf("failed to read settings file: %w", err)
+	}
+	var sets settings
+	if err := json.Unmarshal(data, &sets); err != nil {
+		log.Printf("Failed to unmarshal settings: %v", err)
+		return fmt.Errorf("failed to unmarshal settings: %w", err)
+	}
+	sets.path = filePath
+
+	log.Printf("Successfully loaded settings for user %s", userID)
+
+	cm.settings = &sets
+
+	return nil
+}
+
+func (s *settings) saveSettings() error {
+	data, err := json.Marshal(s)
+	if err != nil {
+		log.Printf("Failed to marshal settings: %v", err)
+		return fmt.Errorf("failed to marshal settings: %w", err)
+	}
+
+	if wErr := os.WriteFile(s.path, data, 0644); err != nil {
+		log.Printf("Failed to write settings file: %v", wErr)
+		return fmt.Errorf("failed to write settings file: %w", wErr)
+	}
+
+	log.Printf("Successfully saved settings to file: %s", s.path)
+	return nil
 }

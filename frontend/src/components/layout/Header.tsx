@@ -14,7 +14,7 @@ import {
 import { styled } from "@mui/material/styles";
 import { useMedia, MediaType } from "@/contexts/MediaContext";
 import { spotify } from "@wailsjs/go/models";
-import { useAuth } from "@/hooks/useAuth";
+import { useAuth } from "@/components/music/hooks/useAuth";
 import { SearchSection } from "@/components/music/search/SearchSection";
 import { OpenAICredsManager } from "@/components/common/OpenAICredsManager";
 import { useState } from "react";
@@ -105,19 +105,19 @@ export function Header({ user, onSearch }: HeaderProps) {
           <Box sx={{ display: "flex", alignItems: "center", gap: 3 }}>
             {currentMedia === "music" && user && (
               <>
-                <SpotifyUserControl 
-                  user={user} 
-                  onClearAuth={handleClearCreds} 
+                <SpotifyUserControl
+                  user={user}
+                  onClearAuth={handleClearCreds}
                   currentMedia={currentMedia}
                 />
                 <IconButton
                   size="small"
                   onClick={handleOpenSettings}
                   sx={{
-                    color: '#A855F7',
+                    color: "#A855F7",
                     padding: "2px",
                     "&:hover": {
-                      backgroundColor: 'rgba(168, 85, 247, 0.1)',
+                      backgroundColor: "rgba(168, 85, 247, 0.1)",
                     },
                   }}
                 >
@@ -131,7 +131,10 @@ export function Header({ user, onSearch }: HeaderProps) {
         {currentMedia === "music" && <SearchSection />}
       </StyledToolbar>
 
-      <SettingsDrawer open={showSettings} onClose={() => setShowSettings(false)} />
+      <SettingsDrawer
+        open={showSettings}
+        onClose={() => setShowSettings(false)}
+      />
     </StyledAppBar>
   );
 }

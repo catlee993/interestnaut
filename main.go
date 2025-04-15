@@ -65,6 +65,7 @@ func main() {
 		},
 		Bind: []interface{}{
 			&bindings.Auth{},
+			&bindings.Settings{ContentManager: cm},
 			music,
 			movies,
 		},

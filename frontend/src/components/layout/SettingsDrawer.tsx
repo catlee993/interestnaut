@@ -19,6 +19,7 @@ import {
   ClearOpenAIToken,
 } from "@wailsjs/go/bindings/Auth";
 import { useSnackbar } from "notistack";
+import { usePlayer } from "@/components/music/player/PlayerContext";
 
 const StyledDrawer = styled(Drawer)(({ theme }) => ({
   "& .MuiDrawer-paper": {
@@ -92,7 +93,7 @@ export function SettingsDrawer({ open, onClose }: SettingsDrawerProps) {
   const [authTab, setAuthTab] = useState(0);
   const [openAIKey, setOpenAIKey] = useState("");
   const [showOpenAIKey, setShowOpenAIKey] = useState(false);
-  const [continuePlaying, setContinuePlaying] = useState(false);
+  const { isContinuousPlayback, setContinuousPlayback } = usePlayer();
   const { enqueueSnackbar } = useSnackbar();
 
   useEffect(() => {
@@ -109,7 +110,11 @@ export function SettingsDrawer({ open, onClose }: SettingsDrawerProps) {
     loadOpenAIKey();
   }, []);
 
-  const handleTabChange = (_: React.SyntheticEvent, newValue: number) => {
+  useEffect(() => {
+    console.log(`[SettingsDrawer] Continuous playback is: ${isContinuousPlayback}`);
+  }, [isContinuousPlayback]);
+
+  const handleTabChange = (_event: React.SyntheticEvent, newValue: number) => {
     setActiveTab(newValue);
   };
 
@@ -141,6 +146,23 @@ export function SettingsDrawer({ open, onClose }: SettingsDrawerProps) {
     }
   };
 
+  const handleContinuousPlaybackToggle = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const newValue = event.target.checked;
+    console.log(`[SettingsDrawer] Toggle continuous playback to: ${newValue}`);
+    
+    try {
+      await setContinuousPlayback(newValue);
+      enqueueSnackbar(`Continuous playback ${newValue ? 'enabled' : 'disabled'}`, { 
+        variant: "success" 
+      });
+    } catch (error) {
+      console.error('[SettingsDrawer] Error setting continuous playback:', error);
+      enqueueSnackbar(`Failed to ${newValue ? 'enable' : 'disable'} continuous playback`, { 
+        variant: "error" 
+      });
+    }
+  };
+
   return (
     <StyledDrawer anchor="right" open={open} onClose={onClose}>
       <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
@@ -168,8 +190,8 @@ export function SettingsDrawer({ open, onClose }: SettingsDrawerProps) {
             <FormControlLabel
               control={
                 <StyledSwitch
-                  checked={continuePlaying}
-                  onChange={(e) => setContinuePlaying(e.target.checked)}
+                  checked={isContinuousPlayback}
+                  onChange={handleContinuousPlaybackToggle}
                 />
               }
               label="Continue playing liked songs"

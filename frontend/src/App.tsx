@@ -6,8 +6,8 @@ import { SuggestionDisplay } from "@/components/music/suggestions/SuggestionDisp
 import { NowPlayingBar } from "@/components/music/player/NowPlayingBar";
 import { LibrarySection } from "@/components/music/library/LibrarySection";
 import { MovieSection } from "@/components/movies/MovieSection";
-import { useAuth } from "./hooks/useAuth";
-import { useTracks } from "./hooks/useTracks";
+import { useAuth } from "@/components/music/hooks/useAuth";
+import { useTracks } from "@/components/music/hooks/useTracks";
 import { usePlayer } from "@/components/music/player/PlayerContext";
 import { PlayerProvider } from "@/components/music/player/PlayerContext";
 import { MediaProvider, useMedia } from "@/contexts/MediaContext";
@@ -121,10 +121,54 @@ function AppContent() {
     handlePrevPage,
   } = useTracks(ITEMS_PER_PAGE);
 
-  const { nowPlayingTrack, isPlaybackPaused, handlePlay, handlePlayPause } =
-    usePlayer();
+  const {
+    nowPlayingTrack,
+    isPlaybackPaused,
+    handlePlay: playerHandlePlay,
+    handlePlayPause,
+    setNowPlayingTrack,
+    setNextTrack,
+  } = usePlayer();
 
   const hasInitialized = useRef(false);
+
+  // Create a custom handlePlay function that integrates with our library
+  const handlePlay = async (
+    track: spotify.Track | spotify.SimpleTrack | spotify.SuggestedTrackInfo,
+  ) => {
+    console.log(`[App] Play track: ${track.name}`);
+
+    // Update the nowPlayingTrack state directly
+    setNowPlayingTrack(track);
+
+    // Check if we're playing from the library
+    if (savedTracks?.items) {
+      const trackIndex = savedTracks.items.findIndex(
+        (item) => item.track && item.track.id === track.id,
+      );
+
+      if (trackIndex !== -1) {
+        console.log(`[App] Playing track from library at index ${trackIndex}`);
+
+        // Set the next track if available
+        const nextIndex = trackIndex + 1;
+        if (
+          nextIndex < savedTracks.items.length &&
+          savedTracks.items[nextIndex]?.track
+        ) {
+          const nextTrack = savedTracks.items[nextIndex].track;
+          console.log(`[App] Setting next track: ${nextTrack?.name}`);
+          setNextTrack(nextTrack);
+        } else {
+          console.log("[App] No next track available");
+          setNextTrack(null);
+        }
+      }
+    }
+
+    // Call the player's handlePlay function
+    await playerHandlePlay(track);
+  };
 
   useEffect(() => {
     const initializeApp = async () => {
@@ -164,11 +208,11 @@ function AppContent() {
       <Header user={user} onSearch={handleSearch} />
       <Container
         maxWidth="lg"
-        sx={{ 
-          flex: 1, 
-          display: "flex", 
+        sx={{
+          flex: 1,
+          display: "flex",
           flexDirection: "column",
-          pb: 8
+          pb: 8,
         }}
       >
         {currentMedia === "music" ? (

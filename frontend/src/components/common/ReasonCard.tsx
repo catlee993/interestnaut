@@ -36,7 +36,7 @@ export const ReasonCard: React.FC<ReasonCardProps> = ({ reason }) => {
             lineHeight: 1,
           }}
         >
-          Reasoning behind suggestion
+          Reasoning
         </Typography>
       </Box>
       <Typography

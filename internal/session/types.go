@@ -9,6 +9,7 @@ type Key string
 type Outcome string
 
 const Ext string = ".json"
+const SettingsSuffix string = "_settings" + Ext
 
 // specific string values will hopefully be clearer to whatever LLM
 const (

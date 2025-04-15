@@ -1,8 +1,11 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Box, Typography, Paper, Stack, Button } from "@mui/material";
 import { TrackCard } from "@/components/music/tracks/TrackCard";
 import { spotify } from "@wailsjs/go/models";
 import { styled } from "@mui/material/styles";
+import { usePlayer } from "@/components/music/player/PlayerContext";
+import { GetSavedTracks } from "@wailsjs/go/bindings/Music";
+import { GetContinuousPlayback } from "@wailsjs/go/bindings/Settings";
 
 interface LibrarySectionProps {
   savedTracks: spotify.SavedTracks | null;
@@ -41,21 +44,21 @@ const Grid = styled(Box)(({ theme }) => ({
 }));
 
 const PaginationControls = styled(Box)(({ theme }) => ({
-  display: 'flex',
-  justifyContent: 'center',
-  alignItems: 'center',
+  display: "flex",
+  justifyContent: "center",
+  alignItems: "center",
   gap: theme.spacing(2),
   marginTop: theme.spacing(2),
-  '& button': {
-    color: '#A855F7',
-    borderColor: '#A855F7',
-    '&:hover': {
-      backgroundColor: 'rgba(168, 85, 247, 0.1)',
-      borderColor: '#A855F7',
+  "& button": {
+    color: "#A855F7",
+    borderColor: "#A855F7",
+    "&:hover": {
+      backgroundColor: "rgba(168, 85, 247, 0.1)",
+      borderColor: "#A855F7",
     },
-    '&.Mui-disabled': {
-      color: 'rgba(168, 85, 247, 0.3)',
-      borderColor: 'rgba(168, 85, 247, 0.3)',
+    "&.Mui-disabled": {
+      color: "rgba(168, 85, 247, 0.3)",
+      borderColor: "rgba(168, 85, 247, 0.3)",
     },
   },
 }));
@@ -73,6 +76,52 @@ export const LibrarySection: React.FC<LibrarySectionProps> = ({
   onNextPage,
   onPrevPage,
 }) => {
+  const {
+    updateSavedTracks,
+    setContinuousPlayback,
+    isContinuousPlayback,
+    setNextTrack,
+    setNowPlayingTrack,
+  } = usePlayer();
+  const [isLoading, setIsLoading] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+
+  useEffect(() => {
+    const loadSettings = async () => {
+      try {
+        console.log("[LibrarySection] Loading continuous playback setting");
+        const enabled = await GetContinuousPlayback();
+        console.log(
+          `[LibrarySection] Continuous playback from settings: ${enabled}`,
+        );
+
+        // Don't force the setting, use the actual value
+        setContinuousPlayback(enabled);
+      } catch (error) {
+        console.error(
+          "[LibrarySection] Error loading continuous playback:",
+          error,
+        );
+      }
+    };
+    loadSettings();
+  }, [setContinuousPlayback]);
+
+  // Add useEffect to call updateSavedTracks when savedTracks change
+  useEffect(() => {
+    if (savedTracks && savedTracks.items && savedTracks.items.length > 0) {
+      console.log(`[LibrarySection] Updating player context with ${savedTracks.items.length} tracks on page ${currentPage}`);
+      updateSavedTracks(savedTracks, currentPage);
+    }
+  }, [savedTracks, currentPage, updateSavedTracks]);
+
+  // Log when the setting changes
+  useEffect(() => {
+    console.log(
+      `[LibrarySection] Continuous playback changed to: ${isContinuousPlayback}`,
+    );
+  }, [isContinuousPlayback]);
+
   return (
     <Box sx={{ py: 3, backgroundColor: "transparent" }}>
       <Typography variant="h6" sx={{ mb: 2, color: "text.primary" }}>
