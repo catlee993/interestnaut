@@ -3,6 +3,12 @@
 
 export function ClearOpenAIToken():Promise<void>;
 
+export function ClearTMBDAccessToken():Promise<void>;
+
 export function GetOpenAIToken():Promise<string>;
 
+export function GetTMBDAccessToken():Promise<string>;
+
 export function SaveOpenAIToken(arg1:string):Promise<void>;
+
+export function SaveTMBDAccessToken(arg1:string):Promise<void>;

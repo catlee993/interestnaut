@@ -6,10 +6,22 @@ export function ClearOpenAIToken() {
   return window['go']['bindings']['Auth']['ClearOpenAIToken']();
 }
 
+export function ClearTMBDAccessToken() {
+  return window['go']['bindings']['Auth']['ClearTMBDAccessToken']();
+}
+
 export function GetOpenAIToken() {
   return window['go']['bindings']['Auth']['GetOpenAIToken']();
 }
 
+export function GetTMBDAccessToken() {
+  return window['go']['bindings']['Auth']['GetTMBDAccessToken']();
+}
+
 export function SaveOpenAIToken(arg1) {
   return window['go']['bindings']['Auth']['SaveOpenAIToken'](arg1);
+}
+
+export function SaveTMBDAccessToken(arg1) {
+  return window['go']['bindings']['Auth']['SaveTMBDAccessToken'](arg1);
 }
