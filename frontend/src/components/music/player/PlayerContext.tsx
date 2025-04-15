@@ -165,6 +165,13 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
     }
 
     try {
+      // Mark that we're starting a new track to prevent accidental "track end" detection
+      // due to 404 errors during initialization
+      if (typeof window !== 'undefined') {
+        // Dispatch a trackStarted event
+        window.dispatchEvent(new Event('trackStarted'));
+      }
+      
       await PlayTrackOnDevice(spotifyDeviceId, trackUri);
       
       if (typeof trackOrUri !== "string" && trackOrUri !== null) {
@@ -188,6 +195,11 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
         await new Promise((resolve) => setTimeout(resolve, 1000));
         // Try playing again after reinitialization
         if (spotifyDeviceId) {
+          if (typeof window !== 'undefined') {
+            // Dispatch a trackStarted event again for the retry
+            window.dispatchEvent(new Event('trackStarted'));
+          }
+          
           await PlayTrackOnDevice(spotifyDeviceId, trackUri);
           if (typeof trackOrUri !== "string" && trackOrUri !== null) {
             setNowPlayingTrack(trackOrUri);
@@ -243,6 +255,82 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
     await playNext();
     // Function signature expects a Promise<void> return
   }, [playNext]);
+
+  // Add a useEffect to set up global error handling for 404 errors during playback
+  useEffect(() => {
+    const originalOnError = window.onerror;
+    
+    // Global error handler to suppress 404 errors from Spotify playback
+    window.onerror = function(message, source, lineno, colno, error) {
+      if (
+        message && 
+        (
+          (typeof message === 'string' && message.includes('404')) ||
+          (typeof message === 'object' && message.toString().includes('404')) ||
+          (source && source.includes('spotify')) ||
+          (error && error.message && error.message.includes('404'))
+        )
+      ) {
+        // This is likely a Spotify 404 error during track loading
+        console.log('Suppressed Spotify 404 error');
+        return true; // Prevents the error from appearing in console
+      }
+      
+      // For other errors, use the original handler if it exists
+      if (originalOnError) {
+        return originalOnError(message, source, lineno, colno, error);
+      }
+      
+      return false; // Let other errors propagate to console
+    };
+    
+    // Also add a handler for unhandled promise rejections
+    const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+      if (
+        event.reason && 
+        (
+          (event.reason.message && (
+            event.reason.message.includes('404') || 
+            event.reason.message.includes('PlayLoad')
+          )) ||
+          (event.reason.toString && event.reason.toString().includes('404'))
+        )
+      ) {
+        // This is likely a Spotify playback error
+        console.log('Suppressed Spotify playback error:', event.reason.message || event.reason);
+        event.preventDefault(); // Prevent it from appearing in console
+      }
+    };
+    
+    window.addEventListener('unhandledrejection', handleUnhandledRejection);
+    
+    // Clean up
+    return () => {
+      window.onerror = originalOnError;
+      window.removeEventListener('unhandledrejection', handleUnhandledRejection);
+    };
+  }, []);
+
+  // Add a listener for playback errors in spotifyPlayer
+  useEffect(() => {
+    if (!spotifyPlayer) return;
+    
+    const handlePlaybackError = (error: any) => {
+      console.log('Playback error received:', error.message);
+      
+      // If it's a 404 during track loading, mark that we're still in startup
+      if (error.message && error.message.includes('404')) {
+        // Dispatch a trackStarted event to ensure we have protection against false track end
+        window.dispatchEvent(new Event('trackStarted'));
+      }
+    };
+    
+    spotifyPlayer.addListener('playback_error', handlePlaybackError);
+    
+    return () => {
+      spotifyPlayer.removeListener('playback_error', handlePlaybackError);
+    };
+  }, [spotifyPlayer]);
 
   // Create the context value object
   const contextValue: PlayerContextType = {

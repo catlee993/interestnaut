@@ -34,6 +34,8 @@ export function useContinuousPlayback({
   const currentPageRef = useRef<number>(1);
   const isHandlingTrackEnd = useRef(false);
   const currentlyPlayingTrackIdRef = useRef<string | null>(null);
+  const isStartingNewTrackRef = useRef(false);
+  const startTrackTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Load continuous playback setting
   useEffect(() => {
@@ -64,12 +66,19 @@ export function useContinuousPlayback({
       
       // If we have a currently playing track, try to find its index
       if (nowPlayingTrack) {
+        // Log the currently playing track for debugging
+        debugLog(`[useContinuousPlayback] Looking for track: ${nowPlayingTrack.name} (ID: ${nowPlayingTrack.id})`);
+        
         const index = tracks.items.findIndex(item => 
           item.track && item.track.id === nowPlayingTrack.id
         );
         
         if (index !== -1) {
           debugLog(`[useContinuousPlayback] Current track found at index ${index}`);
+          // If we're getting a different index than before, log it to debug
+          if (currentTrackIndexRef.current !== -1 && currentTrackIndexRef.current !== index) {
+            debugLog(`[useContinuousPlayback] WARNING: Track index changed from ${currentTrackIndexRef.current} to ${index}`);
+          }
           currentTrackIndexRef.current = index;
           currentlyPlayingTrackIdRef.current = nowPlayingTrack.id || null;
           
@@ -95,8 +104,48 @@ export function useContinuousPlayback({
     }
   }, [setNextTrack]);
 
+  // Add a function to mark when we're starting a new track
+  const markTrackStart = useCallback(() => {
+    isStartingNewTrackRef.current = true;
+    
+    // Clear any existing timeout
+    if (startTrackTimeoutRef.current) {
+      clearTimeout(startTrackTimeoutRef.current);
+    }
+    
+    // Set a timeout to reset the flag after 2 seconds
+    startTrackTimeoutRef.current = setTimeout(() => {
+      isStartingNewTrackRef.current = false;
+      debugLog('[useContinuousPlayback] Track start protection period ended');
+    }, 2000);
+  }, []);
+
+  // Listen for track start notifications
+  useEffect(() => {
+    // Create a custom event listener for when a track starts
+    const handleTrackStart = (event: Event) => {
+      debugLog('[useContinuousPlayback] Track start event received');
+      markTrackStart();
+    };
+    
+    window.addEventListener('trackStarted', handleTrackStart);
+    
+    return () => {
+      window.removeEventListener('trackStarted', handleTrackStart);
+      if (startTrackTimeoutRef.current) {
+        clearTimeout(startTrackTimeoutRef.current);
+      }
+    };
+  }, [markTrackStart]);
+
   // Handle track end and start playing next track
   const handleTrackEnd = useCallback(async (state: any) => {
+    // Don't handle track end events if we're in the "starting new track" protection period
+    if (isStartingNewTrackRef.current) {
+      debugLog('[useContinuousPlayback] Ignoring track end during track start protection period');
+      return false;
+    }
+
     if (!isContinuousPlayback || currentTrackIndexRef.current < 0) {
       debugLog("[useContinuousPlayback] Continuous playback disabled or no track index");
       return false;
@@ -238,6 +287,7 @@ export function useContinuousPlayback({
     handleTrackEnd,
     playNextTrack,
     testContinuousPlayback,
-    isTrackEnded: (state: any) => state.paused && state.position === 0 && state.duration > 0
+    isTrackEnded: (state: any) => state.paused && state.position === 0 && state.duration > 0,
+    markTrackStart
   };
 } 
