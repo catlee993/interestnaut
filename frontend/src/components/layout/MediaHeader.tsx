@@ -4,23 +4,14 @@ import {
   Tabs,
   Tab,
   Box,
-  Avatar,
-  Typography,
-  Button,
-  Menu,
-  MenuItem,
   IconButton,
+  styled,
 } from "@mui/material";
-import { styled } from "@mui/material/styles";
 import { useMedia, MediaType } from "@/contexts/MediaContext";
-import { spotify } from "@wailsjs/go/models";
-import { useAuth } from "@/components/music/hooks/useAuth";
-import { SearchSection } from "@/components/music/search/SearchSection";
-import { OpenAICredsManager } from "@/components/common/OpenAICredsManager";
+import { FaCog } from "react-icons/fa";
 import { useState } from "react";
-import { FaTimes, FaCog } from "react-icons/fa";
 import { SettingsDrawer } from "./SettingsDrawer";
-import { SpotifyUserControl } from "@/components/music/SpotifyUserControl";
+import { SearchBar } from "../common/SearchBar";
 
 const StyledAppBar = styled(AppBar)(({ theme }) => ({
   background: "rgba(18, 18, 18, 0.95)",
@@ -45,28 +36,17 @@ const TopRow = styled(Box)({
   padding: "2px 0",
 });
 
-interface HeaderProps {
-  user: spotify.UserProfile | null;
-  onSearch: (query: string) => Promise<void>;
+interface MediaHeaderProps {
+  additionalControl?: React.ReactNode | null;
+  onSearch: (query: string) => void;
 }
 
-export function Header({ user, onSearch }: HeaderProps) {
+export function MediaHeader({ additionalControl, onSearch }: MediaHeaderProps) {
   const { currentMedia, setCurrentMedia } = useMedia();
-  const { handleClearCreds } = useAuth();
-  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
-  const [showSettings, setShowSettings] = useState(false);
-
-  const handleMenuClick = (event: React.MouseEvent<HTMLElement>) => {
-    setAnchorEl(event.currentTarget);
-  };
-
-  const handleMenuClose = () => {
-    setAnchorEl(null);
-  };
+  const [showSettingsDrawer, setShowSettingsDrawer] = useState(false);
 
   const handleOpenSettings = () => {
-    setShowSettings(true);
-    handleMenuClose();
+    setShowSettingsDrawer(true);
   };
 
   const handleChange = (_: React.SyntheticEvent, newValue: MediaType) => {
@@ -88,7 +68,7 @@ export function Header({ user, onSearch }: HeaderProps) {
                   "&.Mui-selected": {
                     color: "white",
                   },
-                  minHeight: "48px",
+                  minHeight: "52px",
                   padding: "6px 12px",
                   fontSize: "0.875rem",
                 },
@@ -103,38 +83,38 @@ export function Header({ user, onSearch }: HeaderProps) {
           </Box>
 
           <Box sx={{ display: "flex", alignItems: "center", gap: 3 }}>
-            {currentMedia === "music" && user && (
-              <>
-                <SpotifyUserControl
-                  user={user}
-                  onClearAuth={handleClearCreds}
-                  currentMedia={currentMedia}
-                />
-                <IconButton
-                  size="small"
-                  onClick={handleOpenSettings}
-                  sx={{
-                    color: "#A855F7",
-                    padding: "2px",
-                    "&:hover": {
-                      backgroundColor: "rgba(168, 85, 247, 0.1)",
-                    },
-                  }}
-                >
-                  <FaCog size={20} />
-                </IconButton>
-              </>
-            )}
+            {additionalControl}
+
+            <IconButton
+              size="small"
+              onClick={handleOpenSettings}
+              sx={{
+                color: "#A855F7",
+                padding: "2px",
+                "&:hover": {
+                  backgroundColor: "rgba(168, 85, 247, 0.1)",
+                },
+              }}
+            >
+              <FaCog size={20} />
+            </IconButton>
           </Box>
         </TopRow>
 
-        {currentMedia === "music" && <SearchSection />}
+        <Box sx={{ p: 2, width: "100%" }}>
+          <SearchBar
+            placeholder={
+              currentMedia === "music" ? "Search tracks..." : "Search movies..."
+            }
+            onSearch={onSearch}
+          />
+        </Box>
       </StyledToolbar>
 
       <SettingsDrawer
-        open={showSettings}
-        onClose={() => setShowSettings(false)}
+        open={showSettingsDrawer}
+        onClose={() => setShowSettingsDrawer(false)}
       />
     </StyledAppBar>
   );
-}
+} 

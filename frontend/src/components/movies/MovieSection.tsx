@@ -1,11 +1,13 @@
-import { useState } from 'react';
-import { Box, TextField, Grid } from '@mui/material';
-import { MovieCard } from '@/components/movies/MovieCard';
-import { SearchMovies } from '@wailsjs/go/bindings/Movies';
-import { MovieWithSavedStatus } from '@wailsjs/go/models';
+import { useState } from "react";
+import { Box, TextField, Grid } from "@mui/material";
+import { MovieCard } from "@/components/movies/MovieCard";
+import { SearchMovies } from "@wailsjs/go/bindings/Movies";
+import { MovieWithSavedStatus } from "@wailsjs/go/models";
 
 export function MovieSection() {
-  const [searchResults, setSearchResults] = useState<MovieWithSavedStatus[]>([]);
+  const [searchResults, setSearchResults] = useState<MovieWithSavedStatus[]>(
+    [],
+  );
   const [savedMovies, setSavedMovies] = useState<Set<number>>(new Set());
 
   const handleSearch = async (query: string) => {
@@ -13,17 +15,17 @@ export function MovieSection() {
       setSearchResults([]);
       return;
     }
-    
+
     try {
       const response = await SearchMovies(query);
       setSearchResults(response);
     } catch (error) {
-      console.error('Failed to search movies:', error);
+      console.error("Failed to search movies:", error);
     }
   };
 
   const handleSave = (movieId: number) => {
-    setSavedMovies(prev => {
+    setSavedMovies((prev) => {
       const next = new Set(prev);
       if (next.has(movieId)) {
         next.delete(movieId);
@@ -36,24 +38,18 @@ export function MovieSection() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <TextField
-        fullWidth
-        placeholder="Search movies..."
-        onChange={(e) => handleSearch(e.target.value)}
-        sx={{ mb: 3 }}
-      />
       <Box
         sx={{
-          display: 'grid',
+          display: "grid",
           gridTemplateColumns: {
-            xs: '1fr',
-            sm: 'repeat(2, 1fr)',
-            md: 'repeat(3, 1fr)'
+            xs: "1fr",
+            sm: "repeat(2, 1fr)",
+            md: "repeat(3, 1fr)",
           },
-          gap: 3
+          gap: 3,
         }}
       >
-        {searchResults.map(movie => (
+        {searchResults.map((movie) => (
           <MovieCard
             key={movie.id}
             movie={movie}
@@ -64,4 +60,4 @@ export function MovieSection() {
       </Box>
     </Box>
   );
-} 
+}

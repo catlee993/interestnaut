@@ -22,8 +22,9 @@ import {
 } from "@mui/material";
 import { theme } from "./theme";
 import { SnackbarProvider, useSnackbar } from "notistack";
-import { Header } from "@/components/layout/Header";
+import { MediaHeader } from "@/components/layout/MediaHeader";
 import { TrackCard } from "@/components/music/tracks/TrackCard";
+import { SpotifyUserControl } from "@/components/music/SpotifyUserControl";
 
 // Add type declarations for Wails modules
 declare module "@wailsjs/go/bindings/Music" {
@@ -205,7 +206,16 @@ function AppContent() {
       id="App"
       sx={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}
     >
-      <Header user={user} onSearch={handleSearch} />
+      <MediaHeader 
+        additionalControl={user && currentMedia === "music" ? (
+          <SpotifyUserControl
+            user={user}
+            onClearAuth={handleClearCreds}
+            currentMedia={currentMedia}
+          />
+        ) : null}
+        onSearch={handleSearch} 
+      />
       <Container
         maxWidth="lg"
         sx={{
