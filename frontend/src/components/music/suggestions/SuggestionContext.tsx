@@ -49,7 +49,7 @@ export function SuggestionProvider({
   children,
 }: SuggestionProviderProps): JSX.Element {
   const { enqueueSnackbar } = useSnackbar();
-  const { stopPlayback } = usePlayer();
+  const { stopPlayback, nowPlayingTrack } = usePlayer();
   const [suggestedTrack, setSuggestedTrack] =
     useState<spotify.SuggestedTrackInfo | null>(null);
   const [suggestionError, setSuggestionError] = useState<string | null>(null);
@@ -194,13 +194,38 @@ export function SuggestionProvider({
         handleToast("Like recorded", "success");
       } else {
         setSuggestionState(prev => ({ ...prev, isProcessing: true }));
+        
+        // Important: Make sure we clear the current track before stopping playback
+        const currentTrack = suggestedTrack;
         setSuggestedTrack(null);
+        
+        // Only stop playback if the disliked track is currently playing
+        const isCurrentlyPlaying = nowPlayingTrack?.id === suggestedTrack.id;
+        if (isCurrentlyPlaying) {
+          console.log("Stopping playback after disliking currently playing track");
+          await stopPlayback();
+        } else {
+          console.log("Disliked track is not currently playing, not stopping playback");
+        }
+        
+        // Only update state after potentially stopping playback
         setSuggestionState(prev => ({ ...prev, outcome: outcome, hasAdded: false }));
         handleToast("Dislike recorded", "error");
-        // Stop playback when disliking
-        await stopPlayback();
+        
+        // Short delay before requesting a new suggestion
         window.scrollTo({ top: 0, behavior: "smooth" });
-        await handleRequestSuggestion();
+        
+        // Add a small delay to ensure playback state is fully updated
+        setTimeout(async () => {
+          try {
+            await handleRequestSuggestion();
+          } finally {
+            // Make sure to always reset processing state
+            setSuggestionState(prev => ({ ...prev, isProcessing: false }));
+          }
+        }, 1000);
+        
+        return; // Exit early since we're handling cleanup in setTimeout
       }
     } catch (error) {
       console.error("Error providing suggestion feedback:", error);
@@ -208,7 +233,11 @@ export function SuggestionProvider({
       setSuggestionState(prev => ({ ...prev, outcome: session.Outcome.pending, hasLiked: false, hasAdded: false }));
     } finally {
       if (feedbackType === "dislike") {
-        setSuggestionState(prev => ({ ...prev, isProcessing: false }));
+        // Only set processing to false for "like" case
+        // For "dislike", we handle it in the setTimeout above
+        if (feedbackType !== "dislike") {
+          setSuggestionState(prev => ({ ...prev, isProcessing: false }));
+        }
       }
     }
   };

@@ -6,9 +6,11 @@ import { SuggestionDisplay } from "@/components/music/suggestions/SuggestionDisp
 import { NowPlayingBar } from "@/components/music/player/NowPlayingBar";
 import { LibrarySection } from "@/components/music/library/LibrarySection";
 import { MovieSection } from "@/components/movies/MovieSection";
+import { MusicSection } from "@/components/music/MusicSection";
 import { useAuth } from "@/components/music/hooks/useAuth";
 import { useTracks } from "@/components/music/hooks/useTracks";
 import { usePlayer } from "@/components/music/player/PlayerContext";
+import { usePlaybackControl } from "@/components/music/hooks/usePlaybackControl";
 import { PlayerProvider } from "@/components/music/player/PlayerContext";
 import { MediaProvider, useMedia } from "@/contexts/MediaContext";
 import {
@@ -17,14 +19,12 @@ import {
   Box,
   Container,
   SnackbarContent,
-  Paper,
-  Typography,
 } from "@mui/material";
 import { theme } from "./theme";
 import { SnackbarProvider, useSnackbar } from "notistack";
 import { MediaHeader } from "@/components/layout/MediaHeader";
-import { TrackCard } from "@/components/music/tracks/TrackCard";
 import { SpotifyUserControl } from "@/components/music/SpotifyUserControl";
+import { styled } from "@mui/material/styles";
 
 // Add type declarations for Wails modules
 declare module "@wailsjs/go/bindings/Music" {
@@ -110,16 +110,16 @@ function AppContent() {
   const {
     savedTracks,
     searchResults,
-    isLoading,
-    error,
+    isLoading: musicLoading,
+    error: musicError,
     currentPage,
     totalTracks,
-    loadSavedTracks,
-    handleSearch,
+    handleSearch: handleMusicSearch,
     handleSave,
     handleRemove,
     handleNextPage,
     handlePrevPage,
+    loadSavedTracks,
   } = useTracks(ITEMS_PER_PAGE);
 
   const {
@@ -131,46 +131,27 @@ function AppContent() {
     setNextTrack,
   } = usePlayer();
 
+  const { handlePlay } = usePlaybackControl(
+    savedTracks,
+    setNowPlayingTrack,
+    setNextTrack,
+    playerHandlePlay
+  );
+  
   const hasInitialized = useRef(false);
 
-  // Create a custom handlePlay function that integrates with our library
-  const handlePlay = async (
-    track: spotify.Track | spotify.SimpleTrack | spotify.SuggestedTrackInfo,
-  ) => {
-    console.log(`[App] Play track: ${track.name}`);
-
-    // Update the nowPlayingTrack state directly
-    setNowPlayingTrack(track);
-
-    // Check if we're playing from the library
-    if (savedTracks?.items) {
-      const trackIndex = savedTracks.items.findIndex(
-        (item) => item.track && item.track.id === track.id,
-      );
-
-      if (trackIndex !== -1) {
-        console.log(`[App] Playing track from library at index ${trackIndex}`);
-
-        // Set the next track if available
-        const nextIndex = trackIndex + 1;
-        if (
-          nextIndex < savedTracks.items.length &&
-          savedTracks.items[nextIndex]?.track
-        ) {
-          const nextTrack = savedTracks.items[nextIndex].track;
-          console.log(`[App] Setting next track: ${nextTrack?.name}`);
-          setNextTrack(nextTrack);
-        } else {
-          console.log("[App] No next track available");
-          setNextTrack(null);
-        }
-      }
+  // Add effect to reload tracks when auth state changes
+  useEffect(() => {
+    if (isAuthenticated) {
+      console.log("[App] Authentication detected, loading saved tracks...");
+      // Use a slight delay to ensure authentication is fully processed
+      setTimeout(() => {
+        loadSavedTracks(1);
+      }, 500);
     }
+  }, [isAuthenticated, loadSavedTracks]);
 
-    // Call the player's handlePlay function
-    await playerHandlePlay(track);
-  };
-
+  // Separate initialization effect that doesn't depend on authentication state
   useEffect(() => {
     const initializeApp = async () => {
       if (hasInitialized.current) return;
@@ -178,13 +159,11 @@ function AppContent() {
 
       try {
         console.log("[initializeApp] Starting initialization...");
-        const loadAppData = async () => {
-          console.log("[initializeApp] Loading app data...");
+        startAuthPolling(async () => {
+          console.log("[initializeApp] Authentication successful, loading app data...");
           await loadSavedTracks(1);
           console.log("[initializeApp] App data loaded");
-        };
-
-        startAuthPolling(loadAppData);
+        });
       } catch (error) {
         console.error("[initializeApp] Error initializing app:", error);
         enqueueSnackbar("Error initializing app", { variant: "error" });
@@ -192,14 +171,7 @@ function AppContent() {
     };
 
     initializeApp();
-  }, []);
-
-  // Add effect to reload tracks when auth state changes
-  useEffect(() => {
-    if (isAuthenticated) {
-      loadSavedTracks(1);
-    }
-  }, [isAuthenticated]);
+  }, []); // Only run once on mount
 
   return (
     <Box
@@ -214,8 +186,9 @@ function AppContent() {
             currentMedia={currentMedia}
           />
         ) : null}
-        onSearch={handleSearch} 
+        onSearch={handleMusicSearch} 
       />
+      
       <Container
         maxWidth="lg"
         sx={{
@@ -226,58 +199,21 @@ function AppContent() {
         }}
       >
         {currentMedia === "music" ? (
-          <>
-            <SuggestionDisplay />
-            {searchResults.length > 0 && (
-              <Paper sx={{ p: 3, mb: 3 }}>
-                <Typography variant="h6" sx={{ mb: 2 }}>
-                  Search Results
-                </Typography>
-                <Box
-                  sx={{
-                    display: "grid",
-                    gridTemplateColumns: {
-                      xs: "1fr",
-                      sm: "1fr 1fr",
-                      md: "1fr 1fr 1fr",
-                      lg: "repeat(4, 1fr)",
-                    },
-                    gap: 2,
-                  }}
-                >
-                  {searchResults.map((track) => (
-                    <Box key={track.id}>
-                      <TrackCard
-                        track={track}
-                        isSaved={savedTracks?.items?.some(
-                          (item) => item.track?.id === track.id,
-                        )}
-                        isPlaying={
-                          !isPlaybackPaused && nowPlayingTrack?.id === track.id
-                        }
-                        onPlay={handlePlay}
-                        onSave={handleSave}
-                        onRemove={handleRemove}
-                      />
-                    </Box>
-                  ))}
-                </Box>
-              </Paper>
-            )}
-            <LibrarySection
-              savedTracks={savedTracks}
-              currentPage={currentPage}
-              totalTracks={totalTracks}
-              itemsPerPage={ITEMS_PER_PAGE}
-              nowPlayingTrack={nowPlayingTrack}
-              isPlaybackPaused={isPlaybackPaused}
-              onPlay={handlePlay}
-              onSave={handleSave}
-              onRemove={handleRemove}
-              onNextPage={handleNextPage}
-              onPrevPage={handlePrevPage}
-            />
-          </>
+          <MusicSection 
+            searchResults={searchResults}
+            savedTracks={savedTracks}
+            currentPage={currentPage}
+            totalTracks={totalTracks}
+            itemsPerPage={ITEMS_PER_PAGE}
+            nowPlayingTrack={nowPlayingTrack}
+            isPlaybackPaused={isPlaybackPaused}
+            onPlay={handlePlay}
+            onSave={handleSave}
+            onRemove={handleRemove}
+            onSearch={handleMusicSearch}
+            onNextPage={handleNextPage}
+            onPrevPage={handlePrevPage}
+          />
         ) : (
           <MovieSection />
         )}

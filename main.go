@@ -45,7 +45,7 @@ func main() {
 	}
 
 	// Create new instances of your binders
-	music := bindings.NewMusicBinder(ctx, cm)
+	music := bindings.NewMusicBinder(ctx, cm, spotify.ClientID)
 	movies, err := bindings.NewMovieBinder(ctx, cm)
 	if err != nil {
 		log.Fatalf("Failed to create movies binder: %v", err)

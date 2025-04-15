@@ -2,6 +2,7 @@ import { FaPause, FaPlay } from "react-icons/fa";
 import { spotify } from "@wailsjs/go/models";
 import { Box, Card, Typography, IconButton, Button } from "@mui/material";
 import { styled } from "@mui/material/styles";
+import { usePlayer } from "@/components/music/player/PlayerContext";
 
 interface TrackCardProps {
   track: spotify.Track | spotify.SimpleTrack;
@@ -89,6 +90,21 @@ export function TrackCard({
   const info = getTrackInfo(track);
   const hasUri = "uri" in track && track.uri;
   const canPlay = hasUri || info.previewUrl;
+  const { handlePlayPause, nowPlayingTrack } = usePlayer();
+  
+  // Check if this is the currently playing track
+  const isCurrentTrack = nowPlayingTrack?.id === track.id;
+
+  // Handle play/pause button click
+  const handlePlayClick = async () => {
+    if (isCurrentTrack && isPlaying) {
+      // If this track is currently playing, toggle pause
+      await handlePlayPause();
+    } else {
+      // Otherwise, start playing this track
+      await onPlay(track);
+    }
+  };
 
   return (
     <StyledCard isPlaying={isPlaying}>
@@ -106,17 +122,19 @@ export function TrackCard({
       <Overlay>
         <Controls>
           <PlayButton
-            onClick={() => onPlay(track)}
+            onClick={handlePlayClick}
             disabled={!canPlay}
             title={
               !canPlay
                 ? "Playback unavailable"
+                : isCurrentTrack && isPlaying
+                ? "Pause"
                 : hasUri
-                  ? "Play full song"
-                  : "Play preview"
+                ? "Play full song"
+                : "Play preview"
             }
           >
-            {isPlaying ? <FaPause /> : <FaPlay />}
+            {isPlaying && isCurrentTrack ? <FaPause /> : <FaPlay />}
           </PlayButton>
           <Box sx={{ flex: 1, mx: 2, overflow: "hidden" }}>
             <Typography

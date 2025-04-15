@@ -14,7 +14,6 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"os"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -27,6 +26,7 @@ import (
 
 // Constants remain mostly unchanged
 const (
+	ClientID    = "3bb48a30577342869a9ffcb176dee7d2"
 	authURL     = "https://accounts.spotify.com/authorize"
 	redirectURI = "http://localhost:8080/callback"
 	scope       = "user-read-private user-read-email user-library-read user-library-modify user-read-playback-state user-modify-playback-state streaming"
@@ -64,12 +64,6 @@ func RunInitialAuthFlow(ctx context.Context) error {
 	stop := make(chan struct{})
 	errChan := make(chan error, 1)
 
-	// Only require the client ID for PKCE flow
-	clientID := os.Getenv("SPOTIFY_CLIENT_ID")
-	if clientID == "" {
-		return fmt.Errorf("SPOTIFY_CLIENT_ID not set in environment")
-	}
-
 	mux := http.NewServeMux()
 	mux.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
 		code := r.URL.Query().Get("code")
@@ -80,7 +74,7 @@ func RunInitialAuthFlow(ctx context.Context) error {
 		}
 
 		// Exchange the authorization code for tokens using PKCE
-		authResp, err := exchangeCodeForToken(ctx, clientID, code)
+		authResp, err := exchangeCodeForToken(ctx, ClientID, code)
 		if err != nil {
 			errChan <- fmt.Errorf("failed to exchange code for token: %w", err)
 			http.Error(w, fmt.Sprintf("Failed to exchange code for token: %v", err), http.StatusInternalServerError)
@@ -135,7 +129,7 @@ func RunInitialAuthFlow(ctx context.Context) error {
 	}()
 
 	// Start auth flow in browser
-	if err := startAuth(clientID); err != nil {
+	if err := startAuth(ClientID); err != nil {
 		serverCancel() // Cancel server context if browser launch fails
 		return fmt.Errorf("failed to start auth flow: %w", err)
 	}
@@ -219,17 +213,10 @@ func GetValidToken(ctx context.Context) (string, error) {
 		return "", ErrNotAuthenticated
 	}
 
-	// Perform the refresh using the refresh token
-	clientID := os.Getenv("SPOTIFY_CLIENT_ID")
-	if clientID == "" {
-		log.Println("ERROR: Spotify client ID not found in env for token refresh.")
-		return "", ErrNotAuthenticated
-	}
-
 	form := url.Values{}
 	form.Set("grant_type", "refresh_token")
 	form.Set("refresh_token", refreshToken)
-	form.Set("client_id", clientID)
+	form.Set("client_id", ClientID)
 
 	req, err := http.NewRequestWithContext(ctx, "POST", tokenURL, strings.NewReader(form.Encode()))
 	if err != nil {

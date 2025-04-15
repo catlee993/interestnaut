@@ -9,7 +9,6 @@ import (
 	"interestnaut/internal/session"
 	"interestnaut/internal/spotify"
 	"log"
-	"os"
 	"sync"
 	"time"
 
@@ -28,9 +27,9 @@ type Music struct {
 	mu                     sync.Mutex
 }
 
-func NewMusicBinder(ctx context.Context, cm session.CentralManager) *Music {
+func NewMusicBinder(ctx context.Context, cm session.CentralManager, clientID string) *Music {
 	sac := &spotify.AuthConfig{
-		ClientID:    os.Getenv("SPOTIFY_CLIENT_ID"),
+		ClientID:    clientID,
 		RedirectURI: "http://localhost:8080/callback",
 	}
 	llmClient, err := openai.NewClient[session.Music]()
@@ -243,7 +242,7 @@ func (m *Music) match(_ context.Context, title, artist string, tracks []*spotify
 		artistScore := calculateSimilarity(track.Artist, artist)
 		// Weights don't need to sum to 1, but should be in a reasonable range
 		// Using 0.7 for title and 0.8 for artist to emphasize artist matching
-		score := (titleScore * 0.6) + (artistScore * 0.6)
+		score := (titleScore * 0.5) + (artistScore * 0.5)
 
 		if score > bestScore {
 			bestScore = score
@@ -252,7 +251,7 @@ func (m *Music) match(_ context.Context, title, artist string, tracks []*spotify
 	}
 
 	// Adjust threshold proportionally (0.8 * 1.5 = 1.2)
-	if bestScore >= 0.96 {
+	if bestScore >= 0.75 {
 		return bestMatch
 	}
 

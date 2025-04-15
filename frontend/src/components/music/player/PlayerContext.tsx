@@ -194,11 +194,29 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
   const stopPlayback = useCallback(async () => {
     if (spotifyPlayer && spotifyDeviceId) {
       try {
+        console.log("[PlayerContext] Stopping playback");
+        // Clear the next track first to prevent automatic playback
+        setNextTrack(null);
+        
+        // Explicitly pause via the SDK
+        await spotifyPlayer.pause();
+        
+        // Then use the API as a backup in case SDK fails
         await PausePlaybackOnDevice(spotifyDeviceId);
+        
+        // Now clear now playing track
         setNowPlayingTrack(null);
+        
+        // Mark that a track started to prevent false track end detection
+        window.dispatchEvent(new Event('trackStarted'));
+        
+        // Update state 
         await updatePlaybackState();
       } catch (error) {
-        // Just silently fail
+        console.error("[PlayerContext] Error stopping playback:", error);
+        // Still mark the track as stopped in UI even if API call fails
+        setNowPlayingTrack(null);
+        await updatePlaybackState();
       }
     }
   }, [spotifyPlayer, spotifyDeviceId, updatePlaybackState]);
