@@ -34,7 +34,6 @@ interface PlayerContextType {
   seekTo: (position: number) => void;
   setContinuousPlayback: (enabled: boolean) => void;
   updateSavedTracks: (tracks: spotify.SavedTracks, page: number) => void;
-  testContinuousPlayback: () => boolean;
   playNextTrack: () => Promise<void>;
 }
 
@@ -56,7 +55,6 @@ const defaultContext: PlayerContextType = {
   seekTo: () => {},
   setContinuousPlayback: () => {},
   updateSavedTracks: () => {},
-  testContinuousPlayback: () => false,
   playNextTrack: async () => {},
 };
 
@@ -76,7 +74,6 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
   const {
     spotifyPlayer,
     spotifyDeviceId,
-    isInitializing,
     initializePlayer,
   } = useSpotifyPlayer();
   
@@ -90,7 +87,7 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
   } = usePlaybackState(spotifyPlayer);
   
   // Internal state setter for isPlaybackPaused
-  const setIsPlaybackPaused = useCallback((isPaused: boolean) => {
+  const setIsPlaybackPaused = useCallback(() => {
     // No direct setter from usePlaybackState, so we call updatePlaybackState
     // and let the hook handle the state update
     updatePlaybackState();
@@ -103,7 +100,6 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
     updateSavedTracks: updateTracksInPlayback,
     handleTrackEnd,
     playNextTrack: playNext,
-    testContinuousPlayback,
     isTrackEnded,
   } = useContinuousPlayback({
     spotifyDeviceId,
@@ -125,7 +121,7 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
           await handleTrackEnd(state);
         } else {
           // Just update UI state
-          setIsPlaybackPaused(true);
+          setIsPlaybackPaused();
         }
       }
     };
@@ -145,32 +141,21 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
   // Handle track play functionality
   const handlePlay = useCallback(async (trackOrUri: Track | string) => {
     if (!spotifyPlayer || !spotifyDeviceId) {
-      console.log("Spotify player not ready. Attempting to reinitialize...");
       await initializePlayer();
       // Wait a bit for the player to initialize
       await new Promise((resolve) => setTimeout(resolve, 1000));
-      if (!spotifyPlayer || !spotifyDeviceId) {
-        console.error("Failed to initialize player after retry");
-        return;
-      }
+      if (!spotifyPlayer || !spotifyDeviceId) return;
     }
 
     const trackUri = typeof trackOrUri === "string" 
       ? trackOrUri 
       : trackOrUri?.uri || null;
       
-    if (!trackUri) {
-      console.error("No track URI provided");
-      return;
-    }
+    if (!trackUri) return;
 
     try {
-      // Mark that we're starting a new track to prevent accidental "track end" detection
-      // due to 404 errors during initialization
-      if (typeof window !== 'undefined') {
-        // Dispatch a trackStarted event
-        window.dispatchEvent(new Event('trackStarted'));
-      }
+      // Dispatch trackStarted event to prevent false track end detection
+      window.dispatchEvent(new Event('trackStarted'));
       
       await PlayTrackOnDevice(spotifyDeviceId, trackUri);
       
@@ -181,24 +166,19 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
       // Ensure playback state is updated
       await updatePlaybackState();
     } catch (error) {
-      console.error("Failed to play track:", error);
-      
       // If the error is due to device not being active, try to reinitialize
       if (
         error instanceof Error &&
         (error.message.includes("No active device") ||
           error.message.includes("Device not found"))
       ) {
-        console.log("Device not found, attempting to reinitialize player...");
         await initializePlayer();
         // Wait a bit for the player to initialize
         await new Promise((resolve) => setTimeout(resolve, 1000));
+        
         // Try playing again after reinitialization
         if (spotifyDeviceId) {
-          if (typeof window !== 'undefined') {
-            // Dispatch a trackStarted event again for the retry
-            window.dispatchEvent(new Event('trackStarted'));
-          }
+          window.dispatchEvent(new Event('trackStarted'));
           
           await PlayTrackOnDevice(spotifyDeviceId, trackUri);
           if (typeof trackOrUri !== "string" && trackOrUri !== null) {
@@ -217,12 +197,8 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
         await PausePlaybackOnDevice(spotifyDeviceId);
         setNowPlayingTrack(null);
         await updatePlaybackState();
-      } catch (error: unknown) {
-        const errorMessage =
-          error instanceof Error
-            ? error.message
-            : "Unknown error occurred while pausing playback";
-        console.error("[stopPlayback]", errorMessage);
+      } catch (error) {
+        // Just silently fail
       }
     }
   }, [spotifyPlayer, spotifyDeviceId, updatePlaybackState]);
@@ -240,20 +216,14 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
         await spotifyPlayer.pause();
       }
       await updatePlaybackState();
-    } catch (error: unknown) {
-      const errorMessage =
-        error instanceof Error
-          ? error.message
-          : "Unknown error occurred while toggling playback";
-      console.error("[handlePlayPause]", errorMessage);
+    } catch (error) {
+      // Just silently fail
     }
   }, [nowPlayingTrack, spotifyPlayer, isPlaybackPaused, updatePlaybackState]);
 
-  // Find and update the wrapper for playNextTrack
+  // Wrapper for playNextTrack
   const playNextTrack = useCallback(async () => {
-    // Call the hook's playNext but ignore the return value
     await playNext();
-    // Function signature expects a Promise<void> return
   }, [playNext]);
 
   // Add a useEffect to set up global error handling for 404 errors during playback
@@ -271,9 +241,8 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
           (error && error.message && error.message.includes('404'))
         )
       ) {
-        // This is likely a Spotify 404 error during track loading
-        console.log('Suppressed Spotify 404 error');
-        return true; // Prevents the error from appearing in console
+        // Suppress Spotify 404 error
+        return true;
       }
       
       // For other errors, use the original handler if it exists
@@ -281,10 +250,10 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
         return originalOnError(message, source, lineno, colno, error);
       }
       
-      return false; // Let other errors propagate to console
+      return false;
     };
     
-    // Also add a handler for unhandled promise rejections
+    // Handler for unhandled promise rejections
     const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
       if (
         event.reason && 
@@ -296,9 +265,8 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
           (event.reason.toString && event.reason.toString().includes('404'))
         )
       ) {
-        // This is likely a Spotify playback error
-        console.log('Suppressed Spotify playback error:', event.reason.message || event.reason);
-        event.preventDefault(); // Prevent it from appearing in console
+        // Suppress Spotify playback errors
+        event.preventDefault();
       }
     };
     
@@ -316,8 +284,6 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
     if (!spotifyPlayer) return;
     
     const handlePlaybackError = (error: any) => {
-      console.log('Playback error received:', error.message);
-      
       // If it's a 404 during track loading, mark that we're still in startup
       if (error.message && error.message.includes('404')) {
         // Dispatch a trackStarted event to ensure we have protection against false track end
@@ -352,7 +318,6 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
     seekTo,
     setContinuousPlayback,
     updateSavedTracks,
-    testContinuousPlayback,
     playNextTrack,
   };
 

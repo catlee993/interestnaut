@@ -22,28 +22,18 @@ export function useSpotifyPlayer() {
    * Initialize the Spotify Web Playback SDK player
    */
   const initializePlayer = useCallback(async () => {
-    if (isConnecting.current) {
-      console.log("[useSpotifyPlayer] Already connecting, skipping");
-      return;
-    }
+    if (isConnecting.current) return;
 
-    console.log("[useSpotifyPlayer] Starting initialization");
     setIsInitializing(true);
     setInitializationError(null);
     isConnecting.current = true;
 
     try {
       // Check if Spotify SDK is already loaded
-      if (!window.Spotify) {
-        console.log(
-          "[useSpotifyPlayer] Spotify SDK not loaded, waiting for script",
-        );
-        return;
-      }
+      if (!window.Spotify) return;
 
       // Clean up existing player if it exists
       if (spotifyPlayer) {
-        console.log("[useSpotifyPlayer] Cleaning up existing player");
         await spotifyPlayer.disconnect();
         setSpotifyPlayer(null);
         setSpotifyDeviceId(null);
@@ -54,10 +44,8 @@ export function useSpotifyPlayer() {
         getOAuthToken: async (cb) => {
           try {
             const token = await GetValidToken();
-            console.log("[useSpotifyPlayer] Got token");
             cb(token);
           } catch (err) {
-            console.error("[useSpotifyPlayer] Failed to get token:", err);
             setInitializationError("Failed to get Spotify token");
             throw err;
           }
@@ -67,22 +55,17 @@ export function useSpotifyPlayer() {
 
       // Add error handler for 404s
       player.addListener("playback_error", (event: SpotifyPlayerEvent) => {
-        console.error("[playback_error]", event.message);
         // If it's a device not found error, try to reconnect
         if (
           event.message?.includes("404") ||
           event.message?.includes("Device not found")
         ) {
-          console.log(
-            "[playback_error] Device not found, attempting to reconnect...",
-          );
           hasInitialized.current = false;
           initializePlayer();
         }
       });
 
       player.addListener("ready", (event: SpotifyPlayerEvent) => {
-        console.log("Ready with Device ID", event.device_id);
         if (event.device_id) {
           setSpotifyDeviceId(event.device_id);
         }
@@ -94,14 +77,12 @@ export function useSpotifyPlayer() {
       });
 
       player.addListener("not_ready", (event: SpotifyPlayerEvent) => {
-        console.log("Device ID has gone offline", event.device_id);
         setSpotifyDeviceId(null);
         setSpotifyPlayer(null);
         setIsInitializing(false);
         isConnecting.current = false;
         // Try to reconnect when device goes offline
         setTimeout(() => {
-          console.log("[not_ready] Attempting to reconnect...");
           hasInitialized.current = false;
           initializePlayer();
         }, 2000);
@@ -110,7 +91,6 @@ export function useSpotifyPlayer() {
       player.addListener(
         "authentication_error",
         (event: SpotifyPlayerEvent) => {
-          console.error("Failed to authenticate:", event.message);
           if (event.message) {
             setInitializationError(`Failed to authenticate: ${event.message}`);
           }
@@ -118,7 +98,6 @@ export function useSpotifyPlayer() {
           isConnecting.current = false;
           // Try to reconnect on auth error
           setTimeout(() => {
-            console.log("[authentication_error] Attempting to reconnect...");
             hasInitialized.current = false;
             initializePlayer();
           }, 2000);
@@ -127,14 +106,12 @@ export function useSpotifyPlayer() {
 
       // Add WebSocket error handler
       player.addListener("account_error", (event: SpotifyPlayerEvent) => {
-        console.error("WebSocket error:", event.message);
         setSpotifyDeviceId(null);
         setSpotifyPlayer(null);
         setIsInitializing(false);
         isConnecting.current = false;
         // Try to reconnect on WebSocket error
         setTimeout(() => {
-          console.log("[account_error] Attempting to reconnect...");
           hasInitialized.current = false;
           initializePlayer();
         }, 2000);
@@ -142,7 +119,6 @@ export function useSpotifyPlayer() {
 
       await player.connect();
     } catch (err) {
-      console.error("[useSpotifyPlayer] Failed to create Spotify player:", err);
       setInitializationError(
         err instanceof Error
           ? err.message
@@ -154,9 +130,6 @@ export function useSpotifyPlayer() {
       // Retry initialization if we haven't exceeded max retries
       if (retryCount.current < maxRetries) {
         retryCount.current += 1;
-        console.log(
-          `[useSpotifyPlayer] Retrying initialization (attempt ${retryCount.current}/${maxRetries})`,
-        );
         setTimeout(initializePlayer, 2000 * retryCount.current); // Exponential backoff
       }
     }
@@ -171,14 +144,10 @@ export function useSpotifyPlayer() {
     try {
       const state = await spotifyPlayer.getCurrentState();
       if (!state) {
-        console.log(
-          "[checkDeviceStatus] Device not active, attempting to reconnect...",
-        );
         hasInitialized.current = false;
         await initializePlayer();
       }
     } catch (error) {
-      console.error("[checkDeviceStatus] Error checking device status:", error);
       hasInitialized.current = false;
       await initializePlayer();
     }

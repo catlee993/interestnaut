@@ -30,7 +30,7 @@ export function usePlaybackState(spotifyPlayer: any) {
         setDuration(state.duration);
       }
     } catch (error) {
-      console.error("[usePlaybackState] Error getting current state:", error);
+      // Silently handle errors to avoid console noise
     }
   }, [spotifyPlayer, duration]);
   
@@ -78,7 +78,7 @@ export function usePlaybackState(spotifyPlayer: any) {
         await spotifyPlayer.seek(position);
         setCurrentPosition(position);
       } catch (error) {
-        console.error("[usePlaybackState] Error seeking:", error);
+        // Silently handle errors to avoid console noise
       }
     },
     [spotifyPlayer]

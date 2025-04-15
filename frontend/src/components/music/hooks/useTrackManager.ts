@@ -3,7 +3,6 @@ import { spotify } from "@wailsjs/go/models";
 import {
   PlayTrackOnDevice,
   PausePlaybackOnDevice,
-  GetValidToken,
 } from "@wailsjs/go/bindings/Music";
 import { useSpotifyPlayer } from "./useSpotifyPlayer";
 import { usePlaybackState } from "./usePlaybackState";
@@ -70,7 +69,6 @@ export function useTrackManager() {
         const errorMessage =
           err instanceof Error ? err.message : "Unknown error playing track";
         setError(errorMessage);
-        console.error("[useTrackManager] Error playing track:", errorMessage);
       } finally {
         setIsLoading(false);
       }
@@ -92,10 +90,6 @@ export function useTrackManager() {
       const errorMessage =
         err instanceof Error ? err.message : "Unknown error playing next track";
       setError(errorMessage);
-      console.error(
-        "[useTrackManager] Error playing next track:",
-        errorMessage,
-      );
     } finally {
       setIsLoading(false);
     }
@@ -118,7 +112,6 @@ export function useTrackManager() {
       const errorMessage =
         err instanceof Error ? err.message : "Unknown error toggling playback";
       setError(errorMessage);
-      console.error("[useTrackManager] Error toggling playback:", errorMessage);
     }
   }, [spotifyPlayer, currentTrack, isPaused, updatePlaybackState]);
 
@@ -137,7 +130,6 @@ export function useTrackManager() {
       const errorMessage =
         err instanceof Error ? err.message : "Unknown error stopping playback";
       setError(errorMessage);
-      console.error("[useTrackManager] Error stopping playback:", errorMessage);
     }
   }, [spotifyDeviceId, updatePlaybackState, playerContext]);
 
