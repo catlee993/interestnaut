@@ -12,7 +12,7 @@ import {
   Button,
 } from "@mui/material";
 import { styled } from "@mui/material/styles";
-import { FaEye, FaEyeSlash } from "react-icons/fa";
+import { FaEye, FaEyeSlash, FaTimes } from "react-icons/fa";
 import {
   SaveOpenAIToken,
   GetOpenAIToken,
@@ -144,6 +144,20 @@ export function SettingsDrawer({ open, onClose }: SettingsDrawerProps) {
   return (
     <StyledDrawer anchor="right" open={open} onClose={onClose}>
       <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+        <Box sx={{ width: '100%', display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
+          <IconButton
+            onClick={onClose}
+            sx={{
+              color: 'white',
+              padding: '4px',
+              '&:hover': {
+                backgroundColor: 'rgba(255, 255, 255, 0.1)',
+              },
+            }}
+          >
+            <FaTimes size={14} />
+          </IconButton>
+        </Box>
         <StyledTabs value={activeTab} onChange={handleTabChange}>
           <Tab label="Settings" />
           <Tab label="Authentication" />

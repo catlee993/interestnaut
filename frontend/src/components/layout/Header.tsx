@@ -18,8 +18,9 @@ import { useAuth } from "@/hooks/useAuth";
 import { SearchSection } from "@/components/music/search/SearchSection";
 import { OpenAICredsManager } from "@/components/common/OpenAICredsManager";
 import { useState } from "react";
-import { FaTimes } from "react-icons/fa";
+import { FaTimes, FaCog } from "react-icons/fa";
 import { SettingsDrawer } from "./SettingsDrawer";
+import { SpotifyUserControl } from "@/components/music/SpotifyUserControl";
 
 const StyledAppBar = styled(AppBar)(({ theme }) => ({
   background: "rgba(18, 18, 18, 0.95)",
@@ -87,6 +88,9 @@ export function Header({ user, onSearch }: HeaderProps) {
                   "&.Mui-selected": {
                     color: "white",
                   },
+                  minHeight: "48px",
+                  padding: "6px 12px",
+                  fontSize: "0.875rem",
                 },
                 "& .MuiTabs-indicator": {
                   backgroundColor: "#7B68EE",
@@ -98,54 +102,27 @@ export function Header({ user, onSearch }: HeaderProps) {
             </Tabs>
           </Box>
 
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 3 }}>
             {currentMedia === "music" && user && (
               <>
-                {user.images?.[0]?.url && (
-                  <Avatar
-                    src={user.images[0].url}
-                    sx={{ width: 24, height: 24 }}
-                  />
-                )}
-                <Typography variant="subtitle2" sx={{ color: "white", fontSize: "0.75rem" }}>
-                  {user.display_name}
-                </Typography>
-                <Button
-                  variant="outlined"
-                  size="small"
-                  onClick={handleClearCreds}
-                  sx={{
-                    color: '#EF4444',
-                    borderColor: '#EF4444',
-                    padding: "2px 8px",
-                    minWidth: "auto",
-                    fontSize: "0.75rem",
-                    "&:hover": {
-                      borderColor: '#EF4444',
-                      backgroundColor: 'rgba(239, 68, 68, 0.1)',
-                    },
-                  }}
-                >
-                  Clear Auth
-                </Button>
-                <Button
-                  variant="outlined"
+                <SpotifyUserControl 
+                  user={user} 
+                  onClearAuth={handleClearCreds} 
+                  currentMedia={currentMedia}
+                />
+                <IconButton
                   size="small"
                   onClick={handleOpenSettings}
                   sx={{
                     color: '#A855F7',
-                    borderColor: '#A855F7',
-                    padding: "2px 8px",
-                    minWidth: "auto",
-                    fontSize: "0.75rem",
+                    padding: "2px",
                     "&:hover": {
-                      borderColor: '#A855F7',
                       backgroundColor: 'rgba(168, 85, 247, 0.1)',
                     },
                   }}
                 >
-                  Settings
-                </Button>
+                  <FaCog size={20} />
+                </IconButton>
               </>
             )}
           </Box>
