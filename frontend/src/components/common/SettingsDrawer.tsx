@@ -25,6 +25,7 @@ import {
   SaveOpenAIToken,
   SaveTMBDAccessToken,
 } from "@wailsjs/go/bindings/Auth";
+import { RefreshCredentials } from "@wailsjs/go/bindings/Movies";
 import { useSnackbar } from "notistack";
 import { usePlayer } from "@/components/music/player/PlayerContext";
 import { ApiCredentialsManager } from "@/components/common/ApiCredentialsManager";
@@ -119,6 +120,11 @@ export function SettingsDrawer({ open, onClose }: SettingsDrawerProps) {
 
   const { isContinuousPlayback, setContinuousPlayback } = usePlayer();
   const { enqueueSnackbar } = useSnackbar();
+
+  // Create a wrapper for RefreshCredentials that returns void
+  const refreshTmdbCredentials = async (): Promise<void> => {
+    await RefreshCredentials();
+  };
 
   useEffect(() => {
     const loadOpenAIKey = async () => {
@@ -368,6 +374,7 @@ export function SettingsDrawer({ open, onClose }: SettingsDrawerProps) {
                 value={tmdbKey}
                 onChange={handleTmdbKeyChange}
                 onClear={handleClearTmdbKey}
+                refreshHandler={refreshTmdbCredentials}
               />
             </SectionContainer>
           </Box>

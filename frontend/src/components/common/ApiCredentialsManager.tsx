@@ -40,6 +40,7 @@ interface ApiCredentialsManagerProps {
   onLoad?: () => Promise<string>;
   placeholderText?: string;
   disabled?: boolean;
+  refreshHandler?: () => Promise<void>;
 }
 
 export function ApiCredentialsManager({
@@ -50,6 +51,7 @@ export function ApiCredentialsManager({
   onLoad,
   placeholderText = "",
   disabled = false,
+  refreshHandler,
 }: ApiCredentialsManagerProps) {
   const [apiKey, setApiKey] = useState(value);
   const [showApiKey, setShowApiKey] = useState(false);
@@ -82,6 +84,10 @@ export function ApiCredentialsManager({
     if (newValue) {
       try {
         await onChange(newValue);
+        // Call the refresh handler if provided
+        if (refreshHandler) {
+          await refreshHandler();
+        }
         enqueueSnackbar(`${label} API key saved`, { variant: "success" });
       } catch (error) {
         console.error(`Failed to save ${label} API key:`, error);
@@ -93,6 +99,10 @@ export function ApiCredentialsManager({
   const handleClearApiKey = async () => {
     try {
       await onClear();
+      // Call the refresh handler if provided
+      if (refreshHandler) {
+        await refreshHandler();
+      }
       setApiKey("");
       enqueueSnackbar(`${label} API key cleared`, { variant: "success" });
     } catch (error) {

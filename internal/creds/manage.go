@@ -3,6 +3,7 @@ package creds
 import (
 	"errors"
 	"fmt"
+	"sync"
 
 	keyring "github.com/zalando/go-keyring"
 )
@@ -18,11 +19,46 @@ var (
 	GeminiKey              = "GEMINI_API_KEY"
 )
 
+// CredentialType identifies the type of credential
+type CredentialType string
+
+const (
+	SpotifyCredential CredentialType = "spotify"
+	TMDBCredential    CredentialType = "tmdb"
+	OpenAICredential  CredentialType = "openai"
+	GeminiCredential  CredentialType = "gemini"
+)
+
+// CredentialChangeListener is a function that will be called when a credential changes
+type CredentialChangeListener func(credType CredentialType, action string)
+
+var (
+	listeners []CredentialChangeListener
+	mu        sync.RWMutex
+)
+
+// RegisterChangeListener registers a function to be called when credentials change
+func RegisterChangeListener(listener CredentialChangeListener) {
+	mu.Lock()
+	defer mu.Unlock()
+	listeners = append(listeners, listener)
+}
+
+// notifyListeners notifies all registered listeners of a credential change
+func notifyListeners(credType CredentialType, action string) {
+	mu.RLock()
+	defer mu.RUnlock()
+	for _, listener := range listeners {
+		listener(credType, action)
+	}
+}
+
 // SaveSpotifyToken saves Spotify refresh token to the OS keychain.
 func SaveSpotifyToken(token string) error {
 	if err := keyring.Set(ServiceName, SpotifyRefreshTokenKey, token); err != nil {
 		return fmt.Errorf("failed to set Spotify refresh token: %w", err)
 	}
+	notifyListeners(SpotifyCredential, "save")
 	return nil
 }
 
@@ -42,6 +78,7 @@ func ClearSpotifyToken() error {
 		// Ignore 'not found' errors, but return others
 		return fmt.Errorf("failed to delete Spotify refresh token: %w", err)
 	}
+	notifyListeners(SpotifyCredential, "clear")
 	return nil
 }
 
@@ -50,6 +87,7 @@ func SaveOpenAIKey(apiKey string) error {
 	if err := keyring.Set(ServiceName, OpenAIKey, apiKey); err != nil {
 		return fmt.Errorf("failed to set OpenAI API key: %w", err)
 	}
+	notifyListeners(OpenAICredential, "save")
 	return nil
 }
 
@@ -69,6 +107,7 @@ func ClearOpenAIKey() error {
 		// Ignore 'not found' errors, but return others
 		return fmt.Errorf("failed to delete OpenAI API key: %w", err)
 	}
+	notifyListeners(OpenAICredential, "clear")
 	return nil
 }
 
@@ -77,6 +116,7 @@ func SaveGeminiKey(apiKey string) error {
 	if err := keyring.Set(ServiceName, GeminiKey, apiKey); err != nil {
 		return fmt.Errorf("failed to set Gemini API key: %w", err)
 	}
+	notifyListeners(GeminiCredential, "save")
 	return nil
 }
 
@@ -96,6 +136,7 @@ func ClearGeminiKey() error {
 		// Ignore 'not found' errors, but return others
 		return fmt.Errorf("failed to delete Gemini API key: %w", err)
 	}
+	notifyListeners(GeminiCredential, "clear")
 	return nil
 }
 
@@ -103,6 +144,7 @@ func SaveTMDBAccessToken(token string) error {
 	if err := keyring.Set(ServiceName, TMDBAccessToken, token); err != nil {
 		return fmt.Errorf("failed to set TMDB access token: %w", err)
 	}
+	notifyListeners(TMDBCredential, "save")
 	return nil
 }
 
@@ -120,5 +162,6 @@ func ClearTMDBAccessToken() error {
 		// Ignore 'not found' errors, but return others
 		return fmt.Errorf("failed to delete TMDB access token: %w", err)
 	}
+	notifyListeners(TMDBCredential, "clear")
 	return nil
 }

@@ -9,7 +9,6 @@ export namespace bindings {
 	    vote_average: number;
 	    vote_count: number;
 	    genres: string[];
-	    isSaved: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new MovieWithSavedStatus(source);
@@ -25,7 +24,6 @@ export namespace bindings {
 	        this.vote_average = source["vote_average"];
 	        this.vote_count = source["vote_count"];
 	        this.genres = source["genres"];
-	        this.isSaved = source["isSaved"];
 	    }
 	}
 

@@ -28,23 +28,25 @@ type Music struct {
 type Movie struct {
 	Director   string `json:"director"`
 	Writer     string `json:"writer"`
-	IMDBRating string `json:"imdb_rating"`
+	PosterPath string `json:"poster_path"`
 }
 
 type Book struct {
-	Author string `json:"author"`
+	Author    string `json:"author"`
+	CoverPath string `json:"cover_path"`
 }
 
 type TVShow struct {
 	Director   string `json:"director"`
 	Writer     string `json:"writer"`
-	IMDBRating string `json:"imdb_rating"`
+	PosterPath string `json:"poster_path"`
 }
 
 type VideoGame struct {
 	Developer string   `json:"developer"`
 	Publisher string   `json:"publisher"`
 	Platforms []string `json:"platforms"`
+	CoverPath string   `json:"cover_path"`
 }
 
 type Media interface {
@@ -68,8 +70,8 @@ type PrimeDirective struct {
 type Content[T Media] struct {
 	PrimeDirective  `json:"prime_directive"`
 	Suggestions     map[string]Suggestion[T] `json:"suggestions"`
-	UserConstraints []string                 `json:"user_constraints"` // Miscellaneous user-defined constraints that
-} // can help temper suggestions
+	UserConstraints []string                 `json:"user_constraints"` // Miscellaneous user-defined constraints that can help temper suggestions
+}
 
 func (c Content[T]) ToString() (string, error) {
 	str, err := json.Marshal(c)

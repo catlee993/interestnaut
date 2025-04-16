@@ -6,7 +6,10 @@ import { SuggestionDisplay } from "@/components/music/suggestions/SuggestionDisp
 import { NowPlayingBar } from "@/components/music/player/NowPlayingBar";
 import { LibrarySection } from "@/components/music/library/LibrarySection";
 import { MovieSection } from "@/components/movies/MovieSection";
-import { MusicSection, MusicSectionHandle } from "@/components/music/MusicSection";
+import {
+  MusicSection,
+  MusicSectionHandle,
+} from "@/components/music/MusicSection";
 import { useAuth } from "@/components/music/hooks/useAuth";
 import { useTracks } from "@/components/music/hooks/useTracks";
 import { usePlayer } from "@/components/music/player/PlayerContext";
@@ -57,8 +60,12 @@ declare module "@wailsjs/go/bindings/Music" {
 
 declare module "@wailsjs/go/bindings/Movies" {
   export function SearchMovies(query: string): Promise<MovieWithSavedStatus[]>;
-  export function SaveMovie(movieId: number): Promise<void>;
-  export function RemoveMovie(movieId: number): Promise<void>;
+  export function SetInitialMovies(movieId: number): Promise<void>;
+  export function GetInitialMovies(): Promise<Record<string, any>>;
+  export function HasValidCredentials(): Promise<boolean>;
+  export function RefreshCredentials(): Promise<boolean>;
+  export function GetMovieSuggestion(): Promise<{ movie: MovieWithSavedStatus; reason: string } | null>;
+  export function ProvideSuggestionFeedback(outcome: session.Outcome, movieId: number): Promise<void>;
 }
 
 // Add type declarations for models
@@ -139,18 +146,46 @@ function AppContent() {
   );
 
   const hasInitialized = useRef(false);
-  
+
   // Reference to the MusicSection component to access its methods
   const musicSectionRef = useRef<MusicSectionHandle>(null);
+  const movieSectionRef = useRef<any>(null);
 
-  // Handler to clear search results
-  const handleClearSearch = () => {
-    // If we have a reference to the music section, tell it to hide search results
-    if (musicSectionRef.current) {
-      musicSectionRef.current.handleClearSearch();
+  // Handler for music search
+  const handleMusicSearchFromHeader = (query: string) => {
+    console.log(`[App] Music search requested: "${query}"`);
+    if (currentMedia === "music") {
+      handleMusicSearch(query);
     }
-    // Also clear the search query
-    handleMusicSearch("");
+  };
+
+  // Handler for movie search
+  const handleMovieSearchFromHeader = (query: string) => {
+    console.log(`[App] Movie search requested: "${query}"`);
+    // Call the search method on MovieSection component via ref
+    if (currentMedia === "movies" && movieSectionRef.current) {
+      // If the MovieSection exposes the handleSearch method, call it
+      if (movieSectionRef.current.handleSearch) {
+        movieSectionRef.current.handleSearch(query);
+      }
+    }
+  };
+
+  // Handler to clear search results based on current media type
+  const handleClearSearch = () => {
+    if (currentMedia === "music") {
+      // Clear music search
+      if (musicSectionRef.current) {
+        musicSectionRef.current.handleClearSearch();
+      }
+      // Also clear the search query
+      handleMusicSearch("");
+    } else if (currentMedia === "movies") {
+      // Clear movie search
+      if (movieSectionRef.current && movieSectionRef.current.handleClearSearch) {
+        movieSectionRef.current.handleClearSearch();
+      }
+    }
   };
 
   // Add effect to reload tracks when auth state changes
@@ -203,8 +238,13 @@ function AppContent() {
             />
           ) : null
         }
-        onSearch={handleMusicSearch}
+        onSearch={
+          currentMedia === "music" 
+            ? handleMusicSearchFromHeader 
+            : handleMovieSearchFromHeader
+        }
         onClearSearch={handleClearSearch}
+        currentMedia={currentMedia}
       />
 
       <Container
@@ -234,7 +274,7 @@ function AppContent() {
             onPrevPage={handlePrevPage}
           />
         ) : (
-          <MovieSection />
+          <MovieSection ref={movieSectionRef} />
         )}
       </Container>
       {nowPlayingTrack && <NowPlayingBar />}

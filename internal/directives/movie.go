@@ -20,7 +20,6 @@ IMPORTANT RULES:
   "title": "Movie Name",
   "director": "Director's Name",
   "writer": "Writer's Name",
-  "imdb_rating": "IMDB rating of the movie",
   "primary_genre": "The primary genre of the movie",
   "reason": "Detailed explanation of why this movie matches their taste, referencing specific patterns in their library or likes/dislikes."
 }

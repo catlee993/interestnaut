@@ -78,6 +78,13 @@ export const MusicSection = forwardRef<MusicSectionHandle, MusicSectionProps>((
         searchResultsRef.current && 
         !searchResultsRef.current.contains(event.target as Node)
       ) {
+        // Check if the click is on the NowPlayingBar
+        const nowPlayingBar = document.querySelector('.now-playing-bar');
+        if (nowPlayingBar && nowPlayingBar.contains(event.target as Node)) {
+          // Don't close search results when clicking on the now playing bar
+          return;
+        }
+        
         setShowSearchResults(false);
       }
     };

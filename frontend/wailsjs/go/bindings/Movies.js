@@ -10,6 +10,22 @@ export function GetMovieDetails(arg1) {
   return window['go']['bindings']['Movies']['GetMovieDetails'](arg1);
 }
 
+export function GetMovieSuggestion() {
+  return window['go']['bindings']['Movies']['GetMovieSuggestion']();
+}
+
+export function HasValidCredentials() {
+  return window['go']['bindings']['Movies']['HasValidCredentials']();
+}
+
+export function ProvideSuggestionFeedback(arg1, arg2) {
+  return window['go']['bindings']['Movies']['ProvideSuggestionFeedback'](arg1, arg2);
+}
+
+export function RefreshCredentials() {
+  return window['go']['bindings']['Movies']['RefreshCredentials']();
+}
+
 export function SearchMovies(arg1) {
   return window['go']['bindings']['Movies']['SearchMovies'](arg1);
 }

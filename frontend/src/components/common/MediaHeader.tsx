@@ -40,11 +40,20 @@ interface MediaHeaderProps {
   additionalControl?: React.ReactNode | null;
   onSearch: (query: string) => void;
   onClearSearch?: () => void;
+  currentMedia?: MediaType;
 }
 
-export function MediaHeader({ additionalControl, onSearch, onClearSearch }: MediaHeaderProps) {
+export function MediaHeader({ 
+  additionalControl, 
+  onSearch, 
+  onClearSearch,
+  currentMedia: externalMedia 
+}: MediaHeaderProps) {
   const { currentMedia, setCurrentMedia } = useMedia();
   const [showSettingsDrawer, setShowSettingsDrawer] = useState(false);
+
+  // Use externally provided media type if available, otherwise use context
+  const activeMedia = externalMedia !== undefined ? externalMedia : currentMedia;
 
   const handleOpenSettings = () => {
     setShowSettingsDrawer(true);
@@ -60,7 +69,7 @@ export function MediaHeader({ additionalControl, onSearch, onClearSearch }: Medi
         <TopRow>
           <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
             <Tabs
-              value={currentMedia}
+              value={activeMedia}
               onChange={handleChange}
               textColor="inherit"
               sx={{
@@ -105,7 +114,7 @@ export function MediaHeader({ additionalControl, onSearch, onClearSearch }: Medi
         <Box sx={{ p: 2, width: "100%" }}>
           <SearchBar
             placeholder={
-              currentMedia === "music" ? "Search tracks..." : "Search movies..."
+              activeMedia === "music" ? "Search tracks..." : "Search movies..."
             }
             onSearch={onSearch}
             onClear={onClearSearch}

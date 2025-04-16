@@ -2,8 +2,10 @@ package tmdb
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"os"
+	"interestnaut/internal/creds"
+	"sync"
 
 	request "github.com/catlee993/go-request"
 )
@@ -15,10 +17,15 @@ const (
 	backdropSizeW780 = "w780"
 )
 
+// ErrNoCredentials is returned when TMDB credentials are not available
+var ErrNoCredentials = errors.New("TMDB credentials not available")
+
 type Client struct {
 	apiKey string
+	mu     sync.RWMutex
 }
 
+// Movie struct representing a movie from TMDB API
 type Movie struct {
 	ID          int     `json:"id"`
 	Title       string  `json:"title"`
@@ -42,20 +49,52 @@ type SearchResponse struct {
 	Results      []Movie `json:"results"`
 }
 
+// NewClient creates a new TMDB client
 func NewClient() *Client {
-	return &Client{
-		apiKey: os.Getenv("TMDB_API_KEY"),
+	c := &Client{}
+	// Initialize with current credentials
+	c.RefreshCredentials()
+	return c
+}
+
+// RefreshCredentials updates the client's API key with the latest credentials
+func (c *Client) RefreshCredentials() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	token, err := creds.GetTMDBAccessToken()
+	if err != nil || token == "" {
+		c.apiKey = ""
+		return false
 	}
+
+	c.apiKey = token
+	return true
+}
+
+// HasValidCredentials returns true if the client has valid credentials
+func (c *Client) HasValidCredentials() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.apiKey != ""
 }
 
 func (c *Client) SearchMovies(ctx context.Context, query string) (*SearchResponse, error) {
+	c.mu.RLock()
+	apiKey := c.apiKey
+	c.mu.RUnlock()
+
+	if apiKey == "" {
+		return nil, ErrNoCredentials
+	}
+
 	req, err := request.NewRequester(
 		request.WithScheme(request.HTTPS),
 		request.WithMethod(request.Get),
 		request.WithHost("api.themoviedb.org"),
 		request.WithPath("3", "search", "movie"),
 		request.WithQueryArgs(map[string][]string{
-			"api_key":       {c.apiKey},
+			"api_key":       {apiKey},
 			"query":         {query},
 			"include_adult": {"false"},
 		}),
@@ -74,13 +113,21 @@ func (c *Client) SearchMovies(ctx context.Context, query string) (*SearchRespons
 }
 
 func (c *Client) GetMovieDetails(ctx context.Context, movieID int) (*Movie, error) {
+	c.mu.RLock()
+	apiKey := c.apiKey
+	c.mu.RUnlock()
+
+	if apiKey == "" {
+		return nil, ErrNoCredentials
+	}
+
 	req, err := request.NewRequester(
 		request.WithScheme(request.HTTPS),
 		request.WithMethod(request.Get),
 		request.WithHost("api.themoviedb.org"),
 		request.WithPath("3", "movie", fmt.Sprintf("%d", movieID)),
 		request.WithQueryArgs(map[string][]string{
-			"api_key": {c.apiKey},
+			"api_key": {apiKey},
 		}),
 	)
 	if err != nil {

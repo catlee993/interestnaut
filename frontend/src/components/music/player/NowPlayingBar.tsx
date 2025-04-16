@@ -118,7 +118,7 @@ export function NowPlayingBar(): JSX.Element | null {
   };
 
   return (
-    <NowPlayingContainer>
+    <NowPlayingContainer className="now-playing-bar">
       <img
         src={info.albumArtUrl}
         alt={info.name}
