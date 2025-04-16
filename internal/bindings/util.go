@@ -10,11 +10,6 @@ func normalizeString(s string) string {
 	// Convert to lowercase
 	s = strings.ToLower(s)
 
-	// Remove common prefixes and suffixes
-	s = strings.TrimPrefix(s, "the ")
-	s = strings.TrimPrefix(s, "a ")
-	s = strings.TrimPrefix(s, "an ")
-
 	// Remove punctuation and special characters
 	var result strings.Builder
 	for _, r := range s {

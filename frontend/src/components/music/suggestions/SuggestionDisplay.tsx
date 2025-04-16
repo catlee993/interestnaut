@@ -19,6 +19,7 @@ import {
 } from "@mui/material";
 import { session } from "@wailsjs/go/models";
 import { ReasonCard } from "@/components/common/ReasonCard";
+import { useEffect } from "react";
 
 const StyledButton = styled(Button)(({ theme }) => ({
   padding: "10px 20px",
@@ -91,9 +92,19 @@ const PlayButton = styled(IconButton)(({ theme }) => ({
 }));
 
 export const SuggestionDisplay: React.FC = () => {
+  console.log('[SuggestionDisplay] Component rendering');
+  
+  const suggestionContext = useSuggestion();
+  console.log('[SuggestionDisplay] SuggestionContext:', {
+    hasSuggestedTrack: !!suggestionContext.suggestedTrack,
+    hasContext: !!suggestionContext.suggestionContext,
+    isLoading: suggestionContext.isFetchingSuggestion,
+    hasError: !!suggestionContext.suggestionError
+  });
+  
   const {
     suggestedTrack,
-    suggestionContext,
+    suggestionContext: trackReason,
     isProcessingLibrary,
     suggestionError,
     isFetchingSuggestion,
@@ -101,9 +112,26 @@ export const SuggestionDisplay: React.FC = () => {
     handleSkipSuggestion,
     handleSuggestionFeedback,
     handleAddToLibrary,
-  } = useSuggestion();
+  } = suggestionContext;
 
   const { nowPlayingTrack, isPlaybackPaused, handlePlay, handlePlayPause } = usePlayer();
+
+  useEffect(() => {
+    console.log('[SuggestionDisplay] Current track state:', {
+      suggestedTrack: suggestedTrack ? JSON.stringify(suggestedTrack) : null,
+      suggestionContext,
+      isLoading: isFetchingSuggestion,
+      hasError: !!suggestionError,
+      isProcessing: isProcessingLibrary
+    });
+  }, [suggestedTrack, suggestionContext, isFetchingSuggestion, suggestionError, isProcessingLibrary]);
+
+  // Log when the component will return nothing
+  useEffect(() => {
+    if (!suggestedTrack && !isFetchingSuggestion && !suggestionError) {
+      console.log('[SuggestionDisplay] No track, not loading, no error - will render empty state');
+    }
+  }, [suggestedTrack, isFetchingSuggestion, suggestionError]);
 
   if (isFetchingSuggestion) {
     return (
@@ -173,7 +201,7 @@ export const SuggestionDisplay: React.FC = () => {
             {suggestedTrack.name}
           </Typography>
           <Typography component="p">{suggestedTrack.artist}</Typography>
-          {suggestionContext && (
+          {trackReason && (
             <Box
               sx={{
                 maxWidth: "55%",
@@ -182,7 +210,7 @@ export const SuggestionDisplay: React.FC = () => {
                 mt: 2,
               }}
             >
-              <ReasonCard reason={suggestionContext} />
+              <ReasonCard reason={trackReason} />
             </Box>
           )}
         </Box>

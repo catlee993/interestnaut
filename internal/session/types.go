@@ -1,6 +1,9 @@
 package session
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 const DefaultUserID string = "default_user" // TODO: no plan to support multiple users yet, but will think about it later
 
@@ -21,40 +24,105 @@ const (
 )
 
 type Music struct {
+	Title  string `json:"title"`
 	Artist string `json:"artist"`
 	Album  string `json:"album"`
 }
 
 type Movie struct {
+	Title      string `json:"title"`
 	Director   string `json:"director"`
 	Writer     string `json:"writer"`
 	PosterPath string `json:"poster_path"`
 }
 
 type Book struct {
+	Title     string `json:"title"`
 	Author    string `json:"author"`
 	CoverPath string `json:"cover_path"`
 }
 
 type TVShow struct {
+	Title      string `json:"title"`
 	Director   string `json:"director"`
 	Writer     string `json:"writer"`
 	PosterPath string `json:"poster_path"`
 }
 
 type VideoGame struct {
+	Title     string   `json:"title"`
 	Developer string   `json:"developer"`
 	Publisher string   `json:"publisher"`
 	Platforms []string `json:"platforms"`
 	CoverPath string   `json:"cover_path"`
 }
 
+type EquatableMedia interface {
+	Equal(other any) bool
+	Key() string
+}
+
 type Media interface {
-	Music | Movie | Book | TVShow | VideoGame
+	EquatableMedia
+}
+
+func (m Music) Equal(other any) bool {
+	o, ok := other.(Music)
+	return ok && m.Title == o.Title &&
+		m.Artist == o.Artist &&
+		m.Album == o.Album
+}
+
+func (m Music) Key() string {
+	return sanitizeKey(fmt.Sprintf("%s_%s_%s", m.Title, m.Artist, m.Album))
+}
+
+func (m Movie) Equal(other any) bool {
+	o, ok := other.(Movie)
+	return ok && m.Title == o.Title &&
+		m.Director == o.Director &&
+		m.Writer == o.Writer
+}
+
+func (m Movie) Key() string {
+	return sanitizeKey(fmt.Sprintf("%s_%s_%s", m.Title, m.Director, m.Writer))
+}
+
+func (m Book) Equal(other any) bool {
+	o, ok := other.(Book)
+	return ok && m.Title == o.Title &&
+		m.Author == o.Author
+}
+
+func (m Book) Key() string {
+	return sanitizeKey(fmt.Sprintf("%s_%s", m.Title, m.Author))
+}
+
+func (m TVShow) Equal(other any) bool {
+	o, ok := other.(TVShow)
+	return ok && m.Title == o.Title &&
+		m.Director == o.Director &&
+		m.Writer == o.Writer
+}
+
+func (m TVShow) Key() string {
+	return sanitizeKey(fmt.Sprintf("%s_%s_%s", m.Title, m.Director, m.Writer))
+}
+
+func (m VideoGame) Equal(other any) bool {
+	o, ok := other.(VideoGame)
+
+	return ok && m.Title == o.Title &&
+		m.Developer == o.Developer &&
+		m.Publisher == o.Publisher &&
+		m.CoverPath == o.CoverPath
+}
+
+func (m VideoGame) Key() string {
+	return sanitizeKey(fmt.Sprintf("%s_%s_%s", m.Title, m.Developer, m.Publisher))
 }
 
 type Suggestion[T Media] struct {
-	Title        string  `json:"title"`
 	PrimaryGenre string  `json:"primary_genre"`
 	Reasoning    string  `json:"reasoning"`
 	UserOutcome  Outcome `json:"user_outcome"`
@@ -71,6 +139,7 @@ type Content[T Media] struct {
 	PrimeDirective  `json:"prime_directive"`
 	Suggestions     map[string]Suggestion[T] `json:"suggestions"`
 	UserConstraints []string                 `json:"user_constraints"` // Miscellaneous user-defined constraints that can help temper suggestions
+	Favorites       []T                      `json:"favorites"`        // User's favorite items (not required for Music)
 }
 
 func (c Content[T]) ToString() (string, error) {

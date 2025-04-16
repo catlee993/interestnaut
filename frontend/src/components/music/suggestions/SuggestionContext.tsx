@@ -14,6 +14,9 @@ import {
 } from "@wailsjs/go/bindings/Music";
 import { useSnackbar } from "notistack";
 import { usePlayer } from "@/components/music/player/PlayerContext";
+import { useSuggestionCache } from "@/components/common/useSuggestionCache";
+import { MediaSuggestionItem } from "@/components/common/MediaSuggestionDisplay";
+import { SuggestionCache } from "@/utils/suggestionCache";
 
 interface SuggestionContextType {
   suggestedTrack: spotify.SuggestedTrackInfo | null;
@@ -45,11 +48,77 @@ interface SuggestionState {
   isProcessing: boolean;
 }
 
+// Helper to convert Spotify track to MediaSuggestionItem format
+const mapTrackToMediaItem = (track: spotify.SuggestedTrackInfo): MediaSuggestionItem => {
+  if (!track) {
+    console.error('[SuggestionContext] Cannot map null track to MediaSuggestionItem');
+    return {
+      id: '',
+      title: '',
+      artist: '',
+      description: '',
+      imageUrl: '',
+    };
+  }
+  
+  console.log('[SuggestionContext] Converting Spotify track to MediaSuggestionItem:', track);
+  
+  const mediaItem: MediaSuggestionItem = {
+    id: track.id || '',
+    title: track.name || '',
+    artist: track.artist || '',
+    description: track.album || '',
+    imageUrl: track.albumArtUrl || '',
+  };
+  
+  console.log('[SuggestionContext] Converted to MediaSuggestionItem:', mediaItem);
+  return mediaItem;
+};
+
+// Helper to convert MediaSuggestionItem back to spotify.SuggestedTrackInfo
+const mapMediaItemToTrack = (item: MediaSuggestionItem): spotify.SuggestedTrackInfo => {
+  if (!item) {
+    console.error('[SuggestionContext] Cannot map null MediaSuggestionItem to Spotify track');
+    return {
+      id: '',
+      name: '',
+      artist: '',
+      album: '',
+      albumArtUrl: '',
+      reason: '',
+    };
+  }
+  
+  console.log('[SuggestionContext] Converting MediaSuggestionItem to Spotify track:', item);
+  
+  const track: spotify.SuggestedTrackInfo = {
+    id: String(item.id) || '',
+    name: item.title || '',
+    artist: item.artist || '',
+    album: item.description || '',
+    albumArtUrl: item.imageUrl || '',
+    reason: '', // Will be set from the cached reason
+  };
+  
+  console.log('[SuggestionContext] Converted to Spotify track:', track);
+  return track;
+};
+
 export function SuggestionProvider({
   children,
 }: SuggestionProviderProps): JSX.Element {
   const { enqueueSnackbar } = useSnackbar();
   const { stopPlayback, nowPlayingTrack } = usePlayer();
+  
+  // Use the suggestion cache hook for music media type
+  const { 
+    cachedItem,
+    cachedReason,
+    isValidating,
+    saveSuggestion,
+    clearSuggestion
+  } = useSuggestionCache("music");
+  
   const [suggestedTrack, setSuggestedTrack] =
     useState<spotify.SuggestedTrackInfo | null>(null);
   const [suggestionError, setSuggestionError] = useState<string | null>(null);
@@ -63,6 +132,53 @@ export function SuggestionProvider({
   const [isFetchingSuggestion, setIsFetchingSuggestion] = useState(false);
   const hasRequestedInitial = useRef(false);
   const isRequestInProgress = useRef(false);
+
+  // Set suggested track from cache when available
+  useEffect(() => {
+    console.log('[SuggestionCache] Checking cache:', { 
+      cachedItem: JSON.stringify(cachedItem), 
+      cachedReason
+    });
+    if (cachedItem && cachedReason && !suggestedTrack) {
+      console.log('[SuggestionCache] Restoring from cache:', { 
+        cachedItem: JSON.stringify(cachedItem),
+        cachedReason 
+      });
+      const track = mapMediaItemToTrack(cachedItem);
+      track.reason = cachedReason;
+      console.log('[SuggestionCache] Track after mapping:', JSON.stringify(track));
+      setSuggestedTrack(track);
+      setSuggestionContext(cachedReason);
+      console.log('[SuggestionCache] Restored track:', JSON.stringify(track));
+      
+      // Mark as having requested initial suggestion to prevent the other effect from triggering
+      hasRequestedInitial.current = true;
+    }
+  }, [cachedItem, cachedReason, suggestedTrack]);
+
+  // Check if suggestedTrack state was properly updated
+  useEffect(() => {
+    console.log('[SuggestionContext] Current suggestedTrack state:', 
+      suggestedTrack ? JSON.stringify(suggestedTrack) : 'null');
+  }, [suggestedTrack]);
+
+  // Only request an initial suggestion if we don't have one cached
+  // This needs to run AFTER the cache effect
+  useEffect(() => {
+    // Wait until we know if there's a cached item
+    if (!hasRequestedInitial.current && cachedItem !== null) {
+      hasRequestedInitial.current = true;
+      
+      // If there's cached data, use that; otherwise request new suggestion
+      if (cachedItem && cachedReason) {
+        console.log('[SuggestionContext] Using cached suggestion instead of requesting new one');
+        // We'll let the other useEffect handle setting the suggestion from cache
+      } else {
+        console.log('[SuggestionContext] No cached suggestion found, requesting new one');
+        handleRequestSuggestion();
+      }
+    }
+  }, [cachedItem, cachedReason]);
 
   const handleToast = (
     message: string,
@@ -90,9 +206,35 @@ export function SuggestionProvider({
       setSuggestionState(prev => ({ ...prev, isProcessing: true }));
       const suggestion = await RequestNewSuggestion();
       if (suggestion) {
+        console.log("[SuggestionContext] Received new suggestion:", JSON.stringify(suggestion));
         setSuggestedTrack(suggestion);
         setSuggestionContext(suggestion.reason || null);
         setSuggestionState(prev => ({ ...prev, outcome: session.Outcome.pending }));
+        
+        // Cache the suggestion only if it has all required data
+        if (suggestion && 
+            suggestion.reason && 
+            suggestion.id && 
+            suggestion.name && 
+            suggestion.artist) {
+          const mediaItem = mapTrackToMediaItem(suggestion);
+          console.log('[SuggestionCache] Saving to cache:', { 
+            mediaItem: JSON.stringify(mediaItem), 
+            reason: suggestion.reason 
+          });
+          saveSuggestion(mediaItem, suggestion.reason);
+          
+          // Verify the suggestion was cached properly
+          setTimeout(() => {
+            const cached = SuggestionCache.getItem("music");
+            console.log('[SuggestionCache] Verification of cached item after save:', {
+              cachedItem: cached.item ? JSON.stringify(cached.item) : null,
+              cachedReason: cached.reason
+            });
+          }, 100);
+        } else {
+          console.log('[SuggestionCache] Not caching suggestion - missing required data');
+        }
       }
     } catch (error: any) {
       console.error("Error requesting suggestion:", error);
@@ -111,6 +253,10 @@ export function SuggestionProvider({
         errorMessage = error.message;
       }
 
+      // Clear any cached suggestion on error
+      clearSuggestion();
+      console.log('[SuggestionCache] Cleared cache due to suggestion error');
+
       setSuggestionError(errorMessage);
       handleToast(errorMessage, "error");
     } finally {
@@ -120,19 +266,15 @@ export function SuggestionProvider({
     }
   };
 
-  useEffect(() => {
-    if (!hasRequestedInitial.current) {
-      hasRequestedInitial.current = true;
-      handleRequestSuggestion();
-    }
-  }, []);
-
   const handleSkipSuggestion = async () => {
     if (!suggestedTrack || suggestionState.isProcessing) return;
 
     try {
       setSuggestionState(prev => ({ ...prev, isProcessing: true }));
       setSuggestedTrack(null);
+      
+      // Clear the cached suggestion
+      clearSuggestion();
 
       // Only send skip feedback if the track hasn't been liked or added
       if (!suggestionState.hasLiked && !suggestionState.hasAdded) {
@@ -192,8 +334,14 @@ export function SuggestionProvider({
       if (feedbackType === "like") {
         setSuggestionState(prev => ({ ...prev, outcome: outcome, hasLiked: true }));
         handleToast("Like recorded", "success");
+        
+        // Keep the liked song in cache - we might want to see it again
       } else {
         setSuggestionState(prev => ({ ...prev, isProcessing: true }));
+        
+        // Clear the cached suggestion on dislike - we definitely don't want to see it again
+        console.log('[SuggestionCache] Clearing cache due to disliked suggestion');
+        clearSuggestion();
         
         // Important: Make sure we clear the current track before stopping playback
         const currentTrack = suggestedTrack;
@@ -248,16 +396,10 @@ export function SuggestionProvider({
     try {
       setSuggestionState(prev => ({ ...prev, isProcessing: true }));
 
-      // First save the track to Spotify library
+      // SaveTrack only takes a track ID
       await SaveTrack(suggestedTrack.id);
 
-      setSuggestionState({
-        outcome: session.Outcome.added,
-        hasLiked: true,
-        hasAdded: true,
-        isProcessing: false,
-      });
-
+      // After successfully saving, update feedback record
       await ProvideSuggestionFeedback(
         session.Outcome.added,
         suggestedTrack.name,
@@ -265,17 +407,29 @@ export function SuggestionProvider({
         suggestedTrack.album,
       );
 
-      handleToast("Added to library", "success");
+      setSuggestionState(prev => ({
+        ...prev,
+        outcome: session.Outcome.added,
+        hasAdded: true,
+      }));
 
-      // Reload the likes after adding to library
+      // Clear the cached suggestion after adding to library
+      // We don't need to see it again as a suggestion since it's now in the library
+      console.log('[SuggestionCache] Clearing cache after adding track to library');
+      clearSuggestion();
+
+      handleToast(
+        `Added "${suggestedTrack.name}" by ${suggestedTrack.artist} to your library`,
+        "success",
+      );
+
+      // Get a new recommendation after adding to library
+      const currentTrack = suggestedTrack;
+      setSuggestedTrack(null);
       await handleRequestSuggestion();
-
-      // Trigger a refresh of saved tracks
-      const event = new CustomEvent("refreshSavedTracks");
-      window.dispatchEvent(event);
     } catch (error: any) {
       console.error("Error adding to library:", error);
-      let errorMessage = "Failed to add to library";
+      let errorMessage = "Failed to add track to library";
       if (error?.error) {
         if (typeof error.error === "string") {
           errorMessage = error.error;
@@ -285,14 +439,12 @@ export function SuggestionProvider({
       } else if (error?.message) {
         errorMessage = error.message;
       }
-      setSuggestionState({
-        outcome: session.Outcome.pending,
-        hasLiked: false,
-        hasAdded: false,
-        isProcessing: false,
-      });
       setSuggestionError(errorMessage);
       handleToast(errorMessage, "error");
+      
+      // Don't clear the cache on error - the user might want to try again
+    } finally {
+      setSuggestionState(prev => ({ ...prev, isProcessing: false }));
     }
   };
 
@@ -304,7 +456,7 @@ export function SuggestionProvider({
     hasLikedCurrentSuggestion: suggestionState.hasLiked,
     hasAddedCurrentSuggestion: suggestionState.hasAdded,
     isProcessingLibrary: suggestionState.isProcessing,
-    isFetchingSuggestion,
+    isFetchingSuggestion: isFetchingSuggestion || isValidating,
     handleRequestSuggestion,
     handleSkipSuggestion,
     handleSuggestionFeedback,
@@ -321,7 +473,7 @@ export function SuggestionProvider({
         hasLikedCurrentSuggestion: suggestionState.hasLiked,
         hasAddedCurrentSuggestion: suggestionState.hasAdded,
         isProcessingLibrary: suggestionState.isProcessing,
-        isFetchingSuggestion,
+        isFetchingSuggestion: isFetchingSuggestion || isValidating,
         handleRequestSuggestion,
         handleSkipSuggestion,
         handleSuggestionFeedback,

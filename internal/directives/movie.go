@@ -32,14 +32,14 @@ Do not include any other text in your response, only the JSON object to be parse
 `
 
 // GetMovieBaseline generates a music baseline for the user based on their concatenated liked tracks
-func GetMovieBaseline(_ context.Context, initialList map[string]session.Movie) string {
+func GetMovieBaseline(_ context.Context, initialList []session.Movie) string {
 	var sb strings.Builder
 	sb.WriteString("Here is a list of the user's favorite movies. Use these to understand their movie taste and suggest new movies they might enjoy. They are in the form of Title - Director, separated by newlines \n\n")
 
 	// Create a more compact representation to save tokens
 	// Format: "Title - Director" one per line
-	for title, movie := range initialList {
-		sb.WriteString(fmt.Sprintf("%s - %s", title, movie.Director))
+	for _, m := range initialList {
+		sb.WriteString(fmt.Sprintf("%s - %s", m.Title, m.Director))
 		sb.WriteString("\n")
 	}
 

@@ -154,8 +154,20 @@ func formatSuggestion[T session.Media](suggestion session.Suggestion[T]) string 
 	switch media := any(suggestion.Content).(type) {
 	case session.Music:
 		return fmt.Sprintf("Suggested song:\nTitle: %s\nArtist: %s\nAlbum: %s\nUser Outcome: %s",
-			suggestion.Title, media.Artist, media.Album, suggestion.UserOutcome)
+			media.Title, media.Artist, media.Album, suggestion.UserOutcome)
+	case session.Movie:
+		return fmt.Sprintf("Suggested movie:\nTitle: %s\nDirector: %s\nWriter: %s\nUser Outcome: %s",
+			media.Title, media.Director, media.Writer, suggestion.UserOutcome)
+	case session.Book:
+		return fmt.Sprintf("Suggested book:\nTitle: %s\nAuthor: %s\nUser Outcome: %s",
+			media.Title, media.Author, suggestion.UserOutcome)
+	case session.TVShow:
+		return fmt.Sprintf("Suggested TV show:\nTitle: %s\nDirector: %s\nWriter: %s\nUser Outcome: %s",
+			media.Title, media.Director, media.Writer, suggestion.UserOutcome)
+	case session.VideoGame:
+		return fmt.Sprintf("Suggested video game:\nTitle: %s\nDeveloper: %s\nPublisher: %s\nUser Outcome: %s",
+			media.Title, media.Developer, media.Publisher, suggestion.UserOutcome)
 	default:
-		return fmt.Sprintf("Suggested item: %s\nReasoning: %s", suggestion.Title, suggestion.Reasoning)
+		return fmt.Sprintf("Reasoning: %s", suggestion.Reasoning)
 	}
 }

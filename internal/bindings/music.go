@@ -131,11 +131,11 @@ func (m *Music) RequestNewSuggestion() (*spotify.SuggestedTrackInfo, error) {
 	// Use the matched track's information for the session to ensure consistent key matching
 	// This is critical because the agent might suggest slightly off information
 	sessionSuggestion := session.Suggestion[session.Music]{
-		Title:        matchedTrack.Name,
 		PrimaryGenre: suggestion.PrimaryGenre,
 		UserOutcome:  session.Pending,
 		Reasoning:    suggestion.Reason,
 		Content: session.Music{
+			Title:  matchedTrack.Name,
 			Artist: matchedTrack.Artist,
 			Album:  matchedTrack.Album,
 		},
@@ -144,8 +144,6 @@ func (m *Music) RequestNewSuggestion() (*spotify.SuggestedTrackInfo, error) {
 		ctx,
 		sess,
 		sessionSuggestion,
-		session.EqualMusicSuggestions,
-		session.KeyerMusicSuggestion,
 	); sErr != nil {
 		log.Printf("ERROR: Failed to add suggestion: %v", sErr)
 		return nil, errors.Wrap(sErr, "failed to add suggestion")

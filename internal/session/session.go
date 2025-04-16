@@ -22,8 +22,12 @@ const (
 
 type Manager[T Media] interface {
 	GetOrCreateSession(ctx context.Context, key Key, directive, baseline func() string) *Session[T]
-	AddSuggestion(context.Context, *Session[T], Suggestion[T], Comparator[T], MapKeyer[T]) error
+	GetSession(ctx context.Context, key Key) (*Session[T], error)
+	AddSuggestion(context.Context, *Session[T], Suggestion[T]) error
 	UpdateSuggestionOutcome(ctx context.Context, session *Session[T], suggestionKey string, outcome Outcome) error
+	SetFavorites(context.Context, *Session[T], []T) error
+	GetFavorites(context.Context, *Session[T]) ([]T, error)
+	RemoveFavorite(context.Context, *Session[T], T) error
 	Key() Key
 }
 
@@ -159,21 +163,74 @@ func (m *manager[T]) GetOrCreateSession(ctx context.Context, key Key, directive,
 	return session
 }
 
+func (m *manager[T]) GetSession(_ context.Context, key Key) (*Session[T], error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	session, exists := m.sessions[key]
+	if !exists {
+		log.Printf("No session found for key %s", key)
+		return nil, fmt.Errorf("session not found")
+	}
+
+	return session, nil
+}
+
 func (m *manager[T]) AddSuggestion(
 	ctx context.Context,
 	session *Session[T],
 	suggestion Suggestion[T],
-	comparator Comparator[T],
-	keyer MapKeyer[T],
 ) error {
-	if m.hasSuggested(ctx, session, suggestion, comparator) {
+	if m.hasSuggested(ctx, session, suggestion) {
 		return fmt.Errorf("duplicate suggestion")
 	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	session.Suggestions[keyer(suggestion)] = suggestion
+	session.Suggestions[suggestion.Content.Key()] = suggestion
+
+	return m.saveSession(ctx, session)
+}
+
+func (m *manager[T]) SetFavorites(ctx context.Context, session *Session[T], favorites []T) error {
+	if session == nil {
+		return fmt.Errorf("session is nil")
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	session.Content.Favorites = favorites
+
+	return m.saveSession(ctx, session)
+}
+
+func (m *manager[T]) GetFavorites(ctx context.Context, session *Session[T]) ([]T, error) {
+	if session == nil {
+		return nil, fmt.Errorf("session is nil")
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	return session.Content.Favorites, nil
+}
+
+func (m *manager[T]) RemoveFavorite(ctx context.Context, session *Session[T], favorite T) error {
+	if session == nil {
+		return fmt.Errorf("session is nil")
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for i, f := range session.Content.Favorites {
+		if favorite.Equal(f) {
+			session.Content.Favorites = append(session.Content.Favorites[:i], session.Content.Favorites[i+1:]...)
+			break
+		}
+	}
 
 	return m.saveSession(ctx, session)
 }
@@ -306,7 +363,6 @@ func (m *manager[T]) hasSuggested(
 	_ context.Context,
 	session *Session[T],
 	candidate Suggestion[T],
-	comparator func(Suggestion[T], Suggestion[T]) bool,
 ) bool {
 	if session == nil {
 		return false
@@ -316,7 +372,7 @@ func (m *manager[T]) hasSuggested(
 	defer m.mu.RUnlock()
 
 	for _, s := range session.Suggestions {
-		if comparator(s, candidate) {
+		if s.Content.Equal(candidate.Content) {
 			return true
 		}
 	}

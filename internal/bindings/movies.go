@@ -13,18 +13,15 @@ import (
 	"time"
 )
 
-// Movie represents a movie with its metadata for the initial list
-type Movie struct {
-	Title    string `json:"title"`
-	Director string `json:"director"`
-	Writer   string `json:"writer"`
-}
+// Removed local Movie type definition; using session.Movie instead.
 
 // MovieWithSavedStatus represents a movie with its saved status
 type MovieWithSavedStatus struct {
 	ID          int      `json:"id"`
 	Title       string   `json:"title"`
 	Overview    string   `json:"overview"`
+	Director    string   `json:"director"`
+	Writer      string   `json:"writer"`
 	PosterPath  string   `json:"poster_path"`
 	ReleaseDate string   `json:"release_date"`
 	VoteAverage float64  `json:"vote_average"`
@@ -37,7 +34,6 @@ type Movies struct {
 	llmClient              llm.Client[session.Movie]
 	manager                session.Manager[session.Movie]
 	baselineFunc, taskFunc func() string
-	initialList            map[string]Movie
 	lastCredCheck          time.Time
 }
 
@@ -50,48 +46,59 @@ func NewMovieBinder(ctx context.Context, cm session.CentralManager) (*Movies, er
 	}
 
 	m := &Movies{
-		tmdbClient:  client,
-		llmClient:   llmClient,
-		manager:     cm.Movie(),
-		initialList: make(map[string]Movie),
+		tmdbClient: client,
+		llmClient:  llmClient,
+		manager:    cm.Movie(),
 	}
 
-	m.baselineFunc = func() string {
-		// Convert Movie to session.Movie
-		sessionMovies := make(map[string]session.Movie)
-		for title, movie := range m.initialList {
-			sessionMovies[title] = session.Movie{
-				Director: movie.Director,
-				Writer:   movie.Writer,
-			}
-		}
-		return directives.GetMovieBaseline(ctx, sessionMovies)
-	}
 	m.taskFunc = func() string {
 		return directives.MovieDirective
 	}
 
+	m.baselineFunc = func() string {
+		sess, err := cm.Movie().GetSession(ctx, m.manager.Key())
+		if err != nil {
+			log.Printf("ERROR: Failed to get session: %v", err)
+			return ""
+		}
+
+		return directives.GetMovieBaseline(ctx, sess.Favorites)
+	}
+
+	_ = m.manager.GetOrCreateSession(ctx, m.manager.Key(), m.taskFunc, m.baselineFunc) // ensure session is created
+
 	return m, nil
 }
 
-// SetInitialMovies allows the user to set their initial list of favorite movies
+// SetFavoriteMovies allows the user to set their initial list of favorite movies
 // This should be called before starting recommendations
-func (m *Movies) SetInitialMovies(movies map[string]Movie) error {
-	if len(movies) == 0 {
-		return fmt.Errorf("initial movie list cannot be empty")
+func (m *Movies) SetFavoriteMovies(movies []session.Movie) error {
+	ctx := context.Background()
+	sess := m.manager.GetOrCreateSession(ctx, m.manager.Key(), m.taskFunc, m.baselineFunc)
+	if err := m.manager.SetFavorites(ctx, sess, movies); err != nil {
+		return fmt.Errorf("failed to set favorite movies: %w", err)
 	}
-	m.initialList = movies
 
-	// Create a new session with the initial list
-	_ = m.manager.GetOrCreateSession(context.Background(), m.manager.Key(), m.taskFunc, m.baselineFunc)
 	log.Printf("Created new session with %d initial movies", len(movies))
 
 	return nil
 }
 
-// GetInitialMovies returns the current list of initial movies
-func (m *Movies) GetInitialMovies() map[string]Movie {
-	return m.initialList
+// GetFavoriteMovies returns the current list of initial movies
+func (m *Movies) GetFavoriteMovies() ([]session.Movie, error) {
+	sess := m.manager.GetOrCreateSession(context.Background(), m.manager.Key(), m.taskFunc, m.baselineFunc)
+	favorites, err := m.manager.GetFavorites(context.Background(), sess)
+	if err != nil {
+		log.Printf("ERROR: Failed to get favorite movies: %v", err)
+		return []session.Movie{}, err // Return empty slice instead of nil
+	}
+
+	// If no favorites, return empty slice instead of nil
+	if favorites == nil {
+		return []session.Movie{}, nil
+	}
+
+	return favorites, nil
 }
 
 // ensureCredentialsChecked checks if credentials need to be refreshed
@@ -191,6 +198,7 @@ func (m *Movies) GetMovieDetails(movieID int) (*MovieWithSavedStatus, error) {
 
 // GetMovieSuggestion gets a movie suggestion from the LLM
 func (m *Movies) GetMovieSuggestion() (map[string]interface{}, error) {
+	ctx := context.Background()
 	m.ensureCredentialsChecked()
 
 	if !m.tmdbClient.HasValidCredentials() {
@@ -198,17 +206,17 @@ func (m *Movies) GetMovieSuggestion() (map[string]interface{}, error) {
 	}
 
 	// Get or create a session
-	sess := m.manager.GetOrCreateSession(context.Background(), m.manager.Key(), m.taskFunc, m.baselineFunc)
+	sess := m.manager.GetOrCreateSession(ctx, m.manager.Key(), m.taskFunc, m.baselineFunc)
 
 	// Compose messages from the session content
-	messages, err := m.llmClient.ComposeMessages(context.Background(), &sess.Content)
+	messages, err := m.llmClient.ComposeMessages(ctx, &sess.Content)
 	if err != nil {
 		log.Printf("ERROR: Failed to compose messages for movie suggestion: %v", err)
 		return nil, fmt.Errorf("failed to compose messages for movie suggestion: %w", err)
 	}
 
 	// Request a suggestion from the LLM
-	suggestion, err := m.llmClient.SendMessages(context.Background(), messages...)
+	suggestion, err := m.llmClient.SendMessages(ctx, messages...)
 	if err != nil {
 		log.Printf("ERROR: Failed to get movie suggestion: %v", err)
 		return nil, fmt.Errorf("failed to get movie suggestion: %w", err)
@@ -220,7 +228,7 @@ func (m *Movies) GetMovieSuggestion() (map[string]interface{}, error) {
 
 	// Try to find more details about the suggested movie from TMDB
 	query := suggestion.Title
-	resp, err := m.tmdbClient.SearchMovies(context.Background(), query)
+	resp, err := m.tmdbClient.SearchMovies(ctx, query)
 	if err != nil {
 		log.Printf("WARNING: Failed to search for suggested movie '%s': %v", query, err)
 		// Continue anyway, we'll use the basic suggestion data
@@ -285,13 +293,21 @@ func (m *Movies) GetMovieSuggestion() (map[string]interface{}, error) {
 		}
 	}
 
-	// Add the suggestion to the session
-	// TODO: We should be using AddSuggestion here, but for now we'll just
-	// update the outcome status directly to keep track of pending suggestions.
-	key := fmt.Sprintf("%s_%s_%s", movie.Title, suggestion.Content.Director, suggestion.Content.Writer)
-	if err := m.manager.UpdateSuggestionOutcome(context.Background(), sess, key, session.Pending); err != nil {
-		log.Printf("WARNING: Failed to update suggestion outcome: %v", err)
-		// Continue anyway, we don't want to fail the request
+	sessionSuggestion := session.Suggestion[session.Movie]{
+		PrimaryGenre: suggestion.PrimaryGenre,
+		UserOutcome:  session.Pending,
+		Reasoning:    suggestion.Reason,
+		Content: session.Movie{
+			Title:      movie.Title,
+			Director:   movie.Director,
+			Writer:     movie.Writer,
+			PosterPath: movie.PosterPath,
+		},
+	}
+
+	if sErr := m.manager.AddSuggestion(ctx, sess, sessionSuggestion); sErr != nil {
+		log.Printf("ERROR: Failed to add suggestion: %v", sErr)
+		return nil, fmt.Errorf("failed to add suggestion: %w", sErr)
 	}
 
 	// Return a map that can be easily serialized to JSON
@@ -344,18 +360,50 @@ func (m *Movies) ProvideSuggestionFeedback(outcome session.Outcome, movieID int)
 	// Use the movie title as the key for updating the suggestion outcome
 	key := movie.Title
 
-	// Record the outcome
+	// Try to record the outcome, but don't fail if the suggestion isn't found
 	err = m.manager.UpdateSuggestionOutcome(context.Background(), sess, key, outcome)
 	if err != nil {
-		return fmt.Errorf("failed to record outcome: %w", err)
+		log.Printf("WARNING: Failed to record outcome for movie '%s': %v", key, err)
+		// Continue anyway - we can still add to favorites if needed
 	}
 
-	// If the user liked the movie, add it to their library
-	if outcome == session.Liked {
-		m.initialList[movie.Title] = Movie{
-			Title:    movie.Title,
-			Director: "",
-			Writer:   "",
+	// If the user liked the movie, add it to their favorites
+	if outcome == session.Liked || outcome == session.Added {
+		// Convert to session.Movie using proper field names to match JSON tags
+		favoriteMovie := session.Movie{
+			Title:      movie.Title,      // maps to "title" in JSON
+			Director:   movie.Director,   // maps to "director" in JSON
+			Writer:     movie.Writer,     // maps to "writer" in JSON
+			PosterPath: movie.PosterPath, // maps to "poster_path" in JSON
+		}
+
+		// Get current favorites
+		favorites, err := m.manager.GetFavorites(context.Background(), sess)
+		if err != nil {
+			return fmt.Errorf("failed to get favorites: %w", err)
+		}
+
+		// If favorites is nil, initialize it
+		if favorites == nil {
+			favorites = []session.Movie{}
+		}
+
+		// Check if the movie already exists in favorites to avoid duplicates
+		alreadyExists := false
+		for _, fav := range favorites {
+			if fav.Title == favoriteMovie.Title {
+				alreadyExists = true
+				break
+			}
+		}
+
+		// Only add if not already in favorites
+		if !alreadyExists {
+			favorites = append(favorites, favoriteMovie)
+			if err := m.manager.SetFavorites(context.Background(), sess, favorites); err != nil {
+				return fmt.Errorf("failed to update favorites: %w", err)
+			}
+			log.Printf("Added movie '%s' to favorites", movie.Title)
 		}
 	}
 

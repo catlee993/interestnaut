@@ -19,8 +19,8 @@ import {
 import { MovieCard } from "@/components/movies/MovieCard";
 import {
   SearchMovies,
-  SetInitialMovies,
-  GetInitialMovies,
+  SetFavoriteMovies,
+  GetFavoriteMovies,
   HasValidCredentials,
   RefreshCredentials,
   GetMovieSuggestion,
@@ -87,11 +87,28 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
 
     if (cachedMovie && cachedReason) {
       try {
-        setSuggestedMovie(JSON.parse(cachedMovie));
+        const parsedMovie = JSON.parse(cachedMovie);
+        setSuggestedMovie(parsedMovie);
         setSuggestionReason(cachedReason);
+        
+        // Verify the cached suggestion is still valid by checking movie details
+        // This helps ensure we're not showing a suggestion that's no longer in the server's session
+        if (parsedMovie && parsedMovie.id) {
+          GetMovieDetails(parsedMovie.id)
+            .catch(error => {
+              console.log("Cached suggestion is no longer valid, getting a new one");
+              // Clear localStorage
+              localStorage.removeItem(CACHED_MOVIE_SUGGESTION_KEY);
+              localStorage.removeItem(CACHED_MOVIE_REASON_KEY);
+              // Get a new suggestion
+              handleGetSuggestion();
+            });
+        }
       } catch (e) {
         console.error("Failed to parse cached suggestion:", e);
         // If parsing fails, get a new suggestion
+        localStorage.removeItem(CACHED_MOVIE_SUGGESTION_KEY);
+        localStorage.removeItem(CACHED_MOVIE_REASON_KEY);
         handleGetSuggestion();
       }
     } else {
@@ -174,8 +191,11 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
   const loadSavedMovies = async () => {
     try {
       // Get the current list of saved movies
-      const savedMoviesList = await GetInitialMovies();
+      const favoriteMovies = await GetFavoriteMovies();
 
+      // If favoriteMovies is null or undefined, treat it as an empty array
+      const movies = favoriteMovies || [];
+      
       // Create an array to store loaded movie data
       const moviesWithDetails: MovieWithSavedStatus[] = [];
 
@@ -184,15 +204,15 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
       const MAX_API_CALLS = 5; // Limit to 5 API calls per load
 
       // For each saved movie, check if we already have poster path
-      for (const [title, movie] of Object.entries(savedMoviesList)) {
+      for (const movie of movies) {
         // Check if we have the poster path stored
-        if (movie.PosterPath) {
+        if (movie.poster_path) {
           // Create a movie object with the stored poster
           moviesWithDetails.push({
             id: 0,
-            title: movie.Title || title,
+            title: movie.title || "",
             overview: "",
-            poster_path: movie.PosterPath,
+            poster_path: movie.poster_path,
             release_date: "",
             vote_average: 0,
             vote_count: 0,
@@ -205,7 +225,7 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
             if (apiCallCount >= MAX_API_CALLS) {
               moviesWithDetails.push({
                 id: 0,
-                title,
+                title: movie.title || "",
                 overview: "",
                 poster_path: "",
                 release_date: "",
@@ -218,7 +238,7 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
             }
 
             // Search for the movie by title to get its TMDB ID
-            const searchResults = await SearchMovies(title);
+            const searchResults = await SearchMovies(movie.title || "");
             apiCallCount++;
 
             // If we found a matching movie in search results
@@ -235,7 +255,7 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
               // If no match found, create a basic entry without poster
               moviesWithDetails.push({
                 id: 0,
-                title,
+                title: movie.title || "",
                 overview: "",
                 poster_path: "",
                 release_date: "",
@@ -247,13 +267,13 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
             }
           } catch (error) {
             console.error(
-              `Failed to fetch details for movie "${title}":`,
+              `Failed to fetch details for movie "${movie.title}":`,
               error,
             );
             // Add a basic entry for this movie
             moviesWithDetails.push({
               id: 0,
-              title,
+              title: movie.title || "",
               overview: "",
               poster_path: "",
               release_date: "",
@@ -269,12 +289,9 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
       setSavedMovies(moviesWithDetails);
 
       // If we hit the API call limit, show a message to the user
-      if (
-        apiCallCount >= MAX_API_CALLS &&
-        Object.keys(savedMoviesList).length > MAX_API_CALLS
-      ) {
+      if (apiCallCount >= MAX_API_CALLS && movies.length > MAX_API_CALLS) {
         enqueueSnackbar(
-          `Loaded ${MAX_API_CALLS} movie details, ${Object.keys(savedMoviesList).length - MAX_API_CALLS} movies shown with limited details`,
+          `Loaded ${MAX_API_CALLS} movie details, ${movies.length - MAX_API_CALLS} movies shown with limited details`,
           {
             variant: "info",
           },
@@ -334,34 +351,39 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
   const handleSave = async (movie: MovieWithSavedStatus) => {
     try {
       // Get the current list of saved movies
-      const currentMovies = await GetInitialMovies();
+      const favoriteMovies = await GetFavoriteMovies();
+      
+      // If favoriteMovies is null or undefined, treat it as an empty array
+      const movies = favoriteMovies || [];
 
       if (movie.isSaved) {
-        // Remove from saved movies
-        const { [movie.title]: removed, ...updatedMovies } = currentMovies;
+        // Remove from saved movies by filtering out the movie with the matching title
+        const updatedFavorites = movies.filter(
+          (fav) => fav.title !== movie.title
+        );
 
         // Update the backend with the modified list
-        await SetInitialMovies(updatedMovies);
+        await SetFavoriteMovies(updatedFavorites);
 
         // Update local state
-        setSavedMovies((prev) => prev.filter((m) => m.id !== movie.id));
+        setSavedMovies((prev) => prev.filter((m) => m.title !== movie.title));
         enqueueSnackbar(`Removed "${movie.title}" from favorites`, {
           variant: "success",
         });
       } else {
         // Add to saved movies with poster path
-        const updatedMovies = {
-          ...currentMovies,
-          [movie.title]: {
-            Title: movie.title,
-            Director: "", // We don't have this info from TMDB
-            Writer: "", // We don't have this info from TMDB
-            PosterPath: movie.poster_path || "",
-          },
+        const newFavorite: session.Movie = {
+          title: movie.title,
+          director: "", // We don't have this info from TMDB
+          writer: "", // We don't have this info from TMDB
+          poster_path: movie.poster_path || ""
         };
+        
+        // Add to the existing favorites
+        const updatedFavorites = [...movies, newFavorite];
 
         // Update the backend with the modified list
-        await SetInitialMovies(updatedMovies);
+        await SetFavoriteMovies(updatedFavorites);
 
         // Update local state
         setSavedMovies((prev) => [...prev, { ...movie, isSaved: true }]);
@@ -454,10 +476,19 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
         // Clear current suggestion
         setSuggestedMovie(null);
         setSuggestionReason(null);
+        
+        // Clear localStorage cache
+        localStorage.removeItem(CACHED_MOVIE_SUGGESTION_KEY);
+        localStorage.removeItem(CACHED_MOVIE_REASON_KEY);
       } else {
         // Get next suggestion immediately for dislike/skip
         setSuggestedMovie(null);
         setSuggestionReason(null);
+        
+        // Clear localStorage cache
+        localStorage.removeItem(CACHED_MOVIE_SUGGESTION_KEY);
+        localStorage.removeItem(CACHED_MOVIE_REASON_KEY);
+        
         // Short delay for UI feedback
         setTimeout(() => {
           handleGetSuggestion();
@@ -466,6 +497,17 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
     } catch (error) {
       console.error("Failed to provide feedback:", error);
       enqueueSnackbar("Failed to record your feedback", { variant: "error" });
+      
+      // Clear localStorage cache on error to prevent future issues
+      localStorage.removeItem(CACHED_MOVIE_SUGGESTION_KEY);
+      localStorage.removeItem(CACHED_MOVIE_REASON_KEY);
+      
+      // Get a new suggestion after a short delay
+      setTimeout(() => {
+        setSuggestedMovie(null);
+        setSuggestionReason(null);
+        handleGetSuggestion();
+      }, 1000);
     } finally {
       setIsProcessingFeedback(false);
     }
@@ -572,11 +614,27 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
       setTimeout(() => {
         setSuggestedMovie(null);
         setSuggestionReason(null);
+        
+        // Clear localStorage cache
+        localStorage.removeItem(CACHED_MOVIE_SUGGESTION_KEY);
+        localStorage.removeItem(CACHED_MOVIE_REASON_KEY);
+        
         handleGetSuggestion();
       }, 1500);
     } catch (error) {
       console.error("Failed to add movie to favorites:", error);
       enqueueSnackbar("Failed to add movie to favorites", { variant: "error" });
+      
+      // Clear localStorage cache on error
+      localStorage.removeItem(CACHED_MOVIE_SUGGESTION_KEY);
+      localStorage.removeItem(CACHED_MOVIE_REASON_KEY);
+      
+      // Get a new suggestion
+      setTimeout(() => {
+        setSuggestedMovie(null);
+        setSuggestionReason(null);
+        handleGetSuggestion();
+      }, 1000);
     } finally {
       setIsProcessingFeedback(false);
     }

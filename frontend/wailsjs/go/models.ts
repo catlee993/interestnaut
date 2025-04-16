@@ -4,6 +4,8 @@ export namespace bindings {
 	    id: number;
 	    title: string;
 	    overview: string;
+	    director: string;
+	    writer: string;
 	    poster_path: string;
 	    release_date: string;
 	    vote_average: number;
@@ -19,6 +21,8 @@ export namespace bindings {
 	        this.id = source["id"];
 	        this.title = source["title"];
 	        this.overview = source["overview"];
+	        this.director = source["director"];
+	        this.writer = source["writer"];
 	        this.poster_path = source["poster_path"];
 	        this.release_date = source["release_date"];
 	        this.vote_average = source["vote_average"];
@@ -37,6 +41,24 @@ export namespace session {
 	    skipped = "skipped",
 	    added = "added",
 	    pending = "pending",
+	}
+	export class Movie {
+	    title: string;
+	    director: string;
+	    writer: string;
+	    poster_path: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Movie(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.title = source["title"];
+	        this.director = source["director"];
+	        this.writer = source["writer"];
+	        this.poster_path = source["poster_path"];
+	    }
 	}
 
 }

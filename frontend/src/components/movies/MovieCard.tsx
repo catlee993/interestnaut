@@ -50,14 +50,6 @@ const Overlay = styled(Box)(({ theme }) => ({
   height: "120px", // Fixed height
 }));
 
-const Controls = styled(Box)<ControlsProps>(({ theme }) => ({
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  width: "100%",
-  marginTop: theme.spacing(1),
-}));
-
 // Helper component for Controls
 const FavoriteControls = ({ isFavorited, onToggleFavorite }: ControlsProps) => (
   <IconButton onClick={onToggleFavorite} size="small" sx={{ color: "white" }}>
