@@ -29,3 +29,15 @@ func (a *Auth) SaveTMBDAccessToken(token string) error {
 func (a *Auth) ClearTMBDAccessToken() error {
 	return creds.ClearTMDBAccessToken()
 }
+
+func (a *Auth) GetGeminiToken() (string, error) {
+	return creds.GetGeminiKey()
+}
+
+func (a *Auth) SaveGeminiToken(token string) error {
+	return creds.SaveGeminiKey(token)
+}
+
+func (a *Auth) ClearGeminiToken() error {
+	return creds.ClearGeminiKey()
+}

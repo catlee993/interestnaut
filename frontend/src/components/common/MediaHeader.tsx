@@ -11,7 +11,7 @@ import { useMedia, MediaType } from "@/contexts/MediaContext";
 import { FaCog } from "react-icons/fa";
 import { useState } from "react";
 import { SettingsDrawer } from "./SettingsDrawer";
-import { SearchBar } from "../common/SearchBar";
+import { SearchBar } from "./SearchBar";
 
 const StyledAppBar = styled(AppBar)(({ theme }) => ({
   background: "rgba(18, 18, 18, 0.95)",
@@ -39,9 +39,10 @@ const TopRow = styled(Box)({
 interface MediaHeaderProps {
   additionalControl?: React.ReactNode | null;
   onSearch: (query: string) => void;
+  onClearSearch?: () => void;
 }
 
-export function MediaHeader({ additionalControl, onSearch }: MediaHeaderProps) {
+export function MediaHeader({ additionalControl, onSearch, onClearSearch }: MediaHeaderProps) {
   const { currentMedia, setCurrentMedia } = useMedia();
   const [showSettingsDrawer, setShowSettingsDrawer] = useState(false);
 
@@ -107,6 +108,7 @@ export function MediaHeader({ additionalControl, onSearch }: MediaHeaderProps) {
               currentMedia === "music" ? "Search tracks..." : "Search movies..."
             }
             onSearch={onSearch}
+            onClear={onClearSearch}
           />
         </Box>
       </StyledToolbar>
@@ -117,4 +119,4 @@ export function MediaHeader({ additionalControl, onSearch }: MediaHeaderProps) {
       />
     </StyledAppBar>
   );
-} 
+}

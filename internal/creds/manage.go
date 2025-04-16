@@ -15,6 +15,7 @@ var (
 	SpotifyRefreshTokenKey = "SPOTIFY_REFRESH_TOKEN"
 	TMDBAccessToken        = "TMDB_ACCESS_TOKEN"
 	OpenAIKey              = "OPEN_API_KEY"
+	GeminiKey              = "GEMINI_API_KEY"
 )
 
 // SaveSpotifyToken saves Spotify refresh token to the OS keychain.
@@ -67,6 +68,33 @@ func ClearOpenAIKey() error {
 	if err != nil && !errors.Is(err, keyring.ErrNotFound) {
 		// Ignore 'not found' errors, but return others
 		return fmt.Errorf("failed to delete OpenAI API key: %w", err)
+	}
+	return nil
+}
+
+// SaveGeminiKey saves the Gemini API key to the OS keychain.
+func SaveGeminiKey(apiKey string) error {
+	if err := keyring.Set(ServiceName, GeminiKey, apiKey); err != nil {
+		return fmt.Errorf("failed to set Gemini API key: %w", err)
+	}
+	return nil
+}
+
+// GetGeminiKey retrieves the Gemini API key from the OS keychain.
+func GetGeminiKey() (string, error) {
+	apiKey, err := keyring.Get(ServiceName, GeminiKey)
+	if err != nil {
+		return "", fmt.Errorf("failed to get Gemini API key: %w", err)
+	}
+	return apiKey, nil
+}
+
+// ClearGeminiKey removes the Gemini API key from the OS keychain.
+func ClearGeminiKey() error {
+	err := keyring.Delete(ServiceName, GeminiKey)
+	if err != nil && !errors.Is(err, keyring.ErrNotFound) {
+		// Ignore 'not found' errors, but return others
+		return fmt.Errorf("failed to delete Gemini API key: %w", err)
 	}
 	return nil
 }

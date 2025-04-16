@@ -106,19 +106,35 @@ header {
 }
 
 :root {
-  --primary-color: #1DB954;
-  --primary-hover: #1ed760;
+  /* Spotify green for Spotify-specific elements */
+  --spotify-green: #1DB954;
+  --spotify-green-hover: #1ed760;
+  
+  /* Primary purple theme for the app */
+  --primary-color: #7B68EE; /* Medium slate blue */
+  --primary-hover: #9370DB; /* Medium purple */
+  
+  /* Background and surface colors */
   --background-color: #121212;
   --surface-color: #282828;
   --surface-hover: #383838;
+  
+  /* Text colors */
   --text-primary: #FFFFFF;
   --text-secondary: #B3B3B3;
+  
+  /* Accent colors */
   --error-color: #ff4444;
+  --accent-color: #A855F7; /* Lighter purple for accents */
+  
+  /* Spacing */
   --spacing-xs: 4px;
   --spacing-sm: 8px;
   --spacing-md: 16px;
   --spacing-lg: 24px;
   --spacing-xl: 32px;
+  
+  /* Other */
   --border-radius: 8px;
   --transition: all 0.2s ease-in-out;
   --header-height: 64px;
@@ -230,7 +246,7 @@ button {
 }
 
 .play-button {
-  background-color: var(--primary-color);
+  background-color: var(--spotify-green);
   color: var(--text-primary);
   padding: var(--spacing-sm);
   width: 36px;
@@ -241,11 +257,11 @@ button {
 
 .play-button:hover {
   transform: scale(1.05);
-  background-color: var(--primary-hover);
+  background-color: var(--spotify-green-hover);
 }
 
 .play-button.playing {
-  background-color: var(--primary-hover);
+  background-color: var(--spotify-green-hover);
 }
 
 .save-button {
@@ -490,7 +506,7 @@ button {
 }
 
 .suggestion-button {
-  background-color: #1DB954;
+  background-color: var(--primary-color);
   color: white;
   border: none;
   border-radius: 20px;
@@ -501,7 +517,7 @@ button {
 }
 
 .suggestion-button:hover {
-  background-color: #1ed760;
+  background-color: var(--primary-hover);
 }
 
 .suggestion-button:disabled {
@@ -520,7 +536,7 @@ button {
 
 .suggestion-player h3 {
   margin-top: 0;
-  color: #1DB954;
+  color: var(--primary-color);
 }
 
 .feedback-buttons {
@@ -541,8 +557,8 @@ button {
 }
 
 .like-button:hover {
-  background-color: #1DB954;
-  border-color: #1DB954;
+  background-color: var(--primary-color);
+  border-color: var(--primary-color);
 }
 
 .dislike-button:hover {

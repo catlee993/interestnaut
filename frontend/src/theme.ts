@@ -3,10 +3,10 @@ import { createTheme } from '@mui/material/styles';
 export const theme = createTheme({
   palette: {
     primary: {
-      main: '#1DB954', // Spotify green
+      main: '#7B68EE', // Medium slate blue as primary
     },
     secondary: {
-      main: '#191414', // Spotify black
+      main: '#A855F7', // Lighter purple as secondary
     },
     error: {
       main: '#ff4444',
@@ -71,6 +71,13 @@ export const theme = createTheme({
         root: {
           backgroundColor: '#282828',
           color: '#ffffff',
+        },
+      },
+    },
+    MuiTabs: {
+      styleOverrides: {
+        indicator: {
+          backgroundColor: '#7B68EE', // Medium slate blue for tabs indicator
         },
       },
     },

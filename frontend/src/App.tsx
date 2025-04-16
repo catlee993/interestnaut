@@ -6,7 +6,7 @@ import { SuggestionDisplay } from "@/components/music/suggestions/SuggestionDisp
 import { NowPlayingBar } from "@/components/music/player/NowPlayingBar";
 import { LibrarySection } from "@/components/music/library/LibrarySection";
 import { MovieSection } from "@/components/movies/MovieSection";
-import { MusicSection } from "@/components/music/MusicSection";
+import { MusicSection, MusicSectionHandle } from "@/components/music/MusicSection";
 import { useAuth } from "@/components/music/hooks/useAuth";
 import { useTracks } from "@/components/music/hooks/useTracks";
 import { usePlayer } from "@/components/music/player/PlayerContext";
@@ -22,7 +22,7 @@ import {
 } from "@mui/material";
 import { theme } from "./theme";
 import { SnackbarProvider, useSnackbar } from "notistack";
-import { MediaHeader } from "@/components/layout/MediaHeader";
+import { MediaHeader } from "@/components/common/MediaHeader";
 import { SpotifyUserControl } from "@/components/music/SpotifyUserControl";
 import { styled } from "@mui/material/styles";
 
@@ -135,10 +135,23 @@ function AppContent() {
     savedTracks,
     setNowPlayingTrack,
     setNextTrack,
-    playerHandlePlay
+    playerHandlePlay,
   );
-  
+
   const hasInitialized = useRef(false);
+  
+  // Reference to the MusicSection component to access its methods
+  const musicSectionRef = useRef<MusicSectionHandle>(null);
+
+  // Handler to clear search results
+  const handleClearSearch = () => {
+    // If we have a reference to the music section, tell it to hide search results
+    if (musicSectionRef.current) {
+      musicSectionRef.current.handleClearSearch();
+    }
+    // Also clear the search query
+    handleMusicSearch("");
+  };
 
   // Add effect to reload tracks when auth state changes
   useEffect(() => {
@@ -160,7 +173,9 @@ function AppContent() {
       try {
         console.log("[initializeApp] Starting initialization...");
         startAuthPolling(async () => {
-          console.log("[initializeApp] Authentication successful, loading app data...");
+          console.log(
+            "[initializeApp] Authentication successful, loading app data...",
+          );
           await loadSavedTracks(1);
           console.log("[initializeApp] App data loaded");
         });
@@ -178,17 +193,20 @@ function AppContent() {
       id="App"
       sx={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}
     >
-      <MediaHeader 
-        additionalControl={user && currentMedia === "music" ? (
-          <SpotifyUserControl
-            user={user}
-            onClearAuth={handleClearCreds}
-            currentMedia={currentMedia}
-          />
-        ) : null}
-        onSearch={handleMusicSearch} 
+      <MediaHeader
+        additionalControl={
+          user && currentMedia === "music" ? (
+            <SpotifyUserControl
+              user={user}
+              onClearAuth={handleClearCreds}
+              currentMedia={currentMedia}
+            />
+          ) : null
+        }
+        onSearch={handleMusicSearch}
+        onClearSearch={handleClearSearch}
       />
-      
+
       <Container
         maxWidth="lg"
         sx={{
@@ -199,7 +217,8 @@ function AppContent() {
         }}
       >
         {currentMedia === "music" ? (
-          <MusicSection 
+          <MusicSection
+            ref={musicSectionRef}
             searchResults={searchResults}
             savedTracks={savedTracks}
             currentPage={currentPage}

@@ -1,18 +1,28 @@
 import { Box, TextField, IconButton } from "@mui/material";
 import { FaTimes } from "react-icons/fa";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 
 interface SearchBarProps {
   placeholder: string;
   onSearch: (query: string) => void;
+  onClear?: () => void;
 }
 
-export function SearchBar({ placeholder, onSearch }: SearchBarProps) {
+export function SearchBar({ placeholder, onSearch, onClear }: SearchBarProps) {
   const [searchQuery, setSearchQuery] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const handleClearSearch = () => {
     setSearchQuery("");
     onSearch("");
+    if (onClear) onClear();
+    inputRef.current?.focus();
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      handleClearSearch();
+    }
   };
 
   return (
@@ -23,9 +33,15 @@ export function SearchBar({ placeholder, onSearch }: SearchBarProps) {
         size="small"
         value={searchQuery}
         onChange={(e) => {
-          setSearchQuery(e.target.value);
-          onSearch(e.target.value);
+          const value = e.target.value;
+          setSearchQuery(value);
+          onSearch(value);
+          if (value === "" && onClear) {
+            onClear();
+          }
         }}
+        onKeyDown={handleKeyDown}
+        inputRef={inputRef}
         sx={{
           "& .MuiOutlinedInput-root": {
             "& fieldset": {

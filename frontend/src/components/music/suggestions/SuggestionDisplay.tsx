@@ -61,7 +61,7 @@ const StyledButton = styled(Button)(({ theme }) => ({
 }));
 
 const PlayButton = styled(IconButton)(({ theme }) => ({
-  backgroundColor: "#4caf50",
+  backgroundColor: "var(--primary-color)",
   color: "white",
   padding: 0,
   border: "none",
@@ -78,13 +78,13 @@ const PlayButton = styled(IconButton)(({ theme }) => ({
     height: "20px",
   },
   "&:hover:not(:disabled)": {
-    backgroundColor: "#388e3c",
+    backgroundColor: "var(--primary-hover)",
   },
   "&.playing": {
-    backgroundColor: "#388e3c",
+    backgroundColor: "var(--primary-hover)",
   },
   "&:disabled": {
-    backgroundColor: "#1b5e20",
+    backgroundColor: "rgba(123, 104, 238, 0.5)",
     color: "rgba(255, 255, 255, 0.3)",
     cursor: "not-allowed",
   },
@@ -103,7 +103,7 @@ export const SuggestionDisplay: React.FC = () => {
     handleAddToLibrary,
   } = useSuggestion();
 
-  const { nowPlayingTrack, isPlaybackPaused, handlePlay } = usePlayer();
+  const { nowPlayingTrack, isPlaybackPaused, handlePlay, handlePlayPause } = usePlayer();
 
   if (isFetchingSuggestion) {
     return (
@@ -200,7 +200,13 @@ export const SuggestionDisplay: React.FC = () => {
         >
           <PlayButton
             className={`play-button ${!isPlaybackPaused && nowPlayingTrack?.id === suggestedTrack.id ? "playing" : ""}`}
-            onClick={() => handlePlay(suggestedTrack)}
+            onClick={() => {
+              if (!isPlaybackPaused && nowPlayingTrack?.id === suggestedTrack.id) {
+                handlePlayPause();
+              } else {
+                handlePlay(suggestedTrack);
+              }
+            }}
             disabled={isProcessingLibrary}
           >
             {!isPlaybackPaused && nowPlayingTrack?.id === suggestedTrack.id ? (
