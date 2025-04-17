@@ -65,6 +65,9 @@ export interface MediaSuggestionItem {
   imageUrl?: string;
   playUrl?: string;
   uri?: string;
+  releaseDate?: string;
+  rating?: number;
+  voteCount?: number;
 }
 
 interface MediaSuggestionDisplayProps {
@@ -231,6 +234,14 @@ export const MediaSuggestionDisplay: React.FC<MediaSuggestionDisplayProps> = ({
             <Typography variant="h4" component="h4">
               {suggestedItem.title}
             </Typography>
+            
+            {mediaType === 'movie' && (
+              <Typography variant="subtitle1" color="text.secondary" gutterBottom>
+                {suggestedItem.releaseDate?.substring(0, 4) && `${suggestedItem.releaseDate.substring(0, 4)} • `}
+                {suggestedItem.rating && `Rating: ${suggestedItem.rating}/10`}
+                {suggestedItem.voteCount && ` (${suggestedItem.voteCount} votes)`}
+              </Typography>
+            )}
             
             {suggestedItem.artist && (
               <Typography variant="subtitle1" component="p">

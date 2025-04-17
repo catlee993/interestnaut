@@ -415,10 +415,10 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
       setIsLoading(true);
       const response = await SearchMovies(query);
 
-      // Mark movies that are already saved
+      // Mark movies that are already saved - use title comparison instead of ID
       const updatedResults = response.map((movie) => ({
         ...movie,
-        isSaved: savedMovies.some((saved) => saved.id === movie.id),
+        isSaved: savedMovies.some((saved) => saved.title === movie.title),
       }));
 
       setSearchResults(updatedResults);
@@ -692,6 +692,9 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
       imageUrl: movie.poster_path
         ? `https://image.tmdb.org/t/p/w500${movie.poster_path}`
         : undefined,
+      releaseDate: movie.release_date,
+      rating: movie.vote_average,
+      voteCount: movie.vote_count
     };
   };
 
