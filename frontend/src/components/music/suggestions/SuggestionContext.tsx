@@ -48,31 +48,30 @@ interface SuggestionState {
   isProcessing: boolean;
 }
 
-// Helper to convert Spotify track to MediaSuggestionItem format
+// Helper to convert SuggestedTrackInfo to MediaSuggestionItem for caching
 const mapTrackToMediaItem = (track: spotify.SuggestedTrackInfo): MediaSuggestionItem => {
+  console.log('[SuggestionContext] Converting track to MediaItem:', track);
+  
   if (!track) {
     console.error('[SuggestionContext] Cannot map null track to MediaSuggestionItem');
     return {
       id: '',
       title: '',
-      artist: '',
-      description: '',
-      imageUrl: '',
     };
   }
   
-  console.log('[SuggestionContext] Converting Spotify track to MediaSuggestionItem:', track);
-  
-  const mediaItem: MediaSuggestionItem = {
+  const item: MediaSuggestionItem = {
     id: track.id || '',
     title: track.name || '',
     artist: track.artist || '',
     description: track.album || '',
     imageUrl: track.albumArtUrl || '',
+    playUrl: track.previewUrl || '',  // Save the preview URL for playback
+    uri: track.uri || ''              // Save the Spotify URI
   };
   
-  console.log('[SuggestionContext] Converted to MediaSuggestionItem:', mediaItem);
-  return mediaItem;
+  console.log('[SuggestionContext] Converted to MediaItem:', item);
+  return item;
 };
 
 // Helper to convert MediaSuggestionItem back to spotify.SuggestedTrackInfo
@@ -97,6 +96,8 @@ const mapMediaItemToTrack = (item: MediaSuggestionItem): spotify.SuggestedTrackI
     artist: item.artist || '',
     album: item.description || '',
     albumArtUrl: item.imageUrl || '',
+    previewUrl: item.playUrl || '',   // Restore the preview URL
+    uri: item.uri || '',              // Restore the Spotify URI
     reason: '', // Will be set from the cached reason
   };
   
@@ -136,17 +137,20 @@ export function SuggestionProvider({
   // Set suggested track from cache when available
   useEffect(() => {
     console.log('[SuggestionCache] Checking cache:', { 
-      cachedItem: JSON.stringify(cachedItem), 
+      cachedItem: cachedItem ? JSON.stringify(cachedItem) : 'null', 
       cachedReason
     });
     if (cachedItem && cachedReason && !suggestedTrack) {
-      console.log('[SuggestionCache] Restoring from cache:', { 
-        cachedItem: JSON.stringify(cachedItem),
-        cachedReason 
+      console.log('[SuggestionCache] Restoring from cache, checking playback URLs:', { 
+        playUrl: cachedItem.playUrl,
+        uri: cachedItem.uri
       });
       const track = mapMediaItemToTrack(cachedItem);
       track.reason = cachedReason;
-      console.log('[SuggestionCache] Track after mapping:', JSON.stringify(track));
+      console.log('[SuggestionCache] Track after mapping, checking playback URLs:', {
+        previewUrl: track.previewUrl,
+        uri: track.uri
+      });
       setSuggestedTrack(track);
       setSuggestionContext(cachedReason);
       console.log('[SuggestionCache] Restored track:', JSON.stringify(track));

@@ -9,18 +9,44 @@ import {
   styled,
   Stack,
 } from "@mui/material";
-import { Favorite, FavoriteBorder, Movie } from "@mui/icons-material";
+import {
+  Favorite,
+  FavoriteBorder,
+  Movie,
+  PlaylistAdd,
+  PlaylistAddCheck,
+  ThumbUp,
+  ThumbDown,
+} from "@mui/icons-material";
 import { MovieWithSavedStatus } from "@wailsjs/go/models";
 
 interface MovieCardProps {
   movie: MovieWithSavedStatus;
   isSaved: boolean;
+  isInWatchlist?: boolean;
+  view: "default" | "watchlist";
   onSave: (movieId: number) => void;
+  onAddToWatchlist?: (movieId: number) => void;
+  onRemoveFromWatchlist?: (movieId: number) => void;
+  onLike?: (movieId: number) => void;
+  onDislike?: (movieId: number) => void;
 }
 
-interface ControlsProps {
-  isFavorited: boolean;
-  onToggleFavorite: () => void;
+interface LibraryControlsProps {
+  isInLibrary: boolean;
+  onToggleLibrary: () => void;
+}
+
+interface WatchlistControlsProps {
+  isInWatchlist: boolean;
+  onAddToWatchlist: () => void;
+}
+
+interface FeedbackControlsProps {
+  onLike?: () => void;
+  onDislike?: () => void;
+  onAddToFavorites: () => void;
+  isSaved?: boolean;
 }
 
 const StyledCard = styled(Card)(({ theme }) => ({
@@ -47,22 +73,83 @@ const Overlay = styled(Box)(({ theme }) => ({
     "linear-gradient(to top, rgba(0,0,0,1) 0%, rgba(0,0,0,0.95) 20%, rgba(0,0,0,0.85) 40%, rgba(0,0,0,0.6) 70%, rgba(0,0,0,0.3) 85%, transparent 100%)",
   padding: theme.spacing(2),
   color: theme.palette.common.white,
-  height: "120px", // Fixed height
+  height: "120px",
 }));
 
-// Helper component for Controls
-const FavoriteControls = ({ isFavorited, onToggleFavorite }: ControlsProps) => (
-  <IconButton onClick={onToggleFavorite} size="small" sx={{ color: "white" }}>
-    {isFavorited ? <Favorite sx={{ color: "#ff4081" }} /> : <FavoriteBorder />}
+const LibraryControls = ({
+  isInLibrary,
+  onToggleLibrary,
+}: LibraryControlsProps) => (
+  <IconButton onClick={onToggleLibrary} size="small" sx={{ color: "white" }}>
+    {isInLibrary ? (
+      <Favorite sx={{ color: "var(--primary-color)" }} />
+    ) : (
+      <FavoriteBorder />
+    )}
   </IconButton>
 );
 
-export function MovieCard({ movie, isSaved, onSave }: MovieCardProps) {
+const WatchlistControls = ({
+  isInWatchlist,
+  onAddToWatchlist,
+}: WatchlistControlsProps) => (
+  <IconButton onClick={onAddToWatchlist} size="small" sx={{ color: "white" }}>
+    {isInWatchlist ? (
+      <PlaylistAddCheck sx={{ color: "#64b5f6" }} />
+    ) : (
+      <PlaylistAdd />
+    )}
+  </IconButton>
+);
+
+const FeedbackControls = ({
+  onLike,
+  onDislike,
+  onAddToFavorites,
+  isSaved = false,
+}: FeedbackControlsProps) => {
+  return (
+    <Box sx={{ display: "flex", gap: 0.5 }}>
+      {onLike && (
+        <IconButton onClick={onLike} size="small" sx={{ color: "white" }}>
+          <ThumbUp sx={{ fontSize: 20 }} />
+        </IconButton>
+      )}
+      {onDislike && (
+        <IconButton onClick={onDislike} size="small" sx={{ color: "white" }}>
+          <ThumbDown sx={{ fontSize: 20 }} />
+        </IconButton>
+      )}
+      <IconButton
+        onClick={onAddToFavorites}
+        size="small"
+        sx={{ color: "white" }}
+      >
+        {isSaved ? (
+          <Favorite sx={{ fontSize: 20, color: "var(--primary-color)" }} />
+        ) : (
+          <FavoriteBorder sx={{ fontSize: 20 }} />
+        )}
+      </IconButton>
+    </Box>
+  );
+};
+
+export function MovieCard({
+  movie,
+  isSaved,
+  isInWatchlist = false,
+  view = "default",
+  onSave,
+  onAddToWatchlist,
+  onRemoveFromWatchlist,
+  onLike,
+  onDislike,
+}: MovieCardProps) {
   const hasPoster = movie.poster_path && movie.poster_path !== "";
-  
+
   return (
     <StyledCard>
-      {/* Movie poster */}
       <Box sx={{ position: "relative", width: "100%", paddingTop: "150%" }}>
         {hasPoster ? (
           <CardMedia
@@ -102,28 +189,24 @@ export function MovieCard({ movie, isSaved, onSave }: MovieCardProps) {
         )}
 
         <Overlay>
-          {/* Title positioned directly above controls */}
-          <Box sx={{ position: "absolute", bottom: "36px", left: 16, right: 16 }}>
-            <Typography 
-              variant="h6" 
-              component="h2" 
-              noWrap
-            >
+          <Box
+            sx={{ position: "absolute", bottom: "36px", left: 16, right: 16 }}
+          >
+            <Typography variant="h6" component="h2" noWrap>
               {movie.title}
             </Typography>
           </Box>
-          
-          {/* Controls positioned at bottom */}
-          <Box 
+
+          <Box
             sx={{
-              position: "absolute", 
-              bottom: 8, 
-              left: 16, 
+              position: "absolute",
+              bottom: 8,
+              left: 16,
               right: 16,
               display: "flex",
               justifyContent: "space-between",
               alignItems: "center",
-              width: "calc(100% - 32px)"
+              width: "calc(100% - 32px)",
             }}
           >
             <Box sx={{ display: "flex", alignItems: "center" }}>
@@ -147,10 +230,28 @@ export function MovieCard({ movie, isSaved, onSave }: MovieCardProps) {
                 </Tooltip>
               )}
             </Box>
-            <FavoriteControls
-              isFavorited={isSaved}
-              onToggleFavorite={() => onSave(movie.id)}
-            />
+
+            {view === "default" ? (
+              <Box sx={{ display: "flex", gap: 1 }}>
+                {onAddToWatchlist && (
+                  <WatchlistControls
+                    isInWatchlist={isInWatchlist ?? false}
+                    onAddToWatchlist={() => onAddToWatchlist!(movie.id)}
+                  />
+                )}
+                <LibraryControls
+                  isInLibrary={isSaved}
+                  onToggleLibrary={() => onSave(movie.id)}
+                />
+              </Box>
+            ) : (
+              <FeedbackControls
+                onLike={() => onLike && onLike(movie.id)}
+                onDislike={() => onDislike && onDislike(movie.id)}
+                onAddToFavorites={() => onSave(movie.id)}
+                isSaved={isSaved}
+              />
+            )}
           </Box>
         </Overlay>
       </Box>
@@ -159,7 +260,7 @@ export function MovieCard({ movie, isSaved, onSave }: MovieCardProps) {
 }
 
 function getScoreColor(score: number): string {
-  if (score >= 8) return "#4CAF50";
-  if (score >= 6) return "#FF9800";
-  return "#F44336";
+  if (score >= 8) return "#4c91af";
+  if (score >= 6) return "#0077ff";
+  return "#3c36f4";
 }

@@ -25,15 +25,42 @@ type Manager[T Media] interface {
 	GetSession(ctx context.Context, key Key) (*Session[T], error)
 	AddSuggestion(context.Context, *Session[T], Suggestion[T]) error
 	UpdateSuggestionOutcome(ctx context.Context, session *Session[T], suggestionKey string, outcome Outcome) error
-	SetFavorites(context.Context, *Session[T], []T) error
-	GetFavorites(context.Context, *Session[T]) ([]T, error)
-	RemoveFavorite(context.Context, *Session[T], T) error
 	Key() Key
 }
 
 type Settings interface {
 	GetContinuousPlayback() bool
 	SetContinuousPlayback(context.Context, bool) error
+}
+
+type FavoriteManager interface {
+	GetMovies() []Movie
+	GetBooks() []Book
+	GetTVShows() []TVShow
+	GetVideoGames() []VideoGame
+	AddMovie(Movie) error
+	AddBook(Book) error
+	AddTVShow(TVShow) error
+	AddVideoGame(VideoGame) error
+	RemoveMovie(Movie) error
+	RemoveBook(Book) error
+	RemoveTVShow(TVShow) error
+	RemoveVideoGame(VideoGame) error
+}
+
+type QueueManager interface {
+	GetMovies() []Movie
+	GetBooks() []Book
+	GetTVShows() []TVShow
+	GetVideoGames() []VideoGame
+	AddMovie(Movie) error
+	AddBook(Book) error
+	AddTVShow(TVShow) error
+	AddVideoGame(VideoGame) error
+	RemoveMovie(Movie) error
+	RemoveBook(Book) error
+	RemoveTVShow(TVShow) error
+	RemoveVideoGame(VideoGame) error
 }
 
 type CentralManager interface {
@@ -43,6 +70,8 @@ type CentralManager interface {
 	TVShow() Manager[TVShow]
 	VideoGame() Manager[VideoGame]
 	Settings() Settings
+	Favorites() FavoriteManager
+	Queue() QueueManager
 }
 
 type manager[T Media] struct {
@@ -64,6 +93,10 @@ type centralManager struct {
 	bookManager      Manager[Book]
 	videoGameManager Manager[VideoGame]
 	settings         Settings
+	favoriteManager  FavoriteManager
+	queueManager     QueueManager
+	dataDir          string
+	userID           string
 }
 
 func newManager[T Media](ctx context.Context, userID, dataDir string, subject subject) Manager[T] {
@@ -92,35 +125,68 @@ func NewCentralManager(ctx context.Context, userID string) (CentralManager, erro
 		return nil, fmt.Errorf("failed to create data directory: %w", err)
 	}
 
+	// Initialize favorites and queued managers first
+	favoritesManager, err := NewFavoritesManager(userID, dataDir)
+	if err != nil {
+		log.Printf("WARNING: Failed to initialize favorites manager: %v", err)
+		favoritesManager = &FavoritesManager{
+			filePath: filepath.Join(dataDir, fmt.Sprintf("%s%s", userID, FavoritesSuffix)),
+			data: Favorites{
+				Movies:     []Movie{},
+				Books:      []Book{},
+				TVShows:    []TVShow{},
+				VideoGames: []VideoGame{},
+			},
+		}
+	}
+
+	queuedManager, err := NewQueuedManager(userID, dataDir)
+	if err != nil {
+		log.Printf("WARNING: Failed to initialize queued manager: %v", err)
+		queuedManager = &QueuedManager{
+			filePath: filepath.Join(dataDir, fmt.Sprintf("%s%s", userID, QueuedSuffix)),
+			data: Queued{
+				Movies:     []Movie{},
+				Books:      []Book{},
+				TVShows:    []TVShow{},
+				VideoGames: []VideoGame{},
+			},
+		}
+	}
+
 	cm := &centralManager{
 		musicManager:     newManager[Music](ctx, userID, dataDir, music),
 		movieManager:     newManager[Movie](ctx, userID, dataDir, movie),
 		tvShowManager:    newManager[TVShow](ctx, userID, dataDir, tv),
 		bookManager:      newManager[Book](ctx, userID, dataDir, book),
 		videoGameManager: newManager[VideoGame](ctx, userID, dataDir, videoGame),
+		favoriteManager:  favoritesManager,
+		queueManager:     queuedManager,
+		dataDir:          dataDir,
+		userID:           userID,
 	}
 	sErr := cm.loadOrCreateSettings(userID, dataDir)
 
 	return cm, sErr
 }
 
-func (cm centralManager) Music() Manager[Music] {
+func (cm *centralManager) Music() Manager[Music] {
 	return cm.musicManager
 }
 
-func (cm centralManager) Movie() Manager[Movie] {
+func (cm *centralManager) Movie() Manager[Movie] {
 	return cm.movieManager
 }
 
-func (cm centralManager) Book() Manager[Book] {
+func (cm *centralManager) Book() Manager[Book] {
 	return cm.bookManager
 }
 
-func (cm centralManager) TVShow() Manager[TVShow] {
+func (cm *centralManager) TVShow() Manager[TVShow] {
 	return cm.tvShowManager
 }
 
-func (cm centralManager) VideoGame() Manager[VideoGame] {
+func (cm *centralManager) VideoGame() Manager[VideoGame] {
 	return cm.videoGameManager
 }
 
@@ -189,48 +255,6 @@ func (m *manager[T]) AddSuggestion(
 	defer m.mu.Unlock()
 
 	session.Suggestions[suggestion.Content.Key()] = suggestion
-
-	return m.saveSession(ctx, session)
-}
-
-func (m *manager[T]) SetFavorites(ctx context.Context, session *Session[T], favorites []T) error {
-	if session == nil {
-		return fmt.Errorf("session is nil")
-	}
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	session.Content.Favorites = favorites
-
-	return m.saveSession(ctx, session)
-}
-
-func (m *manager[T]) GetFavorites(ctx context.Context, session *Session[T]) ([]T, error) {
-	if session == nil {
-		return nil, fmt.Errorf("session is nil")
-	}
-
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	return session.Content.Favorites, nil
-}
-
-func (m *manager[T]) RemoveFavorite(ctx context.Context, session *Session[T], favorite T) error {
-	if session == nil {
-		return fmt.Errorf("session is nil")
-	}
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	for i, f := range session.Content.Favorites {
-		if favorite.Equal(f) {
-			session.Content.Favorites = append(session.Content.Favorites[:i], session.Content.Favorites[i+1:]...)
-			break
-		}
-	}
 
 	return m.saveSession(ctx, session)
 }
@@ -427,4 +451,109 @@ func (s *settings) saveSettings() error {
 
 	log.Printf("Successfully saved settings to file: %s", s.path)
 	return nil
+}
+
+func (cm *centralManager) GetMovies() []Movie {
+	return cm.favoriteManager.GetMovies()
+}
+
+func (cm *centralManager) GetBooks() []Book {
+	return cm.favoriteManager.GetBooks()
+}
+
+func (cm *centralManager) GetTVShows() []TVShow {
+	return cm.favoriteManager.GetTVShows()
+}
+
+func (cm *centralManager) GetVideoGames() []VideoGame {
+	return cm.favoriteManager.GetVideoGames()
+}
+
+func (cm *centralManager) AddMovie(movie Movie) error {
+	return cm.favoriteManager.AddMovie(movie)
+}
+
+func (cm *centralManager) AddBook(book Book) error {
+	return cm.favoriteManager.AddBook(book)
+}
+
+func (cm *centralManager) AddTVShow(tvShow TVShow) error {
+	return cm.favoriteManager.AddTVShow(tvShow)
+}
+
+func (cm *centralManager) AddVideoGame(videoGame VideoGame) error {
+	return cm.favoriteManager.AddVideoGame(videoGame)
+}
+
+func (cm *centralManager) RemoveMovie(movie Movie) error {
+	return cm.favoriteManager.RemoveMovie(movie)
+}
+
+func (cm *centralManager) RemoveBook(book Book) error {
+	return cm.favoriteManager.RemoveBook(book)
+}
+
+func (cm *centralManager) RemoveTVShow(tvShow TVShow) error {
+	return cm.favoriteManager.RemoveTVShow(tvShow)
+}
+
+func (cm *centralManager) RemoveVideoGame(videoGame VideoGame) error {
+	return cm.favoriteManager.RemoveVideoGame(videoGame)
+}
+
+// Queued methods
+func (cm *centralManager) GetMoviesQueued() []Movie {
+	return cm.queueManager.GetMovies()
+}
+
+func (cm *centralManager) GetBooksQueued() []Book {
+	return cm.queueManager.GetBooks()
+}
+
+func (cm *centralManager) GetTVShowsQueued() []TVShow {
+	return cm.queueManager.GetTVShows()
+}
+
+func (cm *centralManager) GetVideoGamesQueued() []VideoGame {
+	return cm.queueManager.GetVideoGames()
+}
+
+func (cm *centralManager) AddMovieQueued(movie Movie) error {
+	return cm.queueManager.AddMovie(movie)
+}
+
+func (cm *centralManager) AddBookQueued(book Book) error {
+	return cm.queueManager.AddBook(book)
+}
+
+func (cm *centralManager) AddTVShowQueued(tvShow TVShow) error {
+	return cm.queueManager.AddTVShow(tvShow)
+}
+
+func (cm *centralManager) AddVideoGameQueued(videoGame VideoGame) error {
+	return cm.queueManager.AddVideoGame(videoGame)
+}
+
+func (cm *centralManager) RemoveMovieQueued(movie Movie) error {
+	return cm.queueManager.RemoveMovie(movie)
+}
+
+func (cm *centralManager) RemoveBookQueued(book Book) error {
+	return cm.queueManager.RemoveBook(book)
+}
+
+func (cm *centralManager) RemoveTVShowQueued(tvShow TVShow) error {
+	return cm.queueManager.RemoveTVShow(tvShow)
+}
+
+func (cm *centralManager) RemoveVideoGameQueued(videoGame VideoGame) error {
+	return cm.queueManager.RemoveVideoGame(videoGame)
+}
+
+func (cm *centralManager) Favorites() FavoriteManager {
+	return cm.favoriteManager
+}
+
+func (cm *centralManager) Queue() QueueManager {
+	return cm.queueManager
 }

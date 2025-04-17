@@ -5,7 +5,7 @@ import (
 	"fmt"
 )
 
-const DefaultUserID string = "default_user" // TODO: no plan to support multiple users yet, but will think about it later
+const DefaultUserID string = "default_user"
 
 type Key string
 
@@ -139,7 +139,6 @@ type Content[T Media] struct {
 	PrimeDirective  `json:"prime_directive"`
 	Suggestions     map[string]Suggestion[T] `json:"suggestions"`
 	UserConstraints []string                 `json:"user_constraints"` // Miscellaneous user-defined constraints that can help temper suggestions
-	Favorites       []T                      `json:"favorites"`        // User's favorite items (not required for Music)
 }
 
 func (c Content[T]) ToString() (string, error) {
@@ -154,6 +153,22 @@ func (c Content[T]) ToString() (string, error) {
 type Session[T Media] struct {
 	Key
 	Content[T] `json:"content"`
+}
+
+// Favorites stores user favorites for all media types sans Spotify governed music
+type Favorites struct {
+	Movies     []Movie     `json:"movies"`
+	Books      []Book      `json:"books"`
+	TVShows    []TVShow    `json:"tv_shows"`
+	VideoGames []VideoGame `json:"video_games"`
+}
+
+// Queued stores user queued items for all media types (except music)
+type Queued struct {
+	Movies     []Movie     `json:"movies"`
+	Books      []Book      `json:"books"`
+	TVShows    []TVShow    `json:"tv_shows"`
+	VideoGames []VideoGame `json:"video_games"`
 }
 
 type Comparator[T Media] func(Suggestion[T], Suggestion[T]) bool

@@ -3,17 +3,23 @@
 import {session} from '../models';
 import {bindings} from '../models';
 
+export function AddToWatchlist(arg1:session.Movie):Promise<void>;
+
 export function GetFavoriteMovies():Promise<Array<session.Movie>>;
 
 export function GetMovieDetails(arg1:number):Promise<bindings.MovieWithSavedStatus>;
 
 export function GetMovieSuggestion():Promise<Record<string, any>>;
 
+export function GetWatchlist():Promise<Array<session.Movie>>;
+
 export function HasValidCredentials():Promise<boolean>;
 
 export function ProvideSuggestionFeedback(arg1:session.Outcome,arg2:number):Promise<void>;
 
 export function RefreshCredentials():Promise<boolean>;
+
+export function RemoveFromWatchlist(arg1:string):Promise<void>;
 
 export function SearchMovies(arg1:string):Promise<Array<bindings.MovieWithSavedStatus>>;
 

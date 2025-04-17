@@ -26,6 +26,9 @@ import {
   GetMovieSuggestion,
   GetMovieDetails,
   ProvideSuggestionFeedback,
+  AddToWatchlist,
+  GetWatchlist,
+  RemoveFromWatchlist,
 } from "@wailsjs/go/bindings/Movies";
 import { MovieWithSavedStatus } from "@wailsjs/go/models";
 import { useSnackbar } from "notistack";
@@ -53,6 +56,7 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
   );
   const [showSearchResults, setShowSearchResults] = useState(true);
   const [savedMovies, setSavedMovies] = useState<MovieWithSavedStatus[]>([]);
+  const [watchlistMovies, setWatchlistMovies] = useState<MovieWithSavedStatus[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingSuggestion, setIsLoadingSuggestion] = useState(false);
   const [suggestedMovie, setSuggestedMovie] =
@@ -61,6 +65,8 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
   const [credentialsError, setCredentialsError] = useState(false);
   const [suggestionError, setSuggestionError] = useState<string | null>(null);
   const [isProcessingFeedback, setIsProcessingFeedback] = useState(false);
+  const [showWatchlist, setShowWatchlist] = useState(true);
+  const [showLibrary, setShowLibrary] = useState(true);
 
   const searchResultsRef = useRef<HTMLDivElement>(null);
 
@@ -80,6 +86,7 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
   useEffect(() => {
     checkCredentials();
     loadSavedMovies();
+    loadWatchlistMovies();
 
     // Try to load cached suggestion first
     const cachedMovie = localStorage.getItem(CACHED_MOVIE_SUGGESTION_KEY);
@@ -143,17 +150,6 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
     }
   }, [suggestedMovie, suggestionReason]);
 
-  // Periodically check credentials status when component is visible
-  useEffect(() => {
-    const checkInterval = setInterval(() => {
-      checkCredentials();
-    }, 60000); // Check every minute
-
-    return () => {
-      clearInterval(checkInterval);
-    };
-  }, []);
-
   // Effect to add click outside listener for search results
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -190,20 +186,16 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
 
   const loadSavedMovies = async () => {
     try {
-      // Get the current list of saved movies
       const favoriteMovies = await GetFavoriteMovies();
-
+      
       // If favoriteMovies is null or undefined, treat it as an empty array
       const movies = favoriteMovies || [];
       
-      // Create an array to store loaded movie data
       const moviesWithDetails: MovieWithSavedStatus[] = [];
 
-      // Keep track of API calls to avoid too many requests
       let apiCallCount = 0;
-      const MAX_API_CALLS = 5; // Limit to 5 API calls per load
+      const MAX_API_CALLS = 5;
 
-      // For each saved movie, check if we already have poster path
       for (const movie of movies) {
         // Check if we have the poster path stored
         if (movie.poster_path) {
@@ -305,6 +297,113 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
     }
   };
 
+  const loadWatchlistMovies = async () => {
+    try {
+      const watchlist = await GetWatchlist();
+      
+      // If watchlist is empty, just set empty array
+      if (!watchlist || watchlist.length === 0) {
+        setWatchlistMovies([]);
+        return;
+      }
+      
+      const moviesWithDetails: MovieWithSavedStatus[] = [];
+      
+      let apiCallCount = 0;
+      const MAX_API_CALLS = 5;
+
+      for (const movie of watchlist) {
+        // Check if we have the poster path stored
+        if (movie.poster_path) {
+          // Create a movie object with the stored poster
+          moviesWithDetails.push({
+            id: 0,
+            title: movie.title || "",
+            overview: "",
+            poster_path: movie.poster_path,
+            release_date: "",
+            vote_average: 0,
+            vote_count: 0,
+            genres: [],
+            isSaved: false, // Not in favorites
+          });
+        } else {
+          try {
+            // If we've hit our API call limit, create a basic entry
+            if (apiCallCount >= MAX_API_CALLS) {
+              moviesWithDetails.push({
+                id: 0,
+                title: movie.title || "",
+                overview: "",
+                poster_path: "",
+                release_date: "",
+                vote_average: 0,
+                vote_count: 0,
+                genres: [],
+                isSaved: false,
+              });
+              continue;
+            }
+
+            // Search for the movie by title to get its TMDB ID
+            const searchResults = await SearchMovies(movie.title || "");
+            apiCallCount++;
+
+            // If we found a matching movie in search results
+            if (searchResults && searchResults.length > 0) {
+              // Use the first search result as our match
+              const matchedMovie = searchResults[0];
+              
+              // Check if this movie is also in favorites
+              const isSaved = savedMovies.some(saved => saved.title === matchedMovie.title);
+
+              // Add it to our array with appropriate flags
+              moviesWithDetails.push({
+                ...matchedMovie,
+                isSaved: isSaved,
+              });
+            } else {
+              // If no match found, create a basic entry without poster
+              moviesWithDetails.push({
+                id: 0,
+                title: movie.title || "",
+                overview: "",
+                poster_path: "",
+                release_date: "",
+                vote_average: 0,
+                vote_count: 0,
+                genres: [],
+                isSaved: false,
+              });
+            }
+          } catch (error) {
+            console.error(
+              `Failed to fetch details for movie "${movie.title}":`,
+              error,
+            );
+            // Add a basic entry for this movie
+            moviesWithDetails.push({
+              id: 0,
+              title: movie.title || "",
+              overview: "",
+              poster_path: "",
+              release_date: "",
+              vote_average: 0,
+              vote_count: 0,
+              genres: [],
+              isSaved: false,
+            });
+          }
+        }
+      }
+
+      setWatchlistMovies(moviesWithDetails);
+    } catch (error) {
+      console.error("Failed to load watchlist:", error);
+      enqueueSnackbar("Failed to load your watchlist", { variant: "error" });
+    }
+  };
+
   const handleSearch = async (query: string) => {
     console.log(`[MovieSection] Searching for movies with query: "${query}"`);
     if (!query.trim()) {
@@ -350,7 +449,8 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
 
   const handleSave = async (movie: MovieWithSavedStatus) => {
     try {
-      // Get the current list of saved movies
+      setIsLoading(true);
+      
       const favoriteMovies = await GetFavoriteMovies();
       
       // If favoriteMovies is null or undefined, treat it as an empty array
@@ -367,10 +467,26 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
 
         // Update local state
         setSavedMovies((prev) => prev.filter((m) => m.title !== movie.title));
-        enqueueSnackbar(`Removed "${movie.title}" from favorites`, {
+        enqueueSnackbar(`Removed "${movie.title}" from your library`, {
           variant: "success",
         });
       } else {
+        // Check if movie already exists in favorites to prevent duplicates
+        const exists = movies.some(m => m.title === movie.title);
+        if (exists) {
+          enqueueSnackbar(`"${movie.title}" is already in your library`, {
+            variant: "info",
+          });
+          
+          // Update local state to reflect the correct status
+          setSearchResults((prev) =>
+            prev.map((m) =>
+              m.id === movie.id ? { ...m, isSaved: true } : m,
+            ),
+          );
+          return;
+        }
+        
         // Add to saved movies with poster path
         const newFavorite: session.Movie = {
           title: movie.title,
@@ -387,7 +503,7 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
 
         // Update local state
         setSavedMovies((prev) => [...prev, { ...movie, isSaved: true }]);
-        enqueueSnackbar(`Added "${movie.title}" to favorites`, {
+        enqueueSnackbar(`Added "${movie.title}" to your library`, {
           variant: "success",
         });
       }
@@ -400,7 +516,9 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
       );
     } catch (error) {
       console.error("Failed to update movie:", error);
-      enqueueSnackbar("Failed to update favorite status", { variant: "error" });
+      enqueueSnackbar("Failed to update library status", { variant: "error" });
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -424,21 +542,45 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
       }
     } catch (error) {
       console.error("Failed to get movie suggestion:", error);
-
-      // Check if this is a credentials error
-      if (
-        error instanceof Error &&
-        error.message.includes("credentials not available")
-      ) {
-        setSuggestionError(
-          "Movie recommendations require TMDB API credentials to be configured.",
-        );
-        setCredentialsError(true);
-      } else {
-        setSuggestionError(
-          "Failed to get movie recommendation. Please try again.",
-        );
+      
+      // Format a user-friendly error message
+      let errorMessage = "Failed to get movie recommendation. Please try again.";
+      
+      // Check if this is a string error or an object
+      if (typeof error === "string") {
+        errorMessage = error;
+      } else if (error instanceof Error) {
+        // Check for specific error types
+        if (error.message.includes("credentials not available")) {
+          errorMessage = "Movie recommendations require TMDB API credentials to be configured.";
+          setCredentialsError(true);
+        } else if (error.message.includes("rate limit")) {
+          errorMessage = "OpenAI rate limit reached. Please try again in a few minutes.";
+        } else {
+          errorMessage = error.message;
+        }
+      } else if (error && typeof error === "object") {
+        // Try to extract error message from error object
+        if ("message" in error && typeof error.message === "string") {
+          errorMessage = error.message;
+        } else if ("error" in error) {
+          if (typeof error.error === "string") {
+            errorMessage = error.error;
+          } else if (error.error && typeof error.error === "object" && "message" in error.error) {
+            errorMessage = String(error.error.message);
+          }
+        }
+        
+        // Check for rate limit error specifically
+        if (errorMessage.includes("rate limit")) {
+          errorMessage = "OpenAI rate limit reached. Please try again in a few minutes.";
+        }
       }
+      
+      setSuggestionError(errorMessage);
+      
+      // Show a toast notification for the error
+      enqueueSnackbar(errorMessage, { variant: "error" });
     } finally {
       setIsLoadingSuggestion(false);
     }
@@ -455,7 +597,7 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
 
       const message =
         outcome === session.Outcome.liked
-          ? `Added "${suggestedMovie.title}" to favorites`
+          ? `You liked "${suggestedMovie.title}"`
           : outcome === session.Outcome.disliked
             ? `You disliked "${suggestedMovie.title}"`
             : `Skipped "${suggestedMovie.title}"`;
@@ -469,19 +611,9 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
 
       enqueueSnackbar(message, { variant });
 
-      if (outcome === session.Outcome.liked) {
-        // Add to saved movies if liked
-        handleSave({ ...suggestedMovie, isSaved: false });
-
-        // Clear current suggestion
-        setSuggestedMovie(null);
-        setSuggestionReason(null);
-        
-        // Clear localStorage cache
-        localStorage.removeItem(CACHED_MOVIE_SUGGESTION_KEY);
-        localStorage.removeItem(CACHED_MOVIE_REASON_KEY);
-      } else {
-        // Get next suggestion immediately for dislike/skip
+      // Only clear the current suggestion and get a new one if disliked or skipped
+      // For "liked", just leave the suggestion in place
+      if (outcome !== session.Outcome.liked) {
         setSuggestedMovie(null);
         setSuggestionReason(null);
         
@@ -493,6 +625,9 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
         setTimeout(() => {
           handleGetSuggestion();
         }, 500);
+      } else {
+        // If liked, just release the processing state without changing anything
+        setIsProcessingFeedback(false);
       }
     } catch (error) {
       console.error("Failed to provide feedback:", error);
@@ -509,7 +644,11 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
         handleGetSuggestion();
       }, 1000);
     } finally {
-      setIsProcessingFeedback(false);
+      // Only set processing to false for non-liked outcomes
+      // For liked outcome, we already set it in the success block
+      if (outcome !== session.Outcome.liked) {
+        setIsProcessingFeedback(false);
+      }
     }
   };
 
@@ -519,30 +658,19 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
       const hasCredentials = await HasValidCredentials();
       const newCredentialsError = !hasCredentials;
 
-      // Only update state if it's changed
+      // Update the credential error state
       if (credentialsError !== newCredentialsError) {
         console.log(
-          `[MovieSection] TMDB credentials status changed: ${hasCredentials ? "available" : "not available"}`,
+          `[MovieSection] TMDB credentials status: ${hasCredentials ? "available" : "not available"}`,
         );
         setCredentialsError(newCredentialsError);
 
-        // If credentials were just fixed, reload the page content
+        // If credentials were just fixed (e.g., the user added them in settings),
+        // reload the page content
         if (!newCredentialsError && credentialsError) {
           console.log(
-            "[MovieSection] TMDB credentials restored, reloading content",
+            "[MovieSection] TMDB credentials available, loading content",
           );
-          loadSavedMovies();
-          handleGetSuggestion();
-        }
-      }
-
-      // If we don't have credentials, try to refresh
-      if (newCredentialsError) {
-        console.log("[MovieSection] Attempting to refresh TMDB credentials");
-        const refreshed = await RefreshCredentials();
-        if (refreshed) {
-          console.log("[MovieSection] TMDB credentials successfully refreshed");
-          setCredentialsError(false);
           loadSavedMovies();
           handleGetSuggestion();
         }
@@ -610,17 +738,8 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
         variant: "success",
       });
 
-      // After a delay, get a new suggestion
-      setTimeout(() => {
-        setSuggestedMovie(null);
-        setSuggestionReason(null);
-        
-        // Clear localStorage cache
-        localStorage.removeItem(CACHED_MOVIE_SUGGESTION_KEY);
-        localStorage.removeItem(CACHED_MOVIE_REASON_KEY);
-        
-        handleGetSuggestion();
-      }, 1500);
+      // Don't clear the suggestion, just set processing to false
+      setIsProcessingFeedback(false);
     } catch (error) {
       console.error("Failed to add movie to favorites:", error);
       enqueueSnackbar("Failed to add movie to favorites", { variant: "error" });
@@ -635,8 +754,132 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
         setSuggestionReason(null);
         handleGetSuggestion();
       }, 1000);
-    } finally {
+      
       setIsProcessingFeedback(false);
+    }
+  };
+
+  const handleAddToWatchlist = async (movie: MovieWithSavedStatus) => {
+    try {
+      setIsLoading(true);
+      
+      // Check if movie is already in watchlist
+      const isInWatchlist = watchlistMovies.some(m => m.title === movie.title);
+      if (isInWatchlist) {
+        enqueueSnackbar(`"${movie.title}" is already in your watchlist`, {
+          variant: "info",
+        });
+        return;
+      }
+      
+      // Create a movie object to add to the watchlist
+      const watchlistMovie: session.Movie = {
+        title: movie.title,
+        director: "", // We don't have this info from TMDB
+        writer: "", // We don't have this info from TMDB
+        poster_path: movie.poster_path || ""
+      };
+      
+      // Add to the watchlist
+      await AddToWatchlist(watchlistMovie);
+      
+      // Update local state - add the movie to watchlist
+      setWatchlistMovies(prev => [...prev, { ...movie, isSaved: movie.isSaved }]);
+      
+      // Show success message
+      enqueueSnackbar(`Added "${movie.title}" to your watchlist`, {
+        variant: "success",
+      });
+      
+      // Update search results to reflect the new watchlist status
+      setSearchResults(prev =>
+        prev.map(m =>
+          m.id === movie.id ? { ...m } : m
+        )
+      );
+    } catch (error) {
+      console.error("Failed to add movie to watchlist:", error);
+      enqueueSnackbar("Failed to add to watchlist", { variant: "error" });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleRemoveFromWatchlist = async (movie: MovieWithSavedStatus) => {
+    try {
+      setIsLoading(true);
+      
+      // Remove from watchlist via backend
+      await RemoveFromWatchlist(movie.title);
+      
+      // Update local state - remove the movie from watchlist
+      setWatchlistMovies(prev => prev.filter(m => m.title !== movie.title));
+      
+      // Show success message
+      enqueueSnackbar(`Removed "${movie.title}" from your watchlist`, {
+        variant: "success",
+      });
+    } catch (error) {
+      console.error("Failed to remove movie from watchlist:", error);
+      enqueueSnackbar("Failed to remove from watchlist", { variant: "error" });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleWatchlistFeedback = async (movie: MovieWithSavedStatus, action: "like" | "dislike") => {
+    try {
+      setIsLoading(true);
+      
+      // For movies without an ID (ID = 0), try to find the movie by title in search results first
+      let movieForFeedback = movie;
+      if (movie.id === 0) {
+        console.log(`Looking up movie "${movie.title}" in search results or saved movies for proper ID`);
+        
+        // Check if the movie exists in search results with a valid ID
+        const movieInSearchResults = searchResults.find(m => m.title === movie.title);
+        if (movieInSearchResults && movieInSearchResults.id > 0) {
+          console.log(`Found movie "${movie.title}" in search results with ID ${movieInSearchResults.id}`);
+          movieForFeedback = movieInSearchResults;
+        } else {
+          // If not in search results, search for it to get the ID
+          console.log(`Searching for movie "${movie.title}" to get proper ID`);
+          try {
+            const results = await SearchMovies(movie.title);
+            if (results && results.length > 0) {
+              console.log(`Found movie "${movie.title}" in TMDB with ID ${results[0].id}`);
+              movieForFeedback = results[0];
+            }
+          } catch (error) {
+            console.error(`Failed to search for movie "${movie.title}":`, error);
+            // Continue with original movie if search fails
+          }
+        }
+      }
+      
+      // Record feedback with the movie ID (even if it's still 0)
+      console.log(`Recording ${action} feedback for movie "${movieForFeedback.title}" with ID ${movieForFeedback.id}`);
+      await ProvideSuggestionFeedback(
+        action === "like" ? session.Outcome.liked : session.Outcome.disliked,
+        movieForFeedback.id
+      );
+      
+      // Remove from watchlist
+      await handleRemoveFromWatchlist(movie);
+      
+      // Show success message
+      const message = action === "like" 
+        ? `You liked "${movie.title}"`
+        : `You disliked "${movie.title}"`;
+      
+      enqueueSnackbar(message, {
+        variant: action === "like" ? "success" : "error",
+      });
+    } catch (error) {
+      console.error(`Failed to record ${action} for movie:`, error);
+      enqueueSnackbar(`Failed to record your ${action}`, { variant: "error" });
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -689,7 +932,10 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
                 <MovieCard
                   movie={movie}
                   isSaved={movie.isSaved}
+                  isInWatchlist={watchlistMovies.some(m => m.title === movie.title)}
+                  view="default"
                   onSave={() => handleSave(movie)}
+                  onAddToWatchlist={() => handleAddToWatchlist(movie)}
                 />
               </Box>
             ))}
@@ -717,52 +963,136 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
           onDislike={() => handleFeedback(session.Outcome.disliked)}
           onSkip={() => handleFeedback(session.Outcome.skipped)}
           onAddToLibrary={handleAddToFavorites}
+          onAddToWatchlist={suggestedMovie ? () => handleAddToWatchlist(suggestedMovie) : undefined}
           renderImage={renderMoviePoster}
         />
       </Box>
 
+      {/* Watchlist Section */}
+      <Box sx={{ mb: 4 }}>
+        <Box 
+          sx={{ 
+            display: "flex", 
+            justifyContent: "center", 
+            alignItems: "center",
+            mb: 2,
+            cursor: "pointer",
+          }}
+          onClick={() => setShowWatchlist(!showWatchlist)}
+        >
+          <Typography variant="h6" sx={{ color: "text.primary" }}>
+            Your Watchlist
+          </Typography>
+          <Typography variant="body2" sx={{ color: "text.secondary", ml: 2 }}>
+            {showWatchlist ? "Hide" : "Show"} ({watchlistMovies.length})
+          </Typography>
+        </Box>
+
+        {showWatchlist && (
+          watchlistMovies.length === 0 ? (
+            <Box
+              sx={{ textAlign: "center", py: 4, color: "var(--text-secondary)" }}
+            >
+              <Typography variant="body1">
+                Your watchlist is empty. Add movies to watch later by clicking the "Add to Watchlist" icon.
+              </Typography>
+            </Box>
+          ) : (
+            <Box
+              sx={{
+                display: "grid",
+                gridTemplateColumns: {
+                  xs: "repeat(1, 1fr)",
+                  sm: "repeat(2, 1fr)",
+                  md: "repeat(3, 1fr)",
+                  lg: "repeat(4, 1fr)",
+                  xl: "repeat(5, 1fr)",
+                },
+                gap: 3,
+                "& > div": {
+                  height: "100%",
+                },
+              }}
+            >
+              {watchlistMovies.map((movie) => (
+                <Box key={`watchlist-${movie.id || movie.title}`}>
+                  <MovieCard
+                    movie={movie}
+                    isSaved={movie.isSaved}
+                    view="watchlist"
+                    onSave={() => handleSave(movie)}
+                    onRemoveFromWatchlist={() => handleRemoveFromWatchlist(movie)}
+                    onLike={() => handleWatchlistFeedback(movie, "like")}
+                    onDislike={() => handleWatchlistFeedback(movie, "dislike")}
+                  />
+                </Box>
+              ))}
+            </Box>
+          )
+        )}
+      </Box>
+
       {/* Saved Movies Section */}
       <Box sx={{ mb: 4 }}>
-        <Typography variant="h6" sx={{ mb: 2, color: "text.primary" }}>
-          Your Library
-        </Typography>
+        <Box 
+          sx={{ 
+            display: "flex", 
+            justifyContent: "center", 
+            alignItems: "center",
+            mb: 2,
+            cursor: "pointer",
+          }}
+          onClick={() => setShowLibrary(!showLibrary)}
+        >
+          <Typography variant="h6" sx={{ color: "text.primary" }}>
+            Your Library
+          </Typography>
+          <Typography variant="body2" sx={{ color: "text.secondary", ml: 2 }}>
+            {showLibrary ? "Hide" : "Show"} ({savedMovies.length})
+          </Typography>
+        </Box>
 
-        {savedMovies.length === 0 ? (
-          <Box
-            sx={{ textAlign: "center", py: 4, color: "var(--text-secondary)" }}
-          >
-            <Typography variant="body1">
-              You haven't saved any movies yet. Search for movies and click the
-              heart icon to add them to your favorites.
-            </Typography>
-          </Box>
-        ) : (
-          <Box
-            sx={{
-              display: "grid",
-              gridTemplateColumns: {
-                xs: "repeat(1, 1fr)",
-                sm: "repeat(2, 1fr)",
-                md: "repeat(3, 1fr)",
-                lg: "repeat(4, 1fr)",
-                xl: "repeat(5, 1fr)",
-              },
-              gap: 3,
-              "& > div": {
-                height: "100%",
-              },
-            }}
-          >
-            {savedMovies.map((movie) => (
-              <Box key={`saved-${movie.id}`}>
-                <MovieCard
-                  movie={movie}
-                  isSaved={true}
-                  onSave={() => handleSave(movie)}
-                />
-              </Box>
-            ))}
-          </Box>
+        {showLibrary && (
+          savedMovies.length === 0 ? (
+            <Box
+              sx={{ textAlign: "center", py: 4, color: "var(--text-secondary)" }}
+            >
+              <Typography variant="body1">
+                You haven't saved any movies yet. Search for movies and click the
+                heart icon to add them to your favorites.
+              </Typography>
+            </Box>
+          ) : (
+            <Box
+              sx={{
+                display: "grid",
+                gridTemplateColumns: {
+                  xs: "repeat(1, 1fr)",
+                  sm: "repeat(2, 1fr)",
+                  md: "repeat(3, 1fr)",
+                  lg: "repeat(4, 1fr)",
+                  xl: "repeat(5, 1fr)",
+                },
+                gap: 3,
+                "& > div": {
+                  height: "100%",
+                },
+              }}
+            >
+              {savedMovies.map((movie) => (
+                <Box key={`saved-${movie.id}`}>
+                  <MovieCard
+                    movie={movie}
+                    isSaved={true}
+                    isInWatchlist={watchlistMovies.some(m => m.title === movie.title)}
+                    view="default"
+                    onSave={() => handleSave(movie)}
+                    onAddToWatchlist={() => handleAddToWatchlist(movie)}
+                  />
+                </Box>
+              ))}
+            </Box>
+          )
         )}
       </Box>
     </Box>

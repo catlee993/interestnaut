@@ -10,10 +10,7 @@ import (
 	"interestnaut/internal/tmdb"
 	"log"
 	"strings"
-	"time"
 )
-
-// Removed local Movie type definition; using session.Movie instead.
 
 // MovieWithSavedStatus represents a movie with its saved status
 type MovieWithSavedStatus struct {
@@ -33,8 +30,8 @@ type Movies struct {
 	tmdbClient             *tmdb.Client
 	llmClient              llm.Client[session.Movie]
 	manager                session.Manager[session.Movie]
+	centralManager         session.CentralManager
 	baselineFunc, taskFunc func() string
-	lastCredCheck          time.Time
 }
 
 func NewMovieBinder(ctx context.Context, cm session.CentralManager) (*Movies, error) {
@@ -45,10 +42,13 @@ func NewMovieBinder(ctx context.Context, cm session.CentralManager) (*Movies, er
 		return nil, err
 	}
 
+	manager := cm.Movie()
+
 	m := &Movies{
-		tmdbClient: client,
-		llmClient:  llmClient,
-		manager:    cm.Movie(),
+		tmdbClient:     client,
+		llmClient:      llmClient,
+		manager:        manager,
+		centralManager: cm,
 	}
 
 	m.taskFunc = func() string {
@@ -56,16 +56,10 @@ func NewMovieBinder(ctx context.Context, cm session.CentralManager) (*Movies, er
 	}
 
 	m.baselineFunc = func() string {
-		sess, err := cm.Movie().GetSession(ctx, m.manager.Key())
-		if err != nil {
-			log.Printf("ERROR: Failed to get session: %v", err)
-			return ""
-		}
-
-		return directives.GetMovieBaseline(ctx, sess.Favorites)
+		// Get favorites directly from the central manager
+		favorites := cm.Favorites().GetMovies()
+		return directives.GetMovieBaseline(ctx, favorites)
 	}
-
-	_ = m.manager.GetOrCreateSession(ctx, m.manager.Key(), m.taskFunc, m.baselineFunc) // ensure session is created
 
 	return m, nil
 }
@@ -73,25 +67,31 @@ func NewMovieBinder(ctx context.Context, cm session.CentralManager) (*Movies, er
 // SetFavoriteMovies allows the user to set their initial list of favorite movies
 // This should be called before starting recommendations
 func (m *Movies) SetFavoriteMovies(movies []session.Movie) error {
-	ctx := context.Background()
-	sess := m.manager.GetOrCreateSession(ctx, m.manager.Key(), m.taskFunc, m.baselineFunc)
-	if err := m.manager.SetFavorites(ctx, sess, movies); err != nil {
-		return fmt.Errorf("failed to set favorite movies: %w", err)
+	// Simply replace all movie favorites with the provided list
+	// Get current favorites
+	currentFavorites := m.centralManager.Favorites().GetMovies()
+
+	// Remove all current favorites
+	for _, movie := range currentFavorites {
+		if err := m.centralManager.Favorites().RemoveMovie(movie); err != nil {
+			log.Printf("WARNING: Failed to remove movie favorite %s: %v", movie.Title, err)
+		}
 	}
 
-	log.Printf("Created new session with %d initial movies", len(movies))
+	// Add all new favorites
+	for _, movie := range movies {
+		if err := m.centralManager.Favorites().AddMovie(movie); err != nil {
+			log.Printf("WARNING: Failed to add movie favorite %s: %v", movie.Title, err)
+		}
+	}
 
+	log.Printf("Updated favorites with %d movies", len(movies))
 	return nil
 }
 
-// GetFavoriteMovies returns the current list of initial movies
+// GetFavoriteMovies returns the current list of favorite movies
 func (m *Movies) GetFavoriteMovies() ([]session.Movie, error) {
-	sess := m.manager.GetOrCreateSession(context.Background(), m.manager.Key(), m.taskFunc, m.baselineFunc)
-	favorites, err := m.manager.GetFavorites(context.Background(), sess)
-	if err != nil {
-		log.Printf("ERROR: Failed to get favorite movies: %v", err)
-		return []session.Movie{}, err // Return empty slice instead of nil
-	}
+	favorites := m.centralManager.Favorites().GetMovies()
 
 	// If no favorites, return empty slice instead of nil
 	if favorites == nil {
@@ -101,39 +101,74 @@ func (m *Movies) GetFavoriteMovies() ([]session.Movie, error) {
 	return favorites, nil
 }
 
-// ensureCredentialsChecked checks if credentials need to be refreshed
-// We only check at most once every 30 seconds to avoid excessive calls
-func (m *Movies) ensureCredentialsChecked() {
-	// If we checked recently, don't check again
-	if time.Since(m.lastCredCheck) < 30*time.Second {
-		return
+// AddToWatchlist adds a movie to the user's watchlist
+func (m *Movies) AddToWatchlist(movie session.Movie) error {
+	// Check if movie already exists in watchlist
+	watchlist := m.centralManager.Queue().GetMovies()
+	for _, wm := range watchlist {
+		if wm.Title == movie.Title {
+			// Movie already in watchlist
+			return nil
+		}
 	}
 
-	// Refresh the credentials
-	m.tmdbClient.RefreshCredentials()
-	m.lastCredCheck = time.Now()
+	// Add movie to watchlist
+	if err := m.centralManager.Queue().AddMovie(movie); err != nil {
+		return fmt.Errorf("failed to add movie to watchlist: %w", err)
+	}
+
+	log.Printf("Added '%s' to watchlist", movie.Title)
+	return nil
+}
+
+// RemoveFromWatchlist removes a movie from the user's watchlist
+func (m *Movies) RemoveFromWatchlist(title string) error {
+	// Get current watchlist
+	watchlist := m.centralManager.Queue().GetMovies()
+
+	// Find the movie by title
+	found := false
+	var movieToRemove session.Movie
+
+	for _, movie := range watchlist {
+		if movie.Title == title {
+			found = true
+			movieToRemove = movie
+			break
+		}
+	}
+
+	if !found {
+		return fmt.Errorf("movie '%s' not found in watchlist", title)
+	}
+
+	// Remove from the watchlist
+	if err := m.centralManager.Queue().RemoveMovie(movieToRemove); err != nil {
+		return fmt.Errorf("failed to remove movie from watchlist: %w", err)
+	}
+
+	log.Printf("Removed '%s' from watchlist", title)
+	return nil
+}
+
+// GetWatchlist returns the current watchlist
+func (m *Movies) GetWatchlist() ([]session.Movie, error) {
+	return m.centralManager.Queue().GetMovies(), nil
 }
 
 // HasValidCredentials checks if the TMDB client has valid credentials
 func (m *Movies) HasValidCredentials() bool {
-	m.ensureCredentialsChecked()
 	return m.tmdbClient.HasValidCredentials()
 }
 
 // RefreshCredentials attempts to refresh the TMDB client's credentials
 // Returns true if successful, false otherwise
 func (m *Movies) RefreshCredentials() bool {
-	success := m.tmdbClient.RefreshCredentials()
-	if success {
-		m.lastCredCheck = time.Now()
-	}
-	return success
+	return m.tmdbClient.RefreshCredentials()
 }
 
 // SearchMovies searches for movies in TMDB
 func (m *Movies) SearchMovies(query string) ([]*MovieWithSavedStatus, error) {
-	m.ensureCredentialsChecked()
-
 	if !m.tmdbClient.HasValidCredentials() {
 		return nil, fmt.Errorf("TMDB credentials not available")
 	}
@@ -168,8 +203,6 @@ func (m *Movies) SearchMovies(query string) ([]*MovieWithSavedStatus, error) {
 
 // GetMovieDetails gets detailed information about a specific movie
 func (m *Movies) GetMovieDetails(movieID int) (*MovieWithSavedStatus, error) {
-	m.ensureCredentialsChecked()
-
 	if !m.tmdbClient.HasValidCredentials() {
 		return nil, fmt.Errorf("TMDB credentials not available")
 	}
@@ -199,7 +232,6 @@ func (m *Movies) GetMovieDetails(movieID int) (*MovieWithSavedStatus, error) {
 // GetMovieSuggestion gets a movie suggestion from the LLM
 func (m *Movies) GetMovieSuggestion() (map[string]interface{}, error) {
 	ctx := context.Background()
-	m.ensureCredentialsChecked()
 
 	if !m.tmdbClient.HasValidCredentials() {
 		return nil, fmt.Errorf("TMDB credentials not available")
@@ -231,7 +263,6 @@ func (m *Movies) GetMovieSuggestion() (map[string]interface{}, error) {
 	resp, err := m.tmdbClient.SearchMovies(ctx, query)
 	if err != nil {
 		log.Printf("WARNING: Failed to search for suggested movie '%s': %v", query, err)
-		// Continue anyway, we'll use the basic suggestion data
 	}
 
 	var movie *MovieWithSavedStatus
@@ -358,53 +389,30 @@ func (m *Movies) ProvideSuggestionFeedback(outcome session.Outcome, movieID int)
 	}
 
 	// Use the movie title as the key for updating the suggestion outcome
-	key := movie.Title
+	key := session.KeyerMovieInfo(movie.Title, movie.Director, movie.Writer)
 
 	// Try to record the outcome, but don't fail if the suggestion isn't found
 	err = m.manager.UpdateSuggestionOutcome(context.Background(), sess, key, outcome)
 	if err != nil {
 		log.Printf("WARNING: Failed to record outcome for movie '%s': %v", key, err)
-		// Continue anyway - we can still add to favorites if needed
+	} else {
+		log.Printf("Successfully recorded outcome %s for movie '%s'", outcome, key)
 	}
 
-	// If the user liked the movie, add it to their favorites
-	if outcome == session.Liked || outcome == session.Added {
+	if outcome == session.Added {
 		// Convert to session.Movie using proper field names to match JSON tags
 		favoriteMovie := session.Movie{
-			Title:      movie.Title,      // maps to "title" in JSON
-			Director:   movie.Director,   // maps to "director" in JSON
-			Writer:     movie.Writer,     // maps to "writer" in JSON
-			PosterPath: movie.PosterPath, // maps to "poster_path" in JSON
+			Title:      movie.Title,
+			Director:   movie.Director,
+			Writer:     movie.Writer,
+			PosterPath: movie.PosterPath,
 		}
 
-		// Get current favorites
-		favorites, err := m.manager.GetFavorites(context.Background(), sess)
-		if err != nil {
-			return fmt.Errorf("failed to get favorites: %w", err)
+		// Add to favorites using the central manager
+		if err := m.centralManager.Favorites().AddMovie(favoriteMovie); err != nil {
+			return fmt.Errorf("failed to add to favorites: %w", err)
 		}
-
-		// If favorites is nil, initialize it
-		if favorites == nil {
-			favorites = []session.Movie{}
-		}
-
-		// Check if the movie already exists in favorites to avoid duplicates
-		alreadyExists := false
-		for _, fav := range favorites {
-			if fav.Title == favoriteMovie.Title {
-				alreadyExists = true
-				break
-			}
-		}
-
-		// Only add if not already in favorites
-		if !alreadyExists {
-			favorites = append(favorites, favoriteMovie)
-			if err := m.manager.SetFavorites(context.Background(), sess, favorites); err != nil {
-				return fmt.Errorf("failed to update favorites: %w", err)
-			}
-			log.Printf("Added movie '%s' to favorites", movie.Title)
-		}
+		log.Printf("Added movie '%s' to favorites", movie.Title)
 	}
 
 	return nil

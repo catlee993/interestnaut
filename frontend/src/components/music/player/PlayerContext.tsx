@@ -151,7 +151,17 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
       ? trackOrUri 
       : trackOrUri?.uri || null;
       
-    if (!trackUri) return;
+    // Debug logging to check if URI is present
+    console.log("[PlayerContext] Playing track:", { 
+      isString: typeof trackOrUri === "string",
+      trackOrUri: typeof trackOrUri === "string" ? trackOrUri : JSON.stringify(trackOrUri),
+      extractedUri: trackUri
+    });
+      
+    if (!trackUri) {
+      console.error("[PlayerContext] Cannot play track - missing URI:", trackOrUri);
+      return;
+    }
 
     try {
       // Dispatch trackStarted event to prevent false track end detection

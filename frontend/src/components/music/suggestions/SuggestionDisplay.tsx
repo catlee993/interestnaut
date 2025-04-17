@@ -165,7 +165,12 @@ export const SuggestionDisplay: React.FC = () => {
 
   if (!suggestedTrack) {
     return (
-      <Box className="empty-suggestion-state">
+      <Box className="empty-suggestion-state" sx={{
+        display: "flex", 
+        justifyContent: "center", 
+        alignItems: "center", 
+        minHeight: "200px"
+      }}>
         <StyledButton
           onClick={handleRequestSuggestion}
           className="request-suggestion-button"

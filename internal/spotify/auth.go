@@ -281,7 +281,6 @@ func GetValidToken(ctx context.Context) (string, error) {
 }
 
 // exchangeCodeForToken exchanges an authorization code for access and refresh tokens using PKCE.
-// Note: The client secret is not used in this flow.
 func exchangeCodeForToken(ctx context.Context, clientID, code string) (*AuthResponse, error) {
 	values := url.Values{}
 	values.Set("grant_type", "authorization_code")
