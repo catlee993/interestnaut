@@ -2,9 +2,13 @@ import React, { useEffect, useState } from "react";
 import {
   Box,
   Drawer,
+  FormControl,
   FormControlLabel,
+  FormLabel,
   IconButton,
+  MenuItem,
   Paper,
+  Select,
   Stack,
   Switch,
   Tab,
@@ -27,8 +31,8 @@ import {
 } from "@wailsjs/go/bindings/Auth";
 import { RefreshCredentials } from "@wailsjs/go/bindings/Movies";
 import { useSnackbar } from "notistack";
-import { usePlayer } from "@/components/music/player/PlayerContext";
 import { ApiCredentialsManager } from "@/components/common/ApiCredentialsManager";
+import { useSettings, ChatGPTModel } from "@/hooks/useSettings";
 
 const StyledDrawer = styled(Drawer)(({ theme }) => ({
   "& .MuiDrawer-paper": {
@@ -118,8 +122,14 @@ export function SettingsDrawer({ open, onClose }: SettingsDrawerProps) {
   const [geminiKey, setGeminiKey] = useState("");
   const [tmdbKey, setTmdbKey] = useState("");
 
-  const { isContinuousPlayback, setContinuousPlayback } = usePlayer();
   const { enqueueSnackbar } = useSnackbar();
+  const { 
+    chatGPTModel, 
+    updateChatGPTModel, 
+    continuousPlayback,
+    setContinuousPlayback,
+    isLoading: isLoadingSettings 
+  } = useSettings();
 
   // Create a wrapper for RefreshCredentials that returns void
   const refreshTmdbCredentials = async (): Promise<void> => {
@@ -170,9 +180,9 @@ export function SettingsDrawer({ open, onClose }: SettingsDrawerProps) {
 
   useEffect(() => {
     console.log(
-      `[SettingsDrawer] Continuous playback is: ${isContinuousPlayback}`,
+      `[SettingsDrawer] Continuous playback is: ${continuousPlayback}`,
     );
-  }, [isContinuousPlayback]);
+  }, [continuousPlayback]);
 
   const handleTabChange = (_event: React.SyntheticEvent, newValue: number) => {
     setActiveTab(newValue);
@@ -259,22 +269,10 @@ export function SettingsDrawer({ open, onClose }: SettingsDrawerProps) {
 
     try {
       await setContinuousPlayback(newValue);
-      enqueueSnackbar(
-        `Continuous playback ${newValue ? "enabled" : "disabled"}`,
-        {
-          variant: "success",
-        },
-      );
     } catch (error) {
       console.error(
         "[SettingsDrawer] Error setting continuous playback:",
         error,
-      );
-      enqueueSnackbar(
-        `Failed to ${newValue ? "enable" : "disable"} continuous playback`,
-        {
-          variant: "error",
-        },
       );
     }
   };
@@ -322,14 +320,16 @@ export function SettingsDrawer({ open, onClose }: SettingsDrawerProps) {
               mt: 4,
               width: "100%",
               display: "flex",
-              justifyContent: "flex-start",
+              flexDirection: "column",
+              gap: 3,
             }}
           >
             <FormControlLabel
               control={
                 <StyledSwitch
-                  checked={isContinuousPlayback}
+                  checked={continuousPlayback}
                   onChange={handleContinuousPlaybackToggle}
+                  disabled={isLoadingSettings}
                 />
               }
               label="Continue playing liked songs"
@@ -341,6 +341,59 @@ export function SettingsDrawer({ open, onClose }: SettingsDrawerProps) {
                 },
               }}
             />
+
+            <FormControl fullWidth>
+              <FormLabel
+                sx={{
+                  color: "rgba(255, 255, 255, 0.7)",
+                  marginBottom: 1,
+                  fontSize: "0.875rem",
+                  textAlign: "left",
+                }}
+              >
+                ChatGPT Model
+              </FormLabel>
+              <Select
+                value={chatGPTModel}
+                onChange={(e) => updateChatGPTModel(e.target.value as ChatGPTModel)}
+                disabled={isLoadingSettings}
+                sx={{
+                  color: "white",
+                  textAlign: "left",
+                  "& .MuiSelect-select": {
+                    paddingLeft: 2
+                  },
+                  "& .MuiOutlinedInput-notchedOutline": {
+                    borderColor: "rgba(123, 104, 238, 0.3)"
+                  },
+                  "&:hover .MuiOutlinedInput-notchedOutline": {
+                    borderColor: "rgba(123, 104, 238, 0.5)"
+                  },
+                  "& .MuiSelect-icon": {
+                    color: "white"
+                  }
+                }}
+                MenuProps={{
+                  PaperProps: {
+                    sx: {
+                      backgroundColor: "rgba(30, 30, 30, 0.95)",
+                      backdropFilter: "blur(10px)",
+                      "& .MuiMenuItem-root": {
+                        color: "white",
+                        paddingLeft: 2
+                      },
+                      "& .MuiMenuItem-root.Mui-selected": {
+                        backgroundColor: "rgba(123, 104, 238, 0.15)"
+                      }
+                    }
+                  }
+                }}
+              >
+                <MenuItem value="gpt-4o">GPT-4o (Default)</MenuItem>
+                <MenuItem value="gpt-4o-mini">GPT-4o Mini (Faster)</MenuItem>
+                <MenuItem value="gpt-4-turbo">GPT-4 Turbo (Long Context)</MenuItem>
+              </Select>
+            </FormControl>
           </Box>
         )}
 

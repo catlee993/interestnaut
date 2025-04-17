@@ -31,6 +31,8 @@ type Manager[T Media] interface {
 type Settings interface {
 	GetContinuousPlayback() bool
 	SetContinuousPlayback(context.Context, bool) error
+	GetChatGPTModel() string
+	SetChatGPTModel(context.Context, string) error
 }
 
 type FavoriteManager interface {
@@ -82,7 +84,8 @@ type manager[T Media] struct {
 }
 
 type settings struct {
-	ContinuousPlayback bool `json:"continuous_playback"`
+	ContinuousPlayback bool   `json:"continuous_playback"`
+	ChatGPTModel       string `json:"chatgpt_model"`
 	path               string
 }
 
@@ -273,6 +276,15 @@ func (s *settings) GetContinuousPlayback() bool {
 	return s.ContinuousPlayback
 }
 
+func (s *settings) GetChatGPTModel() string {
+	return s.ChatGPTModel
+}
+
+func (s *settings) SetChatGPTModel(_ context.Context, model string) error {
+	s.ChatGPTModel = model
+	return s.saveSettings()
+}
+
 // UpdateSuggestionOutcome updates the outcome of a previously suggested song
 func (m *manager[T]) UpdateSuggestionOutcome(
 	ctx context.Context,
@@ -411,8 +423,12 @@ func (cm *centralManager) loadOrCreateSettings(userID, dataDir string) error {
 	if err != nil {
 		if os.IsNotExist(err) {
 			log.Printf("No settings file exists for user %s, creating default settings", userID)
-			defaultSettings := &settings{ContinuousPlayback: false, path: filePath}
-			if sErr := defaultSettings.saveSettings(); err != nil {
+			defaultSettings := &settings{
+				ContinuousPlayback: false,
+				ChatGPTModel:       "gpt-4o",
+				path:               filePath,
+			}
+			if sErr := defaultSettings.saveSettings(); sErr != nil {
 				return fmt.Errorf("failed to save default settings: %w", sErr)
 			}
 
@@ -444,7 +460,7 @@ func (s *settings) saveSettings() error {
 		return fmt.Errorf("failed to marshal settings: %w", err)
 	}
 
-	if wErr := os.WriteFile(s.path, data, 0644); err != nil {
+	if wErr := os.WriteFile(s.path, data, 0644); wErr != nil {
 		log.Printf("Failed to write settings file: %v", wErr)
 		return fmt.Errorf("failed to write settings file: %w", wErr)
 	}
