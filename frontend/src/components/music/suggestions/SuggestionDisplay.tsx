@@ -28,6 +28,7 @@ const StyledButton = styled(Button)(({ theme }) => ({
   borderRadius: "20px",
   cursor: "pointer",
   fontWeight: 500,
+  fontFamily: "var(--body-font)",
   transition: "all 0.2s",
   textTransform: "none",
   display: "flex",
@@ -152,6 +153,7 @@ export const SuggestionDisplay: React.FC = () => {
         <Typography className="error-message" sx={{ 
           color: "var(--purple-red)",
           fontWeight: 500,
+          fontFamily: "var(--body-font)",
           padding: "12px 16px",
           backgroundColor: "rgba(194, 59, 133, 0.1)",
           borderRadius: "8px",
@@ -209,10 +211,24 @@ export const SuggestionDisplay: React.FC = () => {
         )}
 
         <Box className="suggestion-info">
-          <Typography variant="h4" component="h4">
+          <Typography 
+            variant="h4" 
+            component="h4" 
+            sx={{ 
+              fontFamily: "var(--heading-font)", 
+              fontWeight: 600 
+            }}
+          >
             {suggestedTrack.name}
           </Typography>
-          <Typography component="p">{suggestedTrack.artist}</Typography>
+          <Typography 
+            component="p" 
+            sx={{ 
+              fontFamily: "var(--body-font)" 
+            }}
+          >
+            {suggestedTrack.artist}
+          </Typography>
           {trackReason && (
             <Box
               sx={{

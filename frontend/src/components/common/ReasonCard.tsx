@@ -32,6 +32,7 @@ export const ReasonCard: React.FC<ReasonCardProps> = ({ reason }) => {
           variant="subtitle2"
           sx={{
             color: "rgba(140, 134, 258, 0.7)",
+            fontFamily: "var(--heading-font)",
             fontWeight: 500,
             lineHeight: 1,
           }}
@@ -46,6 +47,7 @@ export const ReasonCard: React.FC<ReasonCardProps> = ({ reason }) => {
           textAlign: "center",
           fontStyle: "italic",
           opacity: 0.8,
+          fontFamily: "var(--body-font)",
         }}
       >
         {reason}

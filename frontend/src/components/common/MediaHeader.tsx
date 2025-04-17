@@ -9,7 +9,7 @@ import {
 } from "@mui/material";
 import { useMedia, MediaType } from "@/contexts/MediaContext";
 import { FaCog } from "react-icons/fa";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { SettingsDrawer } from "./SettingsDrawer";
 import { SearchBar } from "./SearchBar";
 
@@ -51,9 +51,15 @@ export function MediaHeader({
 }: MediaHeaderProps) {
   const { currentMedia, setCurrentMedia } = useMedia();
   const [showSettingsDrawer, setShowSettingsDrawer] = useState(false);
+  const [controlKey, setControlKey] = useState(0);
 
   // Use externally provided media type if available, otherwise use context
   const activeMedia = externalMedia !== undefined ? externalMedia : currentMedia;
+
+  // Force refresh of additionalControl when it changes
+  useEffect(() => {
+    setControlKey(prev => prev + 1);
+  }, [additionalControl]);
 
   const handleOpenSettings = () => {
     setShowSettingsDrawer(true);
@@ -93,7 +99,9 @@ export function MediaHeader({
           </Box>
 
           <Box sx={{ display: "flex", alignItems: "center", gap: 3 }}>
-            {additionalControl}
+            <Box key={controlKey}>
+              {additionalControl}
+            </Box>
 
             <IconButton
               size="small"

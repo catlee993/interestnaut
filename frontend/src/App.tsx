@@ -114,7 +114,7 @@ const ITEMS_PER_PAGE = 20;
 // Create a separate component for the app content to use hooks
 function AppContent() {
   const { enqueueSnackbar } = useSnackbar();
-  const { user, isAuthenticated, startAuthPolling, handleClearCreds } =
+  const { user, isAuthenticated, startAuthPolling, handleClearCreds, refreshUserProfile } =
     useAuth();
   const { currentMedia } = useMedia();
 
@@ -196,12 +196,14 @@ function AppContent() {
   useEffect(() => {
     if (isAuthenticated) {
       console.log("[App] Authentication detected, loading saved tracks...");
+      // Ensure we have the latest user data
+      refreshUserProfile();
       // Use a slight delay to ensure authentication is fully processed
       setTimeout(() => {
         loadSavedTracks(1);
       }, 500);
     }
-  }, [isAuthenticated, loadSavedTracks]);
+  }, [isAuthenticated, loadSavedTracks, refreshUserProfile]);
 
   // Separate initialization effect that doesn't depend on authentication state
   useEffect(() => {
@@ -234,7 +236,7 @@ function AppContent() {
     >
       <MediaHeader
         additionalControl={
-          user && currentMedia === "music" ? (
+          isAuthenticated && currentMedia === "music" ? (
             <SpotifyUserControl
               user={user}
               onClearAuth={handleClearCreds}

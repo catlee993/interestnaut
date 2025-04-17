@@ -1,5 +1,5 @@
 import React from "react";
-import { Box, Avatar, Typography, Button } from "@mui/material";
+import { Box, Avatar, Typography, Button, CircularProgress } from "@mui/material";
 import { styled } from "@mui/material/styles";
 import { spotify } from "@wailsjs/go/models";
 import { MediaType } from "@/contexts/MediaContext";
@@ -18,7 +18,19 @@ interface SpotifyUserControlProps {
 }
 
 export function SpotifyUserControl({ user, onClearAuth, currentMedia }: SpotifyUserControlProps) {
-  if (currentMedia !== "music" || !user) return null;
+  if (currentMedia !== "music") return null;
+
+  // If we're in music media type but user is null, show a loading indicator
+  if (!user) {
+    return (
+      <StyledContainer>
+        <CircularProgress size={24} sx={{ color: "#1DB954" }} />
+        <Typography variant="subtitle2" sx={{ color: "#1DB954", fontSize: "0.875rem" }}>
+          Loading user...
+        </Typography>
+      </StyledContainer>
+    );
+  }
 
   return (
     <StyledContainer>
@@ -27,14 +39,20 @@ export function SpotifyUserControl({ user, onClearAuth, currentMedia }: SpotifyU
           Logged in as
         </Typography>
         <Typography variant="subtitle2" sx={{ color: "#1DB954", fontSize: "0.875rem", fontWeight: 600, textAlign: 'right' }}>
-          {user.display_name}
+          {user.display_name || "Spotify User"}
         </Typography>
       </Box>
-      {user.images?.[0]?.url && (
+      {user.images?.[0]?.url ? (
         <Avatar
           src={user.images[0].url}
           sx={{ width: 28, height: 28 }}
         />
+      ) : (
+        <Avatar
+          sx={{ width: 28, height: 28, backgroundColor: "#1DB954" }}
+        >
+          {(user.display_name || "S")[0].toUpperCase()}
+        </Avatar>
       )}
       <Button
         variant="outlined"
