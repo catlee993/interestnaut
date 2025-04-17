@@ -149,7 +149,14 @@ export const SuggestionDisplay: React.FC = () => {
   if (suggestionError) {
     return (
       <Box className="suggestion-error-state">
-        <Typography className="error-message" sx={{ color: "error.main" }}>
+        <Typography className="error-message" sx={{ 
+          color: "var(--purple-red)",
+          fontWeight: 500,
+          padding: "12px 16px",
+          backgroundColor: "rgba(194, 59, 133, 0.1)",
+          borderRadius: "8px",
+          border: "1px solid rgba(194, 59, 133, 0.3)"
+        }}>
           {suggestionError}
         </Typography>
         <StyledButton
@@ -275,10 +282,15 @@ export const SuggestionDisplay: React.FC = () => {
 
           <StyledButton
             className="action-button next-button"
-            onClick={handleSkipSuggestion}
+            onClick={() => {
+              if (suggestedTrack) {
+                handleSkipSuggestion();
+              }
+            }}
             disabled={isProcessingLibrary}
+            aria-label={suggestionContext.hasLikedCurrentSuggestion ? "Get next suggestion" : "Skip this suggestion"}
           >
-            Next Suggestion <FaStepForward />
+            {suggestionContext.hasLikedCurrentSuggestion ? "Next" : "Skip"} <FaStepForward />
           </StyledButton>
         </Box>
       </Box>

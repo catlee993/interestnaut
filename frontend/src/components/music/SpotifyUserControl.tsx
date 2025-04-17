@@ -41,14 +41,14 @@ export function SpotifyUserControl({ user, onClearAuth, currentMedia }: SpotifyU
         size="small"
         onClick={onClearAuth}
         sx={{
-          color: '#EF4444',
-          borderColor: '#EF4444',
+          color: 'var(--purple-red)',
+          borderColor: 'var(--purple-red)',
           padding: "2px 8px",
           minWidth: "auto",
           fontSize: "0.75rem",
           "&:hover": {
-            borderColor: '#EF4444',
-            backgroundColor: 'rgba(239, 68, 68, 0.1)',
+            borderColor: 'var(--purple-red)',
+            backgroundColor: 'rgba(194, 59, 133, 0.1)',
           },
         }}
       >

@@ -24,11 +24,11 @@ const StyledTextField = styled(TextField)(({ theme }) => ({
 }));
 
 const ClearButton = styled(Button)(({ theme }) => ({
-  color: "#EF4444",
-  borderColor: "#EF4444",
+  color: "var(--purple-red)",
+  borderColor: "var(--purple-red)",
   "&:hover": {
-    backgroundColor: "rgba(239, 68, 68, 0.1)",
-    borderColor: "#EF4444",
+    backgroundColor: "rgba(194, 59, 133, 0.1)",
+    borderColor: "var(--purple-red)",
   },
 }));
 

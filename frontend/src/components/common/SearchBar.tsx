@@ -22,8 +22,26 @@ export function SearchBar({ placeholder, onSearch, onClear }: SearchBarProps) {
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
       handleClearSearch();
+    } else if (e.key === 'Enter') {
+      // Blur the input when Enter is pressed
+      inputRef.current?.blur();
     }
   };
+
+  // Add click outside event listener to blur the input
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (inputRef.current && !inputRef.current.contains(event.target as Node)) {
+        inputRef.current.blur();
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
 
   return (
     <Box sx={{ position: "relative", mb: 2 }}>

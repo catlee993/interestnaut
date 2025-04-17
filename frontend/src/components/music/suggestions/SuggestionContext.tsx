@@ -153,6 +153,12 @@ export function SuggestionProvider({
       });
       setSuggestedTrack(track);
       setSuggestionContext(cachedReason);
+      setSuggestionState(prev => ({
+        ...prev,
+        hasLiked: false,
+        hasAdded: false,
+        outcome: session.Outcome.pending
+      }));
       console.log('[SuggestionCache] Restored track:', JSON.stringify(track));
       
       // Mark as having requested initial suggestion to prevent the other effect from triggering
@@ -186,10 +192,10 @@ export function SuggestionProvider({
 
   const handleToast = (
     message: string,
-    variant: "success" | "error" | "warning" | "info",
+    variant: "success" | "error" | "warning" | "info" | "skip",
   ) => {
     enqueueSnackbar(message, {
-      variant,
+      variant: variant as any,
       anchorOrigin: {
         vertical: "top",
         horizontal: "center",
@@ -213,7 +219,12 @@ export function SuggestionProvider({
         console.log("[SuggestionContext] Received new suggestion:", JSON.stringify(suggestion));
         setSuggestedTrack(suggestion);
         setSuggestionContext(suggestion.reason || null);
-        setSuggestionState(prev => ({ ...prev, outcome: session.Outcome.pending }));
+        setSuggestionState(prev => ({ 
+          ...prev, 
+          outcome: session.Outcome.pending,
+          hasLiked: false,
+          hasAdded: false
+        }));
         
         // Cache the suggestion only if it has all required data
         if (suggestion && 
@@ -272,29 +283,38 @@ export function SuggestionProvider({
 
   const handleSkipSuggestion = async () => {
     if (!suggestedTrack || suggestionState.isProcessing) return;
-
+    
     try {
-      setSuggestionState(prev => ({ ...prev, isProcessing: true }));
-      setSuggestedTrack(null);
+      // Store track info before clearing the state
+      const trackToSkip = {
+        name: suggestedTrack.name,
+        artist: suggestedTrack.artist,
+        album: suggestedTrack.album
+      };
       
-      // Clear the cached suggestion
-      clearSuggestion();
-
-      // Only send skip feedback if the track hasn't been liked or added
+      // Mark as processing first
+      setSuggestionState(prev => ({ ...prev, isProcessing: true }));
+      
+      // Check if the track has already been liked or added
       if (!suggestionState.hasLiked && !suggestionState.hasAdded) {
         await ProvideSuggestionFeedback(
           session.Outcome.skipped,
-          suggestedTrack.name,
-          suggestedTrack.artist,
-          suggestedTrack.album,
+          trackToSkip.name,
+          trackToSkip.artist,
+          trackToSkip.album
         );
-
+        
         setSuggestionState(prev => ({ ...prev, outcome: session.Outcome.skipped }));
-        handleToast("Skipped suggestion", "warning");
+        
+        const message = `Skipped "${trackToSkip.name}"`;
+        enqueueSnackbar(message, { variant: "skip" as any });
       }
-
-      // Stop playback when skipping
+      
+      setSuggestedTrack(null);
+      clearSuggestion();
+      
       await stopPlayback();
+      
       window.scrollTo({ top: 0, behavior: "smooth" });
       await handleRequestSuggestion();
     } catch (error: any) {

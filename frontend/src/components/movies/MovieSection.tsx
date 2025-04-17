@@ -607,9 +607,9 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
           ? "success"
           : outcome === session.Outcome.disliked
             ? "error"
-            : "info";
+            : "skip";
 
-      enqueueSnackbar(message, { variant });
+      enqueueSnackbar(message, { variant: variant as any });
 
       // Only clear the current suggestion and get a new one if disliked or skipped
       // For "liked", just leave the suggestion in place
@@ -958,10 +958,31 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
           isLoading={isLoadingSuggestion}
           error={suggestionError}
           isProcessing={isProcessingFeedback}
+          hasBeenLiked={suggestedMovie?.isSaved}
           onRequestSuggestion={handleGetSuggestion}
-          onLike={() => handleFeedback(session.Outcome.liked)}
+          onLike={() => {
+            // Call the feedback handler
+            handleFeedback(session.Outcome.liked);
+            // Also update the suggestedMovie to show it's now liked
+            if (suggestedMovie) {
+              const updatedMovie = { ...suggestedMovie, isSaved: true };
+              setSuggestedMovie(updatedMovie);
+            }
+          }}
           onDislike={() => handleFeedback(session.Outcome.disliked)}
-          onSkip={() => handleFeedback(session.Outcome.skipped)}
+          onSkip={() => {
+            if (suggestedMovie && suggestedMovie.isSaved) {
+              setSuggestedMovie(null);
+              setSuggestionReason(null);
+              
+              localStorage.removeItem(CACHED_MOVIE_SUGGESTION_KEY);
+              localStorage.removeItem(CACHED_MOVIE_REASON_KEY);
+              
+              handleGetSuggestion();
+            } else {
+              handleFeedback(session.Outcome.skipped);
+            }
+          }}
           onAddToLibrary={handleAddToFavorites}
           onAddToWatchlist={suggestedMovie ? () => handleAddToWatchlist(suggestedMovie) : undefined}
           renderImage={renderMoviePoster}

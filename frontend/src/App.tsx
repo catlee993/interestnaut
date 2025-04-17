@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, forwardRef } from "react";
 import "./App.css";
 import { session, spotify, MovieWithSavedStatus } from "@wailsjs/go/models";
 import { SuggestionProvider } from "@/components/music/suggestions/SuggestionContext";
@@ -22,6 +22,7 @@ import {
   Box,
   Container,
   SnackbarContent,
+  SnackbarContentProps,
 } from "@mui/material";
 import { theme } from "./theme";
 import { SnackbarProvider, useSnackbar } from "notistack";
@@ -282,6 +283,111 @@ function AppContent() {
   );
 }
 
+// Define a type for the custom snackbar props
+interface CustomSnackbarProps extends SnackbarContentProps {
+  style?: React.CSSProperties;
+}
+
+// Create custom snackbar components using forwardRef
+const SuccessSnackbar = forwardRef<HTMLDivElement, CustomSnackbarProps>((props, ref) => (
+  <SnackbarContent
+    ref={ref}
+    {...props}
+    style={{
+      backgroundColor: "var(--primary-color)",
+      color: "#fff",
+      borderRadius: "8px",
+      boxShadow: "0 4px 12px rgba(123, 104, 238, 0.3)",
+      fontWeight: 500,
+      ...props.style,
+    }}
+  />
+));
+
+const ErrorSnackbar = forwardRef<HTMLDivElement, CustomSnackbarProps>((props, ref) => (
+  <SnackbarContent
+    ref={ref}
+    {...props}
+    style={{
+      backgroundColor: "var(--purple-red)",
+      color: "#fff",
+      borderRadius: "8px",
+      boxShadow: "0 4px 12px rgba(194, 59, 133, 0.3)",
+      fontWeight: 500,
+      ...props.style,
+    }}
+  />
+));
+
+const WarningSnackbar = forwardRef<HTMLDivElement, CustomSnackbarProps>((props, ref) => (
+  <SnackbarContent
+    ref={ref}
+    {...props}
+    style={{
+      backgroundColor: "#FFBB33", // Standard warning yellow
+      color: "#000",
+      borderRadius: "8px",
+      boxShadow: "0 4px 12px rgba(255, 187, 51, 0.3)",
+      fontWeight: 500,
+      ...props.style,
+    }}
+  />
+));
+
+const SkipSnackbar = forwardRef<HTMLDivElement, CustomSnackbarProps>((props, ref) => (
+  <SnackbarContent
+    ref={ref}
+    {...props}
+    style={{
+      backgroundColor: "#4169E1", // RoyalBlue - a more distinctive blue
+      color: "#fff",
+      borderRadius: "8px",
+      boxShadow: "0 4px 12px rgba(65, 105, 225, 0.3)",
+      fontWeight: 500,
+      ...props.style,
+    }}
+  />
+));
+
+const InfoSnackbar = forwardRef<HTMLDivElement, CustomSnackbarProps>((props, ref) => (
+  <SnackbarContent
+    ref={ref}
+    {...props}
+    style={{
+      backgroundColor: "var(--primary-hover)",
+      color: "#fff",
+      borderRadius: "8px",
+      boxShadow: "0 4px 12px rgba(147, 112, 219, 0.3)",
+      fontWeight: 500,
+      ...props.style,
+    }}
+  />
+));
+
+const DefaultSnackbar = forwardRef<HTMLDivElement, CustomSnackbarProps>((props, ref) => (
+  <SnackbarContent
+    ref={ref}
+    {...props}
+    style={{
+      backgroundColor: "var(--surface-color)",
+      color: "#fff",
+      borderRadius: "8px",
+      boxShadow: "0 4px 12px rgba(0, 0, 0, 0.2)",
+      borderLeft: "4px solid var(--primary-color)",
+      fontWeight: 500,
+      ...props.style,
+    }}
+  />
+));
+
+// Add display names to components for better debugging
+SuccessSnackbar.displayName = 'SuccessSnackbar';
+ErrorSnackbar.displayName = 'ErrorSnackbar';
+WarningSnackbar.displayName = 'WarningSnackbar';
+SkipSnackbar.displayName = 'SkipSnackbar';
+InfoSnackbar.displayName = 'InfoSnackbar';
+DefaultSnackbar.displayName = 'DefaultSnackbar';
+
 // Main App component that provides context
 function App() {
   return (
@@ -294,17 +400,17 @@ function App() {
           horizontal: "center",
         }}
         Components={{
-          default: (props) => (
-            <SnackbarContent
-              {...props}
-              style={{
-                backgroundColor:
-                  props.style?.backgroundColor || theme.palette.grey[800],
-                color: props.style?.color || "#fff",
-                ...props.style,
-              }}
-            />
-          ),
+          success: SuccessSnackbar,
+          error: ErrorSnackbar,
+          warning: WarningSnackbar,
+          info: InfoSnackbar,
+          default: DefaultSnackbar,
+          skip: SkipSnackbar,
+        } as any}
+        onClose={() => console.log("[DEBUG-SNACKBAR] A snackbar was closed")}
+        TransitionProps={{
+          onEnter: () => console.log("[DEBUG-SNACKBAR] Snackbar transition enter"),
+          onExited: () => console.log("[DEBUG-SNACKBAR] Snackbar transition exited")
         }}
       >
         <MediaProvider>

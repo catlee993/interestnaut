@@ -99,10 +99,10 @@ export function MediaHeader({
               size="small"
               onClick={handleOpenSettings}
               sx={{
-                color: "#A855F7",
+                color: "var(--primary-color)",
                 padding: "2px",
                 "&:hover": {
-                  backgroundColor: "rgba(168, 85, 247, 0.1)",
+                  backgroundColor: "rgba(123, 104, 238, 0.1)",
                 },
               }}
             >

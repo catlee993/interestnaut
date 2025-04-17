@@ -68,12 +68,13 @@ export interface MediaSuggestionItem {
 }
 
 interface MediaSuggestionDisplayProps {
-  mediaType: 'movie' | 'book' | 'podcast' | 'other'; // add more types as needed
+  mediaType: 'movie' | 'book' | 'podcast' | 'other'; // Keep original media types
   suggestedItem: MediaSuggestionItem | null;
   suggestionReason: string | null;
   isLoading: boolean;
   error: string | null;
   isProcessing: boolean;
+  hasBeenLiked?: boolean; // Add prop to track if item has been liked
   onRequestSuggestion: () => void;
   onLike: () => void;
   onDislike: () => void;
@@ -90,6 +91,7 @@ export const MediaSuggestionDisplay: React.FC<MediaSuggestionDisplayProps> = ({
   isLoading,
   error,
   isProcessing,
+  hasBeenLiked = false, // Default to false (not liked)
   onRequestSuggestion,
   onLike,
   onDislike,
@@ -114,7 +116,14 @@ export const MediaSuggestionDisplay: React.FC<MediaSuggestionDisplayProps> = ({
   if (error) {
     return (
       <Box className="suggestion-error-state">
-        <Typography className="error-message" sx={{ color: "error.main" }}>
+        <Typography className="error-message" sx={{ 
+          color: "var(--purple-red)",
+          fontWeight: 500,
+          padding: "12px 16px",
+          backgroundColor: "rgba(194, 59, 133, 0.1)",
+          borderRadius: "8px",
+          border: "1px solid rgba(194, 59, 133, 0.3)"
+        }}>
           {error}
         </Typography>
         <StyledButton
@@ -317,8 +326,9 @@ export const MediaSuggestionDisplay: React.FC<MediaSuggestionDisplayProps> = ({
               className="action-button next-button"
               onClick={onSkip}
               disabled={isProcessing}
+              aria-label={hasBeenLiked ? "Get next suggestion" : "Skip this suggestion"}
             >
-              Next <FaStepForward />
+              {hasBeenLiked ? "Next" : "Skip"} <FaStepForward />
             </StyledButton>
           </Box>
         </Box>

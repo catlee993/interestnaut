@@ -1,6 +1,43 @@
 import { createTheme } from '@mui/material/styles';
 
 export const theme = createTheme({
+  typography: {
+    fontFamily: 'var(--body-font)',
+    h1: {
+      fontFamily: 'var(--heading-font)',
+      fontWeight: 600,
+      letterSpacing: '-0.025em',
+    },
+    h2: {
+      fontFamily: 'var(--heading-font)',
+      fontWeight: 600,
+      letterSpacing: '-0.025em',
+    },
+    h3: {
+      fontFamily: 'var(--heading-font)',
+      fontWeight: 600,
+      letterSpacing: '-0.025em',
+    },
+    h4: {
+      fontFamily: 'var(--heading-font)',
+      fontWeight: 600,
+      letterSpacing: '-0.02em',
+    },
+    h5: {
+      fontFamily: 'var(--heading-font)',
+      fontWeight: 600,
+      letterSpacing: '-0.015em',
+    },
+    h6: {
+      fontFamily: 'var(--heading-font)',
+      fontWeight: 600,
+      letterSpacing: '-0.01em',
+    },
+    button: {
+      fontFamily: 'var(--heading-font)',
+      fontWeight: 600,
+    },
+  },
   palette: {
     primary: {
       main: '#7B68EE', // Medium slate blue as primary
