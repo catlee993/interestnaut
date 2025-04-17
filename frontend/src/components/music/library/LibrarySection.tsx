@@ -5,7 +5,7 @@ import { spotify } from "@wailsjs/go/models";
 import { styled } from "@mui/material/styles";
 import { usePlayer } from "@/components/music/player/PlayerContext";
 import { GetSavedTracks } from "@wailsjs/go/bindings/Music";
-import { GetContinuousPlayback } from "@wailsjs/go/bindings/Settings";
+import { useSettings } from "@/contexts/SettingsContext";
 
 interface LibrarySectionProps {
   savedTracks: spotify.SavedTracks | null;
@@ -79,33 +79,20 @@ export const LibrarySection: React.FC<LibrarySectionProps> = ({
   const {
     updateSavedTracks,
     setContinuousPlayback,
-    isContinuousPlayback,
     setNextTrack,
     setNowPlayingTrack,
   } = usePlayer();
+  
+  // Use settings from context
+  const { isContinuousPlayback } = useSettings();
+  
   const [isLoading, setIsLoading] = useState(false);
   const [hasMore, setHasMore] = useState(true);
 
+  // No need to load settings from API - they're already in context
   useEffect(() => {
-    const loadSettings = async () => {
-      try {
-        console.log("[LibrarySection] Loading continuous playback setting");
-        const enabled = await GetContinuousPlayback();
-        console.log(
-          `[LibrarySection] Continuous playback from settings: ${enabled}`,
-        );
-
-        // Don't force the setting, use the actual value
-        setContinuousPlayback(enabled);
-      } catch (error) {
-        console.error(
-          "[LibrarySection] Error loading continuous playback:",
-          error,
-        );
-      }
-    };
-    loadSettings();
-  }, [setContinuousPlayback]);
+    console.log("[LibrarySection] Using continuous playback from context:", isContinuousPlayback);
+  }, [isContinuousPlayback]);
 
   // Add useEffect to call updateSavedTracks when savedTracks change
   useEffect(() => {

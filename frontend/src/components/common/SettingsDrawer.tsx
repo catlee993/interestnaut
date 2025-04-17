@@ -32,7 +32,7 @@ import {
 import { RefreshCredentials } from "@wailsjs/go/bindings/Movies";
 import { useSnackbar } from "notistack";
 import { ApiCredentialsManager } from "@/components/common/ApiCredentialsManager";
-import { useSettings, ChatGPTModel } from "@/hooks/useSettings";
+import { useSettings, ChatGPTModel } from "@/contexts/SettingsContext";
 
 const StyledDrawer = styled(Drawer)(({ theme }) => ({
   "& .MuiDrawer-paper": {
@@ -124,11 +124,10 @@ export function SettingsDrawer({ open, onClose }: SettingsDrawerProps) {
 
   const { enqueueSnackbar } = useSnackbar();
   const { 
-    chatGPTModel, 
-    updateChatGPTModel, 
-    continuousPlayback,
+    isContinuousPlayback,
     setContinuousPlayback,
-    isLoading: isLoadingSettings 
+    chatGPTModel,
+    setChatGPTModel
   } = useSettings();
 
   // Create a wrapper for RefreshCredentials that returns void
@@ -180,9 +179,9 @@ export function SettingsDrawer({ open, onClose }: SettingsDrawerProps) {
 
   useEffect(() => {
     console.log(
-      `[SettingsDrawer] Continuous playback is: ${continuousPlayback}`,
+      `[SettingsDrawer] Continuous playback is: ${isContinuousPlayback}`,
     );
-  }, [continuousPlayback]);
+  }, [isContinuousPlayback]);
 
   const handleTabChange = (_event: React.SyntheticEvent, newValue: number) => {
     setActiveTab(newValue);
@@ -269,11 +268,16 @@ export function SettingsDrawer({ open, onClose }: SettingsDrawerProps) {
 
     try {
       await setContinuousPlayback(newValue);
+      enqueueSnackbar(
+        `Continuous playback ${newValue ? "enabled" : "disabled"}`,
+        { variant: "success" },
+      );
     } catch (error) {
       console.error(
         "[SettingsDrawer] Error setting continuous playback:",
         error,
       );
+      enqueueSnackbar("Failed to update setting", { variant: "error" });
     }
   };
 
@@ -327,9 +331,8 @@ export function SettingsDrawer({ open, onClose }: SettingsDrawerProps) {
             <FormControlLabel
               control={
                 <StyledSwitch
-                  checked={continuousPlayback}
+                  checked={isContinuousPlayback}
                   onChange={handleContinuousPlaybackToggle}
-                  disabled={isLoadingSettings}
                 />
               }
               label="Continue playing liked songs"
@@ -355,8 +358,10 @@ export function SettingsDrawer({ open, onClose }: SettingsDrawerProps) {
               </FormLabel>
               <Select
                 value={chatGPTModel}
-                onChange={(e) => updateChatGPTModel(e.target.value as ChatGPTModel)}
-                disabled={isLoadingSettings}
+                onChange={(e) => {
+                  setChatGPTModel(e.target.value as ChatGPTModel);
+                  enqueueSnackbar(`Model changed to ${e.target.value}`, { variant: "success" });
+                }}
                 sx={{
                   color: "white",
                   textAlign: "left",

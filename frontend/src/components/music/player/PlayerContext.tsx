@@ -8,6 +8,7 @@ import {
 } from "react";
 import { spotify } from "@wailsjs/go/models";
 import { PlayTrackOnDevice, PausePlaybackOnDevice } from "@wailsjs/go/bindings/Music";
+import { useSettings } from "@/contexts/SettingsContext";
 import { useSpotifyPlayer } from "../hooks/useSpotifyPlayer";
 import { usePlaybackState } from "../hooks/usePlaybackState";
 import { useContinuousPlayback } from "../hooks/useContinuousPlayback";
@@ -29,7 +30,7 @@ interface PlayerContextType {
   setNextTrack: (track: Track) => void;
   setNowPlayingTrack: (track: Track) => void;
   handlePlay: (track: Track | string) => Promise<void>;
-  stopPlayback: () => Promise<void>;
+  stopPlayback: () => Promise<boolean>;
   handlePlayPause: () => void;
   seekTo: (position: number) => void;
   setContinuousPlayback: (enabled: boolean) => void;
@@ -50,7 +51,7 @@ const defaultContext: PlayerContextType = {
   setNextTrack: () => {},
   setNowPlayingTrack: () => {},
   handlePlay: async () => {},
-  stopPlayback: async () => {},
+  stopPlayback: async () => false,
   handlePlayPause: () => {},
   seekTo: () => {},
   setContinuousPlayback: () => {},
@@ -69,6 +70,9 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
   // Track state
   const [nowPlayingTrack, setNowPlayingTrack] = useState<Track>(null);
   const [nextTrack, setNextTrack] = useState<Track>(null);
+  
+  // Use the settings context
+  const { isContinuousPlayback } = useSettings();
   
   // Use the Spotify Player hook
   const {
@@ -95,7 +99,6 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
   
   // Use Continuous Playback hook
   const {
-    isContinuousPlayback,
     setContinuousPlayback,
     updateSavedTracks: updateTracksInPlayback,
     handleTrackEnd,
@@ -108,6 +111,65 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
     setIsPlaybackPaused,
   });
 
+  // Add effect to ensure isContinuousPlayback setting is applied when changed
+  useEffect(() => {
+    console.log("[PlayerContext] Continuous playback setting:", isContinuousPlayback);
+  }, [isContinuousPlayback]);
+
+  // Wrapper for setContinuousPlayback to handle UI state updates
+  const handleSetContinuousPlayback = useCallback((enabled: boolean) => {
+    console.log("[PlayerContext] Setting continuous playback to:", enabled);
+    setContinuousPlayback(enabled);
+  }, [setContinuousPlayback]);
+
+  // A wrapper for updateSavedTracks to pass the nowPlayingTrack
+  const updateSavedTracks = useCallback((tracks: spotify.SavedTracks, page: number) => {
+    updateTracksInPlayback(tracks, page, nowPlayingTrack);
+  }, [updateTracksInPlayback, nowPlayingTrack]);
+
+  // Stop playback
+  const stopPlayback = useCallback(async () => {
+    if (spotifyPlayer && spotifyDeviceId) {
+      try {
+        console.log("[PlayerContext] Stopping playback");
+        // Clear the next track first to prevent automatic playback
+        setNextTrack(null);
+        
+        // Explicitly pause via the SDK
+        try {
+          await spotifyPlayer.pause();
+        } catch (sdkError) {
+          console.warn("[PlayerContext] SDK pause error:", sdkError);
+        }
+        
+        // Then use the API as a backup in case SDK fails
+        try {
+          await PausePlaybackOnDevice(spotifyDeviceId);
+        } catch (apiError) {
+          console.warn("[PlayerContext] API pause error:", apiError);
+        }
+        
+        // Now clear now playing track
+        setNowPlayingTrack(null);
+        
+        // Mark that a track started to prevent false track end detection
+        window.dispatchEvent(new Event('trackStarted'));
+        
+        // Update state 
+        await updatePlaybackState();
+        
+        return true;
+      } catch (error) {
+        console.error("[PlayerContext] Error stopping playback:", error);
+        // Still mark the track as stopped in UI even if API call fails
+        setNowPlayingTrack(null);
+        await updatePlaybackState();
+        return false;
+      }
+    }
+    return false;
+  }, [spotifyPlayer, spotifyDeviceId, updatePlaybackState]);
+
   // Set up listener for player state changes to detect track end
   useEffect(() => {
     if (!spotifyPlayer) return;
@@ -117,10 +179,22 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
       
       // If track has ended, handle it
       if (isTrackEnded(state)) {
+        // Use the context value directly
+        console.log("[PlayerContext] Track end detected", { 
+          isContinuousPlayback
+        });
+        
         if (isContinuousPlayback) {
-          await handleTrackEnd(state);
+          console.log("[PlayerContext] Initiating continuous playback");
+          const success = await handleTrackEnd(state);
+          if (!success) {
+            console.log("[PlayerContext] Continuous playback failed, updating UI state");
+            setIsPlaybackPaused();
+          }
         } else {
-          // Just update UI state
+          console.log("[PlayerContext] No continuous playback, updating UI state");
+          // Be extra explicit about stopping playback when continuous playback is off
+          await stopPlayback();
           setIsPlaybackPaused();
         }
       }
@@ -131,12 +205,7 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
     return () => {
       spotifyPlayer.removeListener('player_state_changed', onStateChange);
     };
-  }, [spotifyPlayer, isContinuousPlayback, handleTrackEnd, isTrackEnded, setIsPlaybackPaused]);
-
-  // A wrapper for updateSavedTracks to pass the nowPlayingTrack
-  const updateSavedTracks = useCallback((tracks: spotify.SavedTracks, page: number) => {
-    updateTracksInPlayback(tracks, page, nowPlayingTrack);
-  }, [updateTracksInPlayback, nowPlayingTrack]);
+  }, [spotifyPlayer, isContinuousPlayback, handleTrackEnd, isTrackEnded, setIsPlaybackPaused, stopPlayback]);
 
   // Handle track play functionality
   const handlePlay = useCallback(async (trackOrUri: Track | string) => {
@@ -199,37 +268,6 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
       }
     }
   }, [spotifyPlayer, spotifyDeviceId, initializePlayer, updatePlaybackState]);
-
-  // Stop playback
-  const stopPlayback = useCallback(async () => {
-    if (spotifyPlayer && spotifyDeviceId) {
-      try {
-        console.log("[PlayerContext] Stopping playback");
-        // Clear the next track first to prevent automatic playback
-        setNextTrack(null);
-        
-        // Explicitly pause via the SDK
-        await spotifyPlayer.pause();
-        
-        // Then use the API as a backup in case SDK fails
-        await PausePlaybackOnDevice(spotifyDeviceId);
-        
-        // Now clear now playing track
-        setNowPlayingTrack(null);
-        
-        // Mark that a track started to prevent false track end detection
-        window.dispatchEvent(new Event('trackStarted'));
-        
-        // Update state 
-        await updatePlaybackState();
-      } catch (error) {
-        console.error("[PlayerContext] Error stopping playback:", error);
-        // Still mark the track as stopped in UI even if API call fails
-        setNowPlayingTrack(null);
-        await updatePlaybackState();
-      }
-    }
-  }, [spotifyPlayer, spotifyDeviceId, updatePlaybackState]);
 
   // Handle play/pause toggle
   const handlePlayPause = useCallback(async () => {
@@ -344,7 +382,7 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
     stopPlayback,
     handlePlayPause,
     seekTo,
-    setContinuousPlayback,
+    setContinuousPlayback: handleSetContinuousPlayback,
     updateSavedTracks,
     playNextTrack,
   };

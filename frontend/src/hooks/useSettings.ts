@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { GetContinuousPlayback, SetContinuousPlayback } from '@wailsjs/go/bindings/Settings';
+import { GetContinuousPlayback, SetContinuousPlayback, GetChatGPTModel, SetChatGPTModel } from '@wailsjs/go/bindings/Settings';
 import { useSnackbar } from 'notistack';
 
 export type ChatGPTModel = 'gpt-4o' | 'gpt-4o-mini' | 'gpt-4-turbo';
@@ -20,8 +20,15 @@ export function useSettings() {
         const isContinuousPlayback = await GetContinuousPlayback();
         setContinuousPlaybackState(isContinuousPlayback);
         
-        // For now, we'll use the default value until the Go bindings are updated
-        setChatGPTModel('gpt-4o');
+        // Load ChatGPT model from backend
+        const model = await GetChatGPTModel();
+        // Validate that the model is one of our allowed types
+        const validModel = ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'].includes(model) 
+          ? model as ChatGPTModel 
+          : 'gpt-4o';
+        setChatGPTModel(validModel);
+        
+        console.log(`[useSettings] Loaded settings: continuousPlayback=${isContinuousPlayback}, chatGPTModel=${model}`);
       } catch (error) {
         console.error('Failed to load settings:', error);
         enqueueSnackbar('Failed to load settings', { variant: 'error' });
@@ -37,9 +44,12 @@ export function useSettings() {
   const updateChatGPTModel = useCallback(async (model: ChatGPTModel) => {
     try {
       setIsLoading(true);
-      // This will be implemented when the Go bindings are updated
-      // For now, we'll just update the local state
+      
+      // Call the Go binding to update the ChatGPT model
+      await SetChatGPTModel(model);
       setChatGPTModel(model);
+      console.log(`[useSettings] Updated ChatGPT model to ${model}`);
+      
       enqueueSnackbar(`ChatGPT model updated to ${model}`, { variant: 'success' });
     } catch (error) {
       console.error('Failed to update ChatGPT model:', error);
@@ -55,6 +65,8 @@ export function useSettings() {
       setIsLoading(true);
       await SetContinuousPlayback(enabled);
       setContinuousPlaybackState(enabled);
+      console.log(`[useSettings] Updated continuous playback to ${enabled}`);
+      
       enqueueSnackbar(
         `Continuous playback ${enabled ? 'enabled' : 'disabled'}`,
         { variant: 'success' }

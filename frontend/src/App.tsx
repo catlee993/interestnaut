@@ -16,6 +16,7 @@ import { usePlayer } from "@/components/music/player/PlayerContext";
 import { usePlaybackControl } from "@/components/music/hooks/usePlaybackControl";
 import { PlayerProvider } from "@/components/music/player/PlayerContext";
 import { MediaProvider, useMedia } from "@/contexts/MediaContext";
+import { SettingsProvider } from "@/contexts/SettingsContext";
 import {
   ThemeProvider,
   CssBaseline,
@@ -93,6 +94,8 @@ declare module "@wailsjs/go/models" {
     vote_count: number;
     genres: string[];
     isSaved: boolean;
+    director?: string;
+    writer?: string;
   }
 }
 
@@ -286,99 +289,180 @@ function AppContent() {
 // Define a type for the custom snackbar props
 interface CustomSnackbarProps extends SnackbarContentProps {
   style?: React.CSSProperties;
+  // Add notistack specific props
+  anchorOrigin?: {
+    vertical: 'top' | 'bottom';
+    horizontal: 'left' | 'center' | 'right';
+  };
+  autoHideDuration?: number | null;
+  hideIconVariant?: boolean;
+  iconVariant?: Record<string, React.ReactNode>;
+  persist?: boolean;
 }
 
 // Create custom snackbar components using forwardRef
-const SuccessSnackbar = forwardRef<HTMLDivElement, CustomSnackbarProps>((props, ref) => (
-  <SnackbarContent
-    ref={ref}
-    {...props}
-    style={{
-      backgroundColor: "var(--primary-color)",
-      color: "#fff",
-      borderRadius: "8px",
-      boxShadow: "0 4px 12px rgba(123, 104, 238, 0.3)",
-      fontWeight: 500,
-      ...props.style,
-    }}
-  />
-));
+const SuccessSnackbar = forwardRef<HTMLDivElement, CustomSnackbarProps>(({ style, ...props }, ref) => {
+  // Filter out notistack props that shouldn't be passed to DOM
+  const {
+    anchorOrigin,
+    autoHideDuration,
+    hideIconVariant,
+    iconVariant,
+    persist,
+    ...contentProps
+  } = props;
 
-const ErrorSnackbar = forwardRef<HTMLDivElement, CustomSnackbarProps>((props, ref) => (
-  <SnackbarContent
-    ref={ref}
-    {...props}
-    style={{
-      backgroundColor: "var(--purple-red)",
-      color: "#fff",
-      borderRadius: "8px",
-      boxShadow: "0 4px 12px rgba(194, 59, 133, 0.3)",
-      fontWeight: 500,
-      ...props.style,
-    }}
-  />
-));
+  return (
+    <SnackbarContent
+      ref={ref}
+      {...contentProps}
+      style={{
+        backgroundColor: "var(--primary-color)",
+        color: "#fff",
+        borderRadius: "8px",
+        boxShadow: "0 4px 12px rgba(123, 104, 238, 0.3)",
+        fontWeight: 500,
+        ...style,
+      }}
+    />
+  );
+});
 
-const WarningSnackbar = forwardRef<HTMLDivElement, CustomSnackbarProps>((props, ref) => (
-  <SnackbarContent
-    ref={ref}
-    {...props}
-    style={{
-      backgroundColor: "#FFBB33", // Standard warning yellow
-      color: "#000",
-      borderRadius: "8px",
-      boxShadow: "0 4px 12px rgba(255, 187, 51, 0.3)",
-      fontWeight: 500,
-      ...props.style,
-    }}
-  />
-));
+const ErrorSnackbar = forwardRef<HTMLDivElement, CustomSnackbarProps>(({ style, ...props }, ref) => {
+  // Filter out notistack props that shouldn't be passed to DOM
+  const {
+    anchorOrigin,
+    autoHideDuration,
+    hideIconVariant,
+    iconVariant,
+    persist,
+    ...contentProps
+  } = props;
 
-const SkipSnackbar = forwardRef<HTMLDivElement, CustomSnackbarProps>((props, ref) => (
-  <SnackbarContent
-    ref={ref}
-    {...props}
-    style={{
-      backgroundColor: "#4169E1", // RoyalBlue - a more distinctive blue
-      color: "#fff",
-      borderRadius: "8px",
-      boxShadow: "0 4px 12px rgba(65, 105, 225, 0.3)",
-      fontWeight: 500,
-      ...props.style,
-    }}
-  />
-));
+  return (
+    <SnackbarContent
+      ref={ref}
+      {...contentProps}
+      style={{
+        backgroundColor: "var(--purple-red)",
+        color: "#fff",
+        borderRadius: "8px",
+        boxShadow: "0 4px 12px rgba(194, 59, 133, 0.3)",
+        fontWeight: 500,
+        ...style,
+      }}
+    />
+  );
+});
 
-const InfoSnackbar = forwardRef<HTMLDivElement, CustomSnackbarProps>((props, ref) => (
-  <SnackbarContent
-    ref={ref}
-    {...props}
-    style={{
-      backgroundColor: "var(--primary-hover)",
-      color: "#fff",
-      borderRadius: "8px",
-      boxShadow: "0 4px 12px rgba(147, 112, 219, 0.3)",
-      fontWeight: 500,
-      ...props.style,
-    }}
-  />
-));
+const WarningSnackbar = forwardRef<HTMLDivElement, CustomSnackbarProps>(({ style, ...props }, ref) => {
+  // Filter out notistack props that shouldn't be passed to DOM
+  const {
+    anchorOrigin,
+    autoHideDuration,
+    hideIconVariant,
+    iconVariant,
+    persist,
+    ...contentProps
+  } = props;
 
-const DefaultSnackbar = forwardRef<HTMLDivElement, CustomSnackbarProps>((props, ref) => (
-  <SnackbarContent
-    ref={ref}
-    {...props}
-    style={{
-      backgroundColor: "var(--surface-color)",
-      color: "#fff",
-      borderRadius: "8px",
-      boxShadow: "0 4px 12px rgba(0, 0, 0, 0.2)",
-      borderLeft: "4px solid var(--primary-color)",
-      fontWeight: 500,
-      ...props.style,
-    }}
-  />
-));
+  return (
+    <SnackbarContent
+      ref={ref}
+      {...contentProps}
+      style={{
+        backgroundColor: "#FFBB33", // Standard warning yellow
+        color: "#000",
+        borderRadius: "8px",
+        boxShadow: "0 4px 12px rgba(255, 187, 51, 0.3)",
+        fontWeight: 500,
+        ...style,
+      }}
+    />
+  );
+});
+
+const SkipSnackbar = forwardRef<HTMLDivElement, CustomSnackbarProps>(({ style, ...props }, ref) => {
+  // Filter out notistack props that shouldn't be passed to DOM
+  const {
+    anchorOrigin,
+    autoHideDuration,
+    hideIconVariant,
+    iconVariant,
+    persist,
+    ...contentProps
+  } = props;
+
+  return (
+    <SnackbarContent
+      ref={ref}
+      {...contentProps}
+      style={{
+        backgroundColor: "#4169E1", // RoyalBlue - a more distinctive blue
+        color: "#fff",
+        borderRadius: "8px",
+        boxShadow: "0 4px 12px rgba(65, 105, 225, 0.3)",
+        fontWeight: 500,
+        ...style,
+      }}
+    />
+  );
+});
+
+const InfoSnackbar = forwardRef<HTMLDivElement, CustomSnackbarProps>(({ style, ...props }, ref) => {
+  // Filter out notistack props that shouldn't be passed to DOM
+  const {
+    anchorOrigin,
+    autoHideDuration,
+    hideIconVariant,
+    iconVariant,
+    persist,
+    ...contentProps
+  } = props;
+
+  return (
+    <SnackbarContent
+      ref={ref}
+      {...contentProps}
+      style={{
+        backgroundColor: "var(--primary-hover)",
+        color: "#fff",
+        borderRadius: "8px",
+        boxShadow: "0 4px 12px rgba(147, 112, 219, 0.3)",
+        fontWeight: 500,
+        ...style,
+      }}
+    />
+  );
+});
+
+const DefaultSnackbar = forwardRef<HTMLDivElement, CustomSnackbarProps>(({ style, ...props }, ref) => {
+  // Filter out notistack props that shouldn't be passed to DOM
+  const {
+    anchorOrigin,
+    autoHideDuration,
+    hideIconVariant,
+    iconVariant,
+    persist,
+    ...contentProps
+  } = props;
+
+  return (
+    <SnackbarContent
+      ref={ref}
+      {...contentProps}
+      style={{
+        backgroundColor: "var(--surface-color)",
+        color: "#fff",
+        borderRadius: "8px",
+        boxShadow: "0 4px 12px rgba(0, 0, 0, 0.2)",
+        borderLeft: "4px solid var(--primary-color)",
+        fontWeight: 500,
+        ...style,
+      }}
+    />
+  );
+});
 
 // Add display names to components for better debugging
 SuccessSnackbar.displayName = 'SuccessSnackbar';
@@ -414,11 +498,13 @@ function App() {
         }}
       >
         <MediaProvider>
-          <PlayerProvider>
-            <SuggestionProvider>
-              <AppContent />
-            </SuggestionProvider>
-          </PlayerProvider>
+          <SettingsProvider>
+            <PlayerProvider>
+              <SuggestionProvider>
+                <AppContent />
+              </SuggestionProvider>
+            </PlayerProvider>
+          </SettingsProvider>
         </MediaProvider>
       </SnackbarProvider>
     </ThemeProvider>

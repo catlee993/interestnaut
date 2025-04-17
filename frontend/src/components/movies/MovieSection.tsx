@@ -210,6 +210,8 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
             vote_count: 0,
             genres: [],
             isSaved: true,
+            director: movie.director || "",
+            writer: movie.writer || ""
           });
         } else {
           try {
@@ -225,6 +227,8 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
                 vote_count: 0,
                 genres: [],
                 isSaved: true,
+                director: movie.director || "",
+                writer: movie.writer || ""
               });
               continue;
             }
@@ -242,6 +246,8 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
               moviesWithDetails.push({
                 ...matchedMovie,
                 isSaved: true,
+                director: movie.director || matchedMovie.director || "", 
+                writer: movie.writer || matchedMovie.writer || ""
               });
             } else {
               // If no match found, create a basic entry without poster
@@ -255,6 +261,8 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
                 vote_count: 0,
                 genres: [],
                 isSaved: true,
+                director: movie.director || "",
+                writer: movie.writer || ""
               });
             }
           } catch (error) {
@@ -273,6 +281,8 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
               vote_count: 0,
               genres: [],
               isSaved: true,
+              director: movie.director || "",
+              writer: movie.writer || ""
             });
           }
         }
@@ -326,6 +336,8 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
             vote_count: 0,
             genres: [],
             isSaved: false, // Not in favorites
+            director: movie.director || "",
+            writer: movie.writer || ""
           });
         } else {
           try {
@@ -341,6 +353,8 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
                 vote_count: 0,
                 genres: [],
                 isSaved: false,
+                director: movie.director || "",
+                writer: movie.writer || ""
               });
               continue;
             }
@@ -361,6 +375,8 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
               moviesWithDetails.push({
                 ...matchedMovie,
                 isSaved: isSaved,
+                director: movie.director || matchedMovie.director || "",
+                writer: movie.writer || matchedMovie.writer || ""
               });
             } else {
               // If no match found, create a basic entry without poster
@@ -374,6 +390,8 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
                 vote_count: 0,
                 genres: [],
                 isSaved: false,
+                director: movie.director || "",
+                writer: movie.writer || ""
               });
             }
           } catch (error) {
@@ -392,6 +410,8 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
               vote_count: 0,
               genres: [],
               isSaved: false,
+              director: movie.director || "",
+              writer: movie.writer || ""
             });
           }
         }
@@ -487,11 +507,24 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
           return;
         }
         
-        // Add to saved movies with poster path
+        // Get director info from TMDB if movie has an ID and we don't have director info
+        let directorName = movie.director || "";
+        if (movie.id > 0 && !directorName) {
+          try {
+            const details = await GetMovieDetails(movie.id);
+            if (details && details.director) {
+              directorName = details.director;
+            }
+          } catch (error) {
+            console.error(`Failed to fetch director info for "${movie.title}":`, error);
+          }
+        }
+        
+        // Add to saved movies with poster path and director
         const newFavorite: session.Movie = {
           title: movie.title,
-          director: "", // We don't have this info from TMDB
-          writer: "", // We don't have this info from TMDB
+          director: directorName,
+          writer: movie.writer || "", // We might not have this info from TMDB
           poster_path: movie.poster_path || ""
         };
         
@@ -502,7 +535,7 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
         await SetFavoriteMovies(updatedFavorites);
 
         // Update local state
-        setSavedMovies((prev) => [...prev, { ...movie, isSaved: true }]);
+        setSavedMovies((prev) => [...prev, { ...movie, isSaved: true, director: directorName }]);
         enqueueSnackbar(`Added "${movie.title}" to your library`, {
           variant: "success",
         });
@@ -775,11 +808,24 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
         return;
       }
       
+      // Get director info from TMDB if movie has an ID and we don't have director info
+      let directorName = movie.director || "";
+      if (movie.id > 0 && !directorName) {
+        try {
+          const details = await GetMovieDetails(movie.id);
+          if (details && details.director) {
+            directorName = details.director;
+          }
+        } catch (error) {
+          console.error(`Failed to fetch director info for "${movie.title}":`, error);
+        }
+      }
+      
       // Create a movie object to add to the watchlist
       const watchlistMovie: session.Movie = {
         title: movie.title,
-        director: "", // We don't have this info from TMDB
-        writer: "", // We don't have this info from TMDB
+        director: directorName,
+        writer: movie.writer || "", // We might not have this info from TMDB
         poster_path: movie.poster_path || ""
       };
       
@@ -787,7 +833,7 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
       await AddToWatchlist(watchlistMovie);
       
       // Update local state - add the movie to watchlist
-      setWatchlistMovies(prev => [...prev, { ...movie, isSaved: movie.isSaved }]);
+      setWatchlistMovies(prev => [...prev, { ...movie, isSaved: movie.isSaved, director: directorName }]);
       
       // Show success message
       enqueueSnackbar(`Added "${movie.title}" to your watchlist`, {
@@ -843,7 +889,11 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
         const movieInSearchResults = searchResults.find(m => m.title === movie.title);
         if (movieInSearchResults && movieInSearchResults.id > 0) {
           console.log(`Found movie "${movie.title}" in search results with ID ${movieInSearchResults.id}`);
-          movieForFeedback = movieInSearchResults;
+          movieForFeedback = { 
+            ...movieInSearchResults,
+            director: movie.director || movieInSearchResults.director || "",
+            writer: movie.writer || movieInSearchResults.writer || ""
+          };
         } else {
           // If not in search results, search for it to get the ID
           console.log(`Searching for movie "${movie.title}" to get proper ID`);
@@ -851,7 +901,11 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
             const results = await SearchMovies(movie.title);
             if (results && results.length > 0) {
               console.log(`Found movie "${movie.title}" in TMDB with ID ${results[0].id}`);
-              movieForFeedback = results[0];
+              movieForFeedback = { 
+                ...results[0],
+                director: movie.director || results[0].director || "",
+                writer: movie.writer || results[0].writer || ""
+              };
             }
           } catch (error) {
             console.error(`Failed to search for movie "${movie.title}":`, error);
@@ -860,8 +914,26 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
         }
       }
       
-      // Record feedback with the movie ID (even if it's still 0)
-      console.log(`Recording ${action} feedback for movie "${movieForFeedback.title}" with ID ${movieForFeedback.id}`);
+      // If movie has an ID but is missing director/writer info, try to get it
+      if (movieForFeedback.id > 0 && (!movieForFeedback.director || !movieForFeedback.writer)) {
+        try {
+          const details = await GetMovieDetails(movieForFeedback.id);
+          if (details) {
+            movieForFeedback = {
+              ...movieForFeedback,
+              director: movieForFeedback.director || details.director || "",
+              writer: movieForFeedback.writer || details.writer || ""
+            };
+          }
+        } catch (error) {
+          console.error(`Failed to get details for movie ID ${movieForFeedback.id}:`, error);
+          // Continue with what we have if details fetch fails
+        }
+      }
+      
+      // Record feedback with the movie ID and all available metadata
+      console.log(`Recording ${action} feedback for movie "${movieForFeedback.title}" with ID ${movieForFeedback.id}, director: "${movieForFeedback.director}", writer: "${movieForFeedback.writer}"`);
+      
       await ProvideSuggestionFeedback(
         action === "like" ? session.Outcome.liked : session.Outcome.disliked,
         movieForFeedback.id
@@ -1103,8 +1175,8 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
                 },
               }}
             >
-              {savedMovies.map((movie) => (
-                <Box key={`saved-${movie.id}`}>
+              {savedMovies.map((movie, index) => (
+                <Box key={`saved-${movie.id || index}`}>
                   <MovieCard
                     movie={movie}
                     isSaved={true}

@@ -86,7 +86,7 @@ type manager[T Media] struct {
 type settings struct {
 	ContinuousPlayback bool   `json:"continuous_playback"`
 	ChatGPTModel       string `json:"chatgpt_model"`
-	path               string
+	path               string // This field is not serialized
 }
 
 type centralManager struct {
@@ -439,14 +439,29 @@ func (cm *centralManager) loadOrCreateSettings(userID, dataDir string) error {
 		log.Printf("Failed to read settings file %s: %v", filePath, err)
 		return fmt.Errorf("failed to read settings file: %w", err)
 	}
+
 	var sets settings
 	if err := json.Unmarshal(data, &sets); err != nil {
 		log.Printf("Failed to unmarshal settings: %v", err)
 		return fmt.Errorf("failed to unmarshal settings: %w", err)
 	}
+
+	// Set the path so the settings can be saved later
 	sets.path = filePath
 
-	log.Printf("Successfully loaded settings for user %s", userID)
+	// Ensure the ChatGPTModel has a default value if it's empty
+	if sets.ChatGPTModel == "" {
+		log.Printf("ChatGPTModel was empty in settings file, setting default value")
+		sets.ChatGPTModel = "gpt-4o"
+
+		// Save the updated settings back to disk
+		if sErr := sets.saveSettings(); sErr != nil {
+			log.Printf("WARNING: Failed to save updated settings with default GPT model: %v", sErr)
+		}
+	}
+
+	log.Printf("Successfully loaded settings for user %s: continuousPlayback=%v, chatGptModel=%s",
+		userID, sets.ContinuousPlayback, sets.ChatGPTModel)
 
 	cm.settings = &sets
 
@@ -459,6 +474,9 @@ func (s *settings) saveSettings() error {
 		log.Printf("Failed to marshal settings: %v", err)
 		return fmt.Errorf("failed to marshal settings: %w", err)
 	}
+
+	log.Printf("Saving settings to file %s: continuousPlayback=%v, chatGptModel=%s",
+		s.path, s.ContinuousPlayback, s.ChatGPTModel)
 
 	if wErr := os.WriteFile(s.path, data, 0644); wErr != nil {
 		log.Printf("Failed to write settings file: %v", wErr)
