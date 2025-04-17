@@ -5,6 +5,10 @@ export function GetChatGPTModel():Promise<string>;
 
 export function GetContinuousPlayback():Promise<boolean>;
 
+export function GetLLMProvider():Promise<string>;
+
 export function SetChatGPTModel(arg1:string):Promise<void>;
 
 export function SetContinuousPlayback(arg1:boolean):Promise<void>;
+
+export function SetLLMProvider(arg1:string):Promise<void>;

@@ -105,6 +105,22 @@ const mapMediaItemToTrack = (item: MediaSuggestionItem): spotify.SuggestedTrackI
   return track;
 };
 
+// Helper function to parse error objects consistently
+const parseErrorMessage = (error: any, defaultMessage: string = "An error occurred"): string => {
+  if (typeof error === "string") {
+    return error;
+  } else if (error?.error) {
+    if (typeof error.error === "string") {
+      return error.error;
+    } else if (error.error?.message) {
+      return error.error.message;
+    }
+  } else if (error?.message) {
+    return error.message;
+  }
+  return defaultMessage;
+};
+
 export function SuggestionProvider({
   children,
 }: SuggestionProviderProps): JSX.Element {
@@ -194,7 +210,12 @@ export function SuggestionProvider({
     message: string,
     variant: "success" | "error" | "warning" | "info" | "skip",
   ) => {
-    enqueueSnackbar(message, {
+    // Truncate long toast messages more aggressively
+    const truncatedMessage = message.length > 200 
+      ? message.substring(0, 200) + "..." 
+      : message;
+      
+    enqueueSnackbar(truncatedMessage, {
       variant: variant as any,
       anchorOrigin: {
         vertical: "top",
@@ -253,26 +274,16 @@ export function SuggestionProvider({
       }
     } catch (error: any) {
       console.error("Error requesting suggestion:", error);
-      let errorMessage = "Failed to get suggestion";
-
-      // Parse the error message
-      if (typeof error === "string") {
-        errorMessage = error;
-      } else if (error?.error) {
-        if (typeof error.error === "string") {
-          errorMessage = error.error;
-        } else if (error.error?.message) {
-          errorMessage = error.error.message;
-        }
-      } else if (error?.message) {
-        errorMessage = error.message;
-      }
+      const errorMessage = parseErrorMessage(error, "Failed to get suggestion");
 
       // Clear any cached suggestion on error
       clearSuggestion();
       console.log('[SuggestionCache] Cleared cache due to suggestion error');
 
+      // Store full error message in suggestionError for display
       setSuggestionError(errorMessage);
+      
+      // Use truncated message for toast
       handleToast(errorMessage, "error");
     } finally {
       isRequestInProgress.current = false;
@@ -319,16 +330,8 @@ export function SuggestionProvider({
       await handleRequestSuggestion();
     } catch (error: any) {
       console.error("Error skipping suggestion:", error);
-      let errorMessage = "Failed to skip track";
-      if (error?.error) {
-        if (typeof error.error === "string") {
-          errorMessage = error.error;
-        } else if (error.error?.message) {
-          errorMessage = error.error.message;
-        }
-      } else if (error?.message) {
-        errorMessage = error.message;
-      }
+      const errorMessage = parseErrorMessage(error, "Failed to skip track");
+      
       setSuggestionState(prev => ({ ...prev, outcome: session.Outcome.pending }));
       setSuggestionError(errorMessage);
       handleToast(errorMessage, "error");
@@ -401,7 +404,9 @@ export function SuggestionProvider({
       }
     } catch (error) {
       console.error("Error providing suggestion feedback:", error);
-      handleToast("Failed to record feedback", "error");
+      const errorMessage = parseErrorMessage(error, "Failed to record feedback");
+      
+      handleToast(errorMessage, "error");
       setSuggestionState(prev => ({ ...prev, outcome: session.Outcome.pending, hasLiked: false, hasAdded: false }));
     } finally {
       if (feedbackType === "dislike") {
@@ -453,17 +458,12 @@ export function SuggestionProvider({
       await handleRequestSuggestion();
     } catch (error: any) {
       console.error("Error adding to library:", error);
-      let errorMessage = "Failed to add track to library";
-      if (error?.error) {
-        if (typeof error.error === "string") {
-          errorMessage = error.error;
-        } else if (error.error?.message) {
-          errorMessage = error.error.message;
-        }
-      } else if (error?.message) {
-        errorMessage = error.message;
-      }
+      const errorMessage = parseErrorMessage(error, "Failed to add track to library");
+      
+      // Store full error message in suggestionError for display
       setSuggestionError(errorMessage);
+      
+      // Toast will use truncated message from handleToast function
       handleToast(errorMessage, "error");
       
       // Don't clear the cache on error - the user might want to try again

@@ -57,3 +57,28 @@ func (s *Settings) SetChatGPTModel(model string) error {
 	log.Printf("SetChatGPTModel called with value: %s", model)
 	return s.ContentManager.Settings().SetChatGPTModel(context.Background(), model)
 }
+
+func (s *Settings) GetLLMProvider() string {
+	if s.ContentManager == nil || s.ContentManager.Settings() == nil {
+		log.Printf("WARNING: ContentManager or Settings is nil in GetLLMProvider")
+		return "openai"
+	}
+	value := s.ContentManager.Settings().GetLLMProvider()
+	log.Printf("GetLLMProvider returning: %s", value)
+	return value
+}
+
+func (s *Settings) SetLLMProvider(provider string) error {
+	if s.ContentManager == nil || s.ContentManager.Settings() == nil {
+		log.Printf("ERROR: ContentManager or Settings is nil in SetLLMProvider")
+		return nil
+	}
+
+	// Default to openai if empty or invalid
+	if provider == "" || (provider != "openai" && provider != "gemini") {
+		provider = "openai"
+	}
+
+	log.Printf("SetLLMProvider called with value: %s", provider)
+	return s.ContentManager.Settings().SetLLMProvider(context.Background(), provider)
+}

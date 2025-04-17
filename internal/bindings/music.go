@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"interestnaut/internal/directives"
+	"interestnaut/internal/gemini"
 	"interestnaut/internal/llm"
 	"interestnaut/internal/openai"
 	"interestnaut/internal/session"
@@ -21,8 +22,9 @@ const limit = 5
 type Music struct {
 	spotifyAuthConfig      *spotify.AuthConfig
 	spotifyClient          spotify.Client
-	llmClient              llm.Client[session.Music]
+	llmClients             map[string]llm.Client[session.Music]
 	manager                session.Manager[session.Music]
+	centralManager         session.CentralManager
 	baselineFunc, taskFunc func() string
 	mu                     sync.Mutex
 }
@@ -32,11 +34,32 @@ func NewMusicBinder(ctx context.Context, cm session.CentralManager, clientID str
 		ClientID:    clientID,
 		RedirectURI: "http://localhost:8080/callback",
 	}
-	llmClient, err := openai.NewClient[session.Music]()
+
+	// Create a map of LLM clients for both providers
+	llmClients := make(map[string]llm.Client[session.Music])
+
+	// Initialize OpenAI client
+	openaiClient, err := openai.NewClient[session.Music]()
 	if err != nil {
 		log.Printf("ERROR: Failed to create OpenAI client: %v", err)
+	} else {
+		llmClients["openai"] = openaiClient
+	}
+
+	// Initialize Gemini client
+	geminiClient, err := gemini.NewClient[session.Music]()
+	if err != nil {
+		log.Printf("ERROR: Failed to create Gemini client: %v", err)
+	} else {
+		llmClients["gemini"] = geminiClient
+	}
+
+	// If no clients were successfully created, return nil
+	if len(llmClients) == 0 {
+		log.Printf("ERROR: Failed to create any LLM clients")
 		return nil
 	}
+
 	spotifyClient := spotify.NewClient()
 	baselineFunc := func() string {
 		return directives.GetMusicBaseline(ctx, spotifyClient)
@@ -47,8 +70,9 @@ func NewMusicBinder(ctx context.Context, cm session.CentralManager, clientID str
 	return &Music{
 		spotifyAuthConfig: sac,
 		spotifyClient:     spotifyClient,
-		llmClient:         llmClient,
+		llmClients:        llmClients,
 		manager:           cm.Music(),
+		centralManager:    cm,
 		baselineFunc:      baselineFunc,
 		taskFunc:          taskFunc,
 	}
@@ -78,13 +102,28 @@ func (m *Music) GetCurrentUser() (*spotify.UserProfile, error) {
 func (m *Music) RequestNewSuggestion() (*spotify.SuggestedTrackInfo, error) {
 	ctx := context.Background()
 	sess := m.manager.GetOrCreateSession(ctx, m.manager.Key(), m.taskFunc, m.baselineFunc)
-	messages, err := m.llmClient.ComposeMessages(ctx, &sess.Content)
+
+	// Get current LLM provider from settings
+	provider := m.centralManager.Settings().GetLLMProvider()
+
+	// Get the appropriate client
+	llmClient, ok := m.llmClients[provider]
+	if !ok {
+		// Fall back to openai if the requested provider is not available
+		log.Printf("WARNING: Requested LLM provider '%s' not available, falling back to openai", provider)
+		llmClient, ok = m.llmClients["openai"]
+		if !ok {
+			return nil, errors.New("no LLM clients available")
+		}
+	}
+
+	messages, err := llmClient.ComposeMessages(ctx, &sess.Content)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to compose message for OpenAI")
+		return nil, errors.Wrap(err, "failed to compose message for LLM")
 	}
 
 	// Request a new content
-	suggestion, err := m.llmClient.SendMessages(ctx, messages...)
+	suggestion, err := llmClient.SendMessages(ctx, messages...)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get suggestion from LLM")
 	}

@@ -10,10 +10,18 @@ export function GetContinuousPlayback() {
   return window['go']['bindings']['Settings']['GetContinuousPlayback']();
 }
 
+export function GetLLMProvider() {
+  return window['go']['bindings']['Settings']['GetLLMProvider']();
+}
+
 export function SetChatGPTModel(arg1) {
   return window['go']['bindings']['Settings']['SetChatGPTModel'](arg1);
 }
 
 export function SetContinuousPlayback(arg1) {
   return window['go']['bindings']['Settings']['SetContinuousPlayback'](arg1);
+}
+
+export function SetLLMProvider(arg1) {
+  return window['go']['bindings']['Settings']['SetLLMProvider'](arg1);
 }

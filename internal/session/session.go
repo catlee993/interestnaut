@@ -33,6 +33,8 @@ type Settings interface {
 	SetContinuousPlayback(context.Context, bool) error
 	GetChatGPTModel() string
 	SetChatGPTModel(context.Context, string) error
+	GetLLMProvider() string
+	SetLLMProvider(context.Context, string) error
 }
 
 type FavoriteManager interface {
@@ -86,6 +88,7 @@ type manager[T Media] struct {
 type settings struct {
 	ContinuousPlayback bool   `json:"continuous_playback"`
 	ChatGPTModel       string `json:"chatgpt_model"`
+	LLMProvider        string `json:"llm_provider"`
 	path               string // This field is not serialized
 }
 
@@ -285,6 +288,18 @@ func (s *settings) SetChatGPTModel(_ context.Context, model string) error {
 	return s.saveSettings()
 }
 
+func (s *settings) GetLLMProvider() string {
+	if s.LLMProvider == "" {
+		return "openai" // Default to OpenAI if not set
+	}
+	return s.LLMProvider
+}
+
+func (s *settings) SetLLMProvider(_ context.Context, provider string) error {
+	s.LLMProvider = provider
+	return s.saveSettings()
+}
+
 // UpdateSuggestionOutcome updates the outcome of a previously suggested song
 func (m *manager[T]) UpdateSuggestionOutcome(
 	ctx context.Context,
@@ -426,6 +441,7 @@ func (cm *centralManager) loadOrCreateSettings(userID, dataDir string) error {
 			defaultSettings := &settings{
 				ContinuousPlayback: false,
 				ChatGPTModel:       "gpt-4o",
+				LLMProvider:        "",
 				path:               filePath,
 			}
 			if sErr := defaultSettings.saveSettings(); sErr != nil {

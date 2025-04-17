@@ -117,6 +117,11 @@ export const MediaSuggestionDisplay: React.FC<MediaSuggestionDisplayProps> = ({
   }
 
   if (error) {
+    // Truncate very long error messages
+    const truncatedError = error.length > 500 
+      ? error.substring(0, 500) + "..." 
+      : error;
+      
     return (
       <Box className="suggestion-error-state">
         <Typography className="error-message" sx={{ 
@@ -127,7 +132,7 @@ export const MediaSuggestionDisplay: React.FC<MediaSuggestionDisplayProps> = ({
           borderRadius: "8px",
           border: "1px solid rgba(194, 59, 133, 0.3)"
         }}>
-          {error}
+          {truncatedError}
         </Typography>
         <StyledButton
           onClick={onRequestSuggestion}

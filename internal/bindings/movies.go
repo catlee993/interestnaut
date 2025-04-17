@@ -2,8 +2,10 @@ package bindings
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"interestnaut/internal/directives"
+	"interestnaut/internal/gemini"
 	"interestnaut/internal/llm"
 	"interestnaut/internal/openai"
 	"interestnaut/internal/session"
@@ -28,7 +30,7 @@ type MovieWithSavedStatus struct {
 
 type Movies struct {
 	tmdbClient             *tmdb.Client
-	llmClient              llm.Client[session.Movie]
+	llmClients             map[string]llm.Client[session.Movie]
 	manager                session.Manager[session.Movie]
 	centralManager         session.CentralManager
 	baselineFunc, taskFunc func() string
@@ -36,17 +38,37 @@ type Movies struct {
 
 func NewMovieBinder(ctx context.Context, cm session.CentralManager) (*Movies, error) {
 	client := tmdb.NewClient()
-	llmClient, err := openai.NewClient[session.Movie]()
+
+	// Create a map of LLM clients for both providers
+	llmClients := make(map[string]llm.Client[session.Movie])
+
+	// Initialize OpenAI client
+	openaiClient, err := openai.NewClient[session.Movie]()
 	if err != nil {
 		log.Printf("ERROR: Failed to create OpenAI client: %v", err)
-		return nil, err
+	} else {
+		llmClients["openai"] = openaiClient
+	}
+
+	// Initialize Gemini client
+	geminiClient, err := gemini.NewClient[session.Movie]()
+	if err != nil {
+		log.Printf("ERROR: Failed to create Gemini client: %v", err)
+	} else {
+		llmClients["gemini"] = geminiClient
+	}
+
+	// If no clients were successfully created, return nil
+	if len(llmClients) == 0 {
+		log.Printf("ERROR: Failed to create any LLM clients")
+		return nil, errors.New("failed to create any LLM clients")
 	}
 
 	manager := cm.Movie()
 
 	m := &Movies{
 		tmdbClient:     client,
-		llmClient:      llmClient,
+		llmClients:     llmClients,
 		manager:        manager,
 		centralManager: cm,
 	}
@@ -240,15 +262,29 @@ func (m *Movies) GetMovieSuggestion() (map[string]interface{}, error) {
 	// Get or create a session
 	sess := m.manager.GetOrCreateSession(ctx, m.manager.Key(), m.taskFunc, m.baselineFunc)
 
+	// Get current LLM provider from settings
+	provider := m.centralManager.Settings().GetLLMProvider()
+
+	// Get the appropriate client
+	llmClient, ok := m.llmClients[provider]
+	if !ok {
+		// Fall back to openai if the requested provider is not available
+		log.Printf("WARNING: Requested LLM provider '%s' not available, falling back to openai", provider)
+		llmClient, ok = m.llmClients["openai"]
+		if !ok {
+			return nil, errors.New("no LLM clients available")
+		}
+	}
+
 	// Compose messages from the session content
-	messages, err := m.llmClient.ComposeMessages(ctx, &sess.Content)
+	messages, err := llmClient.ComposeMessages(ctx, &sess.Content)
 	if err != nil {
 		log.Printf("ERROR: Failed to compose messages for movie suggestion: %v", err)
 		return nil, fmt.Errorf("failed to compose messages for movie suggestion: %w", err)
 	}
 
 	// Request a suggestion from the LLM
-	suggestion, err := m.llmClient.SendMessages(ctx, messages...)
+	suggestion, err := llmClient.SendMessages(ctx, messages...)
 	if err != nil {
 		log.Printf("ERROR: Failed to get movie suggestion: %v", err)
 		return nil, fmt.Errorf("failed to get movie suggestion: %w", err)
