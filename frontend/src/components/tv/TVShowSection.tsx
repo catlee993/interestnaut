@@ -51,7 +51,6 @@ import { useMediaCollection } from '../../hooks/useMediaCollection';
 import { tvShowAdapter } from '../../adapters/tvShowAdapter';
 import { tvShowAPI } from '../../adapters/tvShowAPI';
 import { MediaCard } from '../common/MediaCard';
-import { LoggedInCheck } from "@/components/common/LoggedInCheck";
 
 // Extended interface to include isSaved property
 interface ExtendedTVShowWithSavedStatus extends bindings.TVShowWithSavedStatus {

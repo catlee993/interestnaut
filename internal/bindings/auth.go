@@ -41,3 +41,15 @@ func (a *Auth) SaveGeminiToken(token string) error {
 func (a *Auth) ClearGeminiToken() error {
 	return creds.ClearGeminiKey()
 }
+
+func (a *Auth) GetRAWGAPIKey() (string, error) {
+	return creds.GetRAWGAPIKey()
+}
+
+func (a *Auth) SaveRAWGAPIKey(key string) error {
+	return creds.SaveRAWGAPIKey(key)
+}
+
+func (a *Auth) ClearRAWGAPIKey() error {
+	return creds.ClearRAWGAPIKey()
+}

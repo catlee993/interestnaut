@@ -10,6 +10,10 @@ export function ClearOpenAIToken() {
   return window['go']['bindings']['Auth']['ClearOpenAIToken']();
 }
 
+export function ClearRAWGAPIKey() {
+  return window['go']['bindings']['Auth']['ClearRAWGAPIKey']();
+}
+
 export function ClearTMBDAccessToken() {
   return window['go']['bindings']['Auth']['ClearTMBDAccessToken']();
 }
@@ -22,6 +26,10 @@ export function GetOpenAIToken() {
   return window['go']['bindings']['Auth']['GetOpenAIToken']();
 }
 
+export function GetRAWGAPIKey() {
+  return window['go']['bindings']['Auth']['GetRAWGAPIKey']();
+}
+
 export function GetTMBDAccessToken() {
   return window['go']['bindings']['Auth']['GetTMBDAccessToken']();
 }
@@ -32,6 +40,10 @@ export function SaveGeminiToken(arg1) {
 
 export function SaveOpenAIToken(arg1) {
   return window['go']['bindings']['Auth']['SaveOpenAIToken'](arg1);
+}
+
+export function SaveRAWGAPIKey(arg1) {
+  return window['go']['bindings']['Auth']['SaveRAWGAPIKey'](arg1);
 }
 
 export function SaveTMBDAccessToken(arg1) {

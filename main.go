@@ -5,6 +5,7 @@ import (
 	"embed"
 	"fmt"
 	"interestnaut/internal/bindings"
+	"interestnaut/internal/db"
 	"interestnaut/internal/session"
 	"log"
 
@@ -46,15 +47,21 @@ func main() {
 
 	// Create new instances of your binders
 	music := bindings.NewMusicBinder(ctx, cm, spotify.ClientID)
-	movies, err := bindings.NewMovieBinder(ctx, cm)
-	if err != nil {
-		log.Fatalf("Failed to create movies binder: %v", err)
+	movies, mErr := bindings.NewMovieBinder(ctx, cm)
+	if mErr != nil {
+		log.Fatalf("Failed to create movies binder: %v", mErr)
 	}
 
 	// Create the TV Shows binder
-	tvShows, err := bindings.NewTVShowBinder(ctx, cm)
-	if err != nil {
-		log.Fatalf("Failed to create TV shows binder: %v", err)
+	tvShows, tErr := bindings.NewTVShowBinder(ctx, cm)
+	if tErr != nil {
+		log.Fatalf("Failed to create TV shows binder: %v", tErr)
+	}
+
+	// Create games binder
+	games, gErr := bindings.NewGames(ctx, cm)
+	if gErr != nil {
+		log.Fatalf("Failed to create games binder: %v", gErr)
 	}
 
 	// Create settings binder
@@ -78,6 +85,7 @@ func main() {
 			music,
 			movies,
 			tvShows,
+			games,
 		},
 		EnumBind: []interface{}{
 			suggestionOutcome,
@@ -91,6 +99,13 @@ func main() {
 
 func onStartup(ctx context.Context) {
 	log.Println("Starting application...")
+
+	// Initialize the local database
+	if err := db.Initialize(); err != nil {
+		log.Printf("Failed to initialize database: %v", err)
+	} else {
+		log.Println("Database initialized successfully")
+	}
 
 	// Check if we have a valid authorization code
 	_, err := creds.GetSpotifyToken()

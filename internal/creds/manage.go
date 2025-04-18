@@ -17,6 +17,7 @@ var (
 	TMDBAccessToken        = "TMDB_ACCESS_TOKEN"
 	OpenAIKey              = "OPEN_API_KEY"
 	GeminiKey              = "GEMINI_API_KEY"
+	RAWGApiKey             = "RAWG_API_KEY"
 )
 
 // CredentialType identifies the type of credential
@@ -27,6 +28,7 @@ const (
 	TMDBCredential    CredentialType = "tmdb"
 	OpenAICredential  CredentialType = "openai"
 	GeminiCredential  CredentialType = "gemini"
+	RAWGCredential    CredentialType = "rawg"
 )
 
 // CredentialChangeListener is a function that will be called when a credential changes
@@ -163,5 +165,34 @@ func ClearTMDBAccessToken() error {
 		return fmt.Errorf("failed to delete TMDB access token: %w", err)
 	}
 	notifyListeners(TMDBCredential, "clear")
+	return nil
+}
+
+// SaveRAWGAPIKey saves the RAWG API key to the OS keychain.
+func SaveRAWGAPIKey(apiKey string) error {
+	if err := keyring.Set(ServiceName, RAWGApiKey, apiKey); err != nil {
+		return fmt.Errorf("failed to set RAWG API key: %w", err)
+	}
+	notifyListeners(RAWGCredential, "save")
+	return nil
+}
+
+// GetRAWGAPIKey retrieves the RAWG API key from the OS keychain.
+func GetRAWGAPIKey() (string, error) {
+	apiKey, err := keyring.Get(ServiceName, RAWGApiKey)
+	if err != nil {
+		return "", fmt.Errorf("failed to get RAWG API key: %w", err)
+	}
+	return apiKey, nil
+}
+
+// ClearRAWGAPIKey removes the RAWG API key from the OS keychain.
+func ClearRAWGAPIKey() error {
+	err := keyring.Delete(ServiceName, RAWGApiKey)
+	if err != nil && !errors.Is(err, keyring.ErrNotFound) {
+		// Ignore 'not found' errors, but return others
+		return fmt.Errorf("failed to delete RAWG API key: %w", err)
+	}
+	notifyListeners(RAWGCredential, "clear")
 	return nil
 }

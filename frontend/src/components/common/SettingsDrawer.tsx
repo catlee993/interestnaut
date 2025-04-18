@@ -21,12 +21,15 @@ import { FaTimes } from "react-icons/fa";
 import {
   ClearGeminiToken,
   ClearOpenAIToken,
+  ClearRAWGAPIKey,
   ClearTMBDAccessToken,
   GetGeminiToken,
   GetOpenAIToken,
+  GetRAWGAPIKey,
   GetTMBDAccessToken,
   SaveGeminiToken,
   SaveOpenAIToken,
+  SaveRAWGAPIKey,
   SaveTMBDAccessToken,
 } from "@wailsjs/go/bindings/Auth";
 import { RefreshCredentials } from "@wailsjs/go/bindings/Movies";
@@ -121,6 +124,7 @@ export function SettingsDrawer({ open, onClose }: SettingsDrawerProps) {
   const [openAIKey, setOpenAIKey] = useState("");
   const [geminiKey, setGeminiKey] = useState("");
   const [tmdbKey, setTmdbKey] = useState("");
+  const [rawgKey, setRawgKey] = useState("");
 
   const { enqueueSnackbar } = useSnackbar();
   const { 
@@ -179,6 +183,20 @@ export function SettingsDrawer({ open, onClose }: SettingsDrawerProps) {
       }
     };
     loadTmdbKey();
+  }, []);
+
+  useEffect(() => {
+    const loadRawgKey = async () => {
+      try {
+        const key = await GetRAWGAPIKey();
+        if (key) {
+          setRawgKey(key);
+        }
+      } catch (error) {
+        console.error("Failed to load RAWG API key:", error);
+      }
+    };
+    loadRawgKey();
   }, []);
 
   useEffect(() => {
@@ -261,6 +279,30 @@ export function SettingsDrawer({ open, onClose }: SettingsDrawerProps) {
     } catch (error) {
       console.error("Failed to clear TMDB token:", error);
       enqueueSnackbar("Failed to clear TMDB token", { variant: "error" });
+    }
+  };
+
+  const handleRawgKeyChange = async (value: string) => {
+    setRawgKey(value);
+    if (value) {
+      try {
+        await SaveRAWGAPIKey(value);
+        enqueueSnackbar("RAWG API key saved", { variant: "success" });
+      } catch (error) {
+        console.error("Failed to save RAWG API key:", error);
+        enqueueSnackbar("Failed to save RAWG API key", { variant: "error" });
+      }
+    }
+  };
+
+  const handleClearRawgKey = async () => {
+    try {
+      await ClearRAWGAPIKey();
+      setRawgKey("");
+      enqueueSnackbar("RAWG API key cleared", { variant: "success" });
+    } catch (error) {
+      console.error("Failed to clear RAWG API key:", error);
+      enqueueSnackbar("Failed to clear RAWG API key", { variant: "error" });
     }
   };
 
@@ -547,13 +589,23 @@ export function SettingsDrawer({ open, onClose }: SettingsDrawerProps) {
             <SectionContainer>
               <BorderedSectionTitle>Media APIs</BorderedSectionTitle>
 
-              <ApiCredentialsManager
-                label="TMDB"
-                value={tmdbKey}
-                onChange={handleTmdbKeyChange}
-                onClear={handleClearTmdbKey}
-                refreshHandler={refreshTmdbCredentials}
-              />
+              <Stack spacing={2}>
+                <ApiCredentialsManager
+                  label="TMDB"
+                  value={tmdbKey}
+                  onChange={handleTmdbKeyChange}
+                  onClear={handleClearTmdbKey}
+                  refreshHandler={refreshTmdbCredentials}
+                />
+
+                <ApiCredentialsManager
+                  label="RAWG"
+                  value={rawgKey}
+                  onChange={handleRawgKeyChange}
+                  onClear={handleClearRawgKey}
+                  placeholderText="For video game information"
+                />
+              </Stack>
             </SectionContainer>
           </Box>
         )}

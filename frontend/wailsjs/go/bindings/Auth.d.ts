@@ -5,16 +5,22 @@ export function ClearGeminiToken():Promise<void>;
 
 export function ClearOpenAIToken():Promise<void>;
 
+export function ClearRAWGAPIKey():Promise<void>;
+
 export function ClearTMBDAccessToken():Promise<void>;
 
 export function GetGeminiToken():Promise<string>;
 
 export function GetOpenAIToken():Promise<string>;
 
+export function GetRAWGAPIKey():Promise<string>;
+
 export function GetTMBDAccessToken():Promise<string>;
 
 export function SaveGeminiToken(arg1:string):Promise<void>;
 
 export function SaveOpenAIToken(arg1:string):Promise<void>;
+
+export function SaveRAWGAPIKey(arg1:string):Promise<void>;
 
 export function SaveTMBDAccessToken(arg1:string):Promise<void>;

@@ -1,5 +1,65 @@
 export namespace bindings {
 	
+	export class GameWithSavedStatus {
+	    id: number;
+	    name: string;
+	    slug: string;
+	    released?: string;
+	    background_image?: string;
+	    rating: number;
+	    ratings_count: number;
+	    playtime: number;
+	    description?: string;
+	    short_screenshots?: rawg.Screenshot[];
+	    platforms?: rawg.Platform[];
+	    genres?: rawg.Genre[];
+	    developers?: rawg.Developer[];
+	    publishers?: rawg.Publisher[];
+	    isSaved: boolean;
+	    isInWatchlist: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new GameWithSavedStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.slug = source["slug"];
+	        this.released = source["released"];
+	        this.background_image = source["background_image"];
+	        this.rating = source["rating"];
+	        this.ratings_count = source["ratings_count"];
+	        this.playtime = source["playtime"];
+	        this.description = source["description"];
+	        this.short_screenshots = this.convertValues(source["short_screenshots"], rawg.Screenshot);
+	        this.platforms = this.convertValues(source["platforms"], rawg.Platform);
+	        this.genres = this.convertValues(source["genres"], rawg.Genre);
+	        this.developers = this.convertValues(source["developers"], rawg.Developer);
+	        this.publishers = this.convertValues(source["publishers"], rawg.Publisher);
+	        this.isSaved = source["isSaved"];
+	        this.isInWatchlist = source["isInWatchlist"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class MovieWithSavedStatus {
 	    id: number;
 	    title: string;
@@ -65,6 +125,246 @@ export namespace bindings {
 
 }
 
+export namespace rawg {
+	
+	export class Developer {
+	    id: number;
+	    name: string;
+	    slug?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Developer(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.slug = source["slug"];
+	    }
+	}
+	export class Publisher {
+	    id: number;
+	    name: string;
+	    slug?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Publisher(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.slug = source["slug"];
+	    }
+	}
+	export class Genre {
+	    id: number;
+	    name: string;
+	    slug?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Genre(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.slug = source["slug"];
+	    }
+	}
+	export class PlatformDetails {
+	    id: number;
+	    name: string;
+	    slug: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new PlatformDetails(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.slug = source["slug"];
+	    }
+	}
+	export class Platform {
+	    id?: number;
+	    name: string;
+	    slug?: string;
+	    platform?: PlatformDetails;
+	
+	    static createFrom(source: any = {}) {
+	        return new Platform(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.slug = source["slug"];
+	        this.platform = this.convertValues(source["platform"], PlatformDetails);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class Screenshot {
+	    id: number;
+	    image: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Screenshot(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.image = source["image"];
+	    }
+	}
+	export class Game {
+	    id: number;
+	    name: string;
+	    slug: string;
+	    released?: string;
+	    background_image?: string;
+	    rating: number;
+	    ratings_count: number;
+	    playtime: number;
+	    description?: string;
+	    short_screenshots?: Screenshot[];
+	    platforms?: Platform[];
+	    genres?: Genre[];
+	    developers?: Developer[];
+	    publishers?: Publisher[];
+	
+	    static createFrom(source: any = {}) {
+	        return new Game(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.slug = source["slug"];
+	        this.released = source["released"];
+	        this.background_image = source["background_image"];
+	        this.rating = source["rating"];
+	        this.ratings_count = source["ratings_count"];
+	        this.playtime = source["playtime"];
+	        this.description = source["description"];
+	        this.short_screenshots = this.convertValues(source["short_screenshots"], Screenshot);
+	        this.platforms = this.convertValues(source["platforms"], Platform);
+	        this.genres = this.convertValues(source["genres"], Genre);
+	        this.developers = this.convertValues(source["developers"], Developer);
+	        this.publishers = this.convertValues(source["publishers"], Publisher);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class GameSearchResponse {
+	    count: number;
+	    next: string;
+	    previous: string;
+	    results: Game[];
+	
+	    static createFrom(source: any = {}) {
+	        return new GameSearchResponse(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.count = source["count"];
+	        this.next = source["next"];
+	        this.previous = source["previous"];
+	        this.results = this.convertValues(source["results"], Game);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	
+	
+	
+	
+	export class SimpleGame {
+	    id: number;
+	    name: string;
+	    released?: string;
+	    background_image?: string;
+	    rating: number;
+	    ratings_count: number;
+	    genres?: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new SimpleGame(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.released = source["released"];
+	        this.background_image = source["background_image"];
+	        this.rating = source["rating"];
+	        this.ratings_count = source["ratings_count"];
+	        this.genres = source["genres"];
+	    }
+	}
+
+}
+
 export namespace session {
 	
 	export enum Outcome {
@@ -108,6 +408,26 @@ export namespace session {
 	        this.director = source["director"];
 	        this.writer = source["writer"];
 	        this.poster_path = source["poster_path"];
+	    }
+	}
+	export class VideoGame {
+	    title: string;
+	    developer: string;
+	    publisher: string;
+	    platforms: string[];
+	    cover_path: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new VideoGame(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.title = source["title"];
+	        this.developer = source["developer"];
+	        this.publisher = source["publisher"];
+	        this.platforms = source["platforms"];
+	        this.cover_path = source["cover_path"];
 	    }
 	}
 
