@@ -12,12 +12,15 @@ import {
   SetChatGPTModel,
   GetLLMProvider,
   SetLLMProvider,
+  GetGeminiModel,
+  SetGeminiModel,
 } from "@wailsjs/go/bindings/Settings";
 import { useSnackbar } from "notistack";
 
 // Define the available ChatGPT models
 export type ChatGPTModel = "gpt-4o" | "gpt-4o-mini" | "gpt-4-turbo";
 export type LLMProvider = "openai" | "gemini";
+export type GeminiModel = "gemini-1.5-pro" | "gemini-2.0-flash" | "gemini-2.0-flash-lite";
 
 // Helper function to parse error objects consistently
 const parseErrorMessage = (error: any, defaultMessage: string = "An error occurred"): string => {
@@ -71,6 +74,7 @@ export function useLLMProviderChangeListener(
   }, [callback]);
 }
 
+// Define settings context type with Gemini model
 interface SettingsContextType {
   isContinuousPlayback: boolean;
   setContinuousPlayback: (enabled: boolean) => Promise<void>;
@@ -78,6 +82,8 @@ interface SettingsContextType {
   setChatGPTModel: (model: ChatGPTModel) => Promise<void>;
   llmProvider: LLMProvider;
   setLLMProvider: (provider: LLMProvider) => Promise<void>;
+  geminiModel: GeminiModel;
+  setGeminiModel: (model: GeminiModel) => Promise<void>;
 }
 
 const SettingsContext = createContext<SettingsContextType | undefined>(
@@ -88,6 +94,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   const [isContinuousPlayback, setIsContinuousPlaybackState] = useState(false);
   const [chatGPTModel, setChatGPTModelState] = useState<ChatGPTModel>("gpt-4o");
   const [llmProvider, setLLMProviderState] = useState<LLMProvider>("openai");
+  const [geminiModel, setGeminiModelState] = useState<GeminiModel>("gemini-1.5-pro");
   const { enqueueSnackbar } = useSnackbar();
 
   // Load initial settings
@@ -122,6 +129,19 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
           console.log(
             "[SettingsContext] Loaded LLM provider setting:",
             savedProvider,
+          );
+        }
+
+        // Load Gemini model from backend
+        const savedGeminiModel = await GetGeminiModel();
+        if (
+          savedGeminiModel &&
+          ["gemini-1.5-pro", "gemini-2.0-flash", "gemini-2.0-flash-lite"].includes(savedGeminiModel)
+        ) {
+          setGeminiModelState(savedGeminiModel as GeminiModel);
+          console.log(
+            "[SettingsContext] Loaded Gemini model setting:",
+            savedGeminiModel,
           );
         }
       } catch (error) {
@@ -194,6 +214,24 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     [enqueueSnackbar],
   );
 
+  // Update Gemini model setting
+  const setGeminiModel = useCallback(
+    async (model: GeminiModel) => {
+      try {
+        console.log("[SettingsContext] Setting Gemini model:", model);
+        await SetGeminiModel(model);
+        setGeminiModelState(model);
+      } catch (error) {
+        console.error("[SettingsContext] Error setting Gemini model:", error);
+        const errorMessage = parseErrorMessage(error, "Failed to update Gemini model setting");
+        enqueueSnackbar(truncateErrorMessage(errorMessage), {
+          variant: "error",
+        });
+      }
+    },
+    [enqueueSnackbar],
+  );
+
   const value = {
     isContinuousPlayback,
     setContinuousPlayback,
@@ -201,6 +239,8 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     setChatGPTModel,
     llmProvider,
     setLLMProvider,
+    geminiModel,
+    setGeminiModel,
   };
 
   return (

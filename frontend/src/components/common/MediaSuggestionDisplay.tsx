@@ -257,7 +257,7 @@ export const MediaSuggestionDisplay: React.FC<MediaSuggestionDisplayProps> = ({
             {suggestedItem.description && (
               <Typography variant="body1" sx={{ 
                 mt: 2,
-                maxHeight: { md: "200px" },
+                maxHeight: { md: "150px" },
                 overflow: "auto",
               }}>
                 {suggestedItem.description}
@@ -265,7 +265,11 @@ export const MediaSuggestionDisplay: React.FC<MediaSuggestionDisplayProps> = ({
             )}
 
             {suggestionReason && (
-              <Box sx={{ mt: 2 }}>
+              <Box sx={{ 
+                mt: 1,
+                maxHeight: { md: "140px" },
+                overflow: "auto"
+              }}>
                 <ReasonCard reason={suggestionReason} />
               </Box>
             )}

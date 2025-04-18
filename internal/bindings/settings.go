@@ -82,3 +82,46 @@ func (s *Settings) SetLLMProvider(provider string) error {
 	log.Printf("SetLLMProvider called with value: %s", provider)
 	return s.ContentManager.Settings().SetLLMProvider(context.Background(), provider)
 }
+
+func (s *Settings) GetGeminiModel() string {
+	if s.ContentManager == nil || s.ContentManager.Settings() == nil {
+		log.Printf("WARNING: ContentManager or Settings is nil in GetGeminiModel")
+		return "gemini-1.5-pro"
+	}
+	value := s.ContentManager.Settings().GetGeminiModel()
+	// Default to gemini-1.5-pro if empty
+	if value == "" {
+		value = "gemini-1.5-pro"
+	}
+	log.Printf("GetGeminiModel returning: %s", value)
+	return value
+}
+
+func (s *Settings) SetGeminiModel(model string) error {
+	if s.ContentManager == nil || s.ContentManager.Settings() == nil {
+		log.Printf("ERROR: ContentManager or Settings is nil in SetGeminiModel")
+		return nil
+	}
+
+	// Validate model is one of the supported ones
+	validModels := []string{
+		"gemini-1.5-pro",
+		"gemini-2.0-flash",
+		"gemini-2.0-flash-lite",
+	}
+
+	isValid := false
+	for _, validModel := range validModels {
+		if model == validModel {
+			isValid = true
+			break
+		}
+	}
+
+	if !isValid {
+		model = "gemini-1.5-pro" // Default if invalid
+	}
+
+	log.Printf("SetGeminiModel called with value: %s", model)
+	return s.ContentManager.Settings().SetGeminiModel(context.Background(), model)
+}

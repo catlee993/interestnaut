@@ -17,12 +17,19 @@ import (
 
 const (
 	// Gemini model options
-	defaultModel = "gemini-1.5-pro" // Using the most capable model by default
+	defaultModel = "gemini-1.5-pro" // Default model if not specified in settings
+
+	// Available models
+	GeminiFlash     = "gemini-2.0-flash"
+	GeminiFlashLite = "gemini-2.0-flash-lite"
+	GeminiPro       = "gemini-1.5-pro"
 )
 
 type client[T session.Media] struct {
 	apiKey     string
 	httpClient *http.Client
+	model      string
+	cm         session.CentralManager
 }
 
 // Regex to find JSON within ```json ... ``` fences.
@@ -46,7 +53,7 @@ func extractJsonContent(content string) string {
 }
 
 // NewClient creates a new Gemini client implementing the llm.Client interface
-func NewClient[T session.Media]() (llm.Client[T], error) {
+func NewClient[T session.Media](cm session.CentralManager) (llm.Client[T], error) {
 	apiKey, err := creds.GetGeminiKey()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get Gemini API key from keychain: %w", err)
@@ -58,6 +65,8 @@ func NewClient[T session.Media]() (llm.Client[T], error) {
 	return &client[T]{
 		apiKey:     apiKey,
 		httpClient: &http.Client{},
+		model:      defaultModel,
+		cm:         cm,
 	}, nil
 }
 
@@ -124,12 +133,18 @@ func (c *client[T]) SendMessages(ctx context.Context, msgs ...llm.Message) (*llm
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
+	// Get the current model from settings if available
+	modelToUse := c.model
+	if c.cm != nil && c.cm.Settings() != nil {
+		modelToUse = c.cm.Settings().GetGeminiModel()
+	}
+
 	// Create request to Gemini API
 	req, err := request.NewRequester(
 		request.WithScheme(request.HTTPS),
 		request.WithMethod(request.Post),
 		request.WithHost("generativelanguage.googleapis.com"),
-		request.WithPath("v1", "models", defaultModel+":generateContent"),
+		request.WithPath("v1", "models", modelToUse+":generateContent"),
 		request.WithQueryArgs(map[string][]string{
 			"key": {c.apiKey},
 		}),

@@ -47,7 +47,7 @@ func NewMusicBinder(ctx context.Context, cm session.CentralManager, clientID str
 	}
 
 	// Initialize Gemini client
-	geminiClient, err := gemini.NewClient[session.Music]()
+	geminiClient, err := gemini.NewClient[session.Music](cm)
 	if err != nil {
 		log.Printf("ERROR: Failed to create Gemini client: %v", err)
 	} else {
@@ -101,6 +101,7 @@ func (m *Music) GetCurrentUser() (*spotify.UserProfile, error) {
 // RequestNewSuggestion gets a new suggestion based on the chat history.
 func (m *Music) RequestNewSuggestion() (*spotify.SuggestedTrackInfo, error) {
 	ctx := context.Background()
+
 	sess := m.manager.GetOrCreateSession(ctx, m.manager.Key(), m.taskFunc, m.baselineFunc)
 
 	// Get current LLM provider from settings

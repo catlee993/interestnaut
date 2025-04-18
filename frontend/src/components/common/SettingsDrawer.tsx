@@ -32,7 +32,7 @@ import {
 import { RefreshCredentials } from "@wailsjs/go/bindings/Movies";
 import { useSnackbar } from "notistack";
 import { ApiCredentialsManager } from "@/components/common/ApiCredentialsManager";
-import { useSettings, ChatGPTModel, LLMProvider } from "@/contexts/SettingsContext";
+import { useSettings, ChatGPTModel, LLMProvider, GeminiModel } from "@/contexts/SettingsContext";
 
 const StyledDrawer = styled(Drawer)(({ theme }) => ({
   "& .MuiDrawer-paper": {
@@ -129,7 +129,9 @@ export function SettingsDrawer({ open, onClose }: SettingsDrawerProps) {
     chatGPTModel,
     setChatGPTModel,
     llmProvider,
-    setLLMProvider
+    setLLMProvider,
+    geminiModel,
+    setGeminiModel
   } = useSettings();
 
   // Create a wrapper for RefreshCredentials that returns void
@@ -356,61 +358,6 @@ export function SettingsDrawer({ open, onClose }: SettingsDrawerProps) {
                   textAlign: "left",
                 }}
               >
-                ChatGPT Model
-              </FormLabel>
-              <Select
-                value={chatGPTModel}
-                onChange={(e) => {
-                  setChatGPTModel(e.target.value as ChatGPTModel);
-                  enqueueSnackbar(`Model changed to ${e.target.value}`, { variant: "success" });
-                }}
-                sx={{
-                  color: "white",
-                  textAlign: "left",
-                  "& .MuiSelect-select": {
-                    paddingLeft: 2
-                  },
-                  "& .MuiOutlinedInput-notchedOutline": {
-                    borderColor: "rgba(123, 104, 238, 0.3)"
-                  },
-                  "&:hover .MuiOutlinedInput-notchedOutline": {
-                    borderColor: "rgba(123, 104, 238, 0.5)"
-                  },
-                  "& .MuiSelect-icon": {
-                    color: "white"
-                  }
-                }}
-                MenuProps={{
-                  PaperProps: {
-                    sx: {
-                      backgroundColor: "rgba(30, 30, 30, 0.95)",
-                      backdropFilter: "blur(10px)",
-                      "& .MuiMenuItem-root": {
-                        color: "white",
-                        paddingLeft: 2
-                      },
-                      "& .MuiMenuItem-root.Mui-selected": {
-                        backgroundColor: "rgba(123, 104, 238, 0.15)"
-                      }
-                    }
-                  }
-                }}
-              >
-                <MenuItem value="gpt-4o">GPT-4o (Default)</MenuItem>
-                <MenuItem value="gpt-4o-mini">GPT-4o Mini (Faster)</MenuItem>
-                <MenuItem value="gpt-4-turbo">GPT-4 Turbo (Long Context)</MenuItem>
-              </Select>
-            </FormControl>
-
-            <FormControl fullWidth>
-              <FormLabel
-                sx={{
-                  color: "rgba(255, 255, 255, 0.7)",
-                  marginBottom: 1,
-                  fontSize: "0.875rem",
-                  textAlign: "left",
-                }}
-              >
                 LLM Provider
               </FormLabel>
               <Select
@@ -459,6 +406,119 @@ export function SettingsDrawer({ open, onClose }: SettingsDrawerProps) {
                 <MenuItem value="gemini">Google Gemini</MenuItem>
               </Select>
             </FormControl>
+
+            {/* Conditional rendering based on LLM provider */}
+            {llmProvider === "openai" ? (
+              <FormControl fullWidth>
+                <FormLabel
+                  sx={{
+                    color: "rgba(255, 255, 255, 0.7)",
+                    marginBottom: 1,
+                    fontSize: "0.875rem",
+                    textAlign: "left",
+                  }}
+                >
+                  ChatGPT Model
+                </FormLabel>
+                <Select
+                  value={chatGPTModel}
+                  onChange={(e) => {
+                    setChatGPTModel(e.target.value as ChatGPTModel);
+                    enqueueSnackbar(`Model changed to ${e.target.value}`, { variant: "success" });
+                  }}
+                  sx={{
+                    color: "white",
+                    textAlign: "left",
+                    "& .MuiSelect-select": {
+                      paddingLeft: 2
+                    },
+                    "& .MuiOutlinedInput-notchedOutline": {
+                      borderColor: "rgba(123, 104, 238, 0.3)"
+                    },
+                    "&:hover .MuiOutlinedInput-notchedOutline": {
+                      borderColor: "rgba(123, 104, 238, 0.5)"
+                    },
+                    "& .MuiSelect-icon": {
+                      color: "white"
+                    }
+                  }}
+                  MenuProps={{
+                    PaperProps: {
+                      sx: {
+                        backgroundColor: "rgba(30, 30, 30, 0.95)",
+                        backdropFilter: "blur(10px)",
+                        "& .MuiMenuItem-root": {
+                          color: "white",
+                          paddingLeft: 2
+                        },
+                        "& .MuiMenuItem-root.Mui-selected": {
+                          backgroundColor: "rgba(123, 104, 238, 0.15)"
+                        }
+                      }
+                    }
+                  }}
+                >
+                  <MenuItem value="gpt-4o">GPT-4o (Default)</MenuItem>
+                  <MenuItem value="gpt-4o-mini">GPT-4o Mini (Faster)</MenuItem>
+                  <MenuItem value="gpt-4-turbo">GPT-4 Turbo (Long Context)</MenuItem>
+                </Select>
+              </FormControl>
+            ) : (
+              <FormControl fullWidth>
+                <FormLabel
+                  sx={{
+                    color: "rgba(255, 255, 255, 0.7)",
+                    marginBottom: 1,
+                    fontSize: "0.875rem",
+                    textAlign: "left",
+                  }}
+                >
+                  Gemini Model
+                </FormLabel>
+                <Select
+                  value={geminiModel}
+                  onChange={(e) => {
+                    setGeminiModel(e.target.value as GeminiModel);
+                    enqueueSnackbar(`Gemini model changed to ${e.target.value}`, { variant: "success" });
+                  }}
+                  sx={{
+                    color: "white",
+                    textAlign: "left",
+                    "& .MuiSelect-select": {
+                      paddingLeft: 2
+                    },
+                    "& .MuiOutlinedInput-notchedOutline": {
+                      borderColor: "rgba(123, 104, 238, 0.3)"
+                    },
+                    "&:hover .MuiOutlinedInput-notchedOutline": {
+                      borderColor: "rgba(123, 104, 238, 0.5)"
+                    },
+                    "& .MuiSelect-icon": {
+                      color: "white"
+                    }
+                  }}
+                  MenuProps={{
+                    PaperProps: {
+                      sx: {
+                        backgroundColor: "rgba(30, 30, 30, 0.95)",
+                        backdropFilter: "blur(10px)",
+                        "& .MuiMenuItem-root": {
+                          color: "white",
+                          paddingLeft: 2
+                        },
+                        "& .MuiMenuItem-root.Mui-selected": {
+                          backgroundColor: "rgba(123, 104, 238, 0.15)"
+                        }
+                      }
+                    }
+                  }}
+                >
+                  <MenuItem value="gemini-1.5-pro">Gemini 1.5 Pro (Default)</MenuItem>
+                  <MenuItem value="gemini-2.0-flash">Gemini 2.0 Flash (Faster)</MenuItem>
+                  <MenuItem value="gemini-2.0-flash-lite">Gemini 2.0 Flash-Lite (Lightweight)</MenuItem>
+                </Select>
+              </FormControl>
+            )}
           </Box>
         )}
 

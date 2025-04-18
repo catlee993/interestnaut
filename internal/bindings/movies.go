@@ -51,7 +51,7 @@ func NewMovieBinder(ctx context.Context, cm session.CentralManager) (*Movies, er
 	}
 
 	// Initialize Gemini client
-	geminiClient, err := gemini.NewClient[session.Movie]()
+	geminiClient, err := gemini.NewClient[session.Movie](cm)
 	if err != nil {
 		log.Printf("ERROR: Failed to create Gemini client: %v", err)
 	} else {

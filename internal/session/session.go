@@ -35,6 +35,8 @@ type Settings interface {
 	SetChatGPTModel(context.Context, string) error
 	GetLLMProvider() string
 	SetLLMProvider(context.Context, string) error
+	GetGeminiModel() string
+	SetGeminiModel(context.Context, string) error
 }
 
 type FavoriteManager interface {
@@ -89,6 +91,7 @@ type settings struct {
 	ContinuousPlayback bool   `json:"continuous_playback"`
 	ChatGPTModel       string `json:"chatgpt_model"`
 	LLMProvider        string `json:"llm_provider"`
+	GeminiModel        string `json:"gemini_model"`
 	path               string // This field is not serialized
 }
 
@@ -300,6 +303,18 @@ func (s *settings) SetLLMProvider(_ context.Context, provider string) error {
 	return s.saveSettings()
 }
 
+func (s *settings) GetGeminiModel() string {
+	if s.GeminiModel == "" {
+		return "gemini-1.5-pro" // Default to 1.5 Pro if not set
+	}
+	return s.GeminiModel
+}
+
+func (s *settings) SetGeminiModel(_ context.Context, model string) error {
+	s.GeminiModel = model
+	return s.saveSettings()
+}
+
 // UpdateSuggestionOutcome updates the outcome of a previously suggested song
 func (m *manager[T]) UpdateSuggestionOutcome(
 	ctx context.Context,
@@ -442,6 +457,7 @@ func (cm *centralManager) loadOrCreateSettings(userID, dataDir string) error {
 				ContinuousPlayback: false,
 				ChatGPTModel:       "gpt-4o",
 				LLMProvider:        "",
+				GeminiModel:        "gemini-1.5-pro",
 				path:               filePath,
 			}
 			if sErr := defaultSettings.saveSettings(); sErr != nil {

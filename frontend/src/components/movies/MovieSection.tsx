@@ -846,6 +846,30 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
           m.id === movie.id ? { ...m } : m
         )
       );
+      
+      // Check if this movie is the current suggestion
+      const isCurrentSuggestion = suggestedMovie && suggestedMovie.title === movie.title;
+      
+      // If this is the current suggestion, get a new suggestion
+      if (isCurrentSuggestion) {
+        // Clear the current suggestion
+        setSuggestedMovie(null);
+        setSuggestionReason(null);
+        
+        // Clear localStorage cache
+        localStorage.removeItem(CACHED_MOVIE_SUGGESTION_KEY);
+        localStorage.removeItem(CACHED_MOVIE_REASON_KEY);
+        
+        // Get a new suggestion after a short delay for better UX
+        setTimeout(() => {
+          handleGetSuggestion();
+        }, 500);
+        
+        // Also record this as a positive outcome
+        if (movie.id > 0) {
+          await ProvideSuggestionFeedback(session.Outcome.liked, movie.id);
+        }
+      }
     } catch (error) {
       console.error("Failed to add movie to watchlist:", error);
       enqueueSnackbar("Failed to add to watchlist", { variant: "error" });

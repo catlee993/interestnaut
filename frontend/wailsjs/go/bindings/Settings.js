@@ -10,6 +10,10 @@ export function GetContinuousPlayback() {
   return window['go']['bindings']['Settings']['GetContinuousPlayback']();
 }
 
+export function GetGeminiModel() {
+  return window['go']['bindings']['Settings']['GetGeminiModel']();
+}
+
 export function GetLLMProvider() {
   return window['go']['bindings']['Settings']['GetLLMProvider']();
 }
@@ -20,6 +24,10 @@ export function SetChatGPTModel(arg1) {
 
 export function SetContinuousPlayback(arg1) {
   return window['go']['bindings']['Settings']['SetContinuousPlayback'](arg1);
+}
+
+export function SetGeminiModel(arg1) {
+  return window['go']['bindings']['Settings']['SetGeminiModel'](arg1);
 }
 
 export function SetLLMProvider(arg1) {

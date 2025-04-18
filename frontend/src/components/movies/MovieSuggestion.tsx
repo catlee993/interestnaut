@@ -62,12 +62,50 @@ export function MovieSuggestion({ movie, reason, onLike, onDislike, onSkip }: Mo
           </Box>
         )}
         
-        <Typography variant="body1" paragraph sx={{ mb: 3 }}>
+        <Typography 
+          variant="body1" 
+          paragraph 
+          sx={{ 
+            mb: 3, 
+            maxHeight: '120px', 
+            overflowY: 'auto', 
+            padding: '0 8px 0 0',
+            '&::-webkit-scrollbar': {
+              width: '6px',
+            },
+            '&::-webkit-scrollbar-thumb': {
+              backgroundColor: 'rgba(123, 104, 238, 0.3)',
+              borderRadius: '6px',
+            },
+            '&::-webkit-scrollbar-track': {
+              backgroundColor: 'rgba(0, 0, 0, 0.1)',
+              borderRadius: '6px',
+            },
+          }}
+        >
           {movie.overview}
         </Typography>
         
         {reason && (
-          <Box sx={{ mb: 3, p: 2, bgcolor: 'rgba(123, 104, 238, 0.1)', borderRadius: 2 }}>
+          <Box sx={{ 
+            mb: 3, 
+            p: 2, 
+            bgcolor: 'rgba(123, 104, 238, 0.1)', 
+            borderRadius: 2,
+            maxHeight: '150px',
+            overflowY: 'auto',
+            '&::-webkit-scrollbar': {
+              width: '6px',
+            },
+            '&::-webkit-scrollbar-thumb': {
+              backgroundColor: 'rgba(123, 104, 238, 0.3)',
+              borderRadius: '6px',
+            },
+            '&::-webkit-scrollbar-track': {
+              backgroundColor: 'rgba(0, 0, 0, 0.1)',
+              borderRadius: '6px',
+            },
+          }}>
             <Typography variant="h6" gutterBottom sx={{ color: 'var(--primary-color)' }}>
               Why we recommend this
             </Typography>
