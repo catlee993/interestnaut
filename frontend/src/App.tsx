@@ -6,6 +6,7 @@ import { SuggestionDisplay } from "@/components/music/suggestions/SuggestionDisp
 import { NowPlayingBar } from "@/components/music/player/NowPlayingBar";
 import { LibrarySection } from "@/components/music/library/LibrarySection";
 import { MovieSection } from "@/components/movies/MovieSection";
+import { TVShowSection } from "@/components/tv/TVShowSection";
 import {
   MusicSection,
   MusicSectionHandle,
@@ -154,6 +155,7 @@ function AppContent() {
   // Reference to the MusicSection component to access its methods
   const musicSectionRef = useRef<MusicSectionHandle>(null);
   const movieSectionRef = useRef<any>(null);
+  const tvShowSectionRef = useRef<any>(null);
 
   // Handler for music search
   const handleMusicSearchFromHeader = (query: string) => {
@@ -175,6 +177,18 @@ function AppContent() {
     }
   };
 
+  // Handler for TV show search
+  const handleTVShowSearchFromHeader = (query: string) => {
+    console.log(`[App] TV show search requested: "${query}"`);
+    // Call the search method on TVShowSection component via ref
+    if (currentMedia === "tv" && tvShowSectionRef.current) {
+      // If the TVShowSection exposes the handleSearch method, call it
+      if (tvShowSectionRef.current.handleSearch) {
+        tvShowSectionRef.current.handleSearch(query);
+      }
+    }
+  };
+
   // Handler to clear search results based on current media type
   const handleClearSearch = () => {
     if (currentMedia === "music") {
@@ -188,6 +202,11 @@ function AppContent() {
       // Clear movie search
       if (movieSectionRef.current && movieSectionRef.current.handleClearSearch) {
         movieSectionRef.current.handleClearSearch();
+      }
+    } else if (currentMedia === "tv") {
+      // Clear TV show search
+      if (tvShowSectionRef.current && tvShowSectionRef.current.handleClearSearch) {
+        tvShowSectionRef.current.handleClearSearch();
       }
     }
   };
@@ -247,7 +266,9 @@ function AppContent() {
         onSearch={
           currentMedia === "music" 
             ? handleMusicSearchFromHeader 
-            : handleMovieSearchFromHeader
+            : currentMedia === "movies"
+            ? handleMovieSearchFromHeader
+            : handleTVShowSearchFromHeader
         }
         onClearSearch={handleClearSearch}
         currentMedia={currentMedia}
@@ -279,8 +300,10 @@ function AppContent() {
             onNextPage={handleNextPage}
             onPrevPage={handlePrevPage}
           />
-        ) : (
+        ) : currentMedia === "movies" ? (
           <MovieSection ref={movieSectionRef} />
+        ) : (
+          <TVShowSection ref={tvShowSectionRef} />
         )}
       </Container>
       {nowPlayingTrack && <NowPlayingBar />}

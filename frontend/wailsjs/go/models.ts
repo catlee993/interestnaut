@@ -30,6 +30,38 @@ export namespace bindings {
 	        this.genres = source["genres"];
 	    }
 	}
+	export class TVShowWithSavedStatus {
+	    id: number;
+	    name: string;
+	    overview: string;
+	    director: string;
+	    writer: string;
+	    poster_path: string;
+	    first_air_date: string;
+	    vote_average: number;
+	    vote_count: number;
+	    genres: string[];
+	    isSaved?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new TVShowWithSavedStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.overview = source["overview"];
+	        this.director = source["director"];
+	        this.writer = source["writer"];
+	        this.poster_path = source["poster_path"];
+	        this.first_air_date = source["first_air_date"];
+	        this.vote_average = source["vote_average"];
+	        this.vote_count = source["vote_count"];
+	        this.genres = source["genres"];
+	        this.isSaved = source["isSaved"];
+	    }
+	}
 
 }
 
@@ -50,6 +82,24 @@ export namespace session {
 	
 	    static createFrom(source: any = {}) {
 	        return new Movie(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.title = source["title"];
+	        this.director = source["director"];
+	        this.writer = source["writer"];
+	        this.poster_path = source["poster_path"];
+	    }
+	}
+	export class TVShow {
+	    title: string;
+	    director: string;
+	    writer: string;
+	    poster_path: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new TVShow(source);
 	    }
 	
 	    constructor(source: any = {}) {

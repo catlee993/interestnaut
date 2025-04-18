@@ -141,20 +141,21 @@ export function MediaHeader({
             >
               <Tab value="music" label="Music" />
               <Tab value="movies" label="Movies" />
+              <Tab value="tv" label="Shows" />
             </Tabs>
           </LeftSection>
 
           <CenterSection>
             <LogoContainer>
               <LogoText>interestnaut</LogoText>
-              <img 
-                src={interestnautLogo} 
-                alt="Interestnaut Logo" 
-                style={{ 
+              <img
+                src={interestnautLogo}
+                alt="Interestnaut Logo"
+                style={{
                   height: "28px",
                   width: "28px",
                   marginLeft: "6px",
-                }} 
+                }}
               />
             </LogoContainer>
           </CenterSection>
@@ -181,7 +182,11 @@ export function MediaHeader({
         <Box sx={{ p: 2, width: "100%" }}>
           <SearchBar
             placeholder={
-              activeMedia === "music" ? "Search tracks..." : "Search movies..."
+              activeMedia === "music"
+                ? "Search tracks..."
+                : activeMedia === "movies"
+                  ? "Search movies..."
+                  : "Search TV shows..."
             }
             onSearch={onSearch}
             onClear={onClearSearch}

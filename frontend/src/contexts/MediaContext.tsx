@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, ReactNode } from 'react';
 
-export type MediaType = 'music' | 'movies';
+export type MediaType = 'music' | 'movies' | 'tv';
 
 interface MediaContextType {
   currentMedia: MediaType;

@@ -51,6 +51,15 @@ func main() {
 		log.Fatalf("Failed to create movies binder: %v", err)
 	}
 
+	// Create the TV Shows binder
+	tvShows, err := bindings.NewTVShowBinder(ctx, cm)
+	if err != nil {
+		log.Fatalf("Failed to create TV shows binder: %v", err)
+	}
+
+	// Create settings binder
+	settings := &bindings.Settings{ContentManager: cm}
+
 	// Create application with options
 	rErr := wails.Run(&options.App{
 		Title:  "Interestnaut",
@@ -65,9 +74,10 @@ func main() {
 		},
 		Bind: []interface{}{
 			&bindings.Auth{},
-			&bindings.Settings{ContentManager: cm},
+			settings,
 			music,
 			movies,
+			tvShows,
 		},
 		EnumBind: []interface{}{
 			suggestionOutcome,

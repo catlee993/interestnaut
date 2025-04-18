@@ -982,6 +982,21 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
     }
   };
 
+  const handleRefreshCredentials = async () => {
+    try {
+      await RefreshCredentials();
+      enqueueSnackbar("TMDB credentials refreshed successfully", {
+        variant: "success",
+      });
+      checkCredentials();
+    } catch (error) {
+      console.error("Failed to refresh TMDB credentials:", error);
+      enqueueSnackbar("Failed to refresh TMDB credentials", {
+        variant: "error",
+      });
+    }
+  };
+
   return (
     <Box sx={{ width: "100%" }}>
       {credentialsError && !isLoadingSuggestion && (
@@ -1001,6 +1016,14 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
             The Movie Database API credentials are not configured. Please set up
             your TMDB API key in the Settings to use movie recommendations.
           </Typography>
+          <Button
+            variant="outlined"
+            color="warning"
+            sx={{ mt: 2 }}
+            onClick={handleRefreshCredentials}
+          >
+            Refresh Credentials
+          </Button>
         </Box>
       )}
 
