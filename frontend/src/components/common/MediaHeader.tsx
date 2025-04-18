@@ -6,12 +6,14 @@ import {
   Box,
   IconButton,
   styled,
+  Typography,
 } from "@mui/material";
 import { useMedia, MediaType } from "@/contexts/MediaContext";
 import { FaCog } from "react-icons/fa";
 import { useState, useEffect } from "react";
 import { SettingsDrawer } from "./SettingsDrawer";
 import { SearchBar } from "./SearchBar";
+import interestnautLogo from "../../assets/images/logo/interestnaut-mascot.png";
 
 const StyledAppBar = styled(AppBar)(({ theme }) => ({
   background: "rgba(18, 18, 18, 0.95)",
@@ -36,6 +38,49 @@ const TopRow = styled(Box)({
   padding: "2px 0",
 });
 
+// Styled logo text
+const LogoText = styled(Typography)({
+  fontFamily: "'Inter', sans-serif",
+  fontWeight: 300,
+  background: "linear-gradient(45deg, #c165dd 30%, #9880ff 90%)",
+  backgroundClip: "text",
+  WebkitBackgroundClip: "text",
+  WebkitTextFillColor: "transparent",
+  marginLeft: "4px",
+  fontSize: "0.95rem",
+  letterSpacing: "0.5px",
+  textTransform: "uppercase",
+  lineHeight: 1,
+  paddingBottom: "2px",
+});
+
+// Logo container to hold both the image and text
+const LogoContainer = styled(Box)({
+  display: "flex",
+  alignItems: "flex-end",
+});
+
+// Left section container
+const LeftSection = styled(Box)({
+  display: "flex",
+  alignItems: "center",
+});
+
+// Center section container
+const CenterSection = styled(Box)({
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  flex: 1,
+});
+
+// Right section container
+const RightSection = styled(Box)({
+  display: "flex",
+  alignItems: "center",
+  gap: "12px",
+});
+
 interface MediaHeaderProps {
   additionalControl?: React.ReactNode | null;
   onSearch: (query: string) => void;
@@ -43,22 +88,23 @@ interface MediaHeaderProps {
   currentMedia?: MediaType;
 }
 
-export function MediaHeader({ 
-  additionalControl, 
-  onSearch, 
+export function MediaHeader({
+  additionalControl,
+  onSearch,
   onClearSearch,
-  currentMedia: externalMedia 
+  currentMedia: externalMedia,
 }: MediaHeaderProps) {
   const { currentMedia, setCurrentMedia } = useMedia();
   const [showSettingsDrawer, setShowSettingsDrawer] = useState(false);
   const [controlKey, setControlKey] = useState(0);
 
   // Use externally provided media type if available, otherwise use context
-  const activeMedia = externalMedia !== undefined ? externalMedia : currentMedia;
+  const activeMedia =
+    externalMedia !== undefined ? externalMedia : currentMedia;
 
   // Force refresh of additionalControl when it changes
   useEffect(() => {
-    setControlKey(prev => prev + 1);
+    setControlKey((prev) => prev + 1);
   }, [additionalControl]);
 
   const handleOpenSettings = () => {
@@ -73,7 +119,7 @@ export function MediaHeader({
     <StyledAppBar position="sticky" elevation={0}>
       <StyledToolbar>
         <TopRow>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          <LeftSection>
             <Tabs
               value={activeMedia}
               onChange={handleChange}
@@ -96,12 +142,25 @@ export function MediaHeader({
               <Tab value="music" label="Music" />
               <Tab value="movies" label="Movies" />
             </Tabs>
-          </Box>
+          </LeftSection>
 
-          <Box sx={{ display: "flex", alignItems: "center", gap: 3 }}>
-            <Box key={controlKey}>
-              {additionalControl}
-            </Box>
+          <CenterSection>
+            <LogoContainer>
+              <LogoText>interestnaut</LogoText>
+              <img 
+                src={interestnautLogo} 
+                alt="Interestnaut Logo" 
+                style={{ 
+                  height: "28px",
+                  width: "28px",
+                  marginLeft: "6px",
+                }} 
+              />
+            </LogoContainer>
+          </CenterSection>
+
+          <RightSection>
+            <Box key={controlKey}>{additionalControl}</Box>
 
             <IconButton
               size="small"
@@ -116,7 +175,7 @@ export function MediaHeader({
             >
               <FaCog size={20} />
             </IconButton>
-          </Box>
+          </RightSection>
         </TopRow>
 
         <Box sx={{ p: 2, width: "100%" }}>

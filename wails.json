@@ -9,5 +9,15 @@
   "author": {
     "name": "cat lee",
     "email": "catherine.olivia.lee@gmail.com"
+  },
+  "info": {
+    "companyName": "Interestnaut",
+    "productName": "Interestnaut",
+    "productVersion": "1.0.0",
+    "copyright": "© 2025 Cat Lee",
+    "comments": "Built with Wails"
+  },
+  "preBuildHooks": {
+    "*/*": "mkdir -p build && cp frontend/src/assets/images/appicon.png build/"
   }
 }
