@@ -243,7 +243,7 @@ export const MediaSuggestionDisplay: React.FC<MediaSuggestionDisplayProps> = ({
             flexDirection: 'column',
             overflow: "auto",
             flex: "1 1 auto",
-            maxHeight: { md: "calc(450px - 70px)" },
+            maxHeight: { md: "calc(450px - 50px)" },
           }}>
             <Typography variant="h4" component="h4">
               {suggestedItem.title}
@@ -274,6 +274,7 @@ export const MediaSuggestionDisplay: React.FC<MediaSuggestionDisplayProps> = ({
                   mt: 2,
                   overflow: "auto",
                   mb: 1,
+                  maxHeight: { md: "150px" },
                 }}>
                   {suggestedItem.description}
                 </Typography>
@@ -304,7 +305,7 @@ export const MediaSuggestionDisplay: React.FC<MediaSuggestionDisplayProps> = ({
               opacity: isProcessing ? 0.5 : 1,
               pointerEvents: isProcessing ? "none" : "auto",
               mt: { xs: 4, md: "auto" },
-              height: { md: "70px" },
+              height: { md: "50px" },
               pb: 0,
             }}
           >
