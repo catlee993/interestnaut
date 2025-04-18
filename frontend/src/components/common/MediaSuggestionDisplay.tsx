@@ -223,6 +223,7 @@ export const MediaSuggestionDisplay: React.FC<MediaSuggestionDisplayProps> = ({
             display: "flex",
             justifyContent: "center",
             position: { md: "relative" },
+            height: { md: "450px" },
           }}
         >
           {renderImage ? renderImage(suggestedItem) : renderDefaultImage()}
@@ -233,9 +234,17 @@ export const MediaSuggestionDisplay: React.FC<MediaSuggestionDisplayProps> = ({
           display: "flex",
           flexDirection: "column",
           minHeight: { md: "450px" },
+          height: { md: "450px" },
           position: { md: "relative" },
+          justifyContent: "space-between",
         }}>
-          <Box className="content" sx={{ flex: 1 }}>
+          <Box className="content" sx={{ 
+            display: 'flex', 
+            flexDirection: 'column',
+            overflow: "auto",
+            flex: "1 1 auto",
+            maxHeight: { md: "calc(450px - 70px)" },
+          }}>
             <Typography variant="h4" component="h4">
               {suggestedItem.title}
             </Typography>
@@ -254,25 +263,34 @@ export const MediaSuggestionDisplay: React.FC<MediaSuggestionDisplayProps> = ({
               </Typography>
             )}
             
-            {suggestedItem.description && (
-              <Typography variant="body1" sx={{ 
-                mt: 2,
-                maxHeight: { md: "150px" },
-                overflow: "auto",
-              }}>
-                {suggestedItem.description}
-              </Typography>
-            )}
+            <Box sx={{ 
+              display: 'flex', 
+              flexDirection: 'column', 
+              flex: 1, 
+              overflow: 'hidden',
+            }}>
+              {suggestedItem.description && (
+                <Typography variant="body1" sx={{ 
+                  mt: 2,
+                  overflow: "auto",
+                  mb: 1,
+                }}>
+                  {suggestedItem.description}
+                </Typography>
+              )}
 
-            {suggestionReason && (
-              <Box sx={{ 
-                mt: 1,
-                maxHeight: { md: "140px" },
-                overflow: "auto"
-              }}>
-                <ReasonCard reason={suggestionReason} />
-              </Box>
-            )}
+              {suggestionReason && (
+                <Box sx={{ 
+                  mt: 1,
+                  flex: 1,
+                  overflow: "auto",
+                  minHeight: '60px',
+                  display: 'flex',
+                }}>
+                  <ReasonCard reason={suggestionReason} sx={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }} />
+                </Box>
+              )}
+            </Box>
           </Box>
 
           <Box
@@ -280,16 +298,14 @@ export const MediaSuggestionDisplay: React.FC<MediaSuggestionDisplayProps> = ({
             sx={{
               display: "flex",
               flexWrap: "wrap",
-              alignItems: "center",
+              alignItems: "flex-end",
               justifyContent: "center",
               gap: { xs: "8px", md: "10px" },
               opacity: isProcessing ? 0.5 : 1,
               pointerEvents: isProcessing ? "none" : "auto",
               mt: { xs: 4, md: "auto" },
-              position: { md: "absolute" },
-              bottom: { md: 0 },
-              left: { md: 0 },
-              right: { md: 0 },
+              height: { md: "70px" },
+              pb: 0,
             }}
           >
             <StyledButton

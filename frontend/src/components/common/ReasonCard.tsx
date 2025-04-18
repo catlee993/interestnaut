@@ -1,4 +1,4 @@
-import { Box, Typography, Paper } from "@mui/material";
+import { Box, Typography, Paper, SxProps, Theme } from "@mui/material";
 import { styled } from "@mui/material/styles";
 import { FaRobot } from "react-icons/fa";
 
@@ -11,11 +11,12 @@ const StyledPaper = styled(Paper)(({ theme }) => ({
 
 interface ReasonCardProps {
   reason: string;
+  sx?: SxProps<Theme>;
 }
 
-export const ReasonCard: React.FC<ReasonCardProps> = ({ reason }) => {
+export const ReasonCard: React.FC<ReasonCardProps> = ({ reason, sx }) => {
   return (
-    <StyledPaper>
+    <StyledPaper sx={sx}>
       <Box
         sx={{
           display: "flex",
@@ -48,6 +49,8 @@ export const ReasonCard: React.FC<ReasonCardProps> = ({ reason }) => {
           fontStyle: "italic",
           opacity: 0.8,
           fontFamily: "var(--body-font)",
+          flex: 1,
+          overflow: "auto"
         }}
       >
         {reason}
