@@ -206,11 +206,29 @@ func GetValidToken(ctx context.Context) (string, error) {
 	refreshToken, err := creds.GetSpotifyToken()
 	if err != nil {
 		log.Printf("ERROR: Failed to get refresh token from storage: %v", err)
-		return "", ErrNotAuthenticated
+		// Instead of just returning an error, try to start a new auth flow
+		if err := RunInitialAuthFlow(ctx); err != nil {
+			log.Printf("ERROR: Failed to start new auth flow after refresh token retrieval error: %v", err)
+			return "", fmt.Errorf("failed to refresh token and re-authenticate: %w", err)
+		}
+		// If auth flow successful, try to get the token again
+		newToken, tokenErr := creds.GetSpotifyToken()
+		if tokenErr != nil {
+			return "", ErrNotAuthenticated
+		}
+		refreshToken = newToken
 	}
+
 	if refreshToken == "" {
 		log.Println("ERROR: Retrieved empty refresh token from storage.")
-		return "", ErrNotAuthenticated
+		// Start new auth flow if refresh token is empty
+		if err := RunInitialAuthFlow(ctx); err != nil {
+			log.Printf("ERROR: Failed to start new auth flow after empty refresh token: %v", err)
+			return "", fmt.Errorf("failed to re-authenticate with empty refresh token: %w", err)
+		}
+		// If successful, we need to wait a moment for the new token to be saved
+		time.Sleep(1 * time.Second)
+		return GetValidToken(ctx) // Retry with the new credentials
 	}
 
 	form := url.Values{}
@@ -243,13 +261,29 @@ func GetValidToken(ctx context.Context) (string, error) {
 	if resp.StatusCode != http.StatusOK {
 		log.Printf("ERROR: Token refresh failed with status %d: %s", resp.StatusCode, string(body))
 		if strings.Contains(string(body), "invalid_grant") {
-			log.Println("ERROR: Invalid refresh token (invalid_grant). Clearing stored credentials.")
+			log.Println("ERROR: Invalid refresh token (invalid_grant). Clearing stored credentials and initiating re-auth.")
+			// Clear invalid credentials
 			if err := keyring.Delete(creds.ServiceName, creds.SpotifyRefreshTokenKey); err != nil {
 				log.Printf("ERROR: Failed to clear invalid credentials from keyring: %v", err)
 			}
 			accessToken = ""
 			tokenExpiry = time.Time{}
-			return "", ErrNotAuthenticated
+
+			// Automatically start a new auth flow
+			if err := RunInitialAuthFlow(ctx); err != nil {
+				log.Printf("ERROR: Failed to start new auth flow after invalid_grant: %v", err)
+				return "", fmt.Errorf("invalid refresh token and failed to re-authenticate: %w", err)
+			}
+
+			// If the auth flow completes, try to get a token again with the new credentials
+			// We need a short delay to ensure the token is properly saved by the callback
+			time.Sleep(1 * time.Second)
+
+			// Re-acquire the lock since we'll release it when we recursively call GetValidToken
+			tokenMutex.Unlock()
+			defer tokenMutex.Lock()
+
+			return GetValidToken(ctx)
 		}
 		return "", fmt.Errorf("token refresh failed with status %d: %s", resp.StatusCode, string(body))
 	}

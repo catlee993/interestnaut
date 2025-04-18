@@ -164,19 +164,56 @@ export function useSpotifyPlayer() {
           setIsInitializing(false);
           isConnecting.current = false;
 
-          // Try to refresh token first, then reconnect
-          forceTokenRefresh().then((success) => {
-            if (success) {
-              // If token refresh was successful, try to reconnect with short delay
-              setTimeout(() => {
-                hasInitialized.current = false;
-                initializePlayer();
-              }, 1000);
-            } else {
-              // If token refresh failed, use exponential backoff for retries
+          // Try to refresh token first, but with an aggressive timeout
+          // to avoid UI locking up if backend is also having issues
+          const tokenPromise = forceTokenRefresh();
+          const timeoutPromise = new Promise((_, reject) => {
+            setTimeout(() => reject(new Error("Token refresh timed out")), 5000);
+          });
+          
+          Promise.race([tokenPromise, timeoutPromise])
+            .then((success) => {
+              if (success === true) {
+                console.log("[SpotifyPlayer] Token refresh successful, reconnecting player");
+                // If token refresh was successful, try to reconnect with longer delay
+                setTimeout(() => {
+                  hasInitialized.current = false;
+                  initializePlayer();
+                }, 2000); // Increased from 1000 to 2000ms
+              } else {
+                // Handle unexpected response
+                throw new Error("Unexpected response from token refresh");
+              }
+            })
+            .catch((error) => {
+              console.error("[SpotifyPlayer] Token refresh failed or timed out:", error);
+              
+              // If we've had too many auth errors in a short time, stop retrying
+              // Check the time between retries to avoid rapid looping
+              const now = Date.now();
+              const MIN_RETRY_INTERVAL = 30000; // 30 seconds minimum between auth error retries
+              
+              if (lastTokenRefresh.current > 0 && (now - lastTokenRefresh.current) < MIN_RETRY_INTERVAL) {
+                console.warn("[SpotifyPlayer] Too many auth errors too quickly, pausing retries for 2 minutes");
+                retryCount.current = maxRetries; // Force a longer wait by maxing out retries
+                
+                // Display a more informative error to the user
+                setInitializationError("Spotify authentication is failing repeatedly. Please try manually clearing credentials.");
+                
+                // After 2 minutes, reset the retry count to allow another attempt
+                setTimeout(() => {
+                  console.log("[SpotifyPlayer] Resetting retry count after cooling period");
+                  retryCount.current = 0;
+                  lastTokenRefresh.current = Date.now();
+                }, 120000); // 2 minutes
+                
+                return;
+              }
+              
+              // Use much more aggressive exponential backoff for auth errors
               const delay = Math.min(
-                30000,
-                2000 * Math.pow(2, retryCount.current),
+                120000, // 2 minute max delay
+                5000 * Math.pow(2, retryCount.current), // Start with 5 seconds, then 10s, 20s, 40s...
               );
               retryCount.current += 1;
 
@@ -188,9 +225,11 @@ export function useSpotifyPlayer() {
                   hasInitialized.current = false;
                   initializePlayer();
                 }, delay);
+              } else {
+                console.error("[SpotifyPlayer] Exceeded maximum retry attempts for authentication");
+                setInitializationError("Failed to authenticate after multiple attempts. Please try clearing your Spotify credentials.");
               }
-            }
-          });
+            });
         },
       );
 
