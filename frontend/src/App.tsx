@@ -2,11 +2,7 @@ import { useEffect, useState, useRef, forwardRef, useCallback } from "react";
 import "./App.css";
 import { session, spotify, MovieWithSavedStatus } from "@wailsjs/go/models";
 import { SuggestionProvider } from "@/components/music/suggestions/SuggestionContext";
-import { SuggestionDisplay } from "@/components/music/suggestions/SuggestionDisplay";
 import { NowPlayingBar } from "@/components/music/player/NowPlayingBar";
-import { LibrarySection } from "@/components/music/library/LibrarySection";
-import { MovieSection } from "@/components/movies/MovieSection";
-import { TVShowSection } from "@/components/tv/TVShowSection";
 import {
   MusicSection,
   MusicSectionHandle,
@@ -30,11 +26,9 @@ import { theme } from "./theme";
 import { SnackbarProvider, useSnackbar } from "notistack";
 import { MediaHeader } from "@/components/common/MediaHeader";
 import { SpotifyUserControl } from "@/components/music/SpotifyUserControl";
-import { styled } from "@mui/material/styles";
-import { RefactoredGameSection } from "./components/games/RefactoredGameSection";
 import { GameSection } from "./components/games/GameSection";
-import { RefactoredMovieSection } from "@/components/movies/RefactoredMovieSection";
-import { RefactoredTVShowSection } from "@/components/tv/RefactoredTVShowSection";
+import { MovieSection } from "@/components/movies/MovieSection";
+import { TVShowSection } from "@/components/tv/TVShowSection";
 
 // Add type declarations for Wails modules
 declare module "@wailsjs/go/bindings/Music" {
@@ -340,11 +334,11 @@ function AppContent() {
             onPrevPage={handlePrevPage}
           />
         ) : currentMedia === "movies" ? (
-          <RefactoredMovieSection ref={movieSectionRef} />
+          <MovieSection ref={movieSectionRef} />
         ) : currentMedia === "tv" ? (
-          <RefactoredTVShowSection ref={tvShowSectionRef} />
+          <TVShowSection ref={tvShowSectionRef} />
         ) : (
-          <RefactoredGameSection ref={gameSectionRef} />
+          <GameSection ref={gameSectionRef} />
         )}
       </Container>
       {nowPlayingTrack && <NowPlayingBar />}
