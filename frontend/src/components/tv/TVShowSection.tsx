@@ -15,6 +15,15 @@ import {
   Card,
   CardMedia,
   styled,
+  TextField,
+  InputAdornment,
+  IconButton,
+  useTheme,
+  useMediaQuery,
+  LinearProgress,
+  Paper,
+  Tab,
+  Tabs,
 } from "@mui/material";
 import { TVShowCard } from "@/components/tv/TVShowCard";
 import { TVShowSuggestion } from "@/components/tv/TVShowSuggestion";
@@ -38,6 +47,11 @@ import {
   MediaSuggestionDisplay,
   MediaSuggestionItem,
 } from "@/components/common/MediaSuggestionDisplay";
+import { useMediaCollection } from '../../hooks/useMediaCollection';
+import { tvShowAdapter } from '../../adapters/tvShowAdapter';
+import { tvShowAPI } from '../../adapters/tvShowAPI';
+import { MediaCard } from '../common/MediaCard';
+import { LoggedInCheck } from "@/components/common/LoggedInCheck";
 
 // Extended interface to include isSaved property
 interface ExtendedTVShowWithSavedStatus extends bindings.TVShowWithSavedStatus {
@@ -278,11 +292,21 @@ export const TVShowSection = forwardRef<TVShowSectionHandle, {}>((props, ref) =>
       const shows = favoriteShows || [];
       
       const showsWithDetails: ExtendedTVShowWithSavedStatus[] = [];
+      // Track shows by title to prevent duplicates
+      const processedTitles = new Set<string>();
 
       let apiCallCount = 0;
       const MAX_API_CALLS = 5;
 
       for (const show of shows) {
+        // Skip if we've already processed a show with this title
+        if (processedTitles.has(show.title?.toLowerCase() || '')) {
+          continue;
+        }
+        
+        // Add to processed set to prevent duplicates
+        processedTitles.add(show.title?.toLowerCase() || '');
+        
         // Check if we have the poster path stored
         if (show.poster_path) {
           // Create a show object with the stored poster
@@ -300,6 +324,7 @@ export const TVShowSection = forwardRef<TVShowSectionHandle, {}>((props, ref) =>
             writer: show.writer || ""
           });
         }
+        else {
           try {
             // If we've hit our API call limit, create a basic entry
             if (apiCallCount >= MAX_API_CALLS) {
@@ -368,6 +393,7 @@ export const TVShowSection = forwardRef<TVShowSectionHandle, {}>((props, ref) =>
               writer: show.writer || ""
             });
           }
+        }
       }
       
       setSavedShows(showsWithDetails);
@@ -392,6 +418,8 @@ export const TVShowSection = forwardRef<TVShowSectionHandle, {}>((props, ref) =>
       }
       
       const showsWithDetails: ExtendedTVShowWithSavedStatus[] = [];
+      // Track shows by title to prevent duplicates
+      const processedTitles = new Set<string>();
       
       let apiCallCount = 0;
       const MAX_API_CALLS = 5;
@@ -400,11 +428,21 @@ export const TVShowSection = forwardRef<TVShowSectionHandle, {}>((props, ref) =>
       const currentSavedShows = savedShows;
 
       for (const show of watchlist) {
+        // Skip if we've already processed a show with this title
+        if (processedTitles.has(show.title?.toLowerCase() || '')) {
+          continue;
+        }
+        
+        // Add to processed set to prevent duplicates
+        processedTitles.add(show.title?.toLowerCase() || '');
+        
+        // Check if this show is in favorites by comparing names (case insensitive)
+        const isSaved = currentSavedShows.some(saved => 
+          saved.name.toLowerCase() === (show.title?.toLowerCase() || '')
+        );
+        
         // Check if we have the poster path stored
         if (show.poster_path) {
-          // Check if this show is in favorites by comparing names
-          const isSaved = currentSavedShows.some(saved => saved.name === (show.title || ""));
-          
           // Create a show object with the stored poster
           showsWithDetails.push({
             id: 0,
@@ -420,12 +458,10 @@ export const TVShowSection = forwardRef<TVShowSectionHandle, {}>((props, ref) =>
             writer: show.writer || ""
           });
         }
+        else {
           try {
             // If we've hit our API call limit, create a basic entry
             if (apiCallCount >= MAX_API_CALLS) {
-              // Check if this show is in favorites by comparing names
-              const isSaved = currentSavedShows.some(saved => saved.name === (show.title || ""));
-              
               showsWithDetails.push({
                 id: 0,
                 name: show.title || "",
@@ -451,8 +487,10 @@ export const TVShowSection = forwardRef<TVShowSectionHandle, {}>((props, ref) =>
               // Use the first search result as our match
               const matchedShow = searchResults[0];
               
-              // Check if this show is also in favorites
-              const isSaved = currentSavedShows.some(saved => saved.name === matchedShow.name);
+              // Check if this show is also in favorites (comparing case insensitive)
+              const isSaved = currentSavedShows.some(saved => 
+                saved.name.toLowerCase() === matchedShow.name.toLowerCase()
+              );
 
               // Add it to our array with appropriate flags
               showsWithDetails.push({
@@ -463,9 +501,6 @@ export const TVShowSection = forwardRef<TVShowSectionHandle, {}>((props, ref) =>
               });
             } else {
               // If no match found, create a basic entry without poster
-              // Check if this show is in favorites by comparing names
-              const isSaved = currentSavedShows.some(saved => saved.name === (show.title || ""));
-              
               showsWithDetails.push({
                 id: 0,
                 name: show.title || "",
@@ -483,9 +518,6 @@ export const TVShowSection = forwardRef<TVShowSectionHandle, {}>((props, ref) =>
           } catch (error) {
             console.error("Error loading show details:", error);
             // In case of error, create a basic entry
-            // Check if this show is in favorites by comparing names
-            const isSaved = currentSavedShows.some(saved => saved.name === (show.title || ""));
-            
             showsWithDetails.push({
               id: 0,
               name: show.title || "",
@@ -500,6 +532,7 @@ export const TVShowSection = forwardRef<TVShowSectionHandle, {}>((props, ref) =>
               writer: show.writer || ""
             });
           }
+        }
       }
       
       setWatchlistShows(showsWithDetails);
@@ -523,21 +556,23 @@ export const TVShowSection = forwardRef<TVShowSectionHandle, {}>((props, ref) =>
 
       if (show.isSaved) {
         // Remove from saved shows by filtering out the show with the matching title
+        // Use case-insensitive comparison for better matching
         const updatedFavorites = shows.filter(
-          (fav) => fav.title !== show.name
+          (fav) => fav.title.toLowerCase() !== show.name.toLowerCase()
         );
 
         // Update the backend with the modified list
         await SetFavoriteTVShows(updatedFavorites);
 
         // Update local state
-        setSavedShows((prev) => prev.filter((s) => s.name !== show.name));
+        setSavedShows((prev) => prev.filter((s) => s.name.toLowerCase() !== show.name.toLowerCase()));
         enqueueSnackbar(`Removed "${show.name}" from your library`, {
           variant: "success",
         });
       } else {
         // Check if show already exists in favorites to prevent duplicates
-        const exists = shows.some(s => s.title === show.name);
+        // Use case-insensitive comparison for better matching
+        const exists = shows.some(s => s.title.toLowerCase() === show.name.toLowerCase());
         if (exists) {
           enqueueSnackbar(`"${show.name}" is already in your library`, {
             variant: "info",
@@ -580,8 +615,13 @@ export const TVShowSection = forwardRef<TVShowSectionHandle, {}>((props, ref) =>
         // Update the backend with the modified list
         await SetFavoriteTVShows(updatedFavorites);
 
-        // Update local state
-        setSavedShows((prev) => [...prev, { ...show, isSaved: true, director: directorName }]);
+        // Check if show already exists in local state before adding
+        const showExistsInState = savedShows.some(s => s.name.toLowerCase() === show.name.toLowerCase());
+        if (!showExistsInState) {
+          // Update local state with the new show
+          setSavedShows((prev) => [...prev, { ...show, isSaved: true, director: directorName }]);
+        }
+        
         enqueueSnackbar(`Added "${show.name}" to your library`, {
           variant: "success",
         });
@@ -673,8 +713,8 @@ export const TVShowSection = forwardRef<TVShowSectionHandle, {}>((props, ref) =>
     try {
       setIsLoading(true);
       
-      // Check if show is already in watchlist
-      const isInWatchlist = watchlistShows.some(s => s.name === show.name);
+      // Check if show is already in watchlist using case-insensitive comparison
+      const isInWatchlist = watchlistShows.some(s => s.name.toLowerCase() === show.name.toLowerCase());
       if (isInWatchlist) {
         enqueueSnackbar(`"${show.name}" is already in your watchlist`, {
           variant: "info",
@@ -694,7 +734,11 @@ export const TVShowSection = forwardRef<TVShowSectionHandle, {}>((props, ref) =>
       await AddToWatchlist(tvShow);
       
       // Update local state - add the show to watchlist
-      setWatchlistShows(prev => [...prev, { ...show, isSaved: show.isSaved }]);
+      // But first double-check it's not already there (using case-insensitive comparison)
+      const alreadyInWatchlist = watchlistShows.some(s => s.name.toLowerCase() === show.name.toLowerCase());
+      if (!alreadyInWatchlist) {
+        setWatchlistShows(prev => [...prev, { ...show, isSaved: show.isSaved }]);
+      }
       
       // Show success message
       enqueueSnackbar(`Added "${show.name}" to your watchlist`, {
@@ -702,7 +746,7 @@ export const TVShowSection = forwardRef<TVShowSectionHandle, {}>((props, ref) =>
       });
       
       // Check if this show is the current suggestion
-      const isCurrentSuggestion = suggestedShow && suggestedShow.name === show.name;
+      const isCurrentSuggestion = suggestedShow && suggestedShow.name.toLowerCase() === show.name.toLowerCase();
       
       // If this is the current suggestion, get a new suggestion
       if (isCurrentSuggestion) {
