@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, forwardRef } from "react";
+import { useEffect, useState, useRef, forwardRef, useCallback } from "react";
 import "./App.css";
 import { session, spotify, MovieWithSavedStatus } from "@wailsjs/go/models";
 import { SuggestionProvider } from "@/components/music/suggestions/SuggestionContext";
@@ -31,6 +31,10 @@ import { SnackbarProvider, useSnackbar } from "notistack";
 import { MediaHeader } from "@/components/common/MediaHeader";
 import { SpotifyUserControl } from "@/components/music/SpotifyUserControl";
 import { styled } from "@mui/material/styles";
+import { RefactoredGameSection } from "./components/games/RefactoredGameSection";
+import { GameSection } from "./components/games/GameSection";
+import { RefactoredMovieSection } from "@/components/movies/RefactoredMovieSection";
+import { RefactoredTVShowSection } from "@/components/tv/RefactoredTVShowSection";
 
 // Add type declarations for Wails modules
 declare module "@wailsjs/go/bindings/Music" {
@@ -67,8 +71,14 @@ declare module "@wailsjs/go/bindings/Movies" {
   export function GetInitialMovies(): Promise<Record<string, any>>;
   export function HasValidCredentials(): Promise<boolean>;
   export function RefreshCredentials(): Promise<boolean>;
-  export function GetMovieSuggestion(): Promise<{ movie: MovieWithSavedStatus; reason: string } | null>;
-  export function ProvideSuggestionFeedback(outcome: session.Outcome, movieId: number): Promise<void>;
+  export function GetMovieSuggestion(): Promise<{
+    movie: MovieWithSavedStatus;
+    reason: string;
+  } | null>;
+  export function ProvideSuggestionFeedback(
+    outcome: session.Outcome,
+    movieId: number,
+  ): Promise<void>;
 }
 
 // Add type declarations for models
@@ -112,12 +122,28 @@ interface AuthStatus extends Record<string, any> {
 
 const ITEMS_PER_PAGE = 20;
 
+// Define a type for our media options
+type MediaType = "music" | "movies" | "tv" | "games";
+
+// Extending the MediaType in the MediaContext to include games
+declare module "@/contexts/MediaContext" {
+  interface MediaContextType {
+    currentMedia: MediaType;
+    setCurrentMedia: (media: MediaType) => void;
+  }
+}
+
 // Create a separate component for the app content to use hooks
 function AppContent() {
   const { enqueueSnackbar } = useSnackbar();
-  const { user, isAuthenticated, startAuthPolling, handleClearCreds, refreshUserProfile } =
-    useAuth();
-  const { currentMedia } = useMedia();
+  const {
+    user,
+    isAuthenticated,
+    startAuthPolling,
+    handleClearCreds,
+    refreshUserProfile,
+  } = useAuth();
+  const { currentMedia: mediaContext } = useMedia();
 
   const {
     savedTracks,
@@ -156,6 +182,9 @@ function AppContent() {
   const musicSectionRef = useRef<MusicSectionHandle>(null);
   const movieSectionRef = useRef<any>(null);
   const tvShowSectionRef = useRef<any>(null);
+  const gameSectionRef = useRef<any>(null);
+
+  const [currentMedia, setCurrentMedia] = useState<MediaType>("music");
 
   // Handler for music search
   const handleMusicSearchFromHeader = (query: string) => {
@@ -189,27 +218,30 @@ function AppContent() {
     }
   };
 
-  // Handler to clear search results based on current media type
-  const handleClearSearch = () => {
-    if (currentMedia === "music") {
-      // Clear music search
-      if (musicSectionRef.current) {
-        musicSectionRef.current.handleClearSearch();
-      }
-      // Also clear the search query
-      handleMusicSearch("");
-    } else if (currentMedia === "movies") {
-      // Clear movie search
-      if (movieSectionRef.current && movieSectionRef.current.handleClearSearch) {
-        movieSectionRef.current.handleClearSearch();
-      }
-    } else if (currentMedia === "tv") {
-      // Clear TV show search
-      if (tvShowSectionRef.current && tvShowSectionRef.current.handleClearSearch) {
-        tvShowSectionRef.current.handleClearSearch();
+  // Handler for game search
+  const handleGameSearchFromHeader = (query: string) => {
+    console.log(`[App] Game search requested: "${query}"`);
+    // Call the search method on GameSection component via ref
+    if (currentMedia === "games" && gameSectionRef.current) {
+      // If the GameSection exposes the handleSearch method, call it
+      if (gameSectionRef.current.handleSearch) {
+        gameSectionRef.current.handleSearch(query);
       }
     }
   };
+
+  // Handler to clear search results based on current media type
+  const handleClearSearch = useCallback(() => {
+    if (currentMedia === "music") {
+      musicSectionRef.current?.handleClearSearch();
+    } else if (currentMedia === "movies") {
+      movieSectionRef.current?.handleClearSearch();
+    } else if (currentMedia === "tv") {
+      tvShowSectionRef.current?.handleClearSearch();
+    } else if (currentMedia === "games") {
+      gameSectionRef.current?.handleClearSearch();
+    }
+  }, [currentMedia]);
 
   // Add effect to reload tracks when auth state changes
   useEffect(() => {
@@ -250,10 +282,16 @@ function AppContent() {
 
   return (
     <Box
-      id="App"
-      sx={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}
+      sx={{
+        minHeight: "100vh",
+        display: "flex",
+        flexDirection: "column",
+        backgroundColor: "var(--background-color)",
+        position: "relative",
+      }}
     >
       <MediaHeader
+        currentMedia={currentMedia}
         additionalControl={
           isAuthenticated && currentMedia === "music" ? (
             <SpotifyUserControl
@@ -264,18 +302,19 @@ function AppContent() {
           ) : null
         }
         onSearch={
-          currentMedia === "music" 
-            ? handleMusicSearchFromHeader 
+          currentMedia === "music"
+            ? handleMusicSearchFromHeader
             : currentMedia === "movies"
-            ? handleMovieSearchFromHeader
-            : handleTVShowSearchFromHeader
+              ? handleMovieSearchFromHeader
+              : currentMedia === "tv"
+                ? handleTVShowSearchFromHeader
+                : handleGameSearchFromHeader
         }
         onClearSearch={handleClearSearch}
-        currentMedia={currentMedia}
+        onMediaChange={setCurrentMedia}
       />
-
       <Container
-        maxWidth="lg"
+        maxWidth="xl"
         sx={{
           flex: 1,
           display: "flex",
@@ -301,9 +340,11 @@ function AppContent() {
             onPrevPage={handlePrevPage}
           />
         ) : currentMedia === "movies" ? (
-          <MovieSection ref={movieSectionRef} />
+          <RefactoredMovieSection ref={movieSectionRef} />
+        ) : currentMedia === "tv" ? (
+          <RefactoredTVShowSection ref={tvShowSectionRef} />
         ) : (
-          <TVShowSection ref={tvShowSectionRef} />
+          <RefactoredGameSection ref={gameSectionRef} />
         )}
       </Container>
       {nowPlayingTrack && <NowPlayingBar />}
@@ -316,8 +357,8 @@ interface CustomSnackbarProps extends SnackbarContentProps {
   style?: React.CSSProperties;
   // Add notistack specific props
   anchorOrigin?: {
-    vertical: 'top' | 'bottom';
-    horizontal: 'left' | 'center' | 'right';
+    vertical: "top" | "bottom";
+    horizontal: "left" | "center" | "right";
   };
   autoHideDuration?: number | null;
   hideIconVariant?: boolean;
@@ -326,179 +367,193 @@ interface CustomSnackbarProps extends SnackbarContentProps {
 }
 
 // Create custom snackbar components using forwardRef
-const SuccessSnackbar = forwardRef<HTMLDivElement, CustomSnackbarProps>(({ style, ...props }, ref) => {
-  // Filter out notistack props that shouldn't be passed to DOM
-  const {
-    anchorOrigin,
-    autoHideDuration,
-    hideIconVariant,
-    iconVariant,
-    persist,
-    ...contentProps
-  } = props;
+const SuccessSnackbar = forwardRef<HTMLDivElement, CustomSnackbarProps>(
+  ({ style, ...props }, ref) => {
+    // Filter out notistack props that shouldn't be passed to DOM
+    const {
+      anchorOrigin,
+      autoHideDuration,
+      hideIconVariant,
+      iconVariant,
+      persist,
+      ...contentProps
+    } = props;
 
-  return (
-    <SnackbarContent
-      ref={ref}
-      {...contentProps}
-      style={{
-        backgroundColor: "var(--primary-color)",
-        color: "#fff",
-        borderRadius: "8px",
-        boxShadow: "0 4px 12px rgba(123, 104, 238, 0.3)",
-        fontWeight: 500,
-        ...style,
-      }}
-    />
-  );
-});
+    return (
+      <SnackbarContent
+        ref={ref}
+        {...contentProps}
+        style={{
+          backgroundColor: "var(--primary-color)",
+          color: "#fff",
+          borderRadius: "8px",
+          boxShadow: "0 4px 12px rgba(123, 104, 238, 0.3)",
+          fontWeight: 500,
+          ...style,
+        }}
+      />
+    );
+  },
+);
 
-const ErrorSnackbar = forwardRef<HTMLDivElement, CustomSnackbarProps>(({ style, ...props }, ref) => {
-  // Filter out notistack props that shouldn't be passed to DOM
-  const {
-    anchorOrigin,
-    autoHideDuration,
-    hideIconVariant,
-    iconVariant,
-    persist,
-    ...contentProps
-  } = props;
+const ErrorSnackbar = forwardRef<HTMLDivElement, CustomSnackbarProps>(
+  ({ style, ...props }, ref) => {
+    // Filter out notistack props that shouldn't be passed to DOM
+    const {
+      anchorOrigin,
+      autoHideDuration,
+      hideIconVariant,
+      iconVariant,
+      persist,
+      ...contentProps
+    } = props;
 
-  return (
-    <SnackbarContent
-      ref={ref}
-      {...contentProps}
-      style={{
-        backgroundColor: "var(--purple-red)",
-        color: "#fff",
-        borderRadius: "8px",
-        boxShadow: "0 4px 12px rgba(194, 59, 133, 0.3)",
-        fontWeight: 500,
-        ...style,
-      }}
-    />
-  );
-});
+    return (
+      <SnackbarContent
+        ref={ref}
+        {...contentProps}
+        style={{
+          backgroundColor: "var(--purple-red)",
+          color: "#fff",
+          borderRadius: "8px",
+          boxShadow: "0 4px 12px rgba(194, 59, 133, 0.3)",
+          fontWeight: 500,
+          ...style,
+        }}
+      />
+    );
+  },
+);
 
-const WarningSnackbar = forwardRef<HTMLDivElement, CustomSnackbarProps>(({ style, ...props }, ref) => {
-  // Filter out notistack props that shouldn't be passed to DOM
-  const {
-    anchorOrigin,
-    autoHideDuration,
-    hideIconVariant,
-    iconVariant,
-    persist,
-    ...contentProps
-  } = props;
+const WarningSnackbar = forwardRef<HTMLDivElement, CustomSnackbarProps>(
+  ({ style, ...props }, ref) => {
+    // Filter out notistack props that shouldn't be passed to DOM
+    const {
+      anchorOrigin,
+      autoHideDuration,
+      hideIconVariant,
+      iconVariant,
+      persist,
+      ...contentProps
+    } = props;
 
-  return (
-    <SnackbarContent
-      ref={ref}
-      {...contentProps}
-      style={{
-        backgroundColor: "#FFBB33", // Standard warning yellow
-        color: "#000",
-        borderRadius: "8px",
-        boxShadow: "0 4px 12px rgba(255, 187, 51, 0.3)",
-        fontWeight: 500,
-        ...style,
-      }}
-    />
-  );
-});
+    return (
+      <SnackbarContent
+        ref={ref}
+        {...contentProps}
+        style={{
+          backgroundColor: "#FFBB33", // Standard warning yellow
+          color: "#000",
+          borderRadius: "8px",
+          boxShadow: "0 4px 12px rgba(255, 187, 51, 0.3)",
+          fontWeight: 500,
+          ...style,
+        }}
+      />
+    );
+  },
+);
 
-const SkipSnackbar = forwardRef<HTMLDivElement, CustomSnackbarProps>(({ style, ...props }, ref) => {
-  // Filter out notistack props that shouldn't be passed to DOM
-  const {
-    anchorOrigin,
-    autoHideDuration,
-    hideIconVariant,
-    iconVariant,
-    persist,
-    ...contentProps
-  } = props;
+const SkipSnackbar = forwardRef<HTMLDivElement, CustomSnackbarProps>(
+  ({ style, ...props }, ref) => {
+    // Filter out notistack props that shouldn't be passed to DOM
+    const {
+      anchorOrigin,
+      autoHideDuration,
+      hideIconVariant,
+      iconVariant,
+      persist,
+      ...contentProps
+    } = props;
 
-  return (
-    <SnackbarContent
-      ref={ref}
-      {...contentProps}
-      style={{
-        backgroundColor: "#4169E1", // RoyalBlue - a more distinctive blue
-        color: "#fff",
-        borderRadius: "8px",
-        boxShadow: "0 4px 12px rgba(65, 105, 225, 0.3)",
-        fontWeight: 500,
-        ...style,
-      }}
-    />
-  );
-});
+    return (
+      <SnackbarContent
+        ref={ref}
+        {...contentProps}
+        style={{
+          backgroundColor: "#4169E1", // RoyalBlue - a more distinctive blue
+          color: "#fff",
+          borderRadius: "8px",
+          boxShadow: "0 4px 12px rgba(65, 105, 225, 0.3)",
+          fontWeight: 500,
+          ...style,
+        }}
+      />
+    );
+  },
+);
 
-const InfoSnackbar = forwardRef<HTMLDivElement, CustomSnackbarProps>(({ style, ...props }, ref) => {
-  // Filter out notistack props that shouldn't be passed to DOM
-  const {
-    anchorOrigin,
-    autoHideDuration,
-    hideIconVariant,
-    iconVariant,
-    persist,
-    ...contentProps
-  } = props;
+const InfoSnackbar = forwardRef<HTMLDivElement, CustomSnackbarProps>(
+  ({ style, ...props }, ref) => {
+    // Filter out notistack props that shouldn't be passed to DOM
+    const {
+      anchorOrigin,
+      autoHideDuration,
+      hideIconVariant,
+      iconVariant,
+      persist,
+      ...contentProps
+    } = props;
 
-  return (
-    <SnackbarContent
-      ref={ref}
-      {...contentProps}
-      style={{
-        backgroundColor: "var(--primary-hover)",
-        color: "#fff",
-        borderRadius: "8px",
-        boxShadow: "0 4px 12px rgba(147, 112, 219, 0.3)",
-        fontWeight: 500,
-        ...style,
-      }}
-    />
-  );
-});
+    return (
+      <SnackbarContent
+        ref={ref}
+        {...contentProps}
+        style={{
+          backgroundColor: "var(--primary-hover)",
+          color: "#fff",
+          borderRadius: "8px",
+          boxShadow: "0 4px 12px rgba(147, 112, 219, 0.3)",
+          fontWeight: 500,
+          ...style,
+        }}
+      />
+    );
+  },
+);
 
-const DefaultSnackbar = forwardRef<HTMLDivElement, CustomSnackbarProps>(({ style, ...props }, ref) => {
-  // Filter out notistack props that shouldn't be passed to DOM
-  const {
-    anchorOrigin,
-    autoHideDuration,
-    hideIconVariant,
-    iconVariant,
-    persist,
-    ...contentProps
-  } = props;
+const DefaultSnackbar = forwardRef<HTMLDivElement, CustomSnackbarProps>(
+  ({ style, ...props }, ref) => {
+    // Filter out notistack props that shouldn't be passed to DOM
+    const {
+      anchorOrigin,
+      autoHideDuration,
+      hideIconVariant,
+      iconVariant,
+      persist,
+      ...contentProps
+    } = props;
 
-  return (
-    <SnackbarContent
-      ref={ref}
-      {...contentProps}
-      style={{
-        backgroundColor: "var(--surface-color)",
-        color: "#fff",
-        borderRadius: "8px",
-        boxShadow: "0 4px 12px rgba(0, 0, 0, 0.2)",
-        borderLeft: "4px solid var(--primary-color)",
-        fontWeight: 500,
-        ...style,
-      }}
-    />
-  );
-});
+    return (
+      <SnackbarContent
+        ref={ref}
+        {...contentProps}
+        style={{
+          backgroundColor: "var(--surface-color)",
+          color: "#fff",
+          borderRadius: "8px",
+          boxShadow: "0 4px 12px rgba(0, 0, 0, 0.2)",
+          borderLeft: "4px solid var(--primary-color)",
+          fontWeight: 500,
+          ...style,
+        }}
+      />
+    );
+  },
+);
 
 // Add display names to components for better debugging
-SuccessSnackbar.displayName = 'SuccessSnackbar';
-ErrorSnackbar.displayName = 'ErrorSnackbar';
-WarningSnackbar.displayName = 'WarningSnackbar';
-SkipSnackbar.displayName = 'SkipSnackbar';
-InfoSnackbar.displayName = 'InfoSnackbar';
-DefaultSnackbar.displayName = 'DefaultSnackbar';
+SuccessSnackbar.displayName = "SuccessSnackbar";
+ErrorSnackbar.displayName = "ErrorSnackbar";
+WarningSnackbar.displayName = "WarningSnackbar";
+SkipSnackbar.displayName = "SkipSnackbar";
+InfoSnackbar.displayName = "InfoSnackbar";
+DefaultSnackbar.displayName = "DefaultSnackbar";
 
 // Main App component that provides context
 function App() {
+  const [currentMedia, setCurrentMedia] = useState<MediaType>("music");
+
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
@@ -508,18 +563,22 @@ function App() {
           vertical: "top",
           horizontal: "center",
         }}
-        Components={{
-          success: SuccessSnackbar,
-          error: ErrorSnackbar,
-          warning: WarningSnackbar,
-          info: InfoSnackbar,
-          default: DefaultSnackbar,
-          skip: SkipSnackbar,
-        } as any}
+        Components={
+          {
+            success: SuccessSnackbar,
+            error: ErrorSnackbar,
+            warning: WarningSnackbar,
+            info: InfoSnackbar,
+            default: DefaultSnackbar,
+            skip: SkipSnackbar,
+          } as any
+        }
         onClose={() => console.log("[DEBUG-SNACKBAR] A snackbar was closed")}
         TransitionProps={{
-          onEnter: () => console.log("[DEBUG-SNACKBAR] Snackbar transition enter"),
-          onExited: () => console.log("[DEBUG-SNACKBAR] Snackbar transition exited")
+          onEnter: () =>
+            console.log("[DEBUG-SNACKBAR] Snackbar transition enter"),
+          onExited: () =>
+            console.log("[DEBUG-SNACKBAR] Snackbar transition exited"),
         }}
       >
         <MediaProvider>

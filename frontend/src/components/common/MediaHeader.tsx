@@ -85,7 +85,8 @@ interface MediaHeaderProps {
   additionalControl?: React.ReactNode | null;
   onSearch: (query: string) => void;
   onClearSearch?: () => void;
-  currentMedia?: MediaType;
+  currentMedia?: "music" | "movies" | "tv" | "games";
+  onMediaChange?: (media: "music" | "movies" | "tv" | "games") => void;
 }
 
 export function MediaHeader({
@@ -93,6 +94,7 @@ export function MediaHeader({
   onSearch,
   onClearSearch,
   currentMedia: externalMedia,
+  onMediaChange,
 }: MediaHeaderProps) {
   const { currentMedia, setCurrentMedia } = useMedia();
   const [showSettingsDrawer, setShowSettingsDrawer] = useState(false);
@@ -111,8 +113,13 @@ export function MediaHeader({
     setShowSettingsDrawer(true);
   };
 
-  const handleChange = (_: React.SyntheticEvent, newValue: MediaType) => {
-    setCurrentMedia(newValue);
+  const handleChange = (_: React.SyntheticEvent, newValue: any) => {
+    // Update both the external state and context state
+    if (onMediaChange) {
+      onMediaChange(newValue);
+    } else {
+      setCurrentMedia(newValue);
+    }
   };
 
   return (
@@ -142,6 +149,7 @@ export function MediaHeader({
               <Tab value="music" label="Music" />
               <Tab value="movies" label="Movies" />
               <Tab value="tv" label="Shows" />
+              <Tab value="games" label="Games" />
             </Tabs>
           </LeftSection>
 
@@ -186,7 +194,9 @@ export function MediaHeader({
                 ? "Search tracks..."
                 : activeMedia === "movies"
                   ? "Search movies..."
-                  : "Search TV shows..."
+                  : activeMedia === "tv"
+                    ? "Search TV shows..."
+                    : "Search games..."
             }
             onSearch={onSearch}
             onClear={onClearSearch}
