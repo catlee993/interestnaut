@@ -11,6 +11,7 @@ import (
 	"interestnaut/internal/openlibrary"
 	"interestnaut/internal/session"
 	"log"
+	"strings"
 )
 
 // BookWithSavedStatus represents a book with its saved status
@@ -38,7 +39,7 @@ func NewBooks(_ context.Context, cm session.CentralManager) (*Books, error) {
 	llmClients := make(map[string]llm.Client[session.Book])
 
 	// Initialize OpenAI client
-	openaiClient, err := openai.NewClient[session.Book]()
+	openaiClient, err := openai.NewClient[session.Book](cm)
 	if err != nil {
 		log.Printf("ERROR: Failed to create OpenAI client: %v", err)
 	} else {
@@ -263,7 +264,24 @@ func (b *Books) GetBookSuggestion() (map[string]interface{}, error) {
 
 	suggestion, err := llmClient.SendMessages(ctx, messages...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get suggestion from LLM: %w", err)
+		// Check if this is a parsing error and try using the error followup
+		if err.Error() != "" && (strings.Contains(err.Error(), "failed to parse suggestion") ||
+			strings.Contains(err.Error(), "could not parse suggestion")) {
+			log.Printf("Initial LLM response could not be parsed, attempting error followup")
+
+			// If we got a suggestion object but it wasn't valid, try error followup
+			if suggestion != nil {
+				// Try error followup with original messages
+				suggestion, err = llmClient.ErrorFollowup(ctx, suggestion, messages...)
+				if err != nil {
+					return nil, fmt.Errorf("error followup also failed: %w", err)
+				}
+			} else {
+				return nil, fmt.Errorf("failed to get suggestion from LLM: %w", err)
+			}
+		} else {
+			return nil, fmt.Errorf("failed to get suggestion from LLM: %w", err)
+		}
 	}
 
 	// Check if title and author are present

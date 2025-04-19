@@ -44,7 +44,7 @@ func NewTVShowBinder(ctx context.Context, cm session.CentralManager) (*TVShows, 
 	llmClients := make(map[string]llm.Client[session.TVShow])
 
 	// Initialize OpenAI client
-	openaiClient, err := openai.NewClient[session.TVShow]()
+	openaiClient, err := openai.NewClient[session.TVShow](cm)
 	if err != nil {
 		log.Printf("ERROR: Failed to create OpenAI client: %v", err)
 	} else {

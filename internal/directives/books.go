@@ -27,6 +27,8 @@ IMPORTANT RULES:
 4. Refer to suggestions for your previous suggestions.
 5. Refer to user_constraints for any specific user-defined constraints.
 6. Refer to baseline for a list of books in the user's library.
+7. One suggestion per response.
+8. In the event of no historic data, suggest a book at random.
 
 Do not include any other text in your response, only the JSON object to be parsed.
 `

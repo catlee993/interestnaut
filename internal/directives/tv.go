@@ -28,6 +28,7 @@ IMPORTANT RULES:
 5. Refer to user_constraints for any specific user-defined constraints.
 6. Refer to baseline for a list of shows in the user's library.
 7. One suggestion per response.
+8. In the event of no historic data, suggest a tv show at random.
 
 Do not include any other text in your response, only the JSON object to be parsed.
 `

@@ -43,7 +43,7 @@ func NewMovieBinder(ctx context.Context, cm session.CentralManager) (*Movies, er
 	llmClients := make(map[string]llm.Client[session.Movie])
 
 	// Initialize OpenAI client
-	openaiClient, err := openai.NewClient[session.Movie]()
+	openaiClient, err := openai.NewClient[session.Movie](cm)
 	if err != nil {
 		log.Printf("ERROR: Failed to create OpenAI client: %v", err)
 	} else {

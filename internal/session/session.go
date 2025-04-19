@@ -28,17 +28,6 @@ type Manager[T Media] interface {
 	Key() Key
 }
 
-type Settings interface {
-	GetContinuousPlayback() bool
-	SetContinuousPlayback(context.Context, bool) error
-	GetChatGPTModel() string
-	SetChatGPTModel(context.Context, string) error
-	GetLLMProvider() string
-	SetLLMProvider(context.Context, string) error
-	GetGeminiModel() string
-	SetGeminiModel(context.Context, string) error
-}
-
 type FavoriteManager interface {
 	GetMovies() []Movie
 	GetBooks() []Book
@@ -85,14 +74,6 @@ type manager[T Media] struct {
 	mu       sync.RWMutex
 	dataDir  string
 	key      Key
-}
-
-type settings struct {
-	ContinuousPlayback bool   `json:"continuous_playback"`
-	ChatGPTModel       string `json:"chatgpt_model"`
-	LLMProvider        string `json:"llm_provider"`
-	GeminiModel        string `json:"gemini_model"`
-	path               string // This field is not serialized
 }
 
 type centralManager struct {
@@ -268,51 +249,26 @@ func (m *manager[T]) AddSuggestion(
 	return m.saveSession(ctx, session)
 }
 
+func (cm *centralManager) Favorites() FavoriteManager {
+	return cm.favoriteManager
+}
+
+func (cm *centralManager) Queue() QueueManager {
+	return cm.queueManager
+}
+
 func (cm *centralManager) Settings() Settings {
 	return cm.settings
 }
 
-func (s *settings) SetContinuousPlayback(_ context.Context, continuous bool) error {
-	s.ContinuousPlayback = continuous
-
-	return s.saveSettings()
-}
-
-func (s *settings) GetContinuousPlayback() bool {
-	return s.ContinuousPlayback
-}
-
-func (s *settings) GetChatGPTModel() string {
-	return s.ChatGPTModel
-}
-
-func (s *settings) SetChatGPTModel(_ context.Context, model string) error {
-	s.ChatGPTModel = model
-	return s.saveSettings()
-}
-
-func (s *settings) GetLLMProvider() string {
-	if s.LLMProvider == "" {
-		return "openai" // Default to OpenAI if not set
+func (cm *centralManager) loadOrCreateSettings(userID, dataDir string) error {
+	settings, err := NewSettings(userID, dataDir)
+	if err != nil {
+		return fmt.Errorf("failed to initialize settings: %w", err)
 	}
-	return s.LLMProvider
-}
 
-func (s *settings) SetLLMProvider(_ context.Context, provider string) error {
-	s.LLMProvider = provider
-	return s.saveSettings()
-}
-
-func (s *settings) GetGeminiModel() string {
-	if s.GeminiModel == "" {
-		return "gemini-1.5-pro" // Default to 1.5 Pro if not set
-	}
-	return s.GeminiModel
-}
-
-func (s *settings) SetGeminiModel(_ context.Context, model string) error {
-	s.GeminiModel = model
-	return s.saveSettings()
+	cm.settings = settings
+	return nil
 }
 
 // UpdateSuggestionOutcome updates the outcome of a previously suggested song
@@ -445,80 +401,6 @@ func (m *manager[T]) hasSuggested(
 	return false
 }
 
-func (cm *centralManager) loadOrCreateSettings(userID, dataDir string) error {
-	filePath := filepath.Join(dataDir, fmt.Sprintf("%s%s", userID, SettingsSuffix))
-	log.Printf("Attempting to load settings from file: %s", filePath)
-
-	data, err := os.ReadFile(filePath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			log.Printf("No settings file exists for user %s, creating default settings", userID)
-			defaultSettings := &settings{
-				ContinuousPlayback: false,
-				ChatGPTModel:       "gpt-4o",
-				LLMProvider:        "",
-				GeminiModel:        "gemini-1.5-pro",
-				path:               filePath,
-			}
-			if sErr := defaultSettings.saveSettings(); sErr != nil {
-				return fmt.Errorf("failed to save default settings: %w", sErr)
-			}
-
-			cm.settings = defaultSettings
-
-			return nil
-		}
-		log.Printf("Failed to read settings file %s: %v", filePath, err)
-		return fmt.Errorf("failed to read settings file: %w", err)
-	}
-
-	var sets settings
-	if err := json.Unmarshal(data, &sets); err != nil {
-		log.Printf("Failed to unmarshal settings: %v", err)
-		return fmt.Errorf("failed to unmarshal settings: %w", err)
-	}
-
-	// Set the path so the settings can be saved later
-	sets.path = filePath
-
-	// Ensure the ChatGPTModel has a default value if it's empty
-	if sets.ChatGPTModel == "" {
-		log.Printf("ChatGPTModel was empty in settings file, setting default value")
-		sets.ChatGPTModel = "gpt-4o"
-
-		// Save the updated settings back to disk
-		if sErr := sets.saveSettings(); sErr != nil {
-			log.Printf("WARNING: Failed to save updated settings with default GPT model: %v", sErr)
-		}
-	}
-
-	log.Printf("Successfully loaded settings for user %s: continuousPlayback=%v, chatGptModel=%s",
-		userID, sets.ContinuousPlayback, sets.ChatGPTModel)
-
-	cm.settings = &sets
-
-	return nil
-}
-
-func (s *settings) saveSettings() error {
-	data, err := json.Marshal(s)
-	if err != nil {
-		log.Printf("Failed to marshal settings: %v", err)
-		return fmt.Errorf("failed to marshal settings: %w", err)
-	}
-
-	log.Printf("Saving settings to file %s: continuousPlayback=%v, chatGptModel=%s",
-		s.path, s.ContinuousPlayback, s.ChatGPTModel)
-
-	if wErr := os.WriteFile(s.path, data, 0644); wErr != nil {
-		log.Printf("Failed to write settings file: %v", wErr)
-		return fmt.Errorf("failed to write settings file: %w", wErr)
-	}
-
-	log.Printf("Successfully saved settings to file: %s", s.path)
-	return nil
-}
-
 func (cm *centralManager) GetMovies() []Movie {
 	return cm.favoriteManager.GetMovies()
 }
@@ -614,12 +496,4 @@ func (cm *centralManager) RemoveTVShowQueued(tvShow TVShow) error {
 
 func (cm *centralManager) RemoveVideoGameQueued(videoGame VideoGame) error {
 	return cm.queueManager.RemoveVideoGame(videoGame)
-}
-
-func (cm *centralManager) Favorites() FavoriteManager {
-	return cm.favoriteManager
-}
-
-func (cm *centralManager) Queue() QueueManager {
-	return cm.queueManager
 }

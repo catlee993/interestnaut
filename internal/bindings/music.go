@@ -39,7 +39,7 @@ func NewMusicBinder(ctx context.Context, cm session.CentralManager, clientID str
 	llmClients := make(map[string]llm.Client[session.Music])
 
 	// Initialize OpenAI client
-	openaiClient, err := openai.NewClient[session.Music]()
+	openaiClient, err := openai.NewClient[session.Music](cm)
 	if err != nil {
 		log.Printf("ERROR: Failed to create OpenAI client: %v", err)
 	} else {

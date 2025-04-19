@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	model         = "gpt-4o"
+	defaultModel  = "gpt-4o"
 	roleSystem    = "system"
 	roleUser      = "user"
 	roleAssistant = "assistant"
@@ -25,6 +25,7 @@ const (
 type client[T session.Media] struct {
 	apiKey     string
 	httpClient *http.Client
+	cm         session.CentralManager
 }
 
 // Regex to find JSON within ```json ... ``` fences.
@@ -47,7 +48,7 @@ func extractJsonContent(content string) string {
 	return trimmed
 }
 
-func NewClient[T session.Media]() (llm.Client[T], error) {
+func NewClient[T session.Media](cm session.CentralManager) (llm.Client[T], error) {
 	apiKey, err := creds.GetOpenAIKey()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get OpenAI API key from keychain: %w", err)
@@ -59,6 +60,7 @@ func NewClient[T session.Media]() (llm.Client[T], error) {
 	return &client[T]{
 		apiKey:     apiKey,
 		httpClient: &http.Client{},
+		cm:         cm,
 	}, nil
 }
 
@@ -88,8 +90,17 @@ func (c *client[T]) ComposeMessages(_ context.Context, content *session.Content[
 }
 
 func (c *client[T]) SendMessages(ctx context.Context, msgs ...llm.Message) (*llm.SuggestionResponse[T], error) {
+	// Get the current model from settings if available
+	modelToUse := defaultModel
+	if c.cm != nil && c.cm.Settings() != nil {
+		configModel := c.cm.Settings().GetChatGPTModel()
+		if configModel != "" {
+			modelToUse = configModel
+		}
+	}
+
 	reqBody := ChatRequest{
-		Model:    model,
+		Model:    modelToUse,
 		Messages: msgs,
 	}
 
@@ -140,14 +151,52 @@ func (c *client[T]) SendMessages(ctx context.Context, msgs ...llm.Message) (*llm
 	// Extract clean JSON content
 	content := extractJsonContent(chatResp.Choices[0].Message.GetContent())
 
+	// Store the original raw response
+	rawResponse := chatResp.Choices[0].Message.GetContent()
+
 	// Parse the response into our generic type
 	suggestion, err := llm.ParseSuggestionFromString[T](content)
 	if err != nil {
+		errSuggest := &llm.SuggestionResponse[T]{
+			RawResponse: rawResponse,
+		}
 		log.Printf("WARNING: Failed to parse JSON response: %v. Content: %s", err, content)
-		return nil, fmt.Errorf("failed to parse suggestion: %w", err)
+		return errSuggest, fmt.Errorf("failed to parse suggestion: %w", err)
 	}
 
+	// Store the raw response in the suggestion
+	suggestion.RawResponse = rawResponse
+
 	return suggestion, nil
+}
+
+func (c *client[T]) ErrorFollowup(ctx context.Context, resp *llm.SuggestionResponse[T], msgs ...llm.Message) (*llm.SuggestionResponse[T], error) {
+	// Create an error message
+	errorMsg := &Message{
+		Role:    roleSystem,
+		Content: "Your previous response was not the requested valid JSON or did not adhere to the rules. Please observe the following and correct your response:",
+	}
+
+	// Add original messages
+	allMessages := []llm.Message{errorMsg}
+	allMessages = append(allMessages, msgs...)
+
+	// Add the error indication
+	errorResponseMsg := &Message{
+		Role:    roleAssistant,
+		Content: "My previous response (which was incorrect):\n```\n" + resp.RawResponse + "\n```",
+	}
+	allMessages = append(allMessages, errorResponseMsg)
+
+	// Add a clarification message
+	clarificationMsg := &Message{
+		Role:    roleSystem,
+		Content: "Please provide a single valid JSON object with the expected structure. Do not include any text outside the JSON object, and ensure all fields are present and correctly formatted.",
+	}
+	allMessages = append(allMessages, clarificationMsg)
+
+	// Retry the request
+	return c.SendMessages(ctx, allMessages...)
 }
 
 func formatSuggestion[T session.Media](suggestion session.Suggestion[T]) string {

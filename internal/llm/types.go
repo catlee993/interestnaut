@@ -19,6 +19,7 @@ type SuggestionResponse[T session.Media] struct {
 	PrimaryGenre string `json:"primary_genre"`
 	Reason       string `json:"reason"`
 	Content      T      `json:"content"`
+	RawResponse  string `json:"-"` // Store the original unparsed response
 }
 
 // ParseSuggestionFromString attempts to parse a suggestion from a string response
@@ -38,11 +39,15 @@ func ParseSuggestionFromString[T session.Media](content string) (*SuggestionResp
 				}).(T)
 			}
 		}
+		// Store the original content
+		suggestion.RawResponse = content
 		return &suggestion, nil
 	}
 
 	// If JSON parsing fails, try to infer properties
 	suggestion = SuggestionResponse[T]{}
+	// Store the original content
+	suggestion.RawResponse = content
 
 	// Look for title
 	if titleMatch := regexp.MustCompile(`"?title"?\s*[:=]\s*"([^"]+)"`).FindStringSubmatch(content); len(titleMatch) > 1 {

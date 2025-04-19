@@ -190,7 +190,7 @@ func NewGames(ctx context.Context, cm session.CentralManager) (*Games, error) {
 	llmClients := make(map[string]llm.Client[session.VideoGame])
 
 	// Initialize OpenAI client
-	openaiClient, err := openai.NewClient[session.VideoGame]()
+	openaiClient, err := openai.NewClient[session.VideoGame](cm)
 	if err != nil {
 		log.Printf("ERROR: Failed to create OpenAI client: %v", err)
 	} else {

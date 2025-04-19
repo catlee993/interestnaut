@@ -16,13 +16,7 @@ import (
 )
 
 const (
-	// Gemini model options
 	defaultModel = "gemini-1.5-pro" // Default model if not specified in settings
-
-	// Available models
-	GeminiFlash     = "gemini-2.0-flash"
-	GeminiFlashLite = "gemini-2.0-flash-lite"
-	GeminiPro       = "gemini-1.5-pro"
 )
 
 type client[T session.Media] struct {
@@ -176,14 +170,53 @@ func (c *client[T]) SendMessages(ctx context.Context, msgs ...llm.Message) (*llm
 	// Extract clean JSON content
 	jsonContent := extractJsonContent(contentText)
 
+	// Store the original raw response
+	rawResponse := contentText
+
 	// Parse the response into our generic type
 	suggestion, err := llm.ParseSuggestionFromString[T](jsonContent)
 	if err != nil {
+		errSuggest := &llm.SuggestionResponse[T]{
+			RawResponse: rawResponse,
+		}
 		log.Printf("WARNING: Failed to parse JSON response: %v. Content: %s", err, jsonContent)
-		return nil, fmt.Errorf("failed to parse suggestion: %w", err)
+		return errSuggest, fmt.Errorf("failed to parse suggestion: %w", err)
 	}
 
+	// Store the raw response in the suggestion
+	suggestion.RawResponse = rawResponse
+
 	return suggestion, nil
+}
+
+// ErrorFollowup implements the llm.Client interface
+func (c *client[T]) ErrorFollowup(ctx context.Context, resp *llm.SuggestionResponse[T], msgs ...llm.Message) (*llm.SuggestionResponse[T], error) {
+	// Create an error message
+	errorMsg := &Message{
+		Role:    RoleUser, // Gemini uses user role for system messages
+		Content: "Your previous response was not the requested valid JSON or did not adhere to the rules. Please observe the following and correct your response:",
+	}
+
+	// Add original messages
+	allMessages := []llm.Message{errorMsg}
+	allMessages = append(allMessages, msgs...)
+
+	// Add the error indication
+	errorResponseMsg := &Message{
+		Role:    RoleModel, // Show as model response
+		Content: "My previous response (which was incorrect):\n```\n" + resp.RawResponse + "\n```",
+	}
+	allMessages = append(allMessages, errorResponseMsg)
+
+	// Add a clarification message
+	clarificationMsg := &Message{
+		Role:    RoleUser,
+		Content: "Please provide a single valid JSON object with the expected structure. Do not include any text outside the JSON object, and ensure all fields are present and correctly formatted. Remember to follow the JSON format exactly as specified in the initial instructions.",
+	}
+	allMessages = append(allMessages, clarificationMsg)
+
+	// Retry the request
+	return c.SendMessages(ctx, allMessages...)
 }
 
 func formatSuggestion[T session.Media](suggestion session.Suggestion[T]) string {
