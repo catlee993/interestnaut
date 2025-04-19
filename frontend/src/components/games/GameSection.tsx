@@ -1,9 +1,4 @@
-import React, {
-  useRef,
-  forwardRef,
-  useImperativeHandle,
-  useCallback,
-} from "react";
+import React, { forwardRef, useImperativeHandle, useCallback } from "react";
 import { Box, Card, CardMedia } from "@mui/material";
 import { GameCard, ExtendedGame } from "./GameCard";
 import {
@@ -19,7 +14,7 @@ import {
   GetWatchlist,
   RemoveFromWatchlist,
 } from "@wailsjs/go/bindings/Games";
-import { bindings, session } from "@wailsjs/go/models";
+import { session } from "@wailsjs/go/models";
 import { MediaSuggestionItem } from "@/components/common/MediaSuggestionDisplay";
 import { useMediaSection, MediaItemBase } from "@/hooks/useMediaSection";
 import {
@@ -27,7 +22,6 @@ import {
   MediaGrid,
 } from "@/components/common/MediaSectionLayout";
 import { MediaItemWrapper } from "@/components/common/MediaItemWrapper";
-import { useSnackbar } from "notistack";
 
 // Define the exported types
 export interface GameSectionHandle {
@@ -188,7 +182,7 @@ export const GameSection = forwardRef<GameSectionHandle, {}>((props, ref) => {
   const renderGamePoster = useCallback(
     (item: MediaSuggestionItem) => {
       if (!item) return null;
-      
+
       // Just show the image, descriptions are handled by MediaSuggestionDisplay
       if (!item.imageUrl) return null;
 
