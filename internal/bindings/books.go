@@ -2,6 +2,7 @@ package bindings
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"interestnaut/internal/directives"
@@ -16,12 +17,13 @@ import (
 
 // BookWithSavedStatus represents a book with its saved status
 type BookWithSavedStatus struct {
-	Title     string   `json:"title"`
-	Author    string   `json:"author"`
-	Key       string   `json:"key"`
-	CoverPath string   `json:"cover_path"`
-	Year      int      `json:"year,omitempty"`
-	Subjects  []string `json:"subjects,omitempty"`
+	Title       string   `json:"title"`
+	Author      string   `json:"author"`
+	Key         string   `json:"key"`
+	CoverPath   string   `json:"cover_path"`
+	Year        int      `json:"year,omitempty"`
+	Subjects    []string `json:"subjects,omitempty"`
+	Description string   `json:"description,omitempty"`
 }
 
 type Books struct {
@@ -201,6 +203,25 @@ func (b *Books) SearchBooks(query string) ([]*BookWithSavedStatus, error) {
 			Year:      result.FirstPublish,
 			Subjects:  result.SubjectFacets,
 		}
+
+		// Fetch detailed information for the book to get the description
+		// Only try to get description for work keys (which start with /works/)
+		if strings.HasPrefix(result.Key, "/works/") {
+			bookDetails, detailErr := b.olClient.GetBookDetails(context.Background(), result.Key)
+			if detailErr == nil && bookDetails != nil {
+				// Extract description from the detailed response
+				if bookDetails.Description != nil {
+					switch desc := bookDetails.Description.(type) {
+					case string:
+						books[i].Description = desc
+					case map[string]interface{}:
+						if val, ok := desc["value"].(string); ok {
+							books[i].Description = val
+						}
+					}
+				}
+			}
+		}
 	}
 
 	return books, nil
@@ -228,12 +249,27 @@ func (b *Books) GetBookDetails(workKey string) (*BookWithSavedStatus, error) {
 		coverPath = b.olClient.GetCoverURL(book.Covers[0])
 	}
 
+	// Extract description - handle different formats
+	var description string
+	if book.Description != nil {
+		// Description can be either a string or an object with a "value" field
+		switch desc := book.Description.(type) {
+		case string:
+			description = desc
+		case map[string]interface{}:
+			if val, ok := desc["value"].(string); ok {
+				description = val
+			}
+		}
+	}
+
 	return &BookWithSavedStatus{
-		Title:     book.Title,
-		Author:    authorName,
-		Key:       book.Key,
-		CoverPath: coverPath,
-		Subjects:  book.Subjects,
+		Title:       book.Title,
+		Author:      authorName,
+		Key:         book.Key,
+		CoverPath:   coverPath,
+		Subjects:    book.Subjects,
+		Description: description,
 	}, nil
 }
 
@@ -285,26 +321,91 @@ func (b *Books) GetBookSuggestion() (map[string]interface{}, error) {
 	}
 
 	// Check if title and author are present
-	if suggestion.Content.Title == "" || suggestion.Content.Author == "" {
+	if (suggestion.Content.Title == "" && suggestion.Title == "") || (suggestion.Content.Author == "" && suggestion.Artist == "") {
 		log.Printf("ERROR: LLM content missing title or author. Content: %+v", suggestion)
-		return nil, errors.New("LLM content response was missing title or author")
+
+		// Try one more approach - extract directly from raw JSON
+		if suggestion.RawResponse != "" {
+			// Clean the raw response to extract JSON content from markdown code blocks
+			rawContent := suggestion.RawResponse
+			// Check if the response is wrapped in markdown code fences
+			if strings.Contains(rawContent, "```json") && strings.Contains(rawContent, "```") {
+				// Extract the JSON content between the code fences
+				parts := strings.Split(rawContent, "```json")
+				if len(parts) > 1 {
+					rawContent = parts[1]
+					parts = strings.Split(rawContent, "```")
+					if len(parts) > 0 {
+						rawContent = parts[0]
+					}
+				}
+			}
+
+			// Trim any leading/trailing whitespace
+			rawContent = strings.TrimSpace(rawContent)
+
+			// Try to extract author directly from the raw JSON
+			var rawData map[string]interface{}
+			if err := json.Unmarshal([]byte(rawContent), &rawData); err == nil {
+				if rawAuthor, ok := rawData["author"].(string); ok && rawAuthor != "" {
+					log.Printf("Found author '%s' directly from raw JSON", rawAuthor)
+					suggestion.Artist = rawAuthor
+
+					// Also put it in Content.Author
+					book := suggestion.Content
+					book.Author = rawAuthor
+					suggestion.Content = book
+				}
+
+				// Also check for title if Content.Title is empty
+				if suggestion.Content.Title == "" && suggestion.Title == "" {
+					if rawTitle, ok := rawData["title"].(string); ok && rawTitle != "" {
+						log.Printf("Found title '%s' directly from raw JSON", rawTitle)
+						suggestion.Title = rawTitle
+
+						// Also put it in Content.Title
+						book := suggestion.Content
+						book.Title = rawTitle
+						suggestion.Content = book
+					}
+				}
+			} else {
+				log.Printf("Failed to parse raw JSON: %v. Raw content: %s", err, rawContent)
+			}
+		}
+
+		// Check again after direct extraction
+		if (suggestion.Content.Title == "" && suggestion.Title == "") || (suggestion.Content.Author == "" && suggestion.Artist == "") {
+			return nil, errors.New("LLM content response was missing title or author")
+		}
+	}
+
+	// Use either the content fields or the top-level fields
+	title := suggestion.Content.Title
+	if title == "" {
+		title = suggestion.Title
+	}
+
+	author := suggestion.Content.Author
+	if author == "" {
+		author = suggestion.Artist
 	}
 
 	// Try to find the book on Open Library
-	searchQuery := fmt.Sprintf("%s %s", suggestion.Content.Title, suggestion.Content.Author)
+	searchQuery := fmt.Sprintf("%s %s", title, author)
 	books, err := b.SearchBooks(searchQuery)
 	if err != nil || len(books) == 0 {
 		// Even if we can't find the book on Open Library, we can still use the suggestion
 		// Just without a proper cover or additional metadata
-		log.Printf("WARNING: Could not find book '%s' by '%s' on Open Library: %v", suggestion.Content.Title, suggestion.Content.Author, err)
+		log.Printf("WARNING: Could not find book '%s' by '%s' on Open Library: %v", title, author, err)
 
 		bookSuggestion := session.Suggestion[session.Book]{
 			PrimaryGenre: suggestion.PrimaryGenre,
 			UserOutcome:  session.Pending,
 			Reasoning:    suggestion.Reason,
 			Content: session.Book{
-				Title:     suggestion.Content.Title,
-				Author:    suggestion.Content.Author,
+				Title:     title,
+				Author:    author,
 				CoverPath: "", // No cover path available
 			},
 		}
@@ -316,11 +417,12 @@ func (b *Books) GetBookSuggestion() (map[string]interface{}, error) {
 
 		// Return the suggestion even without additional metadata
 		return map[string]interface{}{
-			"title":         suggestion.Content.Title,
-			"author":        suggestion.Content.Author,
+			"title":         title,
+			"author":        author,
 			"cover_path":    "",
 			"reasoning":     suggestion.Reason,
 			"primary_genre": suggestion.PrimaryGenre,
+			"description":   suggestion.Reason,
 		}, nil
 	}
 
@@ -329,11 +431,11 @@ func (b *Books) GetBookSuggestion() (map[string]interface{}, error) {
 	bestSimilarity := 0.0
 
 	for _, book := range books {
-		titleSimilarity := calculateSimilarity(book.Title, suggestion.Content.Title)
-		authorSimilarity := calculateSimilarity(book.Author, suggestion.Content.Author)
+		titleSimilarity := calculateSimilarity(book.Title, title)
+		authorSimilarity := calculateSimilarity(book.Author, author)
 
 		// Weighted average of title and author similarity
-		similarity := (titleSimilarity*0.7 + authorSimilarity*0.3)
+		similarity := titleSimilarity*0.7 + authorSimilarity*0.3
 
 		if similarity > bestSimilarity {
 			bestSimilarity = similarity
@@ -343,6 +445,33 @@ func (b *Books) GetBookSuggestion() (map[string]interface{}, error) {
 
 	if bestMatch == nil {
 		bestMatch = books[0] // Default to first result if no good match found
+	}
+
+	// Fetch detailed book information to get the description
+	// Only try if we have a proper key
+	var description string
+	if strings.HasPrefix(bestMatch.Key, "/works/") {
+		bookDetails, detailErr := b.olClient.GetBookDetails(context.Background(), bestMatch.Key)
+		if detailErr == nil && bookDetails != nil {
+			// Extract description from the detailed response
+			if bookDetails.Description != nil {
+				switch desc := bookDetails.Description.(type) {
+				case string:
+					description = desc
+				case map[string]interface{}:
+					if val, ok := desc["value"].(string); ok {
+						description = val
+					}
+				}
+				// Update the best match with the description
+				bestMatch.Description = description
+			}
+		}
+	}
+
+	// If we still don't have a description, use the reasoning
+	if bestMatch.Description == "" {
+		bestMatch.Description = suggestion.Reason
 	}
 
 	// Store the suggestion in the session
@@ -370,6 +499,7 @@ func (b *Books) GetBookSuggestion() (map[string]interface{}, error) {
 		"reasoning":     suggestion.Reason,
 		"primary_genre": suggestion.PrimaryGenre,
 		"key":           bestMatch.Key,
+		"description":   bestMatch.Description,
 	}, nil
 }
 

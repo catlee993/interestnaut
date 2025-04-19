@@ -7,6 +7,7 @@ export namespace bindings {
 	    cover_path: string;
 	    year?: number;
 	    subjects?: string[];
+	    description?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new BookWithSavedStatus(source);
@@ -20,6 +21,7 @@ export namespace bindings {
 	        this.cover_path = source["cover_path"];
 	        this.year = source["year"];
 	        this.subjects = source["subjects"];
+	        this.description = source["description"];
 	    }
 	}
 	export class Developer {

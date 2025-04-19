@@ -187,6 +187,9 @@ export const GameSection = forwardRef<GameSectionHandle, {}>((props, ref) => {
   // Custom renderer for game poster
   const renderGamePoster = useCallback(
     (item: MediaSuggestionItem) => {
+      if (!item) return null;
+      
+      // Just show the image, descriptions are handled by MediaSuggestionDisplay
       if (!item.imageUrl) return null;
 
       return (

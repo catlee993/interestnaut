@@ -19,9 +19,8 @@ IMPORTANT RULES:
 {
   "title": "Book Title",
   "author": "Author's Name",
-  "cover_path": "",
   "primary_genre": "The primary genre of the book",
-  "reasoning": "Detailed explanation of why this book matches their taste, referencing specific patterns in their library or likes/dislikes."
+  "reason": "Detailed explanation of why this book matches their taste, referencing specific patterns in their library or likes/dislikes."
 }
 3. Don't suggest books that are already in the user's library. 
 4. Refer to suggestions for your previous suggestions.

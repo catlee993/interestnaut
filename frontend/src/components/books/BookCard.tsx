@@ -25,9 +25,10 @@ interface BookWithSavedStatus {
   cover_path: string;
   year?: number;
   subjects?: string[];
+  description?: string;
 }
 
-interface BookCardProps {
+export interface BookCardProps {
   book: BookWithSavedStatus;
   isSaved: boolean;
   isInReadList?: boolean;
@@ -115,6 +116,7 @@ export function BookCard({
 }: BookCardProps) {
   const hasCover = book.cover_path && book.cover_path !== "";
 
+  // Standard card view (original implementation)
   return (
     <StyledCard>
       <Box sx={{ position: "relative", width: "100%", paddingTop: "150%" }}>
@@ -159,9 +161,11 @@ export function BookCard({
           <Box
             sx={{ position: "absolute", bottom: "58px", left: 16, right: 16 }}
           >
-            <Typography variant="h6" component="h2" noWrap>
-              {book.title}
-            </Typography>
+            <Tooltip title={book.description || ""} placement="top-start">
+              <Typography variant="h6" component="h2" noWrap>
+                {book.title}
+              </Typography>
+            </Tooltip>
           </Box>
 
           <Box
@@ -211,9 +215,7 @@ export function BookCard({
                 {onAddToReadList && (
                   <ReadListControls
                     isInReadList={isInReadList ?? false}
-                    onAddToReadList={() =>
-                      onAddToReadList!(book.title, book.author)
-                    }
+                    onAddToReadList={() => onAddToReadList!(book.title, book.author)}
                   />
                 )}
                 <LibraryControls
@@ -224,9 +226,7 @@ export function BookCard({
             ) : (
               <FeedbackControls
                 onLike={() => onLike && onLike(book.title, book.author)}
-                onDislike={() =>
-                  onDislike && onDislike(book.title, book.author)
-                }
+                onDislike={() => onDislike && onDislike(book.title, book.author)}
                 onAddToFavorites={() => onSave(book.title, book.author)}
                 isSaved={isSaved}
               />
