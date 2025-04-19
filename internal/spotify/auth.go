@@ -186,7 +186,7 @@ func ClearSpotifyCredentials(ctx context.Context) error {
 
 // GetValidToken retrieves a valid Spotify access token, refreshing if necessary.
 func GetValidToken(ctx context.Context) (string, error) {
-	tokenMutex.RLock() // Start with read lock
+	tokenMutex.RLock()
 	if accessToken != "" && time.Now().Before(tokenExpiry) {
 		acToken := accessToken
 		tokenMutex.RUnlock()
