@@ -154,17 +154,17 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
   // Convert movie to MediaSuggestionItem
   const mapMovieToSuggestionItem = useCallback(
     (movie: MovieItem): MediaSuggestionItem => {
-      return {
-        id: movie.id,
-        title: movie.title,
-        description: movie.overview,
-        imageUrl: movie.poster_path
-          ? `https://image.tmdb.org/t/p/w500${movie.poster_path}`
-          : undefined,
-        releaseDate: movie.release_date,
-        rating: movie.vote_average,
+    return {
+      id: movie.id,
+      title: movie.title,
+      description: movie.overview,
+      imageUrl: movie.poster_path
+        ? `https://image.tmdb.org/t/p/w500${movie.poster_path}`
+        : undefined,
+      releaseDate: movie.release_date,
+      rating: movie.vote_average,
         voteCount: movie.vote_count,
-      };
+    };
     },
     [],
   );
@@ -172,23 +172,23 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
   // Custom renderer for movie poster
   const renderMoviePoster = useCallback(
     (item: MediaSuggestionItem) => {
-      if (!item.imageUrl) return null;
+    if (!item.imageUrl) return null;
 
-      return (
-        <Card sx={{ height: "100%" }}>
-          <CardMedia
-            component="img"
-            image={item.imageUrl}
-            alt={item.title}
-            sx={{
-              height: "450px",
-              objectFit: "cover",
+    return (
+      <Card sx={{ height: "100%" }}>
+        <CardMedia
+          component="img"
+          image={item.imageUrl}
+          alt={item.title}
+          sx={{
+            height: "450px",
+            objectFit: "cover",
               opacity: mediaSection.isProcessingFeedback ? 0.5 : 1,
-              transition: "all 0.2s ease-in-out",
-            }}
-          />
-        </Card>
-      );
+            transition: "all 0.2s ease-in-out",
+          }}
+        />
+      </Card>
+    );
     },
     [mediaSection.isProcessingFeedback],
   );

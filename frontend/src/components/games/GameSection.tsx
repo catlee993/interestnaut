@@ -22,6 +22,7 @@ import {
   MediaGrid,
 } from "@/components/common/MediaSectionLayout";
 import { MediaItemWrapper } from "@/components/common/MediaItemWrapper";
+import { useSnackbar } from "notistack";
 
 // Define the exported types
 export interface GameSectionHandle {
@@ -196,6 +197,8 @@ export const GameSection = forwardRef<GameSectionHandle, {}>((props, ref) => {
     ],
   );
 
+  const { enqueueSnackbar } = useSnackbar();
+
   const renderWatchlistItems = useCallback(
     () => (
       <MediaGrid>
@@ -204,19 +207,51 @@ export const GameSection = forwardRef<GameSectionHandle, {}>((props, ref) => {
             key={`watchlist-${game.id || game.name}`}
             item={game}
             view="watchlist"
-            onRemoveFromWatchlist={() => {
-              // Treat removal as a dislike action
-              mediaSection.handleWatchlistFeedback(game, "dislike");
-            }}
+            onRemoveFromWatchlist={() => mediaSection.handleRemoveFromWatchlist(game)}
           >
             <GameCard
               game={game}
               onSelect={() => {}}
-              onSave={() => mediaSection.handleWatchlistToFavorites(game)}
+              onSave={() => {
+                // Instead of using handleWatchlistToFavorites, which removes from watchlist,
+                // we'll just add to favorites if not already favorited
+                if (!game.isSaved) {
+                  mediaSection.handleSave({ ...game, isSaved: false });
+                }
+                
+                // Show success message
+                enqueueSnackbar(`"${game.name}" is in your library`, {
+                  variant: "success",
+                });
+              }}
               onRemoveFromWatchlist={undefined}
               isSaved={!!game.isSaved}
               isInWatchlist={true}
               view="watchlist"
+              onLike={() => {
+                try {
+                  // If not saved, add to library
+                  if (!game.isSaved) {
+                    mediaSection.handleSave({ ...game, isSaved: false });
+                  }
+                  
+                  // Send feedback (but don't use handleWatchlistFeedback to avoid removal)
+                  // Wrap in try-catch to prevent errors from affecting UI
+                  ProvideSuggestionFeedback(session.Outcome.liked, game.id)
+                    .catch(err => console.error("Failed to record feedback:", err));
+                  
+                  // Show success message
+                  enqueueSnackbar(`You liked "${game.name}"`, {
+                    variant: "success",
+                  });
+                } catch (error) {
+                  console.error("Error in onLike handler:", error);
+                  enqueueSnackbar("An error occurred while processing your feedback", {
+                    variant: "error",
+                  });
+                }
+              }}
+              onDislike={() => mediaSection.handleWatchlistFeedback(game, "dislike")}
             />
           </MediaItemWrapper>
         ))}
@@ -224,8 +259,10 @@ export const GameSection = forwardRef<GameSectionHandle, {}>((props, ref) => {
     ),
     [
       mediaSection.watchlistItems,
-      mediaSection.handleWatchlistToFavorites,
+      mediaSection.handleSave,
+      mediaSection.handleRemoveFromWatchlist,
       mediaSection.handleWatchlistFeedback,
+      enqueueSnackbar,
     ],
   );
 
@@ -253,16 +290,10 @@ export const GameSection = forwardRef<GameSectionHandle, {}>((props, ref) => {
     ],
   );
 
-  // Refresh credentials handler
-  const handleRefreshCredentials = useCallback(async () => {
-    try {
-      // The RAWG API doesn't have a direct RefreshCredentials function in the bindings
-      // Instead, we'll just check credentials again
-      await mediaSection.checkCredentials();
-    } catch (error) {
-      console.error("Failed to refresh RAWG credentials:", error);
-    }
-  }, [mediaSection.checkCredentials]);
+  // Refresh credentials handler - redirect to settings
+  const handleRefreshCredentials = useCallback(() => {
+    window.location.href = "#/settings";
+  }, []);
 
   return (
     <MediaSectionLayout

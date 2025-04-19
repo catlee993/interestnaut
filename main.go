@@ -107,6 +107,10 @@ func onStartup(ctx context.Context) {
 		log.Println("Database initialized successfully")
 	}
 
+	// Initialize credential events system
+	creds.SetupEvents(ctx)
+	log.Println("Credential events system initialized")
+
 	// Check if we have a valid authorization code
 	_, err := creds.GetSpotifyToken()
 	if err != nil {
