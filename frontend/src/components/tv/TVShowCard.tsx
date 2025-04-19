@@ -15,10 +15,9 @@ import {
   Tv,
   PlaylistAdd,
   PlaylistAddCheck,
-  ThumbUp,
-  ThumbDown,
 } from "@mui/icons-material";
 import { bindings } from "@wailsjs/go/models";
+import { FeedbackControls } from "../common/FeedbackControls";
 
 interface TVShowCardProps {
   show: bindings.TVShowWithSavedStatus;
@@ -40,13 +39,6 @@ interface LibraryControlsProps {
 interface WatchlistControlsProps {
   isInWatchlist: boolean;
   onAddToWatchlist: () => void;
-}
-
-interface FeedbackControlsProps {
-  onLike?: () => void;
-  onDislike?: () => void;
-  onAddToFavorites: () => void;
-  isSaved?: boolean;
 }
 
 const StyledCard = styled(Card)(({ theme }) => ({
@@ -101,39 +93,6 @@ const WatchlistControls = ({
     )}
   </IconButton>
 );
-
-const FeedbackControls = ({
-  onLike,
-  onDislike,
-  onAddToFavorites,
-  isSaved = false,
-}: FeedbackControlsProps) => {
-  return (
-    <Box sx={{ display: "flex", gap: 0.5 }}>
-      {onLike && (
-        <IconButton onClick={onLike} size="small" sx={{ color: "white" }}>
-          <ThumbUp sx={{ fontSize: 20 }} />
-        </IconButton>
-      )}
-      {onDislike && (
-        <IconButton onClick={onDislike} size="small" sx={{ color: "white" }}>
-          <ThumbDown sx={{ fontSize: 20 }} />
-        </IconButton>
-      )}
-      <IconButton
-        onClick={onAddToFavorites}
-        size="small"
-        sx={{ color: "white" }}
-      >
-        {isSaved ? (
-          <Favorite sx={{ fontSize: 20, color: "var(--primary-color)" }} />
-        ) : (
-          <FavoriteBorder sx={{ fontSize: 20 }} />
-        )}
-      </IconButton>
-    </Box>
-  );
-};
 
 export function TVShowCard({
   show,

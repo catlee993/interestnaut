@@ -290,10 +290,15 @@ export function useMediaSection<T extends MediaItemBase>(options: UseMediaSectio
         
         // Update local state
         setSavedItems((prev) => {
-          const itemTitle = item.title || item.name || "";
           return prev.filter((saved) => {
-            const savedTitle = saved.title || saved.name || "";
-            return savedTitle.toLowerCase() !== itemTitle.toLowerCase();
+            // Match by ID if available, otherwise by title/name
+            if (item.id && saved.id) {
+              return saved.id !== item.id;
+            } else {
+              const savedTitle = saved.title || saved.name || "";
+              const itemTitle = item.title || item.name || "";
+              return savedTitle.toLowerCase() !== itemTitle.toLowerCase();
+            }
           });
         });
         
@@ -304,11 +309,16 @@ export function useMediaSection<T extends MediaItemBase>(options: UseMediaSectio
         // Add to saved items
         await saveItem(item);
         
-        // Check if item already exists in library
-        const itemTitle = item.title || item.name || "";
+        // Check if item already exists in library to prevent duplicates
         const exists = savedItems.some((saved) => {
-          const savedTitle = saved.title || saved.name || "";
-          return savedTitle.toLowerCase() === itemTitle.toLowerCase();
+          // Match by ID if available, otherwise by title/name
+          if (item.id && saved.id) {
+            return saved.id === item.id;
+          } else {
+            const savedTitle = saved.title || saved.name || "";
+            const itemTitle = item.title || item.name || "";
+            return savedTitle.toLowerCase() === itemTitle.toLowerCase();
+          }
         });
         
         if (!exists) {
@@ -322,17 +332,39 @@ export function useMediaSection<T extends MediaItemBase>(options: UseMediaSectio
 
       // Update the search results to reflect the new saved status
       setSearchResults((prev) =>
-        prev.map((i) =>
-          i.id === item.id ? { ...i, isSaved: !item.isSaved } : i,
-        ),
+        prev.map((i) => {
+          const isMatch = i.id && item.id 
+            ? i.id === item.id 
+            : (i.title || i.name || "").toLowerCase() === (item.title || item.name || "").toLowerCase();
+          
+          return isMatch ? { ...i, isSaved: !item.isSaved } : i;
+        }),
+      );
+      
+      // Update watchlist items to reflect the new saved status
+      setWatchlistItems((prev) =>
+        prev.map((i) => {
+          const isMatch = i.id && item.id 
+            ? i.id === item.id 
+            : (i.title || i.name || "").toLowerCase() === (item.title || item.name || "").toLowerCase();
+          
+          return isMatch ? { ...i, isSaved: !item.isSaved } : i;
+        }),
       );
       
       // If this is our suggested item, update its status too
-      if (suggestedItem && suggestedItem.id === item.id) {
-        setSuggestedItem({
-          ...suggestedItem,
-          isSaved: !item.isSaved,
-        } as T);
+      if (suggestedItem) {
+        const isMatch = suggestedItem.id && item.id 
+          ? suggestedItem.id === item.id 
+          : (suggestedItem.title || suggestedItem.name || "").toLowerCase() === 
+            (item.title || item.name || "").toLowerCase();
+        
+        if (isMatch) {
+          setSuggestedItem({
+            ...suggestedItem,
+            isSaved: !item.isSaved,
+          } as T);
+        }
       }
     } catch (error) {
       console.error("Failed to update item:", error);
@@ -557,6 +589,64 @@ export function useMediaSection<T extends MediaItemBase>(options: UseMediaSectio
     }
   };
 
+  // Handle moving an item from watchlist to favorites
+  const handleWatchlistToFavorites = async (item: T) => {
+    try {
+      setIsLoading(true);
+      
+      // Check if the item is already in favorites by comparing title/name or ID
+      const alreadyInFavorites = savedItems.some(savedItem => {
+        if (item.id && savedItem.id) {
+          return savedItem.id === item.id;
+        } else {
+          const savedTitle = savedItem.title || savedItem.name || "";
+          const itemTitle = item.title || item.name || "";
+          return savedTitle.toLowerCase() === itemTitle.toLowerCase();
+        }
+      });
+      
+      if (!alreadyInFavorites) {
+        // Only add to favorites if not already there
+        await saveItem(item);
+        
+        // Update local state
+        setSavedItems((prev) => [...prev, { ...item, isSaved: true }]);
+        
+        // Record positive feedback
+        await provideFeedback(session.Outcome.liked, item.id);
+        
+        // Show success message for adding to favorites
+        enqueueSnackbar(`Moved "${item.title || item.name}" to your library`, {
+          variant: "success",
+        });
+      } else {
+        // Item already exists in favorites, just remove from watchlist
+        enqueueSnackbar(`Removed "${item.title || item.name}" from your watchlist`, {
+          variant: "success",
+        });
+      }
+      
+      // Remove from watchlist
+      await removeFromWatchlist(item);
+      
+      // Update local state
+      setWatchlistItems((prev) => {
+        return prev.filter((watchlist) => {
+          return !(
+            (watchlist.id === item.id && item.id) || 
+            ((watchlist.title === item.title || watchlist.name === item.name) && 
+             (item.title || item.name))
+          );
+        });
+      });
+    } catch (error) {
+      console.error(`Failed to move ${type} from watchlist to favorites:`, error);
+      enqueueSnackbar("Failed to update your media", { variant: "error" });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // Handle add to favorites from suggestion
   const handleAddToFavorites = async () => {
     if (!suggestedItem) return;
@@ -666,5 +756,6 @@ export function useMediaSection<T extends MediaItemBase>(options: UseMediaSectio
     handleRemoveFromWatchlist,
     handleAddToFavorites,
     handleWatchlistFeedback,
+    handleWatchlistToFavorites,
   };
 } 

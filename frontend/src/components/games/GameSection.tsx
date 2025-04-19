@@ -21,6 +21,7 @@ import {
   MediaSectionLayout,
   MediaGrid,
 } from "@/components/common/MediaSectionLayout";
+import { MediaItemWrapper } from "@/components/common/MediaItemWrapper";
 
 // Define the exported types
 export interface GameSectionHandle {
@@ -199,28 +200,32 @@ export const GameSection = forwardRef<GameSectionHandle, {}>((props, ref) => {
     () => (
       <MediaGrid>
         {mediaSection.watchlistItems.map((game) => (
-          <Box
+          <MediaItemWrapper
             key={`watchlist-${game.id || game.name}`}
-            sx={{ cursor: "pointer" }}
+            item={game}
+            view="watchlist"
+            onRemoveFromWatchlist={() => {
+              // Treat removal as a dislike action
+              mediaSection.handleWatchlistFeedback(game, "dislike");
+            }}
           >
             <GameCard
               game={game}
               onSelect={() => {}}
-              onSave={() => mediaSection.handleSave(game)}
-              onRemoveFromWatchlist={() =>
-                mediaSection.handleRemoveFromWatchlist(game)
-              }
+              onSave={() => mediaSection.handleWatchlistToFavorites(game)}
+              onRemoveFromWatchlist={undefined}
               isSaved={!!game.isSaved}
               isInWatchlist={true}
+              view="watchlist"
             />
-          </Box>
+          </MediaItemWrapper>
         ))}
       </MediaGrid>
     ),
     [
       mediaSection.watchlistItems,
-      mediaSection.handleSave,
-      mediaSection.handleRemoveFromWatchlist,
+      mediaSection.handleWatchlistToFavorites,
+      mediaSection.handleWatchlistFeedback,
     ],
   );
 
@@ -230,9 +235,9 @@ export const GameSection = forwardRef<GameSectionHandle, {}>((props, ref) => {
         {mediaSection.savedItems.map((game, index) => (
           <Box key={`saved-${game.id || index}`} sx={{ cursor: "pointer" }}>
             <GameCard
-              game={game}
+              game={{...game, isSaved: true}}
               onSelect={() => {}}
-              onSave={() => mediaSection.handleSave(game)}
+              onSave={() => mediaSection.handleSave({...game, isSaved: true})}
               onAddToWatchlist={() => mediaSection.handleAddToWatchlist(game)}
               isSaved={true}
               isInWatchlist={!!game.isInWatchlist}

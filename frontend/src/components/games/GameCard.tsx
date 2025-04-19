@@ -16,6 +16,7 @@ import FavoriteBorderIcon from '@mui/icons-material/FavoriteBorder';
 import BookmarkIcon from '@mui/icons-material/Bookmark';
 import BookmarkBorderIcon from '@mui/icons-material/BookmarkBorder';
 import StarIcon from '@mui/icons-material/Star';
+import CloseIcon from '@mui/icons-material/Close';
 
 interface Game {
   id: number;
@@ -36,6 +37,7 @@ interface GameCardProps {
   onRemoveFromWatchlist?: () => void;
   isSaved: boolean;
   isInWatchlist?: boolean;
+  view?: "default" | "watchlist";
 }
 
 const GameCard: React.FC<GameCardProps> = ({
@@ -46,6 +48,7 @@ const GameCard: React.FC<GameCardProps> = ({
   onRemoveFromWatchlist,
   isSaved,
   isInWatchlist,
+  view = "default",
 }) => {
   const handleSaveClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -61,8 +64,38 @@ const GameCard: React.FC<GameCardProps> = ({
     }
   };
 
+  const handleRemoveClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (onRemoveFromWatchlist) {
+      onRemoveFromWatchlist();
+    }
+  };
+
   return (
-    <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+    <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column', position: 'relative' }}>
+      {view === "watchlist" && onRemoveFromWatchlist && (
+        <IconButton
+          onClick={handleRemoveClick}
+          size="small"
+          sx={{ 
+            color: "white",
+            position: "absolute",
+            top: 8,
+            right: 8,
+            zIndex: 100,
+            bgcolor: "rgba(0,0,0,0.7)",
+            '&:hover': {
+              bgcolor: "rgba(255,0,0,0.7)",
+            },
+            width: "24px",
+            height: "24px",
+            minWidth: "24px"
+          }}
+          aria-label="Remove from watchlist"
+        >
+          <CloseIcon fontSize="small" />
+        </IconButton>
+      )}
       <CardActionArea onClick={onSelect}>
         <CardMedia
           component="img"
@@ -123,7 +156,7 @@ const GameCard: React.FC<GameCardProps> = ({
           </IconButton>
         </Tooltip>
         
-        {(onAddToWatchlist || onRemoveFromWatchlist) && (
+        {view === "default" && (onAddToWatchlist || onRemoveFromWatchlist) && (
           <Tooltip title={isInWatchlist ? "Remove from watchlist" : "Add to watchlist"}>
             <IconButton size="small" color="primary" onClick={handleWatchlistClick}>
               {isInWatchlist ? <BookmarkIcon /> : <BookmarkBorderIcon />}

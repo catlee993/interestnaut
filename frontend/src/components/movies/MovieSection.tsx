@@ -27,6 +27,7 @@ import {
   MediaSectionLayout,
   MediaGrid,
 } from "@/components/common/MediaSectionLayout";
+import { MediaItemWrapper } from "@/components/common/MediaItemWrapper";
 
 // Define the exported types
 export interface MovieSectionHandle {
@@ -224,30 +225,33 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
     () => (
       <MediaGrid>
         {mediaSection.watchlistItems.map((movie) => (
-          <Box
+          <MediaItemWrapper
             key={`watchlist-${movie.id || movie.title}`}
-            sx={{ cursor: "pointer" }}
+            item={movie}
+            view="watchlist"
+            onRemoveFromWatchlist={() =>
+              mediaSection.handleRemoveFromWatchlist(movie)
+            }
           >
             <MovieCard
               movie={movie as MovieWithSavedStatus}
               isSaved={!!movie.isSaved}
               view="watchlist"
-              onSave={() => mediaSection.handleSave(movie)}
-              onRemoveFromWatchlist={() =>
-                mediaSection.handleRemoveFromWatchlist(movie)
-              }
+              onSave={() => mediaSection.handleWatchlistToFavorites(movie)}
+              onRemoveFromWatchlist={undefined}
               onLike={() => mediaSection.handleWatchlistFeedback(movie, "like")}
-              onDislike={() =>
-                mediaSection.handleWatchlistFeedback(movie, "dislike")
-              }
+              onDislike={() => {
+                mediaSection.handleWatchlistFeedback(movie, "dislike");
+                mediaSection.handleRemoveFromWatchlist(movie);
+              }}
             />
-          </Box>
+          </MediaItemWrapper>
         ))}
       </MediaGrid>
     ),
     [
       mediaSection.watchlistItems,
-      mediaSection.handleSave,
+      mediaSection.handleWatchlistToFavorites,
       mediaSection.handleRemoveFromWatchlist,
       mediaSection.handleWatchlistFeedback,
     ],
@@ -259,13 +263,13 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
         {mediaSection.savedItems.map((movie, index) => (
           <Box key={`saved-${movie.id || index}`} sx={{ cursor: "pointer" }}>
             <MovieCard
-              movie={movie as MovieWithSavedStatus}
+              movie={{...movie, isSaved: true} as MovieWithSavedStatus}
               isSaved={true}
               isInWatchlist={mediaSection.watchlistItems.some(
                 (m) => m.title === movie.title,
               )}
               view="default"
-              onSave={() => mediaSection.handleSave(movie)}
+              onSave={() => mediaSection.handleSave({...movie, isSaved: true})}
               onAddToWatchlist={() => mediaSection.handleAddToWatchlist(movie)}
             />
           </Box>

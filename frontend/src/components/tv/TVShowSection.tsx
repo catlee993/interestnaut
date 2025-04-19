@@ -22,6 +22,7 @@ import {
   MediaSectionLayout,
   MediaGrid,
 } from "@/components/common/MediaSectionLayout";
+import { MediaItemWrapper } from "@/components/common/MediaItemWrapper";
 
 // Define the exported types
 export interface TVShowSectionHandle {
@@ -237,32 +238,35 @@ export const TVShowSection = forwardRef<TVShowSectionHandle, {}>(
       () => (
         <MediaGrid>
           {mediaSection.watchlistItems.map((show) => (
-            <Box
+            <MediaItemWrapper
               key={`watchlist-${show.id || show.name}`}
-              sx={{ cursor: "pointer" }}
+              item={show}
+              view="watchlist"
+              onRemoveFromWatchlist={() =>
+                mediaSection.handleRemoveFromWatchlist(show)
+              }
             >
               <TVShowCard
                 show={show as unknown as bindings.TVShowWithSavedStatus}
                 isSaved={!!show.isSaved}
                 view="watchlist"
-                onSave={() => mediaSection.handleSave(show)}
-                onRemoveFromWatchlist={() =>
-                  mediaSection.handleRemoveFromWatchlist(show)
-                }
+                onSave={() => mediaSection.handleWatchlistToFavorites(show)}
+                onRemoveFromWatchlist={undefined}
                 onLike={() =>
                   mediaSection.handleWatchlistFeedback(show, "like")
                 }
-                onDislike={() =>
-                  mediaSection.handleWatchlistFeedback(show, "dislike")
-                }
+                onDislike={() => {
+                  mediaSection.handleWatchlistFeedback(show, "dislike");
+                  mediaSection.handleRemoveFromWatchlist(show);
+                }}
               />
-            </Box>
+            </MediaItemWrapper>
           ))}
         </MediaGrid>
       ),
       [
         mediaSection.watchlistItems,
-        mediaSection.handleSave,
+        mediaSection.handleWatchlistToFavorites,
         mediaSection.handleRemoveFromWatchlist,
         mediaSection.handleWatchlistFeedback,
       ],
@@ -274,13 +278,13 @@ export const TVShowSection = forwardRef<TVShowSectionHandle, {}>(
           {mediaSection.savedItems.map((show, index) => (
             <Box key={`saved-${show.id || index}`} sx={{ cursor: "pointer" }}>
               <TVShowCard
-                show={show as unknown as bindings.TVShowWithSavedStatus}
+                show={{...show, isSaved: true} as unknown as bindings.TVShowWithSavedStatus}
                 isSaved={true}
                 isInWatchlist={mediaSection.watchlistItems.some(
                   (m) => m.name === show.name,
                 )}
                 view="default"
-                onSave={() => mediaSection.handleSave(show)}
+                onSave={() => mediaSection.handleSave({...show, isSaved: true})}
                 onAddToWatchlist={() => mediaSection.handleAddToWatchlist(show)}
               />
             </Box>

@@ -99,12 +99,12 @@ export function MediaSectionLayout<T extends MediaItemBase>({
           sx={{
             mb: 4,
             p: 3,
-            backgroundColor: "rgba(255, 193, 7, 0.1)",
+            backgroundColor: "rgba(0, 145, 234, 0.1)",
             borderRadius: 2,
-            border: "1px solid rgba(255, 193, 7, 0.3)",
+            border: "1px solid rgba(0, 145, 234, 0.3)",
           }}
         >
-          <Typography variant="h6" color="warning.main" gutterBottom>
+          <Typography variant="h6" sx={{ color: "#0091EA" }} gutterBottom>
             Missing API Credentials
           </Typography>
           <Typography variant="body1">
@@ -112,14 +112,6 @@ export function MediaSectionLayout<T extends MediaItemBase>({
               ? "The RAWG API credentials are not configured. Please set up your RAWG API key in the Settings to use game recommendations."
               : "The Movie Database API credentials are not configured. Please set up your TMDB API key in the Settings to use recommendations."}
           </Typography>
-          <Button
-            variant="outlined"
-            color="warning"
-            sx={{ mt: 2 }}
-            onClick={onRefreshCredentials}
-          >
-            Refresh Credentials
-          </Button>
         </Box>
       )}
 
