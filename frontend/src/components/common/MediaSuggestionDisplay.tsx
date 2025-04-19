@@ -71,7 +71,7 @@ export interface MediaSuggestionItem {
 }
 
 interface MediaSuggestionDisplayProps {
-  mediaType: 'movie' | 'book' | 'podcast' | 'other'; // Keep original media types
+  mediaType: "movie" | "book" | "podcast" | "other"; // Keep original media types
   suggestedItem: MediaSuggestionItem | null;
   suggestionReason: string | null;
   isLoading: boolean;
@@ -85,6 +85,7 @@ interface MediaSuggestionDisplayProps {
   onAddToLibrary?: () => void;
   onAddToWatchlist?: () => void;
   renderImage?: (item: MediaSuggestionItem) => React.ReactNode;
+  queueName: string;
 }
 
 export const MediaSuggestionDisplay: React.FC<MediaSuggestionDisplayProps> = ({
@@ -102,6 +103,7 @@ export const MediaSuggestionDisplay: React.FC<MediaSuggestionDisplayProps> = ({
   onAddToLibrary,
   onAddToWatchlist,
   renderImage,
+  queueName = "Watchlist",
 }) => {
   if (isLoading) {
     return (
@@ -118,20 +120,22 @@ export const MediaSuggestionDisplay: React.FC<MediaSuggestionDisplayProps> = ({
 
   if (error) {
     // Truncate very long error messages
-    const truncatedError = error.length > 500 
-      ? error.substring(0, 500) + "..." 
-      : error;
-      
+    const truncatedError =
+      error.length > 500 ? error.substring(0, 500) + "..." : error;
+
     return (
       <Box className="suggestion-error-state">
-        <Typography className="error-message" sx={{ 
-          color: "var(--purple-red)",
-          fontWeight: 500,
-          padding: "12px 16px",
-          backgroundColor: "rgba(194, 59, 133, 0.1)",
-          borderRadius: "8px",
-          border: "1px solid rgba(194, 59, 133, 0.3)"
-        }}>
+        <Typography
+          className="error-message"
+          sx={{
+            color: "var(--purple-red)",
+            fontWeight: 500,
+            padding: "12px 16px",
+            backgroundColor: "rgba(194, 59, 133, 0.1)",
+            borderRadius: "8px",
+            border: "1px solid rgba(194, 59, 133, 0.3)",
+          }}
+        >
           {truncatedError}
         </Typography>
         <StyledButton
@@ -147,12 +151,15 @@ export const MediaSuggestionDisplay: React.FC<MediaSuggestionDisplayProps> = ({
 
   if (!suggestedItem) {
     return (
-      <Box className="empty-suggestion-state" sx={{
-        display: "flex",
-        justifyContent: "center",
-        alignItems: "center",
-        minHeight: "200px"
-      }}>
+      <Box
+        className="empty-suggestion-state"
+        sx={{
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          minHeight: "200px",
+        }}
+      >
         <StyledButton
           onClick={onRequestSuggestion}
           className="request-suggestion-button"
@@ -166,21 +173,21 @@ export const MediaSuggestionDisplay: React.FC<MediaSuggestionDisplayProps> = ({
 
   const renderDefaultImage = () => {
     if (!suggestedItem.imageUrl) return null;
-    
+
     return (
       <Card sx={{ height: "100%", maxWidth: "300px" }}>
         <CardMedia
           component="img"
           src={suggestedItem.imageUrl}
           alt={`${suggestedItem.title} image`}
-          sx={{ 
-            height: "450px", 
+          sx={{
+            height: "450px",
             objectFit: "cover",
             opacity: isProcessing ? 0.5 : 1,
             border: "2px solid rgba(123, 104, 238, 0.3)",
             transition: "all 0.2s ease-in-out",
             borderColor: "rgba(123, 104, 238, 0.5)",
-            borderWidth: "2px", 
+            borderWidth: "2px",
           }}
         />
       </Card>
@@ -189,20 +196,20 @@ export const MediaSuggestionDisplay: React.FC<MediaSuggestionDisplayProps> = ({
 
   const getAddToLibraryButtonText = () => {
     switch (mediaType) {
-      case 'movie':
-        return 'Favorite';
-      case 'book':
-        return 'Reading List';
-      case 'podcast':
-        return 'Listen Later';
+      case "movie":
+        return "Favorite";
+      case "book":
+        return "Reading List";
+      case "podcast":
+        return "Listen Later";
       default:
-        return 'Library';
+        return "Library";
     }
   };
 
   return (
     <Box className="suggested-item-display">
-      <Box 
+      <Box
         className="suggestion-container"
         sx={{
           display: "flex",
@@ -215,7 +222,7 @@ export const MediaSuggestionDisplay: React.FC<MediaSuggestionDisplayProps> = ({
           position: "relative",
         }}
       >
-        <Box 
+        <Box
           className="media-image-container"
           sx={{
             flexShrink: 0,
@@ -229,66 +236,93 @@ export const MediaSuggestionDisplay: React.FC<MediaSuggestionDisplayProps> = ({
           {renderImage ? renderImage(suggestedItem) : renderDefaultImage()}
         </Box>
 
-        <Box className="suggestion-info" sx={{ 
-          flex: 1,
-          display: "flex",
-          flexDirection: "column",
-          minHeight: { md: "450px" },
-          height: { md: "450px" },
-          position: { md: "relative" },
-          justifyContent: "space-between",
-        }}>
-          <Box className="content" sx={{ 
-            display: 'flex', 
-            flexDirection: 'column',
-            overflow: "auto",
-            flex: "1 1 auto",
-            maxHeight: { md: "calc(450px - 50px)" },
-          }}>
+        <Box
+          className="suggestion-info"
+          sx={{
+            flex: 1,
+            display: "flex",
+            flexDirection: "column",
+            minHeight: { md: "450px" },
+            height: { md: "450px" },
+            position: { md: "relative" },
+            justifyContent: "space-between",
+          }}
+        >
+          <Box
+            className="content"
+            sx={{
+              display: "flex",
+              flexDirection: "column",
+              overflow: "auto",
+              flex: "1 1 auto",
+              maxHeight: { md: "calc(450px - 50px)" },
+            }}
+          >
             <Typography variant="h4" component="h4">
               {suggestedItem.title}
             </Typography>
-            
-            {mediaType === 'movie' && (
-              <Typography variant="subtitle1" color="text.secondary" gutterBottom>
-                {suggestedItem.releaseDate?.substring(0, 4) && `${suggestedItem.releaseDate.substring(0, 4)} • `}
+
+            {mediaType === "movie" && (
+              <Typography
+                variant="subtitle1"
+                color="text.secondary"
+                gutterBottom
+              >
+                {suggestedItem.releaseDate?.substring(0, 4) &&
+                  `${suggestedItem.releaseDate.substring(0, 4)} • `}
                 {suggestedItem.rating && `Rating: ${suggestedItem.rating}/10`}
-                {suggestedItem.voteCount && ` (${suggestedItem.voteCount} votes)`}
+                {suggestedItem.voteCount &&
+                  ` (${suggestedItem.voteCount} votes)`}
               </Typography>
             )}
-            
+
             {suggestedItem.artist && (
               <Typography variant="subtitle1" component="p">
                 {suggestedItem.artist}
               </Typography>
             )}
-            
-            <Box sx={{ 
-              display: 'flex', 
-              flexDirection: 'column', 
-              flex: 1, 
-              overflow: 'hidden',
-            }}>
+
+            <Box
+              sx={{
+                display: "flex",
+                flexDirection: "column",
+                flex: 1,
+                overflow: "hidden",
+              }}
+            >
               {suggestedItem.description && (
-                <Typography variant="body1" sx={{ 
-                  mt: 2,
-                  overflow: "auto",
-                  mb: 1,
-                  maxHeight: { md: "150px" },
-                }}>
+                <Typography
+                  variant="body1"
+                  sx={{
+                    mt: 2,
+                    overflow: "auto",
+                    mb: 1,
+                    maxHeight: { md: "150px" },
+                  }}
+                >
                   {suggestedItem.description}
                 </Typography>
               )}
 
               {suggestionReason && (
-                <Box sx={{ 
-                  mt: 1,
-                  flex: 1,
-                  overflow: "auto",
-                  minHeight: '60px',
-                  display: 'flex',
-                }}>
-                  <ReasonCard reason={suggestionReason} sx={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }} />
+                <Box
+                  sx={{
+                    mt: 1,
+                    flex: 1,
+                    overflow: "auto",
+                    minHeight: "60px",
+                    display: "flex",
+                  }}
+                >
+                  <ReasonCard
+                    reason={suggestionReason}
+                    sx={{
+                      width: "100%",
+                      height: "100%",
+                      display: "flex",
+                      flexDirection: "column",
+                    }}
+                  />
                 </Box>
               )}
             </Box>
@@ -325,7 +359,7 @@ export const MediaSuggestionDisplay: React.FC<MediaSuggestionDisplayProps> = ({
               <FaThumbsDown /> Dislike
             </StyledButton>
 
-            {(onAddToWatchlist && mediaType === 'movie') && (
+            {onAddToWatchlist && mediaType === "movie" && (
               <StyledButton
                 className="action-button watchlist-button"
                 onClick={onAddToWatchlist}
@@ -338,32 +372,38 @@ export const MediaSuggestionDisplay: React.FC<MediaSuggestionDisplayProps> = ({
                   },
                 }}
               >
-                <PlaylistAdd sx={{ fontSize: "1.125rem" }} /> Watchlist
+                <PlaylistAdd sx={{ fontSize: "1.125rem" }} /> {queueName}
               </StyledButton>
             )}
 
-            {(onAddToLibrary && (mediaType === 'movie' || mediaType === 'book' || mediaType === 'podcast')) && (
-              <StyledButton
-                className="action-button add-button"
-                onClick={onAddToLibrary}
-                disabled={isProcessing}
-                sx={{
-                  backgroundColor: "var(--primary-color)",
-                  color: "white",
-                  "&:hover": {
-                    backgroundColor: "var(--primary-hover)",
-                  },
-                }}
-              >
-                <Favorite sx={{ fontSize: "1.125rem" }} /> {getAddToLibraryButtonText()}
-              </StyledButton>
-            )}
+            {onAddToLibrary &&
+              (mediaType === "movie" ||
+                mediaType === "book" ||
+                mediaType === "podcast") && (
+                <StyledButton
+                  className="action-button add-button"
+                  onClick={onAddToLibrary}
+                  disabled={isProcessing}
+                  sx={{
+                    backgroundColor: "var(--primary-color)",
+                    color: "white",
+                    "&:hover": {
+                      backgroundColor: "var(--primary-hover)",
+                    },
+                  }}
+                >
+                  <Favorite sx={{ fontSize: "1.125rem" }} />{" "}
+                  {getAddToLibraryButtonText()}
+                </StyledButton>
+              )}
 
             <StyledButton
               className="action-button next-button"
               onClick={onSkip}
               disabled={isProcessing}
-              aria-label={hasBeenLiked ? "Get next suggestion" : "Skip this suggestion"}
+              aria-label={
+                hasBeenLiked ? "Get next suggestion" : "Skip this suggestion"
+              }
             >
               {hasBeenLiked ? "Next" : "Skip"} <FaStepForward />
             </StyledButton>
@@ -372,4 +412,4 @@ export const MediaSuggestionDisplay: React.FC<MediaSuggestionDisplayProps> = ({
       </Box>
     </Box>
   );
-}; 
+};

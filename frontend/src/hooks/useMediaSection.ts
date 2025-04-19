@@ -27,16 +27,20 @@ export interface UseMediaSectionOptions<T extends MediaItemBase> {
   removeItem: (item: T) => Promise<void>;
   addToWatchlist: (item: T) => Promise<void>;
   removeFromWatchlist: (item: T) => Promise<void>;
-  
+
   // Local storage keys
   cachedSuggestionKey: string;
   cachedReasonKey: string;
-  
+
   // Optional functions for specific media types
   getItemDetails?: (id: number) => Promise<T>;
+
+  queueListName?: string;
 }
 
-export function useMediaSection<T extends MediaItemBase>(options: UseMediaSectionOptions<T>) {
+export function useMediaSection<T extends MediaItemBase>(
+  options: UseMediaSectionOptions<T>,
+) {
   const {
     type,
     checkCredentials,
@@ -51,11 +55,12 @@ export function useMediaSection<T extends MediaItemBase>(options: UseMediaSectio
     removeFromWatchlist,
     cachedSuggestionKey,
     cachedReasonKey,
-    getItemDetails
+    getItemDetails,
+    queueListName = "Watchlist", // Default if not provided
   } = options;
-  
+
   const { enqueueSnackbar } = useSnackbar();
-  
+
   // Common state
   const [searchResults, setSearchResults] = useState<T[]>([]);
   const [showSearchResults, setShowSearchResults] = useState(false);
@@ -79,7 +84,7 @@ export function useMediaSection<T extends MediaItemBase>(options: UseMediaSectio
       try {
         const hasCredentials = await checkCredentials();
         setCredentialsError(!hasCredentials);
-        
+
         await loadLibraryItems();
         await loadWatchlistFromAPI();
 
@@ -92,7 +97,7 @@ export function useMediaSection<T extends MediaItemBase>(options: UseMediaSectio
             const parsedItem = JSON.parse(cachedItem) as T;
             setSuggestedItem(parsedItem);
             setSuggestionReason(cachedReason);
-            
+
             // Validate the cached suggestion if we have a getItemDetails function
             if (getItemDetails && parsedItem.id) {
               try {
@@ -145,10 +150,7 @@ export function useMediaSection<T extends MediaItemBase>(options: UseMediaSectio
   // Update cached suggestion whenever it changes
   useEffect(() => {
     if (suggestedItem) {
-      localStorage.setItem(
-        cachedSuggestionKey,
-        JSON.stringify(suggestedItem),
-      );
+      localStorage.setItem(cachedSuggestionKey, JSON.stringify(suggestedItem));
     }
     if (suggestionReason) {
       localStorage.setItem(cachedReasonKey, suggestionReason);
@@ -211,10 +213,16 @@ export function useMediaSection<T extends MediaItemBase>(options: UseMediaSectio
       setWatchlistItems(items || []);
       return items || [];
     } catch (error) {
-      console.error(`Failed to load ${type} watchlist:`, error);
-      enqueueSnackbar(`Failed to load your ${type} watchlist`, {
-        variant: "error",
-      });
+      console.error(
+        `Failed to load ${type} ${queueListName.toLowerCase()}:`,
+        error,
+      );
+      enqueueSnackbar(
+        `Failed to load your ${type} ${queueListName.toLowerCase()}`,
+        {
+          variant: "error",
+        },
+      );
       return [];
     }
   };
@@ -230,7 +238,7 @@ export function useMediaSection<T extends MediaItemBase>(options: UseMediaSectio
     setIsLoading(true);
     try {
       const results = await searchItems(query);
-      
+
       // Mark items that are already saved
       const resultsWithSavedStatus = results.map((item) => {
         const itemTitle = item.title || item.name || "";
@@ -238,26 +246,26 @@ export function useMediaSection<T extends MediaItemBase>(options: UseMediaSectio
           const savedTitle = saved.title || saved.name || "";
           return savedTitle.toLowerCase() === itemTitle.toLowerCase();
         });
-        
+
         const isInWatchlist = watchlistItems.some((watchlist) => {
           const watchlistTitle = watchlist.title || watchlist.name || "";
           return watchlistTitle.toLowerCase() === itemTitle.toLowerCase();
         });
-        
+
         return { ...item, isSaved, isInWatchlist };
       });
-      
+
       setSearchResults(resultsWithSavedStatus);
       setShowSearchResults(true);
       setCredentialsError(false);
-      
+
       // Scroll to search results
       setTimeout(() => {
         searchResultsRef.current?.scrollIntoView({ behavior: "smooth" });
       }, 100);
     } catch (error) {
       console.error(`Search ${type} error:`, error);
-      
+
       // Check if this is a credentials error
       if (
         error instanceof Error &&
@@ -280,14 +288,14 @@ export function useMediaSection<T extends MediaItemBase>(options: UseMediaSectio
   // Handle saving/unsaving items
   const handleSave = async (item: T) => {
     if (!item) return;
-    
+
     try {
       setIsLoading(true);
-      
+
       if (item.isSaved) {
         // Remove from saved items
         await removeItem(item);
-        
+
         // Update local state
         setSavedItems((prev) => {
           return prev.filter((saved) => {
@@ -301,14 +309,17 @@ export function useMediaSection<T extends MediaItemBase>(options: UseMediaSectio
             }
           });
         });
-        
-        enqueueSnackbar(`Removed "${item.title || item.name}" from your library`, {
-          variant: "success",
-        });
+
+        enqueueSnackbar(
+          `Removed "${item.title || item.name}" from your library`,
+          {
+            variant: "success",
+          },
+        );
       } else {
         // Add to saved items
         await saveItem(item);
-        
+
         // Check if item already exists in library to prevent duplicates
         const exists = savedItems.some((saved) => {
           // Match by ID if available, otherwise by title/name
@@ -320,11 +331,11 @@ export function useMediaSection<T extends MediaItemBase>(options: UseMediaSectio
             return savedTitle.toLowerCase() === itemTitle.toLowerCase();
           }
         });
-        
+
         if (!exists) {
           setSavedItems((prev) => [...prev, { ...item, isSaved: true }]);
         }
-        
+
         enqueueSnackbar(`Added "${item.title || item.name}" to your library`, {
           variant: "success",
         });
@@ -333,32 +344,40 @@ export function useMediaSection<T extends MediaItemBase>(options: UseMediaSectio
       // Update the search results to reflect the new saved status
       setSearchResults((prev) =>
         prev.map((i) => {
-          const isMatch = i.id && item.id 
-            ? i.id === item.id 
-            : (i.title || i.name || "").toLowerCase() === (item.title || item.name || "").toLowerCase();
-          
+          const isMatch =
+            i.id && item.id
+              ? i.id === item.id
+              : (i.title || i.name || "").toLowerCase() ===
+                (item.title || item.name || "").toLowerCase();
+
           return isMatch ? { ...i, isSaved: !item.isSaved } : i;
         }),
       );
-      
+
       // Update watchlist items to reflect the new saved status
       setWatchlistItems((prev) =>
         prev.map((i) => {
-          const isMatch = i.id && item.id 
-            ? i.id === item.id 
-            : (i.title || i.name || "").toLowerCase() === (item.title || item.name || "").toLowerCase();
-          
+          const isMatch =
+            i.id && item.id
+              ? i.id === item.id
+              : (i.title || i.name || "").toLowerCase() ===
+                (item.title || item.name || "").toLowerCase();
+
           return isMatch ? { ...i, isSaved: !item.isSaved } : i;
         }),
       );
-      
+
       // If this is our suggested item, update its status too
       if (suggestedItem) {
-        const isMatch = suggestedItem.id && item.id 
-          ? suggestedItem.id === item.id 
-          : (suggestedItem.title || suggestedItem.name || "").toLowerCase() === 
-            (item.title || item.name || "").toLowerCase();
-        
+        const isMatch =
+          suggestedItem.id && item.id
+            ? suggestedItem.id === item.id
+            : (
+                suggestedItem.title ||
+                suggestedItem.name ||
+                ""
+              ).toLowerCase() === (item.title || item.name || "").toLowerCase();
+
         if (isMatch) {
           setSuggestedItem({
             ...suggestedItem,
@@ -465,10 +484,7 @@ export function useMediaSection<T extends MediaItemBase>(options: UseMediaSectio
         setSuggestionReason(result.reason || null);
 
         // Cache the suggestion
-        localStorage.setItem(
-          cachedSuggestionKey,
-          JSON.stringify(result.media),
-        );
+        localStorage.setItem(cachedSuggestionKey, JSON.stringify(result.media));
         localStorage.setItem(cachedReasonKey, result.reason || "");
       } else {
         // Handle case where no suggestion is available
@@ -484,7 +500,8 @@ export function useMediaSection<T extends MediaItemBase>(options: UseMediaSectio
           errorMessage = `${type} recommendations require API credentials to be configured.`;
           setCredentialsError(true);
         } else if (error.message.includes("rate limit")) {
-          errorMessage = "OpenAI rate limit reached. Please try again in a few minutes.";
+          errorMessage =
+            "OpenAI rate limit reached. Please try again in a few minutes.";
         } else {
           errorMessage = error.message;
         }
@@ -501,60 +518,73 @@ export function useMediaSection<T extends MediaItemBase>(options: UseMediaSectio
   const handleAddToWatchlist = async (item: T) => {
     try {
       setIsLoading(true);
-      
+
       // Check if item is already in watchlist
       const itemTitle = item.title || item.name || "";
       const isInWatchlist = watchlistItems.some((watchlist) => {
         const watchlistTitle = watchlist.title || watchlist.name || "";
         return watchlistTitle.toLowerCase() === itemTitle.toLowerCase();
       });
-      
+
       if (isInWatchlist) {
-        enqueueSnackbar(`"${itemTitle}" is already in your watchlist`, {
-          variant: "info",
-        });
+        enqueueSnackbar(
+          `"${itemTitle}" is already in your ${queueListName.toLowerCase()}`,
+          {
+            variant: "info",
+          },
+        );
         return;
       }
-      
+
       // Add to watchlist
       await addToWatchlist(item);
-      
+
       // Update local state
       setWatchlistItems((prev) => [...prev, { ...item, isInWatchlist: true }]);
-      
+
       // Show success message
-      enqueueSnackbar(`Added "${itemTitle}" to your watchlist`, {
-        variant: "success",
-      });
-      
+      enqueueSnackbar(
+        `Added "${itemTitle}" to your ${queueListName.toLowerCase()}`,
+        {
+          variant: "success",
+        },
+      );
+
       // Check if this item is the current suggestion
-      const isCurrentSuggestion = suggestedItem && 
-        (suggestedItem.id === item.id || 
-        (suggestedItem.title === item.title || suggestedItem.name === item.name));
-      
+      const isCurrentSuggestion =
+        suggestedItem &&
+        (suggestedItem.id === item.id ||
+          suggestedItem.title === item.title ||
+          suggestedItem.name === item.name);
+
       // If this is the current suggestion, get a new suggestion
       if (isCurrentSuggestion) {
         // Clear the current suggestion
         setSuggestedItem(null);
         setSuggestionReason(null);
-        
+
         // Clear localStorage cache
         localStorage.removeItem(cachedSuggestionKey);
         localStorage.removeItem(cachedReasonKey);
-        
+
         // Get a new suggestion after a short delay for better UX
         setTimeout(() => {
           handleGetSuggestion();
         }, 500);
-        
+
         // Also record this as a positive outcome
         if (item.id > 0) {
           await provideFeedback(session.Outcome.liked, item.id);
         }
       }
     } catch (error) {
-      console.error(`Failed to add ${type} to watchlist:`, error);
-      enqueueSnackbar("Failed to update your watchlist", { variant: "error" });
+      console.error(
+        `Failed to add ${type} to ${queueListName.toLowerCase()}:`,
+        error,
+      );
+      enqueueSnackbar(`Failed to update your ${queueListName.toLowerCase()}`, {
+        variant: "error",
+      });
     } finally {
       setIsLoading(false);
     }
@@ -564,19 +594,24 @@ export function useMediaSection<T extends MediaItemBase>(options: UseMediaSectio
   const handleRemoveFromWatchlist = async (item: T) => {
     try {
       setIsLoading(true);
-      
+
       // Remove from watchlist
       await removeFromWatchlist(item);
-      
+
       // Get the item identifiers for filtering
       const itemTitle = item.title || item.name || "";
-      console.log(`Removing from watchlist: '${itemTitle}'`);
-      
+      console.log(
+        `Removing from ${queueListName.toLowerCase()}: '${itemTitle}'`,
+      );
+
       // Update local state with more precise filtering
       setWatchlistItems((prev) => {
         // Log current items to debug
-        console.log("Current watchlist items:", prev.map(i => i.title || i.name));
-        
+        console.log(
+          "Current watchlist items:",
+          prev.map((i) => i.title || i.name),
+        );
+
         return prev.filter((watchlist) => {
           // First check if both items have IDs
           if (item.id && watchlist.id) {
@@ -588,21 +623,29 @@ export function useMediaSection<T extends MediaItemBase>(options: UseMediaSectio
               return true;
             }
           }
-          
+
           // Otherwise compare by title/name
           const watchlistTitle = watchlist.title || watchlist.name || "";
           const itemTitle = item.title || item.name || "";
           return watchlistTitle.toLowerCase() !== itemTitle.toLowerCase();
         });
       });
-      
+
       // Show success message
-      enqueueSnackbar(`Removed "${itemTitle}" from your watchlist`, {
-        variant: "success",
-      });
+      enqueueSnackbar(
+        `Removed "${itemTitle}" from your ${queueListName.toLowerCase()}`,
+        {
+          variant: "success",
+        },
+      );
     } catch (error) {
-      console.error(`Failed to remove ${type} from watchlist:`, error);
-      enqueueSnackbar("Failed to update your watchlist", { variant: "error" });
+      console.error(
+        `Failed to remove ${type} from ${queueListName.toLowerCase()}:`,
+        error,
+      );
+      enqueueSnackbar(`Failed to update your ${queueListName.toLowerCase()}`, {
+        variant: "error",
+      });
     } finally {
       setIsLoading(false);
     }
@@ -612,9 +655,9 @@ export function useMediaSection<T extends MediaItemBase>(options: UseMediaSectio
   const handleWatchlistToFavorites = async (item: T) => {
     try {
       setIsLoading(true);
-      
+
       // Check if the item is already in favorites by comparing title/name or ID
-      const alreadyInFavorites = savedItems.some(savedItem => {
+      const alreadyInFavorites = savedItems.some((savedItem) => {
         if (item.id && savedItem.id) {
           return savedItem.id === item.id;
         } else {
@@ -623,43 +666,49 @@ export function useMediaSection<T extends MediaItemBase>(options: UseMediaSectio
           return savedTitle.toLowerCase() === itemTitle.toLowerCase();
         }
       });
-      
+
       if (!alreadyInFavorites) {
         // Only add to favorites if not already there
         await saveItem(item);
-        
+
         // Update local state
         setSavedItems((prev) => [...prev, { ...item, isSaved: true }]);
-        
+
         // Record positive feedback
         await provideFeedback(session.Outcome.liked, item.id);
-        
+
         // Show success message for adding to favorites
         enqueueSnackbar(`Moved "${item.title || item.name}" to your library`, {
           variant: "success",
         });
       } else {
         // Item already exists in favorites, just remove from watchlist
-        enqueueSnackbar(`Removed "${item.title || item.name}" from your watchlist`, {
-          variant: "success",
-        });
+        enqueueSnackbar(
+          `Removed "${item.title || item.name}" from your ${queueListName.toLowerCase()}`,
+          {
+            variant: "success",
+          },
+        );
       }
-      
+
       // Remove from watchlist
       await removeFromWatchlist(item);
-      
+
       // Update local state
       setWatchlistItems((prev) => {
         return prev.filter((watchlist) => {
           return !(
-            (watchlist.id === item.id && item.id) || 
-            ((watchlist.title === item.title || watchlist.name === item.name) && 
-             (item.title || item.name))
+            (watchlist.id === item.id && item.id) ||
+            ((watchlist.title === item.title || watchlist.name === item.name) &&
+              (item.title || item.name))
           );
         });
       });
     } catch (error) {
-      console.error(`Failed to move ${type} from watchlist to favorites:`, error);
+      console.error(
+        `Failed to move ${type} from ${queueListName.toLowerCase()} to favorites:`,
+        error,
+      );
       enqueueSnackbar("Failed to update your media", { variant: "error" });
     } finally {
       setIsLoading(false);
@@ -680,12 +729,17 @@ export function useMediaSection<T extends MediaItemBase>(options: UseMediaSectio
       await provideFeedback(session.Outcome.liked, suggestedItem.id);
 
       // Show a success message
-      enqueueSnackbar(`Added "${suggestedItem.title || suggestedItem.name}" to favorites`, {
-        variant: "success",
-      });
+      enqueueSnackbar(
+        `Added "${suggestedItem.title || suggestedItem.name}" to favorites`,
+        {
+          variant: "success",
+        },
+      );
     } catch (error) {
       console.error(`Failed to add ${type} to favorites:`, error);
-      enqueueSnackbar(`Failed to add ${type} to favorites`, { variant: "error" });
+      enqueueSnackbar(`Failed to add ${type} to favorites`, {
+        variant: "error",
+      });
 
       // Clear localStorage cache on error
       localStorage.removeItem(cachedSuggestionKey);
@@ -703,29 +757,33 @@ export function useMediaSection<T extends MediaItemBase>(options: UseMediaSectio
   };
 
   // Handle watchlist feedback (like/dislike)
-  const handleWatchlistFeedback = async (item: T, action: "like" | "dislike") => {
+  const handleWatchlistFeedback = async (
+    item: T,
+    action: "like" | "dislike",
+  ) => {
     try {
       setIsLoading(true);
-      
+
       // Record feedback
       await provideFeedback(
         action === "like" ? session.Outcome.liked : session.Outcome.disliked,
-        item.id
+        item.id,
       );
-      
+
       // If liked, add to library if not already there
       if (action === "like" && !item.isSaved) {
         await handleSave({ ...item, isSaved: false } as T);
       }
-      
+
       // Remove from watchlist
       await handleRemoveFromWatchlist(item);
-      
+
       // Show success message
-      const message = action === "like" 
-        ? `You liked "${item.title || item.name}"`
-        : `You disliked "${item.title || item.name}"`;
-      
+      const message =
+        action === "like"
+          ? `You liked "${item.title || item.name}"`
+          : `You disliked "${item.title || item.name}"`;
+
       enqueueSnackbar(message, {
         variant: action === "like" ? "success" : "error",
       });
@@ -759,7 +817,7 @@ export function useMediaSection<T extends MediaItemBase>(options: UseMediaSectio
     showWatchlist,
     showLibrary,
     searchResultsRef,
-    
+
     // Actions
     setSavedItems,
     setWatchlistItems,
@@ -777,4 +835,4 @@ export function useMediaSection<T extends MediaItemBase>(options: UseMediaSectio
     handleWatchlistFeedback,
     handleWatchlistToFavorites,
   };
-} 
+}

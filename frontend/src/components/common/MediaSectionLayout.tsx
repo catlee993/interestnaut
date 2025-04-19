@@ -53,6 +53,7 @@ interface MediaSectionLayoutProps<T extends MediaItemBase> {
 
   // Mapping function to convert media item to suggestion item
   mapToSuggestionItem: (item: T) => MediaSuggestionItem;
+  queueName?: string;
 }
 
 export function MediaSectionLayout<T extends MediaItemBase>({
@@ -87,6 +88,7 @@ export function MediaSectionLayout<T extends MediaItemBase>({
   headerContent,
   footerContent,
   mapToSuggestionItem,
+  queueName = "Watchlist",
 }: MediaSectionLayoutProps<T>) {
   return (
     <Box sx={{ width: "100%" }}>
@@ -138,6 +140,7 @@ export function MediaSectionLayout<T extends MediaItemBase>({
           onAddToLibrary={onAddToLibrary}
           onAddToWatchlist={onAddSuggestionToWatchlist}
           renderImage={renderSuggestionPoster}
+          queueName={queueName}
         />
       </Box>
 
@@ -164,7 +167,7 @@ export function MediaSectionLayout<T extends MediaItemBase>({
           onClick={onToggleWatchlist}
         >
           <Typography variant="h6" sx={{ color: "text.primary" }}>
-            Your Watchlist
+            Your {queueName}
           </Typography>
           <Typography variant="body2" sx={{ color: "text.secondary", ml: 2 }}>
             {showWatchlist ? "Hide" : "Show"} ({watchlistItems.length})

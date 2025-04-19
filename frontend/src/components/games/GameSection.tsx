@@ -89,7 +89,7 @@ export const GameSection = forwardRef<GameSectionHandle, {}>((props, ref) => {
         id: game.id || 0,
         name: game.title || "", // Use title as primary key like movies do
         background_image: game.cover_path || "",
-        isSaved: false // Start with false, will be updated if in saved items
+        isSaved: false, // Start with false, will be updated if in saved items
       })) as unknown as GameItem[];
     },
     searchItems: async (query: string) => {
@@ -157,6 +157,9 @@ export const GameSection = forwardRef<GameSectionHandle, {}>((props, ref) => {
     // Local storage keys
     cachedSuggestionKey: "cached_game_suggestion",
     cachedReasonKey: "cached_game_reason",
+
+    // Use "Playlist" instead of "Watchlist" for games
+    queueListName: "Playlist",
   });
 
   // Expose functions via ref
@@ -215,7 +218,7 @@ export const GameSection = forwardRef<GameSectionHandle, {}>((props, ref) => {
               game={game as unknown as ExtendedGame}
               isSaved={!!game.isSaved}
               isInWatchlist={mediaSection.watchlistItems.some(
-                (g) => g.name === game.name
+                (g) => g.name === game.name,
               )}
               view="default"
               onSave={() => mediaSection.handleSave(game)}
@@ -278,7 +281,7 @@ export const GameSection = forwardRef<GameSectionHandle, {}>((props, ref) => {
               game={{ ...game, isSaved: true } as unknown as ExtendedGame}
               isSaved={true}
               isInWatchlist={mediaSection.watchlistItems.some(
-                (g) => g.name === game.name
+                (g) => g.name === game.name,
               )}
               view="default"
               onSave={() => mediaSection.handleSave({ ...game, isSaved: true })}
@@ -367,6 +370,7 @@ export const GameSection = forwardRef<GameSectionHandle, {}>((props, ref) => {
       renderSavedItems={renderSavedItems}
       renderSuggestionPoster={renderGamePoster}
       mapToSuggestionItem={mapGameToSuggestionItem}
+      queueName="Playlist"
     />
   );
 });
