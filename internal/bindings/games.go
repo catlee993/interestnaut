@@ -14,7 +14,6 @@ import (
 	"strings"
 )
 
-// Define our own types that mirror rawg types but don't reference the package
 type Screenshot struct {
 	ID    int    `json:"id"`
 	Image string `json:"image"`

@@ -1,5 +1,27 @@
 export namespace bindings {
 	
+	export class BookWithSavedStatus {
+	    title: string;
+	    author: string;
+	    key: string;
+	    cover_path: string;
+	    year?: number;
+	    subjects?: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new BookWithSavedStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.title = source["title"];
+	        this.author = source["author"];
+	        this.key = source["key"];
+	        this.cover_path = source["cover_path"];
+	        this.year = source["year"];
+	        this.subjects = source["subjects"];
+	    }
+	}
 	export class Developer {
 	    id: number;
 	    name: string;
@@ -252,6 +274,22 @@ export namespace session {
 	    skipped = "skipped",
 	    added = "added",
 	    pending = "pending",
+	}
+	export class Book {
+	    title: string;
+	    author: string;
+	    cover_path: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Book(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.title = source["title"];
+	        this.author = source["author"];
+	        this.cover_path = source["cover_path"];
+	    }
 	}
 	export class Movie {
 	    title: string;

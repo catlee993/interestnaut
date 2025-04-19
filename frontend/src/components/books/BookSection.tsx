@@ -71,13 +71,10 @@ const Books: BooksAPI = {
   RemoveFromReadList: async () => {},
 };
 
-// Try to import the actual bindings if available at build time
-try {
-  const BooksModule = require("@wailsjs/go/bindings/Books");
-  Object.assign(Books, BooksModule);
-} catch (error) {
-  console.warn("Books bindings not found, using mock implementation");
-}
+// Import bindings properly using ES module syntax
+import * as BooksModule from "@wailsjs/go/bindings/Books";
+// Assign imported functions to our Books object
+Object.assign(Books, BooksModule);
 
 import { MediaSuggestionItem } from "@/components/common/MediaSuggestionDisplay";
 import { useMediaSection, MediaItemBase } from "@/hooks/useMediaSection";
@@ -155,9 +152,23 @@ export const BookSection = forwardRef<BookSectionHandle, {}>((props, ref) => {
     getSuggestion: async () => {
       const suggestion = await Books.GetBookSuggestion();
 
+      // Handle case where suggestion might be null or malformed
+      if (!suggestion || typeof suggestion !== 'object') {
+        console.error("Received invalid book suggestion:", suggestion);
+        return {
+          media: bookToMediaItem({
+            title: "Error fetching suggestion",
+            author: "Please try again later",
+            key: "error",
+            cover_path: "",
+          }),
+          reason: "There was an error fetching a book suggestion. Please try again later.",
+        };
+      }
+
       const book: BookWithSavedStatus = {
-        title: suggestion.title,
-        author: suggestion.author,
+        title: suggestion.title || "Unknown Title",
+        author: suggestion.author || "Unknown Author",
         key: suggestion.key || `${suggestion.title}-${suggestion.author}`,
         cover_path: suggestion.cover_path || "",
       };
@@ -165,7 +176,7 @@ export const BookSection = forwardRef<BookSectionHandle, {}>((props, ref) => {
       return {
         // @ts-ignore
         media: bookToMediaItem(book),
-        reason: suggestion.reasoning,
+        reason: suggestion.reasoning || "No reasoning provided",
       };
     },
 

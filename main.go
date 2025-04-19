@@ -63,6 +63,11 @@ func main() {
 		log.Fatalf("Failed to create games binder: %v", gErr)
 	}
 
+	books, bErr := bindings.NewBooks(ctx, cm)
+	if bErr != nil {
+		log.Fatalf("Failed to create books binder: %v", bErr)
+	}
+
 	// Create settings binder
 	settings := &bindings.Settings{ContentManager: cm}
 
@@ -85,6 +90,7 @@ func main() {
 			movies,
 			tvShows,
 			games,
+			books,
 		},
 		EnumBind: []interface{}{
 			suggestionOutcome,

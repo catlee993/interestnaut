@@ -31,7 +31,7 @@ type Books struct {
 	baselineFunc, taskFunc func() string
 }
 
-func NewBookBinder(ctx context.Context, cm session.CentralManager) (*Books, error) {
+func NewBooks(_ context.Context, cm session.CentralManager) (*Books, error) {
 	client := openlibrary.NewClient()
 
 	// Create a map of LLM clients for both providers
