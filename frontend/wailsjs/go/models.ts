@@ -1,132 +1,5 @@
 export namespace bindings {
 	
-	export class GameWithSavedStatus {
-	    id: number;
-	    name: string;
-	    slug: string;
-	    released?: string;
-	    background_image?: string;
-	    rating: number;
-	    ratings_count: number;
-	    playtime: number;
-	    description?: string;
-	    short_screenshots?: rawg.Screenshot[];
-	    platforms?: rawg.Platform[];
-	    genres?: rawg.Genre[];
-	    developers?: rawg.Developer[];
-	    publishers?: rawg.Publisher[];
-	    isSaved: boolean;
-	    isInWatchlist: boolean;
-	
-	    static createFrom(source: any = {}) {
-	        return new GameWithSavedStatus(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.name = source["name"];
-	        this.slug = source["slug"];
-	        this.released = source["released"];
-	        this.background_image = source["background_image"];
-	        this.rating = source["rating"];
-	        this.ratings_count = source["ratings_count"];
-	        this.playtime = source["playtime"];
-	        this.description = source["description"];
-	        this.short_screenshots = this.convertValues(source["short_screenshots"], rawg.Screenshot);
-	        this.platforms = this.convertValues(source["platforms"], rawg.Platform);
-	        this.genres = this.convertValues(source["genres"], rawg.Genre);
-	        this.developers = this.convertValues(source["developers"], rawg.Developer);
-	        this.publishers = this.convertValues(source["publishers"], rawg.Publisher);
-	        this.isSaved = source["isSaved"];
-	        this.isInWatchlist = source["isInWatchlist"];
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	export class MovieWithSavedStatus {
-	    id: number;
-	    title: string;
-	    overview: string;
-	    director: string;
-	    writer: string;
-	    poster_path: string;
-	    release_date: string;
-	    vote_average: number;
-	    vote_count: number;
-	    genres: string[];
-	
-	    static createFrom(source: any = {}) {
-	        return new MovieWithSavedStatus(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.title = source["title"];
-	        this.overview = source["overview"];
-	        this.director = source["director"];
-	        this.writer = source["writer"];
-	        this.poster_path = source["poster_path"];
-	        this.release_date = source["release_date"];
-	        this.vote_average = source["vote_average"];
-	        this.vote_count = source["vote_count"];
-	        this.genres = source["genres"];
-	    }
-	}
-	export class TVShowWithSavedStatus {
-	    id: number;
-	    name: string;
-	    overview: string;
-	    director: string;
-	    writer: string;
-	    poster_path: string;
-	    first_air_date: string;
-	    vote_average: number;
-	    vote_count: number;
-	    genres: string[];
-	    isSaved?: boolean;
-	
-	    static createFrom(source: any = {}) {
-	        return new TVShowWithSavedStatus(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.name = source["name"];
-	        this.overview = source["overview"];
-	        this.director = source["director"];
-	        this.writer = source["writer"];
-	        this.poster_path = source["poster_path"];
-	        this.first_air_date = source["first_air_date"];
-	        this.vote_average = source["vote_average"];
-	        this.vote_count = source["vote_count"];
-	        this.genres = source["genres"];
-	        this.isSaved = source["isSaved"];
-	    }
-	}
-
-}
-
-export namespace rawg {
-	
 	export class Developer {
 	    id: number;
 	    name: string;
@@ -241,7 +114,7 @@ export namespace rawg {
 	        this.image = source["image"];
 	    }
 	}
-	export class Game {
+	export class GameWithSavedStatus {
 	    id: number;
 	    name: string;
 	    slug: string;
@@ -256,9 +129,11 @@ export namespace rawg {
 	    genres?: Genre[];
 	    developers?: Developer[];
 	    publishers?: Publisher[];
+	    isSaved: boolean;
+	    isInWatchlist: boolean;
 	
 	    static createFrom(source: any = {}) {
-	        return new Game(source);
+	        return new GameWithSavedStatus(source);
 	    }
 	
 	    constructor(source: any = {}) {
@@ -277,6 +152,8 @@ export namespace rawg {
 	        this.genres = this.convertValues(source["genres"], Genre);
 	        this.developers = this.convertValues(source["developers"], Developer);
 	        this.publishers = this.convertValues(source["publishers"], Publisher);
+	        this.isSaved = source["isSaved"];
+	        this.isInWatchlist = source["isInWatchlist"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -297,69 +174,71 @@ export namespace rawg {
 		    return a;
 		}
 	}
-	export class GameSearchResponse {
-	    count: number;
-	    next: string;
-	    previous: string;
-	    results: Game[];
+	
+	export class MovieWithSavedStatus {
+	    id: number;
+	    title: string;
+	    overview: string;
+	    director: string;
+	    writer: string;
+	    poster_path: string;
+	    release_date: string;
+	    vote_average: number;
+	    vote_count: number;
+	    genres: string[];
 	
 	    static createFrom(source: any = {}) {
-	        return new GameSearchResponse(source);
+	        return new MovieWithSavedStatus(source);
 	    }
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.count = source["count"];
-	        this.next = source["next"];
-	        this.previous = source["previous"];
-	        this.results = this.convertValues(source["results"], Game);
+	        this.id = source["id"];
+	        this.title = source["title"];
+	        this.overview = source["overview"];
+	        this.director = source["director"];
+	        this.writer = source["writer"];
+	        this.poster_path = source["poster_path"];
+	        this.release_date = source["release_date"];
+	        this.vote_average = source["vote_average"];
+	        this.vote_count = source["vote_count"];
+	        this.genres = source["genres"];
 	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
 	}
 	
 	
 	
 	
-	
-	export class SimpleGame {
+	export class TVShowWithSavedStatus {
 	    id: number;
 	    name: string;
-	    released?: string;
-	    background_image?: string;
-	    rating: number;
-	    ratings_count: number;
-	    genres?: string[];
+	    overview: string;
+	    director: string;
+	    writer: string;
+	    poster_path: string;
+	    first_air_date: string;
+	    vote_average: number;
+	    vote_count: number;
+	    genres: string[];
+	    isSaved?: boolean;
 	
 	    static createFrom(source: any = {}) {
-	        return new SimpleGame(source);
+	        return new TVShowWithSavedStatus(source);
 	    }
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
 	        this.name = source["name"];
-	        this.released = source["released"];
-	        this.background_image = source["background_image"];
-	        this.rating = source["rating"];
-	        this.ratings_count = source["ratings_count"];
+	        this.overview = source["overview"];
+	        this.director = source["director"];
+	        this.writer = source["writer"];
+	        this.poster_path = source["poster_path"];
+	        this.first_air_date = source["first_air_date"];
+	        this.vote_average = source["vote_average"];
+	        this.vote_count = source["vote_count"];
 	        this.genres = source["genres"];
+	        this.isSaved = source["isSaved"];
 	    }
 	}
 

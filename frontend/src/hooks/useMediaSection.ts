@@ -568,17 +568,36 @@ export function useMediaSection<T extends MediaItemBase>(options: UseMediaSectio
       // Remove from watchlist
       await removeFromWatchlist(item);
       
-      // Update local state
+      // Get the item identifiers for filtering
+      const itemTitle = item.title || item.name || "";
+      console.log(`Removing from watchlist: '${itemTitle}'`);
+      
+      // Update local state with more precise filtering
       setWatchlistItems((prev) => {
-        const itemTitle = item.title || item.name || "";
+        // Log current items to debug
+        console.log("Current watchlist items:", prev.map(i => i.title || i.name));
+        
         return prev.filter((watchlist) => {
+          // First check if both items have IDs
+          if (item.id && watchlist.id) {
+            if (watchlist.id === item.id) {
+              // If IDs match, remove the item
+              return false;
+            } else {
+              // If IDs don't match, keep the item
+              return true;
+            }
+          }
+          
+          // Otherwise compare by title/name
           const watchlistTitle = watchlist.title || watchlist.name || "";
+          const itemTitle = item.title || item.name || "";
           return watchlistTitle.toLowerCase() !== itemTitle.toLowerCase();
         });
       });
       
       // Show success message
-      enqueueSnackbar(`Removed "${item.title || item.name}" from your watchlist`, {
+      enqueueSnackbar(`Removed "${itemTitle}" from your watchlist`, {
         variant: "success",
       });
     } catch (error) {

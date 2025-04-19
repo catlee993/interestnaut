@@ -1,20 +1,25 @@
-import React, { forwardRef, useImperativeHandle, useCallback } from "react";
+import React, {
+  useRef,
+  forwardRef,
+  useImperativeHandle,
+  useCallback,
+} from "react";
 import { Box, Card, CardMedia } from "@mui/material";
-import GameCard from "./GameCard";
+import { GameCard, ExtendedGame } from "./GameCard";
 import {
   SearchGames,
-  SaveGame,
-  UnsaveGame,
-  GetSavedGames,
+  SetFavoriteGames,
+  GetFavoriteGames,
   HasValidCredentials,
+  RefreshCredentials,
   GetGameSuggestion,
   GetGameDetails,
   ProvideSuggestionFeedback,
-  AddGameToWatchlist,
-  GetWatchlistGames,
-  RemoveGameFromWatchlist,
+  AddToWatchlist,
+  GetWatchlist,
+  RemoveFromWatchlist,
 } from "@wailsjs/go/bindings/Games";
-import { bindings, rawg, session } from "@wailsjs/go/models";
+import { bindings, session } from "@wailsjs/go/models";
 import { MediaSuggestionItem } from "@/components/common/MediaSuggestionDisplay";
 import { useMediaSection, MediaItemBase } from "@/hooks/useMediaSection";
 import {
@@ -31,12 +36,11 @@ export interface GameSectionHandle {
 }
 
 // Define our own type that combines both interfaces
-interface GameItem extends Omit<rawg.Game, "convertValues">, MediaItemBase {
+interface GameItem extends Omit<ExtendedGame, "convertValues">, MediaItemBase {
   id: number;
   name: string;
   background_image?: string;
   isSaved?: boolean;
-  isInWatchlist?: boolean;
   // Implement any methods required
   convertValues?: (a: any, classs: any, asMap?: boolean) => any;
 }
@@ -63,55 +67,84 @@ export const GameSection = forwardRef<GameSectionHandle, {}>((props, ref) => {
           id: suggestion.game.id || 0,
           name: suggestion.game.name || "",
           isSaved: suggestion.game.isSaved,
-          isInWatchlist: suggestion.game.isInWatchlist,
         } as unknown as GameItem,
         reason: suggestion.reason,
       };
     },
     provideFeedback: ProvideSuggestionFeedback,
     loadSavedItems: async () => {
-      const savedGames = (await GetSavedGames()) || [];
+      const favoriteGames = (await GetFavoriteGames()) || [];
       // Ensure all items have the required properties
-      return savedGames.map((game) => ({
-        ...game,
-        background_image: game.background_image || "",
+      return favoriteGames.map((game) => ({
+        id: 0, // We may not have an ID
+        name: game.title,
+        background_image: game.cover_path || "",
         isSaved: true,
       })) as unknown as GameItem[];
     },
     loadWatchlistItems: async () => {
-      const watchlist = (await GetWatchlistGames()) || [];
-      // Ensure all items have the required properties
-      return watchlist.map((game) => ({
-        ...game,
-        background_image: game.background_image || "",
-        isInWatchlist: true,
+      const watchlist = (await GetWatchlist()) || [];
+      // Ensure all items have the required properties, similar to how MovieSection does it
+      return watchlist.map((game: any) => ({
+        id: game.id || 0,
+        name: game.title || "", // Use title as primary key like movies do
+        background_image: game.cover_path || "",
+        isSaved: false // Start with false, will be updated if in saved items
       })) as unknown as GameItem[];
     },
     searchItems: async (query: string) => {
-      const results = await SearchGames(query, 1, 20);
+      const results = await SearchGames(query);
       // Ensure all items have the required properties
-      return (results?.results || []).map((game) => ({
+      return results.map((game) => ({
         ...game,
         background_image: game.background_image || "",
       })) as unknown as GameItem[];
     },
     saveItem: async (item: GameItem) => {
+      const favoriteGames = (await GetFavoriteGames()) || [];
+
       if (item.isSaved) {
         // Remove from saved games
-        await UnsaveGame(item.id);
+        const updatedFavorites = favoriteGames.filter(
+          (fav) => fav.title !== item.name,
+        );
+        await SetFavoriteGames(updatedFavorites);
       } else {
-        // Add to saved games
-        await SaveGame(item.id);
+        // Add to saved games - we need to use a minimal object that meets the requirements
+        // without specifying optional fields that might cause type errors
+        const newFavorite = {
+          title: item.name,
+          developer: "",
+          publisher: "",
+          cover_path: item.background_image || "",
+        };
+        await SetFavoriteGames([
+          ...favoriteGames,
+          newFavorite as session.VideoGame,
+        ]);
       }
     },
     removeItem: async (item: GameItem) => {
-      await UnsaveGame(item.id);
+      const favoriteGames = (await GetFavoriteGames()) || [];
+      const updatedFavorites = favoriteGames.filter(
+        (fav) => fav.title !== item.name,
+      );
+      await SetFavoriteGames(updatedFavorites);
     },
     addToWatchlist: async (item: GameItem) => {
-      await AddGameToWatchlist(item.id);
+      // Create a VideoGame object to pass to the API
+      const game: session.VideoGame = {
+        title: item.name,
+        developer: "",
+        publisher: "",
+        cover_path: item.background_image || "",
+        platforms: [], // Include required platforms property
+      };
+      await AddToWatchlist(game);
     },
     removeFromWatchlist: async (item: GameItem) => {
-      await RemoveGameFromWatchlist(item.id);
+      // The API expects a string (title)
+      await RemoveFromWatchlist(item.name);
     },
     getItemDetails: async (id: number) => {
       const details = await GetGameDetails(id);
@@ -179,12 +212,14 @@ export const GameSection = forwardRef<GameSectionHandle, {}>((props, ref) => {
         {mediaSection.searchResults.map((game) => (
           <Box key={`search-${game.id}`} sx={{ cursor: "pointer" }}>
             <GameCard
-              game={game}
-              onSelect={() => {}}
+              game={game as unknown as ExtendedGame}
+              isSaved={!!game.isSaved}
+              isInWatchlist={mediaSection.watchlistItems.some(
+                (g) => g.name === game.name
+              )}
+              view="default"
               onSave={() => mediaSection.handleSave(game)}
               onAddToWatchlist={() => mediaSection.handleAddToWatchlist(game)}
-              isSaved={!!game.isSaved}
-              isInWatchlist={!!game.isInWatchlist}
             />
           </Box>
         ))}
@@ -192,12 +227,11 @@ export const GameSection = forwardRef<GameSectionHandle, {}>((props, ref) => {
     ),
     [
       mediaSection.searchResults,
+      mediaSection.watchlistItems,
       mediaSection.handleSave,
       mediaSection.handleAddToWatchlist,
     ],
   );
-
-  const { enqueueSnackbar } = useSnackbar();
 
   const renderWatchlistItems = useCallback(
     () => (
@@ -207,51 +241,21 @@ export const GameSection = forwardRef<GameSectionHandle, {}>((props, ref) => {
             key={`watchlist-${game.id || game.name}`}
             item={game}
             view="watchlist"
-            onRemoveFromWatchlist={() => mediaSection.handleRemoveFromWatchlist(game)}
+            onRemoveFromWatchlist={() =>
+              mediaSection.handleRemoveFromWatchlist(game)
+            }
           >
             <GameCard
-              game={game}
-              onSelect={() => {}}
-              onSave={() => {
-                // Instead of using handleWatchlistToFavorites, which removes from watchlist,
-                // we'll just add to favorites if not already favorited
-                if (!game.isSaved) {
-                  mediaSection.handleSave({ ...game, isSaved: false });
-                }
-                
-                // Show success message
-                enqueueSnackbar(`"${game.name}" is in your library`, {
-                  variant: "success",
-                });
-              }}
-              onRemoveFromWatchlist={undefined}
+              game={game as unknown as ExtendedGame}
               isSaved={!!game.isSaved}
-              isInWatchlist={true}
               view="watchlist"
-              onLike={() => {
-                try {
-                  // If not saved, add to library
-                  if (!game.isSaved) {
-                    mediaSection.handleSave({ ...game, isSaved: false });
-                  }
-                  
-                  // Send feedback (but don't use handleWatchlistFeedback to avoid removal)
-                  // Wrap in try-catch to prevent errors from affecting UI
-                  ProvideSuggestionFeedback(session.Outcome.liked, game.id)
-                    .catch(err => console.error("Failed to record feedback:", err));
-                  
-                  // Show success message
-                  enqueueSnackbar(`You liked "${game.name}"`, {
-                    variant: "success",
-                  });
-                } catch (error) {
-                  console.error("Error in onLike handler:", error);
-                  enqueueSnackbar("An error occurred while processing your feedback", {
-                    variant: "error",
-                  });
-                }
+              onSave={() => mediaSection.handleWatchlistToFavorites(game)}
+              onRemoveFromWatchlist={undefined}
+              onLike={() => mediaSection.handleWatchlistFeedback(game, "like")}
+              onDislike={() => {
+                mediaSection.handleWatchlistFeedback(game, "dislike");
+                mediaSection.handleRemoveFromWatchlist(game);
               }}
-              onDislike={() => mediaSection.handleWatchlistFeedback(game, "dislike")}
             />
           </MediaItemWrapper>
         ))}
@@ -259,10 +263,9 @@ export const GameSection = forwardRef<GameSectionHandle, {}>((props, ref) => {
     ),
     [
       mediaSection.watchlistItems,
-      mediaSection.handleSave,
+      mediaSection.handleWatchlistToFavorites,
       mediaSection.handleRemoveFromWatchlist,
       mediaSection.handleWatchlistFeedback,
-      enqueueSnackbar,
     ],
   );
 
@@ -272,12 +275,14 @@ export const GameSection = forwardRef<GameSectionHandle, {}>((props, ref) => {
         {mediaSection.savedItems.map((game, index) => (
           <Box key={`saved-${game.id || index}`} sx={{ cursor: "pointer" }}>
             <GameCard
-              game={{...game, isSaved: true}}
-              onSelect={() => {}}
-              onSave={() => mediaSection.handleSave({...game, isSaved: true})}
-              onAddToWatchlist={() => mediaSection.handleAddToWatchlist(game)}
+              game={{ ...game, isSaved: true } as unknown as ExtendedGame}
               isSaved={true}
-              isInWatchlist={!!game.isInWatchlist}
+              isInWatchlist={mediaSection.watchlistItems.some(
+                (g) => g.name === game.name
+              )}
+              view="default"
+              onSave={() => mediaSection.handleSave({ ...game, isSaved: true })}
+              onAddToWatchlist={() => mediaSection.handleAddToWatchlist(game)}
             />
           </Box>
         ))}
@@ -285,15 +290,21 @@ export const GameSection = forwardRef<GameSectionHandle, {}>((props, ref) => {
     ),
     [
       mediaSection.savedItems,
+      mediaSection.watchlistItems,
       mediaSection.handleSave,
       mediaSection.handleAddToWatchlist,
     ],
   );
 
-  // Refresh credentials handler - redirect to settings
-  const handleRefreshCredentials = useCallback(() => {
-    window.location.href = "#/settings";
-  }, []);
+  // Refresh credentials handler
+  const handleRefreshCredentials = useCallback(async () => {
+    try {
+      await RefreshCredentials();
+      await mediaSection.checkCredentials();
+    } catch (error) {
+      console.error("Failed to refresh RAWG credentials:", error);
+    }
+  }, [mediaSection.checkCredentials]);
 
   return (
     <MediaSectionLayout

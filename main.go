@@ -5,7 +5,6 @@ import (
 	"embed"
 	"fmt"
 	"interestnaut/internal/bindings"
-	"interestnaut/internal/db"
 	"interestnaut/internal/session"
 	"log"
 
@@ -99,13 +98,6 @@ func main() {
 
 func onStartup(ctx context.Context) {
 	log.Println("Starting application...")
-
-	// Initialize the local database
-	if err := db.Initialize(); err != nil {
-		log.Printf("Failed to initialize database: %v", err)
-	} else {
-		log.Println("Database initialized successfully")
-	}
 
 	// Initialize credential events system
 	creds.SetupEvents(ctx)

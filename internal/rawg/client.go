@@ -13,7 +13,6 @@ import (
 
 // Constants for the RAWG API
 const (
-	baseURL         = "https://api.rawg.io/api"
 	defaultPageSize = 20
 )
 

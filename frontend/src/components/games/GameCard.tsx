@@ -1,48 +1,50 @@
-import React from 'react';
+import React from "react";
 import {
   Card,
-  CardContent,
   CardMedia,
   Typography,
-  CardActionArea,
-  CardActions,
   IconButton,
   Tooltip,
   Box,
   Chip,
   styled,
-} from '@mui/material';
-import FavoriteIcon from '@mui/icons-material/Favorite';
-import FavoriteBorderIcon from '@mui/icons-material/FavoriteBorder';
-import { PlaylistAdd, PlaylistAddCheck } from '@mui/icons-material';
-import StarIcon from '@mui/icons-material/Star';
-import CloseIcon from '@mui/icons-material/Close';
-import { SportsEsports } from '@mui/icons-material';
+} from "@mui/material";
+import {
+  Favorite,
+  FavoriteBorder,
+  PlaylistAdd,
+  PlaylistAddCheck,
+  SportsEsports,
+} from "@mui/icons-material";
 import { FeedbackControls } from "../common/FeedbackControls";
+import { bindings } from "@wailsjs/go/models";
 
-interface Game {
+// Extended game type to support additional properties
+export interface ExtendedGame {
+  convertValues?: (a: any, classs: any, asMap?: boolean) => any;
+  isSaved?: boolean;
+  isInWatchlist?: boolean;
   id: number;
   name: string;
   background_image?: string;
+  description?: string;
   released?: string;
   rating?: number;
   ratings_count?: number;
-  genres?: Array<{ id: number; name: string }>;
-  isSaved?: boolean;
-  isInWatchlist?: boolean;
+  genres?: { name: string }[];
+  platforms?: { name: string }[];
 }
 
 export interface GameCardProps {
-  game: Game;
-  onSelect: () => void;
-  onSave: () => void;
-  onAddToWatchlist?: () => void;
-  onRemoveFromWatchlist?: () => void;
-  onLike?: () => void;
-  onDislike?: () => void;
+  game: ExtendedGame;
   isSaved: boolean;
   isInWatchlist?: boolean;
-  view?: "default" | "watchlist";
+  view: "default" | "watchlist";
+  onSave: (gameId: number) => void;
+  onAddToWatchlist?: (gameId: number) => void;
+  onRemoveFromWatchlist?: (gameId: number) => void;
+  onLike?: (gameId: number) => void;
+  onDislike?: (gameId: number) => void;
 }
 
 interface LibraryControlsProps {
@@ -88,9 +90,9 @@ const LibraryControls = ({
 }: LibraryControlsProps) => (
   <IconButton onClick={onToggleLibrary} size="small" sx={{ color: "white" }}>
     {isInLibrary ? (
-      <FavoriteIcon sx={{ color: "var(--primary-color)" }} />
+      <Favorite sx={{ color: "var(--primary-color)" }} />
     ) : (
-      <FavoriteBorderIcon />
+      <FavoriteBorder />
     )}
   </IconButton>
 );
@@ -103,23 +105,22 @@ const WatchlistControls = ({
     {isInWatchlist ? (
       <PlaylistAddCheck sx={{ color: "#64b5f6" }} />
     ) : (
-      <PlaylistAdd />
+      <PlaylistAdd sx={{ color: "white" }} />
     )}
   </IconButton>
 );
 
-const GameCard: React.FC<GameCardProps> = ({
+export function GameCard({
   game,
-  onSelect,
+  isSaved,
+  isInWatchlist = false,
+  view = "default",
   onSave,
   onAddToWatchlist,
   onRemoveFromWatchlist,
   onLike,
   onDislike,
-  isSaved,
-  isInWatchlist = false,
-  view = "default",
-}) => {
+}: GameCardProps) {
   const hasImage = game.background_image && game.background_image !== "";
 
   return (
@@ -138,7 +139,6 @@ const GameCard: React.FC<GameCardProps> = ({
               height: "100%",
               objectFit: "cover",
             }}
-            onClick={onSelect}
           />
         ) : (
           <Box
@@ -155,7 +155,6 @@ const GameCard: React.FC<GameCardProps> = ({
               bgcolor: "rgba(123, 104, 238, 0.1)",
               color: "white",
             }}
-            onClick={onSelect}
           >
             <SportsEsports sx={{ fontSize: 60, opacity: 0.7, mb: 2 }} />
             <Typography variant="subtitle1" align="center" sx={{ px: 2 }}>
@@ -211,20 +210,20 @@ const GameCard: React.FC<GameCardProps> = ({
               <Box sx={{ display: "flex", gap: 1 }}>
                 {onAddToWatchlist && (
                   <WatchlistControls
-                    isInWatchlist={isInWatchlist}
-                    onAddToWatchlist={onAddToWatchlist}
+                    isInWatchlist={isInWatchlist ?? false}
+                    onAddToWatchlist={() => onAddToWatchlist!(game.id)}
                   />
                 )}
                 <LibraryControls
                   isInLibrary={isSaved}
-                  onToggleLibrary={onSave}
+                  onToggleLibrary={() => onSave(game.id)}
                 />
               </Box>
             ) : (
               <FeedbackControls
-                onLike={onLike}
-                onDislike={onDislike}
-                onAddToFavorites={onSave}
+                onLike={() => onLike && onLike(game.id)}
+                onDislike={() => onDislike && onDislike(game.id)}
+                onAddToFavorites={() => onSave(game.id)}
                 isSaved={isSaved}
               />
             )}
@@ -233,12 +232,10 @@ const GameCard: React.FC<GameCardProps> = ({
       </Box>
     </StyledCard>
   );
-};
+}
 
 function getScoreColor(score: number): string {
   if (score >= 8) return "#4c91af";
   if (score >= 6) return "#0077ff";
   return "#3c36f4";
 }
-
-export default GameCard; 

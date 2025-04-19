@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"interestnaut/internal/db"
 	"interestnaut/internal/directives"
 	"interestnaut/internal/gemini"
 	"interestnaut/internal/llm"
@@ -13,8 +12,44 @@ import (
 	"interestnaut/internal/session"
 	"log"
 	"strings"
-	"time"
 )
+
+// Define our own types that mirror rawg types but don't reference the package
+type Screenshot struct {
+	ID    int    `json:"id"`
+	Image string `json:"image"`
+}
+
+type PlatformDetails struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
+	Slug string `json:"slug"`
+}
+
+type Platform struct {
+	ID       int             `json:"id,omitempty"`
+	Name     string          `json:"name"`
+	Slug     string          `json:"slug,omitempty"`
+	Platform PlatformDetails `json:"platform,omitempty"`
+}
+
+type Genre struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
+	Slug string `json:"slug,omitempty"`
+}
+
+type Developer struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
+	Slug string `json:"slug,omitempty"`
+}
+
+type Publisher struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
+	Slug string `json:"slug,omitempty"`
+}
 
 // Games provides bindings for the RAWG API client
 type Games struct {
@@ -27,9 +62,125 @@ type Games struct {
 
 // GameWithSavedStatus represents a game with additional saved status flags
 type GameWithSavedStatus struct {
-	*rawg.Game
-	IsSaved       bool `json:"isSaved"`
-	IsInWatchlist bool `json:"isInWatchlist"`
+	ID               int          `json:"id"`
+	Name             string       `json:"name"`
+	Slug             string       `json:"slug"`
+	Released         string       `json:"released,omitempty"`
+	BackgroundImage  string       `json:"background_image,omitempty"`
+	Rating           float64      `json:"rating"`
+	RatingsCount     int          `json:"ratings_count"`
+	Playtime         int          `json:"playtime"`
+	Description      string       `json:"description,omitempty"`
+	ShortScreenshots []Screenshot `json:"short_screenshots,omitempty"`
+	Platforms        []Platform   `json:"platforms,omitempty"`
+	Genres           []Genre      `json:"genres,omitempty"`
+	Developers       []Developer  `json:"developers,omitempty"`
+	Publishers       []Publisher  `json:"publishers,omitempty"`
+	IsSaved          bool         `json:"isSaved"`
+	IsInWatchlist    bool         `json:"isInWatchlist"`
+}
+
+// Helper function to convert rawg.Game to our GameWithSavedStatus
+func rawgGameToGameWithSavedStatus(game *rawg.Game, isSaved bool, isInWatchlist bool) *GameWithSavedStatus {
+	if game == nil {
+		return nil
+	}
+
+	result := &GameWithSavedStatus{
+		ID:              game.ID,
+		Name:            game.Name,
+		Slug:            game.Slug,
+		Released:        game.Released,
+		BackgroundImage: game.BackgroundImage,
+		Rating:          game.Rating,
+		RatingsCount:    game.RatingsCount,
+		Playtime:        game.Playtime,
+		Description:     game.Description,
+		IsSaved:         isSaved,
+		IsInWatchlist:   isInWatchlist,
+	}
+
+	// Convert Screenshots
+	if game.ShortScreenshots != nil {
+		result.ShortScreenshots = make([]Screenshot, len(game.ShortScreenshots))
+		for i, s := range game.ShortScreenshots {
+			result.ShortScreenshots[i] = Screenshot{
+				ID:    s.ID,
+				Image: s.Image,
+			}
+		}
+	}
+
+	// Convert Platforms
+	if game.Platforms != nil {
+		result.Platforms = make([]Platform, len(game.Platforms))
+		for i, p := range game.Platforms {
+			result.Platforms[i] = Platform{
+				ID:   p.ID,
+				Name: p.Name,
+				Slug: p.Slug,
+				Platform: PlatformDetails{
+					ID:   p.Platform.ID,
+					Name: p.Platform.Name,
+					Slug: p.Platform.Slug,
+				},
+			}
+		}
+	}
+
+	// Convert Genres
+	if game.Genres != nil {
+		result.Genres = make([]Genre, len(game.Genres))
+		for i, g := range game.Genres {
+			result.Genres[i] = Genre{
+				ID:   g.ID,
+				Name: g.Name,
+				Slug: g.Slug,
+			}
+		}
+	}
+
+	// Convert Developers
+	if game.Developers != nil {
+		result.Developers = make([]Developer, len(game.Developers))
+		for i, d := range game.Developers {
+			result.Developers[i] = Developer{
+				ID:   d.ID,
+				Name: d.Name,
+				Slug: d.Slug,
+			}
+		}
+	}
+
+	// Convert Publishers
+	if game.Publishers != nil {
+		result.Publishers = make([]Publisher, len(game.Publishers))
+		for i, p := range game.Publishers {
+			result.Publishers[i] = Publisher{
+				ID:   p.ID,
+				Name: p.Name,
+				Slug: p.Slug,
+			}
+		}
+	}
+
+	return result
+}
+
+// Helper function to create a basic game with minimal info
+func createBasicGame(title string, description string, primaryGenre string) *GameWithSavedStatus {
+	return &GameWithSavedStatus{
+		ID:          0,
+		Name:        title,
+		Description: description,
+		Genres: []Genre{
+			{
+				Name: primaryGenre,
+			},
+		},
+		IsSaved:       false,
+		IsInWatchlist: false,
+	}
 }
 
 // NewGames creates a new Games binding
@@ -83,245 +234,6 @@ func NewGames(ctx context.Context, cm session.CentralManager) (*Games, error) {
 	return g, nil
 }
 
-// SearchGames searches for games matching the query
-func (g *Games) SearchGames(query string, page, pageSize int) (*rawg.GameSearchResponse, error) {
-	return g.client.SearchGames(context.Background(), query, page, pageSize)
-}
-
-// GetGames gets a paginated list of games
-func (g *Games) GetGames(page, pageSize int) (*rawg.GameSearchResponse, error) {
-	return g.client.GetGames(context.Background(), page, pageSize)
-}
-
-// GetGameDetails gets detailed information about a game
-func (g *Games) GetGameDetails(id int) (*GameWithSavedStatus, error) {
-	game, err := g.client.GetGameDetails(context.Background(), id)
-	if err != nil {
-		return nil, err
-	}
-
-	isSaved, err := db.IsGameSaved(id)
-	if err != nil {
-		log.Printf("Error checking if game is saved: %v", err)
-		// Continue anyway, treating as not saved
-		isSaved = false
-	}
-
-	isInWatchlist, err := db.IsGameInWatchlist(id)
-	if err != nil {
-		log.Printf("Error checking if game is in watchlist: %v", err)
-		// Continue anyway, treating as not in watchlist
-		isInWatchlist = false
-	}
-
-	return &GameWithSavedStatus{
-		Game:          game,
-		IsSaved:       isSaved,
-		IsInWatchlist: isInWatchlist,
-	}, nil
-}
-
-// RefreshCredentials updates the client's API key with the latest credentials
-func (g *Games) RefreshCredentials() bool {
-	return g.client.RefreshCredentials()
-}
-
-// HasValidCredentials checks if the client has valid credentials
-func (g *Games) HasValidCredentials() bool {
-	return g.client.HasValidCredentials()
-}
-
-// ToSimpleGame converts a Game to a SimpleGame
-func (g *Games) ToSimpleGame(game *rawg.Game) *rawg.SimpleGame {
-	if game == nil {
-		return nil
-	}
-
-	// Extract genre names
-	genres := make([]string, 0, len(game.Genres))
-	for _, genre := range game.Genres {
-		genres = append(genres, genre.Name)
-	}
-
-	return &rawg.SimpleGame{
-		ID:              game.ID,
-		Name:            game.Name,
-		Released:        game.Released,
-		BackgroundImage: game.BackgroundImage,
-		Rating:          game.Rating,
-		RatingsCount:    game.RatingsCount,
-		Genres:          genres,
-	}
-}
-
-// ConvertToSimpleGames converts a slice of Games to SimpleGames
-func (g *Games) ConvertToSimpleGames(games []rawg.Game) []*rawg.SimpleGame {
-	simpleGames := make([]*rawg.SimpleGame, 0, len(games))
-	for _, game := range games {
-		gameCopy := game // Create a copy to avoid issues with the loop variable
-		simpleGames = append(simpleGames, g.ToSimpleGame(&gameCopy))
-	}
-	return simpleGames
-}
-
-// GetSavedGames retrieves all games saved as favorites
-func (g *Games) GetSavedGames() ([]*GameWithSavedStatus, error) {
-	savedGames, err := db.GetSavedGames()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get saved games: %w", err)
-	}
-
-	result := make([]*GameWithSavedStatus, 0, len(savedGames))
-	for _, savedGame := range savedGames {
-		game := &rawg.Game{
-			ID:              savedGame.ID,
-			Name:            savedGame.Name,
-			Released:        savedGame.Released,
-			BackgroundImage: savedGame.BackgroundImage,
-			Rating:          savedGame.Rating,
-			RatingsCount:    savedGame.RatingsCount,
-		}
-
-		isInWatchlist, _ := db.IsGameInWatchlist(savedGame.ID)
-
-		result = append(result, &GameWithSavedStatus{
-			Game:          game,
-			IsSaved:       true,
-			IsInWatchlist: isInWatchlist,
-		})
-	}
-
-	return result, nil
-}
-
-// SaveGame saves a game as a favorite
-func (g *Games) SaveGame(id int) error {
-	// First check if already saved
-	isSaved, err := db.IsGameSaved(id)
-	if err != nil {
-		return fmt.Errorf("failed to check if game is saved: %w", err)
-	}
-
-	if isSaved {
-		return nil // Already saved, nothing to do
-	}
-
-	// Get game details
-	game, err := g.client.GetGameDetails(context.Background(), id)
-	if err != nil {
-		return fmt.Errorf("failed to get game details: %w", err)
-	}
-
-	// Extract genre names
-	genres := make([]string, 0, len(game.Genres))
-	for _, genre := range game.Genres {
-		genres = append(genres, genre.Name)
-	}
-
-	// Save to database
-	gameData := db.GameData{
-		ID:              game.ID,
-		Name:            game.Name,
-		BackgroundImage: game.BackgroundImage,
-		Rating:          game.Rating,
-		RatingsCount:    game.RatingsCount,
-		Released:        game.Released,
-		Genres:          genres,
-	}
-
-	timestamp := time.Now().Format(time.RFC3339)
-	return db.SaveGameToFavorites(gameData, timestamp)
-}
-
-// UnsaveGame removes a game from favorites
-func (g *Games) UnsaveGame(id int) error {
-	return db.RemoveGameFromFavorites(id)
-}
-
-// GetWatchlistGames retrieves all games in the watchlist
-func (g *Games) GetWatchlistGames() ([]*GameWithSavedStatus, error) {
-	watchlistGames, err := db.GetWatchlistGames()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get watchlist games: %w", err)
-	}
-
-	result := make([]*GameWithSavedStatus, 0, len(watchlistGames))
-	for _, watchlistGame := range watchlistGames {
-		game := &rawg.Game{
-			ID:              watchlistGame.ID,
-			Name:            watchlistGame.Name,
-			Released:        watchlistGame.Released,
-			BackgroundImage: watchlistGame.BackgroundImage,
-			Rating:          watchlistGame.Rating,
-			RatingsCount:    watchlistGame.RatingsCount,
-		}
-
-		isSaved, _ := db.IsGameSaved(watchlistGame.ID)
-
-		result = append(result, &GameWithSavedStatus{
-			Game:          game,
-			IsSaved:       isSaved,
-			IsInWatchlist: true,
-		})
-	}
-
-	return result, nil
-}
-
-// AddGameToWatchlist adds a game to the watchlist
-func (g *Games) AddGameToWatchlist(id int) error {
-	// First check if already in watchlist
-	isInWatchlist, err := db.IsGameInWatchlist(id)
-	if err != nil {
-		return fmt.Errorf("failed to check if game is in watchlist: %w", err)
-	}
-
-	if isInWatchlist {
-		return nil // Already in watchlist, nothing to do
-	}
-
-	// Get game details
-	game, err := g.client.GetGameDetails(context.Background(), id)
-	if err != nil {
-		return fmt.Errorf("failed to get game details: %w", err)
-	}
-
-	// Extract genre names
-	genres := make([]string, 0, len(game.Genres))
-	for _, genre := range game.Genres {
-		genres = append(genres, genre.Name)
-	}
-
-	// Save to database
-	gameData := db.GameData{
-		ID:              game.ID,
-		Name:            game.Name,
-		BackgroundImage: game.BackgroundImage,
-		Rating:          game.Rating,
-		RatingsCount:    game.RatingsCount,
-		Released:        game.Released,
-		Genres:          genres,
-	}
-
-	timestamp := time.Now().Format(time.RFC3339)
-	return db.AddGameToWatchlist(gameData, timestamp)
-}
-
-// RemoveGameFromWatchlist removes a game from the watchlist
-func (g *Games) RemoveGameFromWatchlist(id int) error {
-	return db.RemoveGameFromWatchlist(id)
-}
-
-// IsGameSaved checks if a game is in the user's favorites
-func (g *Games) IsGameSaved(id int) (bool, error) {
-	return db.IsGameSaved(id)
-}
-
-// IsGameInWatchlist checks if a game is in the user's watchlist
-func (g *Games) IsGameInWatchlist(id int) (bool, error) {
-	return db.IsGameInWatchlist(id)
-}
-
 // SetFavoriteGames allows the user to set their initial list of favorite games
 // This should be called before starting recommendations
 func (g *Games) SetFavoriteGames(games []session.VideoGame) error {
@@ -357,6 +269,145 @@ func (g *Games) GetFavoriteGames() ([]session.VideoGame, error) {
 	}
 
 	return favorites, nil
+}
+
+// AddToWatchlist adds a game to the watchlist
+func (g *Games) AddToWatchlist(game session.VideoGame) error {
+	// Check if game already exists in watchlist
+	watchlist := g.centralManager.Queue().GetVideoGames()
+	for _, wg := range watchlist {
+		if wg.Title == game.Title {
+			// Game already in watchlist
+			return nil
+		}
+	}
+
+	// Add game to watchlist
+	if err := g.centralManager.Queue().AddVideoGame(game); err != nil {
+		return fmt.Errorf("failed to add game to watchlist: %w", err)
+	}
+
+	log.Printf("Added '%s' to watchlist", game.Title)
+	return nil
+}
+
+// RemoveFromWatchlist removes a game from the watchlist
+func (g *Games) RemoveFromWatchlist(title string) error {
+	// Get current watchlist
+	watchlist := g.centralManager.Queue().GetVideoGames()
+
+	// Find the game by title
+	found := false
+	var gameToRemove session.VideoGame
+
+	for _, game := range watchlist {
+		if game.Title == title {
+			found = true
+			gameToRemove = game
+			break
+		}
+	}
+
+	if !found {
+		return fmt.Errorf("game '%s' not found in watchlist", title)
+	}
+
+	// Remove from the watchlist
+	if err := g.centralManager.Queue().RemoveVideoGame(gameToRemove); err != nil {
+		return fmt.Errorf("failed to remove game from watchlist: %w", err)
+	}
+
+	log.Printf("Removed '%s' from watchlist", title)
+	return nil
+}
+
+// GetWatchlist returns the current watchlist
+func (g *Games) GetWatchlist() ([]session.VideoGame, error) {
+	return g.centralManager.Queue().GetVideoGames(), nil
+}
+
+// HasValidCredentials checks if the client has valid credentials
+func (g *Games) HasValidCredentials() bool {
+	return g.client.HasValidCredentials()
+}
+
+// RefreshCredentials updates the client's API key with the latest credentials
+func (g *Games) RefreshCredentials() bool {
+	return g.client.RefreshCredentials()
+}
+
+// SearchGames searches for games matching the query
+func (g *Games) SearchGames(query string) ([]*GameWithSavedStatus, error) {
+	if !g.client.HasValidCredentials() {
+		return nil, fmt.Errorf("RAWG credentials not available")
+	}
+
+	resp, err := g.client.SearchGames(context.Background(), query, 1, 20)
+	if err != nil {
+		return nil, fmt.Errorf("failed to search games: %w", err)
+	}
+
+	// Convert response to array of games and enrich with saved status
+	games := make([]*GameWithSavedStatus, len(resp.Results))
+	for i, result := range resp.Results {
+		// Check if in favorites
+		favorites := g.centralManager.Favorites().GetVideoGames()
+		isSaved := false
+		for _, favorite := range favorites {
+			if strings.EqualFold(favorite.Title, result.Name) {
+				isSaved = true
+				break
+			}
+		}
+
+		// Check if in watchlist
+		watchlist := g.centralManager.Queue().GetVideoGames()
+		isInWatchlist := false
+		for _, item := range watchlist {
+			if strings.EqualFold(item.Title, result.Name) {
+				isInWatchlist = true
+				break
+			}
+		}
+
+		games[i] = rawgGameToGameWithSavedStatus(&result, isSaved, isInWatchlist)
+	}
+
+	return games, nil
+}
+
+// GetGameDetails gets detailed information about a game
+func (g *Games) GetGameDetails(id int) (*GameWithSavedStatus, error) {
+	if !g.client.HasValidCredentials() {
+		return nil, fmt.Errorf("RAWG credentials not available")
+	}
+
+	game, err := g.client.GetGameDetails(context.Background(), id)
+	if err != nil {
+		return nil, err
+	}
+
+	// Check if this game is in favorites
+	favorites := g.centralManager.Favorites().GetVideoGames()
+	isSaved := false
+	for _, favorite := range favorites {
+		if strings.EqualFold(favorite.Title, game.Name) {
+			isSaved = true
+			break
+		}
+	}
+
+	// Check if this game is in the watchlist
+	watchlist := g.centralManager.Queue().GetVideoGames()
+	isInWatchlist := false
+	for _, item := range watchlist {
+		if strings.EqualFold(item.Title, game.Name) {
+			isInWatchlist = true
+			break
+		}
+	}
+
+	return rawgGameToGameWithSavedStatus(game, isSaved, isInWatchlist), nil
 }
 
 // GetGameSuggestion gets a game suggestion from the LLM
@@ -414,18 +465,27 @@ func (g *Games) GetGameSuggestion() (map[string]interface{}, error) {
 		// Use the first result that matches closely enough
 		for _, result := range resp.Results {
 			if strings.EqualFold(result.Name, suggestion.Title) {
-				// Create a copy of the result
-				gameCopy := result
-
 				// Check if this game is saved in favorites
-				isSaved, _ := g.IsGameSaved(result.ID)
-				isInWatchlist, _ := g.IsGameInWatchlist(result.ID)
-
-				game = &GameWithSavedStatus{
-					Game:          &gameCopy,
-					IsSaved:       isSaved,
-					IsInWatchlist: isInWatchlist,
+				favorites := g.centralManager.Favorites().GetVideoGames()
+				isSaved := false
+				for _, favorite := range favorites {
+					if strings.EqualFold(favorite.Title, result.Name) {
+						isSaved = true
+						break
+					}
 				}
+
+				// Check if in watchlist
+				watchlist := g.centralManager.Queue().GetVideoGames()
+				isInWatchlist := false
+				for _, item := range watchlist {
+					if strings.EqualFold(item.Title, result.Name) {
+						isInWatchlist = true
+						break
+					}
+				}
+
+				game = rawgGameToGameWithSavedStatus(&result, isSaved, isInWatchlist)
 				break
 			}
 		}
@@ -434,34 +494,39 @@ func (g *Games) GetGameSuggestion() (map[string]interface{}, error) {
 		if game == nil && len(resp.Results) > 0 {
 			result := resp.Results[0]
 
-			// Create a copy of the result
-			gameCopy := result
-
 			// Check if this game is saved in favorites
-			isSaved, _ := g.IsGameSaved(result.ID)
-			isInWatchlist, _ := g.IsGameInWatchlist(result.ID)
-
-			game = &GameWithSavedStatus{
-				Game:          &gameCopy,
-				IsSaved:       isSaved,
-				IsInWatchlist: isInWatchlist,
+			favorites := g.centralManager.Favorites().GetVideoGames()
+			isSaved := false
+			for _, favorite := range favorites {
+				if strings.EqualFold(favorite.Title, result.Name) {
+					isSaved = true
+					break
+				}
 			}
+
+			// Check if in watchlist
+			watchlist := g.centralManager.Queue().GetVideoGames()
+			isInWatchlist := false
+			for _, item := range watchlist {
+				if strings.EqualFold(item.Title, result.Name) {
+					isInWatchlist = true
+					break
+				}
+			}
+
+			game = rawgGameToGameWithSavedStatus(&result, isSaved, isInWatchlist)
 		}
 	}
 
 	// If we didn't find anything in RAWG, create a basic game object with the suggestion data
 	if game == nil {
 		// Create a basic game with the suggestion data
-		game = &GameWithSavedStatus{
-			Game: &rawg.Game{
-				ID:          0, // No RAWG ID
-				Name:        suggestion.Title,
-				Description: fmt.Sprintf("Developed by %s, published by %s. %s", suggestion.Content.Developer, suggestion.Content.Publisher, suggestion.PrimaryGenre),
-				Genres:      []rawg.Genre{{Name: suggestion.PrimaryGenre}},
-			},
-			IsSaved:       false,
-			IsInWatchlist: false,
-		}
+		description := fmt.Sprintf("Developed by %s, published by %s. %s",
+			suggestion.Content.Developer,
+			suggestion.Content.Publisher,
+			suggestion.PrimaryGenre)
+
+		game = createBasicGame(suggestion.Title, description, suggestion.PrimaryGenre)
 	}
 
 	// Create a session suggestion to record it
@@ -498,40 +563,41 @@ func (g *Games) ProvideSuggestionFeedback(outcome session.Outcome, gameID int) e
 	sess := g.manager.GetOrCreateSession(context.Background(), g.manager.Key(), g.taskFunc, g.baselineFunc)
 
 	// Get the game details from RAWG if possible
-	var game *rawg.Game
+	var rawgGame *rawg.Game
 	var err error
 
 	if gameID > 0 {
-		details, err := g.client.GetGameDetails(context.Background(), gameID)
-		if err == nil {
-			game = details
+		rawgGame, err = g.client.GetGameDetails(context.Background(), gameID)
+		if err != nil {
+			log.Printf("WARNING: Failed to get game details for ID %d: %v", gameID, err)
+			rawgGame = nil
 		}
 	}
 
-	// If we couldn't get game details, create a placeholder
-	if game == nil {
-		game = &rawg.Game{
-			ID:   gameID,
-			Name: fmt.Sprintf("Game ID %d", gameID),
-		}
-	}
+	// Extract name, developer, and publisher
+	var name, developer, publisher string
 
-	// Try to get the developer and publisher
-	developer := ""
-	publisher := ""
-	for _, dev := range game.Developers {
-		if developer == "" {
-			developer = dev.Name
+	if rawgGame != nil {
+		name = rawgGame.Name
+
+		// Try to get the developer and publisher
+		for _, dev := range rawgGame.Developers {
+			if developer == "" {
+				developer = dev.Name
+			}
 		}
-	}
-	for _, pub := range game.Publishers {
-		if publisher == "" {
-			publisher = pub.Name
+		for _, pub := range rawgGame.Publishers {
+			if publisher == "" {
+				publisher = pub.Name
+			}
 		}
+	} else {
+		// If we couldn't get game details, create a placeholder
+		name = fmt.Sprintf("Game ID %d", gameID)
 	}
 
 	// Use the game name, developer, and publisher as the key for updating the suggestion outcome
-	key := session.KeyerVideoGameInfo(game.Name, developer, publisher)
+	key := session.KeyerVideoGameInfo(name, developer, publisher)
 
 	// Try to record the outcome, but don't fail if the suggestion isn't found
 	err = g.manager.UpdateSuggestionOutcome(context.Background(), sess, key, outcome)
@@ -544,17 +610,21 @@ func (g *Games) ProvideSuggestionFeedback(outcome session.Outcome, gameID int) e
 	if outcome == session.Added {
 		// Convert to session.VideoGame
 		favoriteGame := session.VideoGame{
-			Title:     game.Name,
+			Title:     name,
 			Developer: developer,
 			Publisher: publisher,
-			CoverPath: game.BackgroundImage,
+		}
+
+		// Add background image if available
+		if rawgGame != nil && rawgGame.BackgroundImage != "" {
+			favoriteGame.CoverPath = rawgGame.BackgroundImage
 		}
 
 		// Add to favorites using the central manager
 		if err := g.centralManager.Favorites().AddVideoGame(favoriteGame); err != nil {
 			return fmt.Errorf("failed to add to favorites: %w", err)
 		}
-		log.Printf("Added game '%s' to favorites", game.Name)
+		log.Printf("Added game '%s' to favorites", name)
 	}
 
 	return nil

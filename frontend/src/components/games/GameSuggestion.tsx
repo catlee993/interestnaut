@@ -48,7 +48,7 @@ export function GameSuggestion({ game, reason, onLike, onDislike, onSkip }: Game
         </Typography>
         
         <Typography variant="subtitle1" color="text.secondary" gutterBottom>
-          {game.released?.substring(0, 4)} • Rating: {game.rating.toFixed(1)}/5
+          {game.released?.substring(0, 4)} • Rating: {(game.rating * 2).toFixed(1)}/10
         </Typography>
         
         {game.genres && game.genres.length > 0 && (
