@@ -75,7 +75,7 @@ func NewBooks(_ context.Context, cm session.CentralManager) (*Books, error) {
 	b.baselineFunc = func() string {
 		// Get favorites directly from the central manager
 		favorites := cm.Favorites().GetBooks()
-		return directives.GetBookBaseline(favorites)
+		return directives.GetBookBaseline(context.Background(), favorites)
 	}
 
 	return b, nil

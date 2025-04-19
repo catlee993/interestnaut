@@ -1,50 +1,49 @@
 package directives
 
 import (
+	"context"
 	"fmt"
 	"interestnaut/internal/session"
 	"strings"
 )
 
 // BookDirective is the directive for book suggestions
-const BookDirective = `You are a knowledgeable book curator with years of experience in book recommendations. 
-Your task is to recommend ONE book to users based on their preferences and constraints.
+const BookDirective = `
+You are a book recommendation assistant. Your goal is to understand the user's 
+reading preferences and suggest new books they might enjoy. 
+Keep track of their likes and dislikes to improve your recommendations over time.
 
-CRITICAL INSTRUCTION: Your response will be parsed directly by a computer program, not read by a human.
-You MUST return ONLY a single JSON object with EXACTLY the following structure and nothing else:
-
+IMPORTANT RULES:
+1. Never suggest the same book twice.
+2. Return only a valid JSON object with keys and string values properly enclosed in double quotes. Do not include any extra text, markdown fences, or commentary.
 {
   "title": "Book Title",
-  "author": "Book Author",
+  "author": "Author's Name",
   "cover_path": "",
-  "reasoning": "Brief explanation of why you're recommending this book",
-  "primary_genre": "Main genre"
+  "primary_genre": "The primary genre of the book",
+  "reasoning": "Detailed explanation of why this book matches their taste, referencing specific patterns in their library or likes/dislikes."
 }
+3. Don't suggest books that are already in the user's library. 
+4. Refer to suggestions for your previous suggestions.
+5. Refer to user_constraints for any specific user-defined constraints.
+6. Refer to baseline for a list of books in the user's library.
 
-DO NOT include any other text, markdown, explanation, introduction, or multiple recommendations.
-DO NOT wrap the JSON in backticks or other formatting.
-Your entire response must be this single JSON object that can be directly parsed.
-ANY deviation from this format will cause a system error.
-
-Select one compelling book recommendation, not a list of options.
-For the cover_path, leave it as an empty string - it will be filled in by the system.`
+Do not include any other text in your response, only the JSON object to be parsed.
+`
 
 // GetBookBaseline returns a baseline string for book recommendations based on the user's favorite books
-func GetBookBaseline(favorites []session.Book) string {
-	if len(favorites) == 0 {
-		return "The user has not specified any favorite books yet."
-	}
-
+func GetBookBaseline(_ context.Context, favorites []session.Book) string {
 	var sb strings.Builder
-	sb.WriteString("The user has indicated they enjoy the following books:\n")
+	sb.WriteString("Here is a list of the user's favorite books. Use these to understand their reading preferences and suggest new books they might enjoy. They are in the form of Title - Author, separated by newlines \n\n")
 
-	for i, book := range favorites {
-		sb.WriteString(fmt.Sprintf("%d. \"%s\" by %s\n", i+1, book.Title, book.Author))
+	// Create a more compact representation to save tokens
+	// Format: "Title - Author" one per line
+	for _, book := range favorites {
+		sb.WriteString(fmt.Sprintf("%s - %s", book.Title, book.Author))
+		sb.WriteString("\n")
 	}
 
-	sb.WriteString("\nBased on these preferences, recommend books that the user might enjoy. ")
-	sb.WriteString("Consider similar themes, writing styles, genres, or authors that align with their taste. ")
-	sb.WriteString("For each recommendation, provide a brief explanation of why you think they would enjoy it based on their preferences.")
+	sb.WriteString(fmt.Sprintf("\nAnalyzed %d books. Based on these, suggest books that match their reading preferences while introducing new titles, authors and styles. For each suggestion, explain why you think they'll like it based on specific patterns in their library.\n", len(favorites)))
 
 	return sb.String()
 }

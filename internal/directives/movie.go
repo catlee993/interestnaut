@@ -27,6 +27,7 @@ IMPORTANT RULES:
 4. Refer to suggestions for your previous suggestions.
 5. Refer to user_constraints for any specific user-defined constraints.
 6. Refer to baseline for a list of tracks in the user's library.
+7. One suggestion per response.
 
 Do not include any other text in your response, only the JSON object to be parsed.
 `
