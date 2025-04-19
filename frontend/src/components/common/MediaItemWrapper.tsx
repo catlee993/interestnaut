@@ -34,8 +34,8 @@ export const MediaItemWrapper: React.FC<MediaItemWrapperProps> = ({
         height: "100%",
       }}
     >
-      {/* Remove button - only shown in watchlist view */}
-      {view === "watchlist" && onRemoveFromWatchlist && (
+      {/* Remove button - shown in watchlist and saved views */}
+      {((view === "watchlist" || view === "saved") && onRemoveFromWatchlist) && (
         <Box
           onClick={handleRemoveClick}
           sx={{
@@ -54,7 +54,7 @@ export const MediaItemWrapper: React.FC<MediaItemWrapperProps> = ({
               transform: "scale(1.2)",
             },
           }}
-          aria-label="Remove from watchlist"
+          aria-label={view === "watchlist" ? "Remove from watchlist" : "Remove from saved"}
         >
           <svg
             width="24"

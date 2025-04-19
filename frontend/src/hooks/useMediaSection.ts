@@ -15,7 +15,7 @@ export interface MediaItemBase {
 
 // Options for the hook
 export interface UseMediaSectionOptions<T extends MediaItemBase> {
-  type: "movie" | "tv" | "game";
+  type: "movie" | "tv" | "game" | "book";
   // Core API functions
   checkCredentials: () => Promise<boolean>;
   getSuggestion: () => Promise<{ media: T; reason: string }>;

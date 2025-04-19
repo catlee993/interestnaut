@@ -29,6 +29,7 @@ import { SpotifyUserControl } from "@/components/music/SpotifyUserControl";
 import { GameSection } from "./components/games/GameSection";
 import { MovieSection } from "@/components/movies/MovieSection";
 import { TVShowSection } from "@/components/tv/TVShowSection";
+import { BookSection } from "@/components/books/BookSection";
 
 // Add type declarations for Wails modules
 declare module "@wailsjs/go/bindings/Music" {
@@ -117,7 +118,7 @@ interface AuthStatus extends Record<string, any> {
 const ITEMS_PER_PAGE = 20;
 
 // Define a type for our media options
-type MediaType = "music" | "movies" | "tv" | "games";
+type MediaType = "music" | "movies" | "tv" | "games" | "books";
 
 // Extending the MediaType in the MediaContext to include games
 declare module "@/contexts/MediaContext" {
@@ -177,6 +178,7 @@ function AppContent() {
   const movieSectionRef = useRef<any>(null);
   const tvShowSectionRef = useRef<any>(null);
   const gameSectionRef = useRef<any>(null);
+  const bookSectionRef = useRef<any>(null);
 
   const [currentMedia, setCurrentMedia] = useState<MediaType>("music");
 
@@ -224,6 +226,18 @@ function AppContent() {
     }
   };
 
+  // Handler for book search
+  const handleBookSearchFromHeader = (query: string) => {
+    console.log(`[App] Book search requested: "${query}"`);
+    // Call the search method on BookSection component via ref
+    if (currentMedia === "books" && bookSectionRef.current) {
+      // If the BookSection exposes the handleSearch method, call it
+      if (bookSectionRef.current.handleSearch) {
+        bookSectionRef.current.handleSearch(query);
+      }
+    }
+  };
+
   // Handler to clear search results based on current media type
   const handleClearSearch = useCallback(() => {
     if (currentMedia === "music") {
@@ -234,6 +248,8 @@ function AppContent() {
       tvShowSectionRef.current?.handleClearSearch();
     } else if (currentMedia === "games") {
       gameSectionRef.current?.handleClearSearch();
+    } else if (currentMedia === "books") {
+      bookSectionRef.current?.handleClearSearch();
     }
   }, [currentMedia]);
 
@@ -302,7 +318,9 @@ function AppContent() {
               ? handleMovieSearchFromHeader
               : currentMedia === "tv"
                 ? handleTVShowSearchFromHeader
-                : handleGameSearchFromHeader
+                : currentMedia === "books"
+                  ? handleBookSearchFromHeader
+                  : handleGameSearchFromHeader
         }
         onClearSearch={handleClearSearch}
         onMediaChange={setCurrentMedia}
@@ -337,6 +355,8 @@ function AppContent() {
           <MovieSection ref={movieSectionRef} />
         ) : currentMedia === "tv" ? (
           <TVShowSection ref={tvShowSectionRef} />
+        ) : currentMedia === "books" ? (
+          <BookSection ref={bookSectionRef} />
         ) : (
           <GameSection ref={gameSectionRef} />
         )}

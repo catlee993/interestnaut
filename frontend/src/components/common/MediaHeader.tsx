@@ -85,8 +85,8 @@ interface MediaHeaderProps {
   additionalControl?: React.ReactNode | null;
   onSearch: (query: string) => void;
   onClearSearch?: () => void;
-  currentMedia?: "music" | "movies" | "tv" | "games";
-  onMediaChange?: (media: "music" | "movies" | "tv" | "games") => void;
+  currentMedia?: "music" | "movies" | "tv" | "games" | "books";
+  onMediaChange?: (media: "music" | "movies" | "tv" | "games" | "books") => void;
 }
 
 export function MediaHeader({
@@ -150,6 +150,7 @@ export function MediaHeader({
               <Tab value="movies" label="Movies" />
               <Tab value="tv" label="Shows" />
               <Tab value="games" label="Games" />
+              <Tab value="books" label="Books" />
             </Tabs>
           </LeftSection>
 
@@ -196,7 +197,9 @@ export function MediaHeader({
                   ? "Search movies..."
                   : activeMedia === "tv"
                     ? "Search TV shows..."
-                    : "Search games..."
+                    : activeMedia === "books"
+                      ? "Search books..."
+                      : "Search games..."
             }
             onSearch={onSearch}
             onClear={onClearSearch}

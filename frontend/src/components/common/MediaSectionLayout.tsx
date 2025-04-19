@@ -8,7 +8,7 @@ import { MediaItemBase } from "../../hooks/useMediaSection";
 
 interface MediaSectionLayoutProps<T extends MediaItemBase> {
   // Basic metadata
-  type: "movie" | "tv" | "game";
+  type: "movie" | "tv" | "game" | "book";
   typeName: string; // Human-readable name ("Movie", "TV Show", "Game")
 
   // Refs
