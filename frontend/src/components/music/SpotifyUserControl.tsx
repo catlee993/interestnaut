@@ -8,7 +8,7 @@ const StyledContainer = styled(Box)(({ theme }) => ({
   display: "flex",
   alignItems: "center",
   gap: "8px",
-  padding: "4px 8px",
+  padding: "2px 8px",
 }));
 
 interface SpotifyUserControlProps {
@@ -24,8 +24,8 @@ export function SpotifyUserControl({ user, onClearAuth, currentMedia }: SpotifyU
   if (!user) {
     return (
       <StyledContainer>
-        <CircularProgress size={24} sx={{ color: "#1DB954" }} />
-        <Typography variant="subtitle2" sx={{ color: "#1DB954", fontSize: "0.875rem" }}>
+        <CircularProgress size={20} sx={{ color: "#1DB954" }} />
+        <Typography variant="caption" sx={{ color: "#1DB954", fontSize: "0.75rem" }}>
           Loading user...
         </Typography>
       </StyledContainer>
@@ -34,22 +34,39 @@ export function SpotifyUserControl({ user, onClearAuth, currentMedia }: SpotifyU
 
   return (
     <StyledContainer>
-      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-        <Typography variant="subtitle2" sx={{ color: "#1DB954", fontSize: "0.875rem", textAlign: 'right' }}>
+      <Box sx={{ 
+        display: 'flex', 
+        flexDirection: 'column', 
+        alignItems: 'flex-end',
+        minWidth: '95px'
+      }}>
+        <Typography variant="caption" sx={{ 
+          color: "#1DB954", 
+          fontSize: "0.7rem", 
+          lineHeight: 1.2, 
+          textAlign: 'right',
+          whiteSpace: 'nowrap'
+        }}>
           Logged in as
         </Typography>
-        <Typography variant="subtitle2" sx={{ color: "#1DB954", fontSize: "0.875rem", fontWeight: 600, textAlign: 'right' }}>
+        <Typography variant="caption" sx={{ 
+          color: "#1DB954", 
+          fontSize: "0.75rem", 
+          fontWeight: 600, 
+          lineHeight: 1.2, 
+          textAlign: 'right' 
+        }}>
           {user.display_name || "Spotify User"}
         </Typography>
       </Box>
       {user.images?.[0]?.url ? (
         <Avatar
           src={user.images[0].url}
-          sx={{ width: 28, height: 28 }}
+          sx={{ width: 24, height: 24 }}
         />
       ) : (
         <Avatar
-          sx={{ width: 28, height: 28, backgroundColor: "#1DB954" }}
+          sx={{ width: 24, height: 24, backgroundColor: "#1DB954" }}
         >
           {(user.display_name || "S")[0].toUpperCase()}
         </Avatar>
@@ -61,9 +78,11 @@ export function SpotifyUserControl({ user, onClearAuth, currentMedia }: SpotifyU
         sx={{
           color: 'var(--purple-red)',
           borderColor: 'var(--purple-red)',
-          padding: "2px 8px",
-          minWidth: "auto",
-          fontSize: "0.75rem",
+          padding: "1px 8px",
+          minWidth: "70px",
+          fontSize: "0.7rem",
+          height: "20px",
+          whiteSpace: "nowrap",
           "&:hover": {
             borderColor: 'var(--purple-red)',
             backgroundColor: 'rgba(194, 59, 133, 0.1)',

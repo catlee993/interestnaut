@@ -1,16 +1,16 @@
 import {
   AppBar,
   Toolbar,
-  Tabs,
-  Tab,
   Box,
   IconButton,
   styled,
   Typography,
+  Menu,
+  MenuItem,
 } from "@mui/material";
 import { useMedia, MediaType } from "@/contexts/MediaContext";
-import { FaCog } from "react-icons/fa";
-import { useState, useEffect } from "react";
+import { FaCog, FaChevronDown } from "react-icons/fa";
+import { useState, useEffect, useRef } from "react";
 import { SettingsDrawer } from "./SettingsDrawer";
 import { SearchBar } from "./SearchBar";
 import interestnautLogo from "../../assets/images/logo/interestnaut-mascot.png";
@@ -24,7 +24,7 @@ const StyledAppBar = styled(AppBar)(({ theme }) => ({
 
 const StyledToolbar = styled(Toolbar)({
   minHeight: "32px",
-  padding: "0 8px",
+  padding: "8px 8px 0 8px",
   display: "flex",
   flexDirection: "column",
   alignItems: "stretch",
@@ -35,7 +35,8 @@ const TopRow = styled(Box)({
   justifyContent: "space-between",
   alignItems: "center",
   width: "100%",
-  padding: "2px 0",
+  padding: "6px 0 2px 0",
+  height: "46px",
 });
 
 // Styled logo text
@@ -47,23 +48,28 @@ const LogoText = styled(Typography)({
   WebkitBackgroundClip: "text",
   WebkitTextFillColor: "transparent",
   marginLeft: "4px",
-  fontSize: "0.95rem",
-  letterSpacing: "0.5px",
+  fontSize: "0.875rem",
+  letterSpacing: "1px",
   textTransform: "uppercase",
   lineHeight: 1,
   paddingBottom: "2px",
+  fontStretch: "expanded",
 });
 
 // Logo container to hold both the image and text
 const LogoContainer = styled(Box)({
   display: "flex",
-  alignItems: "flex-end",
+  alignItems: "center",
+  position: "absolute",
+  left: "50%",
+  transform: "translateX(-50%)",
 });
 
 // Left section container
 const LeftSection = styled(Box)({
   display: "flex",
   alignItems: "center",
+  width: "200px", // Fixed width to ensure consistent spacing
 });
 
 // Center section container
@@ -72,6 +78,7 @@ const CenterSection = styled(Box)({
   alignItems: "center",
   justifyContent: "center",
   flex: 1,
+  position: "relative", // For absolute positioning of logo container
 });
 
 // Right section container
@@ -79,6 +86,31 @@ const RightSection = styled(Box)({
   display: "flex",
   alignItems: "center",
   gap: "12px",
+  width: "200px", // Fixed width to balance with LeftSection
+  justifyContent: "flex-end",
+  height: "100%",
+});
+
+// Media selector styles
+const MediaSelector = styled(Box)(({ theme }) => ({
+  cursor: "pointer",
+  display: "flex",
+  alignItems: "center",
+  padding: "6px 12px",
+  borderRadius: "4px",
+  "&:hover": {
+    backgroundColor: "rgba(255, 255, 255, 0.1)",
+  },
+}));
+
+const MediaSelectorText = styled(Typography)({
+  color: "white",
+  fontSize: "0.875rem",
+  fontWeight: 300,
+  letterSpacing: "1px",
+  marginRight: "8px",
+  textTransform: "uppercase",
+  fontStretch: "expanded",
 });
 
 interface MediaHeaderProps {
@@ -99,7 +131,8 @@ export function MediaHeader({
   const { currentMedia, setCurrentMedia } = useMedia();
   const [showSettingsDrawer, setShowSettingsDrawer] = useState(false);
   const [controlKey, setControlKey] = useState(0);
-
+  const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
+  
   // Use externally provided media type if available, otherwise use context
   const activeMedia =
     externalMedia !== undefined ? externalMedia : currentMedia;
@@ -113,12 +146,33 @@ export function MediaHeader({
     setShowSettingsDrawer(true);
   };
 
-  const handleChange = (_: React.SyntheticEvent, newValue: any) => {
+  const handleOpenMenu = (event: React.MouseEvent<HTMLElement>) => {
+    setMenuAnchor(event.currentTarget);
+  };
+
+  const handleCloseMenu = () => {
+    setMenuAnchor(null);
+  };
+
+  const handleMediaChange = (media: MediaType) => {
     // Update both the external state and context state
     if (onMediaChange) {
-      onMediaChange(newValue);
+      onMediaChange(media);
     } else {
-      setCurrentMedia(newValue);
+      setCurrentMedia(media);
+    }
+    handleCloseMenu();
+  };
+
+  // Function to get display name for the media type
+  const getMediaDisplayName = (mediaType: MediaType): string => {
+    switch (mediaType) {
+      case "music": return "MUSIC";
+      case "movies": return "MOVIES";
+      case "tv": return "SHOWS";
+      case "games": return "GAMES";
+      case "books": return "BOOKS";
+      default: return "Media";
     }
   };
 
@@ -127,31 +181,108 @@ export function MediaHeader({
       <StyledToolbar>
         <TopRow>
           <LeftSection>
-            <Tabs
-              value={activeMedia}
-              onChange={handleChange}
-              textColor="inherit"
+            <MediaSelector onClick={handleOpenMenu}>
+              <MediaSelectorText>
+                {getMediaDisplayName(activeMedia)}
+              </MediaSelectorText>
+              <FaChevronDown size={12} color="white" />
+            </MediaSelector>
+            <Menu
+              anchorEl={menuAnchor}
+              open={Boolean(menuAnchor)}
+              onClose={handleCloseMenu}
+              anchorOrigin={{
+                vertical: "bottom",
+                horizontal: "left",
+              }}
+              transformOrigin={{
+                vertical: "top",
+                horizontal: "left",
+              }}
               sx={{
-                "& .MuiTab-root": {
-                  color: "white",
-                  "&.Mui-selected": {
-                    color: "white",
-                  },
-                  minHeight: "52px",
-                  padding: "6px 12px",
-                  fontSize: "0.875rem",
+                "& .MuiPaper-root": {
+                  backgroundColor: "rgba(18, 18, 18, 0.95)",
+                  backdropFilter: "blur(10px)",
+                  border: "1px solid rgba(255, 255, 255, 0.1)",
+                  marginTop: "4px",
                 },
-                "& .MuiTabs-indicator": {
-                  backgroundColor: "#7B68EE",
+                "& .MuiMenuItem-root": {
+                  padding: "6px 12px", // Match the padding of MediaSelector
                 },
               }}
             >
-              <Tab value="music" label="Music" />
-              <Tab value="movies" label="Movies" />
-              <Tab value="tv" label="Shows" />
-              <Tab value="games" label="Games" />
-              <Tab value="books" label="Books" />
-            </Tabs>
+              <MenuItem 
+                onClick={() => handleMediaChange("music")}
+                selected={activeMedia === "music"}
+                sx={{ 
+                  fontSize: "0.875rem", 
+                  fontWeight: 300,
+                  letterSpacing: "1px",
+                  textTransform: "uppercase",
+                  fontStretch: "expanded",
+                  minWidth: "120px",
+                  lineHeight: 1
+                }}
+              >
+                Music
+              </MenuItem>
+              <MenuItem 
+                onClick={() => handleMediaChange("movies")}
+                selected={activeMedia === "movies"}
+                sx={{ 
+                  fontSize: "0.875rem", 
+                  fontWeight: 300,
+                  letterSpacing: "1px",
+                  textTransform: "uppercase",
+                  fontStretch: "expanded",
+                  lineHeight: 1
+                }}
+              >
+                Movies
+              </MenuItem>
+              <MenuItem 
+                onClick={() => handleMediaChange("tv")}
+                selected={activeMedia === "tv"}
+                sx={{ 
+                  fontSize: "0.875rem", 
+                  fontWeight: 300,
+                  letterSpacing: "1px",
+                  textTransform: "uppercase",
+                  fontStretch: "expanded",
+                  lineHeight: 1
+                }}
+              >
+                TV Shows
+              </MenuItem>
+              <MenuItem 
+                onClick={() => handleMediaChange("games")}
+                selected={activeMedia === "games"}
+                sx={{ 
+                  fontSize: "0.875rem", 
+                  fontWeight: 300,
+                  letterSpacing: "1px",
+                  textTransform: "uppercase",
+                  fontStretch: "expanded",
+                  lineHeight: 1
+                }}
+              >
+                Games
+              </MenuItem>
+              <MenuItem 
+                onClick={() => handleMediaChange("books")}
+                selected={activeMedia === "books"}
+                sx={{ 
+                  fontSize: "0.875rem", 
+                  fontWeight: 300,
+                  letterSpacing: "1px",
+                  textTransform: "uppercase",
+                  fontStretch: "expanded",
+                  lineHeight: 1
+                }}
+              >
+                Books
+              </MenuItem>
+            </Menu>
           </LeftSection>
 
           <CenterSection>
@@ -164,13 +295,16 @@ export function MediaHeader({
                   height: "28px",
                   width: "28px",
                   marginLeft: "6px",
+                  marginBottom: "4px", // Move astronaut down a bit
                 }}
               />
             </LogoContainer>
           </CenterSection>
 
           <RightSection>
-            <Box key={controlKey}>{additionalControl}</Box>
+            <Box key={controlKey} sx={{ display: "flex", alignItems: "center", height: "100%" }}>
+              {additionalControl}
+            </Box>
 
             <IconButton
               size="small"
@@ -178,6 +312,9 @@ export function MediaHeader({
               sx={{
                 color: "var(--primary-color)",
                 padding: "2px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
                 "&:hover": {
                   backgroundColor: "rgba(123, 104, 238, 0.1)",
                 },
@@ -188,7 +325,7 @@ export function MediaHeader({
           </RightSection>
         </TopRow>
 
-        <Box sx={{ p: 2, width: "100%" }}>
+        <Box sx={{ py: 1, px: 2, width: "100%" }}>
           <SearchBar
             placeholder={
               activeMedia === "music"
