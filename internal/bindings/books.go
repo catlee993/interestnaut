@@ -13,6 +13,7 @@ import (
 	"interestnaut/internal/session"
 	"log"
 	"strings"
+	"sync"
 )
 
 // BookWithSavedStatus represents a book with its saved status
@@ -32,6 +33,7 @@ type Books struct {
 	manager                session.Manager[session.Book]
 	centralManager         session.CentralManager
 	baselineFunc, taskFunc func() string
+	mu                     sync.Mutex
 }
 
 func NewBooks(_ context.Context, cm session.CentralManager) (*Books, error) {
@@ -43,7 +45,7 @@ func NewBooks(_ context.Context, cm session.CentralManager) (*Books, error) {
 	// Initialize OpenAI client
 	openaiClient, err := openai.NewClient[session.Book](cm)
 	if err != nil {
-		log.Printf("ERROR: Failed to create OpenAI client: %v", err)
+		log.Printf("WARNING: Failed to create OpenAI client: %v", err)
 	} else {
 		llmClients["openai"] = openaiClient
 	}
@@ -51,15 +53,14 @@ func NewBooks(_ context.Context, cm session.CentralManager) (*Books, error) {
 	// Initialize Gemini client
 	geminiClient, err := gemini.NewClient[session.Book](cm)
 	if err != nil {
-		log.Printf("ERROR: Failed to create Gemini client: %v", err)
+		log.Printf("WARNING: Failed to create Gemini client: %v", err)
 	} else {
 		llmClients["gemini"] = geminiClient
 	}
 
-	// If no clients were successfully created, return nil
+	// No longer fail if no clients were created - they can be refreshed later
 	if len(llmClients) == 0 {
-		log.Printf("ERROR: Failed to create any LLM clients")
-		return nil, errors.New("failed to create any LLM clients")
+		log.Printf("WARNING: No LLM clients available, credentials may need to be added")
 	}
 
 	manager := cm.Book()
@@ -288,7 +289,24 @@ func (b *Books) GetBookSuggestion() (map[string]interface{}, error) {
 		log.Printf("WARNING: Requested LLM provider '%s' not available, falling back to openai", provider)
 		llmClient, ok = b.llmClients["openai"]
 		if !ok {
-			return nil, errors.New("no LLM clients available")
+			log.Printf("WARNING: No LLM clients available, providing a default suggestion")
+			// Create a fallback book object with a warning message
+			fallbackBook := &BookWithSavedStatus{
+				Title:       "LLM Suggestion Unavailable",
+				Author:      "System Message",
+				Key:         "",
+				CoverPath:   "",
+				Description: "LLM services are currently unavailable. Please ensure your API keys are correctly configured.",
+			}
+
+			return map[string]interface{}{
+				"title":       fallbackBook.Title,
+				"author":      fallbackBook.Author,
+				"cover_path":  fallbackBook.CoverPath,
+				"description": fallbackBook.Description,
+				"reasoning":   "No LLM clients are available. Please check your API keys in settings.",
+				"key":         "",
+			}, nil
 		}
 	}
 
@@ -531,4 +549,39 @@ func (b *Books) ProvideSuggestionFeedback(outcome session.Outcome, title string,
 	}
 
 	return nil
+}
+
+// RefreshLLMClients attempts to recreate LLM clients that may have failed to initialize
+func (b *Books) RefreshLLMClients() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	log.Println("Refreshing Books LLM clients")
+
+	// Check if OpenAI client is missing
+	if _, ok := b.llmClients["openai"]; !ok {
+		openaiClient, err := openai.NewClient[session.Book](b.centralManager)
+		if err != nil {
+			log.Printf("WARNING: Failed to create OpenAI client: %v", err)
+		} else {
+			b.llmClients["openai"] = openaiClient
+			log.Println("Successfully created OpenAI client for Books")
+		}
+	}
+
+	// Check if Gemini client is missing
+	if _, ok := b.llmClients["gemini"]; !ok {
+		geminiClient, err := gemini.NewClient[session.Book](b.centralManager)
+		if err != nil {
+			log.Printf("WARNING: Failed to create Gemini client: %v", err)
+		} else {
+			b.llmClients["gemini"] = geminiClient
+			log.Println("Successfully created Gemini client for Books")
+		}
+	}
+
+	// Log warning if still no clients instead of returning error
+	if len(b.llmClients) == 0 {
+		log.Printf("WARNING: Could not create any LLM clients after refresh, functionality may be limited")
+	}
 }

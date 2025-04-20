@@ -19,6 +19,8 @@ export function PlayTrackOnDevice(arg1:string,arg2:string):Promise<void>;
 
 export function ProvideSuggestionFeedback(arg1:session.Outcome,arg2:string,arg3:string,arg4:string):Promise<void>;
 
+export function RefreshLLMClients():Promise<void>;
+
 export function RemoveTrack(arg1:string):Promise<void>;
 
 export function RequestNewSuggestion():Promise<spotify.SuggestedTrackInfo>;

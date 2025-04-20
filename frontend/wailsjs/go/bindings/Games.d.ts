@@ -19,6 +19,8 @@ export function ProvideSuggestionFeedback(arg1:session.Outcome,arg2:number):Prom
 
 export function RefreshCredentials():Promise<boolean>;
 
+export function RefreshLLMClients():Promise<void>;
+
 export function RemoveFromWatchlist(arg1:string):Promise<void>;
 
 export function SearchGames(arg1:string):Promise<Array<bindings.GameWithSavedStatus>>;

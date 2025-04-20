@@ -34,6 +34,10 @@ export function ProvideSuggestionFeedback(arg1, arg2, arg3, arg4) {
   return window['go']['bindings']['Music']['ProvideSuggestionFeedback'](arg1, arg2, arg3, arg4);
 }
 
+export function RefreshLLMClients() {
+  return window['go']['bindings']['Music']['RefreshLLMClients']();
+}
+
 export function RemoveTrack(arg1) {
   return window['go']['bindings']['Music']['RemoveTrack'](arg1);
 }

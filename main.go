@@ -8,7 +8,6 @@ import (
 	"interestnaut/internal/session"
 	"log"
 
-	"github.com/joho/godotenv"
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
@@ -21,11 +20,6 @@ import (
 var assets embed.FS
 
 func main() {
-	// Load environment variables from .env file, dev only
-	if err := godotenv.Load(); err != nil {
-		log.Printf("Warning: Error loading .env file: %v", err)
-	}
-
 	// Create an instance of the app structure
 	ctx := context.Background()
 	cm, err := session.NewCentralManager(ctx, session.DefaultUserID)
@@ -71,6 +65,26 @@ func main() {
 	// Create settings binder
 	settings := &bindings.Settings{ContentManager: cm}
 
+	// Collect all LLM handlers for credential change registration
+	llmHandlers := []creds.LLMCredentialChangeHandler{
+		music,
+		movies,
+		tvShows,
+		games,
+		books,
+	}
+
+	// Collect TMDB handlers for credential change registration
+	tmdbHandlers := []creds.TMDBCredentialChangeHandler{
+		movies,
+		tvShows,
+	}
+
+	// Collect RAWG handlers for credential change registration
+	rawgHandlers := []creds.RAWGCredentialChangeHandler{
+		games,
+	}
+
 	// Create application with options
 	rErr := wails.Run(&options.App{
 		Title:  "Interestnaut",
@@ -81,7 +95,7 @@ func main() {
 		},
 		BackgroundColour: &options.RGBA{R: 27, G: 38, B: 54, A: 1},
 		OnStartup: func(ctx context.Context) {
-			onStartup(ctx)
+			onStartup(ctx, llmHandlers, tmdbHandlers, rawgHandlers)
 		},
 		Bind: []interface{}{
 			&bindings.Auth{},
@@ -102,12 +116,36 @@ func main() {
 	}
 }
 
-func onStartup(ctx context.Context) {
+func onStartup(ctx context.Context,
+	llmHandlers []creds.LLMCredentialChangeHandler,
+	tmdbHandlers []creds.TMDBCredentialChangeHandler,
+	rawgHandlers []creds.RAWGCredentialChangeHandler) {
 	log.Println("Starting application...")
 
 	// Initialize credential events system
 	creds.SetupEvents(ctx)
 	log.Println("Credential events system initialized")
+
+	// Register LLM client refresh handlers for all media bindings
+	// These will automatically refresh LLM clients when OpenAI or Gemini credentials change
+	for _, handler := range llmHandlers {
+		creds.RegisterLLMClientRefreshHandler(handler)
+	}
+	log.Println("LLM credential change handlers registered")
+
+	// Register TMDB client refresh handlers
+	// These will automatically refresh TMDB clients when TMDB credentials change
+	for _, handler := range tmdbHandlers {
+		creds.RegisterTMDBClientRefreshHandler(handler)
+	}
+	log.Println("TMDB credential change handlers registered")
+
+	// Register RAWG client refresh handlers
+	// These will automatically refresh RAWG clients when RAWG credentials change
+	for _, handler := range rawgHandlers {
+		creds.RegisterRAWGClientRefreshHandler(handler)
+	}
+	log.Println("RAWG credential change handlers registered")
 
 	// Check if we have a valid authorization code
 	_, err := creds.GetSpotifyToken()

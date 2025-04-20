@@ -2,7 +2,6 @@ package bindings
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"html"
 	"interestnaut/internal/directives"
@@ -14,6 +13,7 @@ import (
 	"log"
 	"regexp"
 	"strings"
+	"sync"
 )
 
 type Screenshot struct {
@@ -59,6 +59,7 @@ type Games struct {
 	manager                session.Manager[session.VideoGame]
 	centralManager         session.CentralManager
 	baselineFunc, taskFunc func() string
+	mu                     sync.Mutex
 }
 
 // GameWithSavedStatus represents a game with additional saved status flags
@@ -194,7 +195,7 @@ func NewGames(ctx context.Context, cm session.CentralManager) (*Games, error) {
 	// Initialize OpenAI client
 	openaiClient, err := openai.NewClient[session.VideoGame](cm)
 	if err != nil {
-		log.Printf("ERROR: Failed to create OpenAI client: %v", err)
+		log.Printf("WARNING: Failed to create OpenAI client: %v", err)
 	} else {
 		llmClients["openai"] = openaiClient
 	}
@@ -202,15 +203,14 @@ func NewGames(ctx context.Context, cm session.CentralManager) (*Games, error) {
 	// Initialize Gemini client
 	geminiClient, err := gemini.NewClient[session.VideoGame](cm)
 	if err != nil {
-		log.Printf("ERROR: Failed to create Gemini client: %v", err)
+		log.Printf("WARNING: Failed to create Gemini client: %v", err)
 	} else {
 		llmClients["gemini"] = geminiClient
 	}
 
-	// If no clients were successfully created, return nil
+	// Log warning if no clients were successfully created, but continue
 	if len(llmClients) == 0 {
-		log.Printf("ERROR: Failed to create any LLM clients")
-		return nil, errors.New("failed to create any LLM clients")
+		log.Printf("WARNING: No LLM clients available, functionality may be limited")
 	}
 
 	manager := cm.VideoGame()
@@ -432,6 +432,41 @@ func (g *Games) GetGameDetails(id int) (*GameWithSavedStatus, error) {
 	return rawgGameToGameWithSavedStatus(game, isSaved, isInWatchlist), nil
 }
 
+// RefreshLLMClients attempts to recreate LLM clients that may have failed to initialize
+func (g *Games) RefreshLLMClients() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	log.Println("Refreshing Games LLM clients")
+
+	// Check if OpenAI client is missing
+	if _, ok := g.llmClients["openai"]; !ok {
+		openaiClient, err := openai.NewClient[session.VideoGame](g.centralManager)
+		if err != nil {
+			log.Printf("WARNING: Failed to create OpenAI client: %v", err)
+		} else {
+			g.llmClients["openai"] = openaiClient
+			log.Println("Successfully created OpenAI client for Games")
+		}
+	}
+
+	// Check if Gemini client is missing
+	if _, ok := g.llmClients["gemini"]; !ok {
+		geminiClient, err := gemini.NewClient[session.VideoGame](g.centralManager)
+		if err != nil {
+			log.Printf("WARNING: Failed to create Gemini client: %v", err)
+		} else {
+			g.llmClients["gemini"] = geminiClient
+			log.Println("Successfully created Gemini client for Games")
+		}
+	}
+
+	// Log warning if still no clients instead of returning error
+	if len(g.llmClients) == 0 {
+		log.Printf("WARNING: Could not create any LLM clients after refresh, functionality may be limited")
+	}
+}
+
 // GetGameSuggestion gets a game suggestion from the LLM
 func (g *Games) GetGameSuggestion() (map[string]interface{}, error) {
 	ctx := context.Background()
@@ -453,7 +488,15 @@ func (g *Games) GetGameSuggestion() (map[string]interface{}, error) {
 		log.Printf("WARNING: Requested LLM provider '%s' not available, falling back to openai", provider)
 		llmClient, ok = g.llmClients["openai"]
 		if !ok {
-			return nil, errors.New("no LLM clients available")
+			log.Printf("WARNING: No LLM clients available, providing a default suggestion")
+			// Create a fallback game suggestion
+			game := createBasicGame("LLM Suggestion Unavailable", "LLM services are currently unavailable. Please ensure your API keys are correctly configured.", "Not Available")
+
+			result := map[string]interface{}{
+				"game":   game,
+				"reason": "No LLM clients are available. Please check your API keys in settings.",
+			}
+			return result, nil
 		}
 	}
 

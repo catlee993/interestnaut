@@ -32,7 +32,14 @@ import {
   SaveRAWGAPIKey,
   SaveTMBDAccessToken,
 } from "@wailsjs/go/bindings/Auth";
-import { RefreshCredentials } from "@wailsjs/go/bindings/Movies";
+import { RefreshCredentials as RefreshMovieCredentials } from "@wailsjs/go/bindings/Movies";
+import { RefreshCredentials as RefreshTVCredentials } from "@wailsjs/go/bindings/TVShows";
+import { RefreshCredentials as RefreshGameCredentials } from "@wailsjs/go/bindings/Games";
+import { RefreshLLMClients as RefreshMoviesLLMClients } from "@wailsjs/go/bindings/Movies";
+import { RefreshLLMClients as RefreshTVShowsLLMClients } from "@wailsjs/go/bindings/TVShows";
+import { RefreshLLMClients as RefreshGamesLLMClients } from "@wailsjs/go/bindings/Games";
+import { RefreshLLMClients as RefreshBooksLLMClients } from "@wailsjs/go/bindings/Books";
+import { RefreshLLMClients as RefreshMusicLLMClients } from "@wailsjs/go/bindings/Music";
 import { useSnackbar } from "notistack";
 import { ApiCredentialsManager } from "@/components/common/ApiCredentialsManager";
 import { useSettings, ChatGPTModel, LLMProvider, GeminiModel } from "@/contexts/SettingsContext";
@@ -140,7 +147,33 @@ export function SettingsDrawer({ open, onClose }: SettingsDrawerProps) {
 
   // Create a wrapper for RefreshCredentials that returns void
   const refreshTmdbCredentials = async (): Promise<void> => {
-    await RefreshCredentials();
+    // Refresh TMDB credentials for both Movies and TVShows
+    await Promise.all([
+      RefreshMovieCredentials(),
+      RefreshTVCredentials()
+    ]);
+  };
+
+  // Create a function to refresh all LLM clients
+  const refreshAllLLMClients = async (): Promise<void> => {
+    try {
+      // Call RefreshLLMClients on all media types in parallel
+      await Promise.all([
+        RefreshMoviesLLMClients(),
+        RefreshTVShowsLLMClients(),
+        RefreshGamesLLMClients(),
+        RefreshBooksLLMClients(),
+        RefreshMusicLLMClients()
+      ]);
+      console.log("Successfully refreshed all LLM clients");
+    } catch (error) {
+      console.error("Failed to refresh LLM clients:", error);
+    }
+  };
+
+  // Create a wrapper for RAWG credentials refresh
+  const refreshRawgCredentials = async (): Promise<void> => {
+    await RefreshGameCredentials();
   };
 
   useEffect(() => {
@@ -575,6 +608,7 @@ export function SettingsDrawer({ open, onClose }: SettingsDrawerProps) {
                   value={openAIKey}
                   onChange={handleOpenAIKeyChange}
                   onClear={handleClearOpenAIKey}
+                  refreshHandler={refreshAllLLMClients}
                 />
 
                 <ApiCredentialsManager
@@ -582,6 +616,7 @@ export function SettingsDrawer({ open, onClose }: SettingsDrawerProps) {
                   value={geminiKey}
                   onChange={handleGeminiKeyChange}
                   onClear={handleClearGeminiKey}
+                  refreshHandler={refreshAllLLMClients}
                 />
               </Stack>
             </SectionContainer>
@@ -604,6 +639,7 @@ export function SettingsDrawer({ open, onClose }: SettingsDrawerProps) {
                   onChange={handleRawgKeyChange}
                   onClear={handleClearRawgKey}
                   placeholderText="For video game information"
+                  refreshHandler={refreshRawgCredentials}
                 />
               </Stack>
             </SectionContainer>

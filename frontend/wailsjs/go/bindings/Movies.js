@@ -34,6 +34,10 @@ export function RefreshCredentials() {
   return window['go']['bindings']['Movies']['RefreshCredentials']();
 }
 
+export function RefreshLLMClients() {
+  return window['go']['bindings']['Movies']['RefreshLLMClients']();
+}
+
 export function RemoveFromWatchlist(arg1) {
   return window['go']['bindings']['Movies']['RemoveFromWatchlist'](arg1);
 }

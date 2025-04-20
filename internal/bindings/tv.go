@@ -2,7 +2,6 @@ package bindings
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"interestnaut/internal/directives"
 	"interestnaut/internal/gemini"
@@ -12,6 +11,7 @@ import (
 	"interestnaut/internal/tmdb"
 	"log"
 	"strings"
+	"sync"
 )
 
 // TVShowWithSavedStatus represents a TV show with its saved status
@@ -35,6 +35,7 @@ type TVShows struct {
 	manager                session.Manager[session.TVShow]
 	centralManager         session.CentralManager
 	baselineFunc, taskFunc func() string
+	mu                     sync.Mutex
 }
 
 func NewTVShowBinder(ctx context.Context, cm session.CentralManager) (*TVShows, error) {
@@ -46,7 +47,7 @@ func NewTVShowBinder(ctx context.Context, cm session.CentralManager) (*TVShows, 
 	// Initialize OpenAI client
 	openaiClient, err := openai.NewClient[session.TVShow](cm)
 	if err != nil {
-		log.Printf("ERROR: Failed to create OpenAI client: %v", err)
+		log.Printf("WARNING: Failed to create OpenAI client: %v", err)
 	} else {
 		llmClients["openai"] = openaiClient
 	}
@@ -54,15 +55,14 @@ func NewTVShowBinder(ctx context.Context, cm session.CentralManager) (*TVShows, 
 	// Initialize Gemini client
 	geminiClient, err := gemini.NewClient[session.TVShow](cm)
 	if err != nil {
-		log.Printf("ERROR: Failed to create Gemini client: %v", err)
+		log.Printf("WARNING: Failed to create Gemini client: %v", err)
 	} else {
 		llmClients["gemini"] = geminiClient
 	}
 
-	// If no clients were successfully created, return nil
+	// No longer fail if no clients were created - they can be refreshed later
 	if len(llmClients) == 0 {
-		log.Printf("ERROR: Failed to create any LLM clients")
-		return nil, errors.New("failed to create any LLM clients")
+		log.Printf("WARNING: No LLM clients available, credentials may need to be added")
 	}
 
 	manager := cm.TVShow()
@@ -297,7 +297,25 @@ func (t *TVShows) GetTVShowSuggestion() (map[string]interface{}, error) {
 		log.Printf("WARNING: Requested LLM provider '%s' not available, falling back to openai", provider)
 		llmClient, ok = t.llmClients["openai"]
 		if !ok {
-			return nil, errors.New("no LLM clients available")
+			log.Printf("WARNING: No LLM clients available, providing a default suggestion")
+			// Create a fallback TV show object with a warning message
+			show := &TVShowWithSavedStatus{
+				ID:           0,
+				Name:         "LLM Suggestion Unavailable",
+				Overview:     "LLM services are currently unavailable. Please ensure your API keys are correctly configured.",
+				PosterPath:   "",
+				FirstAirDate: "",
+				VoteAverage:  0,
+				VoteCount:    0,
+				Genres:       []string{"Not Available"},
+				IsSaved:      false,
+			}
+
+			result := map[string]interface{}{
+				"show":   show,
+				"reason": "No LLM clients are available. Please check your API keys in settings.",
+			}
+			return result, nil
 		}
 	}
 
@@ -507,4 +525,39 @@ func (t *TVShows) ProvideSuggestionFeedback(outcome session.Outcome, showID int)
 	}
 
 	return nil
+}
+
+// RefreshLLMClients attempts to recreate LLM clients that may have failed to initialize
+func (t *TVShows) RefreshLLMClients() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	log.Println("Refreshing TV LLM clients")
+
+	// Check if OpenAI client is missing
+	if _, ok := t.llmClients["openai"]; !ok {
+		openaiClient, err := openai.NewClient[session.TVShow](t.centralManager)
+		if err != nil {
+			log.Printf("WARNING: Failed to create OpenAI client: %v", err)
+		} else {
+			t.llmClients["openai"] = openaiClient
+			log.Println("Successfully created OpenAI client for TV")
+		}
+	}
+
+	// Check if Gemini client is missing
+	if _, ok := t.llmClients["gemini"]; !ok {
+		geminiClient, err := gemini.NewClient[session.TVShow](t.centralManager)
+		if err != nil {
+			log.Printf("WARNING: Failed to create Gemini client: %v", err)
+		} else {
+			t.llmClients["gemini"] = geminiClient
+			log.Println("Successfully created Gemini client for TV")
+		}
+	}
+
+	// Log warning if still no clients instead of returning error
+	if len(t.llmClients) == 0 {
+		log.Printf("WARNING: Could not create any LLM clients after refresh, functionality may be limited")
+	}
 }

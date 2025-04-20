@@ -15,6 +15,8 @@ export function GetReadList():Promise<Array<session.Book>>;
 
 export function ProvideSuggestionFeedback(arg1:session.Outcome,arg2:string,arg3:string):Promise<void>;
 
+export function RefreshLLMClients():Promise<void>;
+
 export function RemoveFromReadList(arg1:string,arg2:string):Promise<void>;
 
 export function SearchBooks(arg1:string):Promise<Array<bindings.BookWithSavedStatus>>;

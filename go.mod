@@ -6,7 +6,6 @@ toolchain go1.23.2
 
 require (
 	github.com/catlee993/go-request v1.0.0
-	github.com/joho/godotenv v1.5.1
 	github.com/pkg/errors v0.9.1
 	github.com/wailsapp/wails/v2 v2.10.1
 	github.com/zalando/go-keyring v0.2.6

@@ -2,7 +2,6 @@ package bindings
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"interestnaut/internal/directives"
 	"interestnaut/internal/gemini"
@@ -12,6 +11,7 @@ import (
 	"interestnaut/internal/tmdb"
 	"log"
 	"strings"
+	"sync"
 )
 
 // MovieWithSavedStatus represents a movie with its saved status
@@ -34,10 +34,11 @@ type Movies struct {
 	manager                session.Manager[session.Movie]
 	centralManager         session.CentralManager
 	baselineFunc, taskFunc func() string
+	mu                     sync.Mutex
 }
 
 func NewMovieBinder(ctx context.Context, cm session.CentralManager) (*Movies, error) {
-	client := tmdb.NewClient()
+	tmdb := tmdb.NewClient()
 
 	// Create a map of LLM clients for both providers
 	llmClients := make(map[string]llm.Client[session.Movie])
@@ -45,7 +46,7 @@ func NewMovieBinder(ctx context.Context, cm session.CentralManager) (*Movies, er
 	// Initialize OpenAI client
 	openaiClient, err := openai.NewClient[session.Movie](cm)
 	if err != nil {
-		log.Printf("ERROR: Failed to create OpenAI client: %v", err)
+		log.Printf("WARNING: Failed to create OpenAI client: %v", err)
 	} else {
 		llmClients["openai"] = openaiClient
 	}
@@ -53,21 +54,20 @@ func NewMovieBinder(ctx context.Context, cm session.CentralManager) (*Movies, er
 	// Initialize Gemini client
 	geminiClient, err := gemini.NewClient[session.Movie](cm)
 	if err != nil {
-		log.Printf("ERROR: Failed to create Gemini client: %v", err)
+		log.Printf("WARNING: Failed to create Gemini client: %v", err)
 	} else {
 		llmClients["gemini"] = geminiClient
 	}
 
-	// If no clients were successfully created, return nil
+	// No longer fail if no clients were created - they can be refreshed later
 	if len(llmClients) == 0 {
-		log.Printf("ERROR: Failed to create any LLM clients")
-		return nil, errors.New("failed to create any LLM clients")
+		log.Printf("WARNING: No LLM clients available, credentials may need to be added")
 	}
 
 	manager := cm.Movie()
 
 	m := &Movies{
-		tmdbClient:     client,
+		tmdbClient:     tmdb,
 		llmClients:     llmClients,
 		manager:        manager,
 		centralManager: cm,
@@ -272,7 +272,24 @@ func (m *Movies) GetMovieSuggestion() (map[string]interface{}, error) {
 		log.Printf("WARNING: Requested LLM provider '%s' not available, falling back to openai", provider)
 		llmClient, ok = m.llmClients["openai"]
 		if !ok {
-			return nil, errors.New("no LLM clients available")
+			log.Printf("WARNING: No LLM clients available, providing a default suggestion")
+			// Create a fallback movie object with a warning message
+			movie := &MovieWithSavedStatus{
+				ID:          0,
+				Title:       "LLM Suggestion Unavailable",
+				Overview:    "LLM services are currently unavailable. Please ensure your API keys are correctly configured.",
+				PosterPath:  "",
+				ReleaseDate: "",
+				VoteAverage: 0,
+				VoteCount:   0,
+				Genres:      []string{"Not Available"},
+			}
+
+			result := map[string]interface{}{
+				"movie":  movie,
+				"reason": "No LLM clients are available. Please check your API keys in settings.",
+			}
+			return result, nil
 		}
 	}
 
@@ -452,4 +469,39 @@ func (m *Movies) ProvideSuggestionFeedback(outcome session.Outcome, movieID int)
 	}
 
 	return nil
+}
+
+// RefreshLLMClients attempts to recreate LLM clients that may have failed to initialize
+func (m *Movies) RefreshLLMClients() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	log.Println("Refreshing Movies LLM clients")
+
+	// Check if OpenAI client is missing
+	if _, ok := m.llmClients["openai"]; !ok {
+		openaiClient, err := openai.NewClient[session.Movie](m.centralManager)
+		if err != nil {
+			log.Printf("WARNING: Failed to create OpenAI client: %v", err)
+		} else {
+			m.llmClients["openai"] = openaiClient
+			log.Println("Successfully created OpenAI client for Movies")
+		}
+	}
+
+	// Check if Gemini client is missing
+	if _, ok := m.llmClients["gemini"]; !ok {
+		geminiClient, err := gemini.NewClient[session.Movie](m.centralManager)
+		if err != nil {
+			log.Printf("WARNING: Failed to create Gemini client: %v", err)
+		} else {
+			m.llmClients["gemini"] = geminiClient
+			log.Println("Successfully created Gemini client for Movies")
+		}
+	}
+
+	// Log warning if still no clients instead of returning error
+	if len(m.llmClients) == 0 {
+		log.Printf("WARNING: Could not create any LLM clients after refresh, functionality may be limited")
+	}
 }

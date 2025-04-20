@@ -26,6 +26,10 @@ export function ProvideSuggestionFeedback(arg1, arg2, arg3) {
   return window['go']['bindings']['Books']['ProvideSuggestionFeedback'](arg1, arg2, arg3);
 }
 
+export function RefreshLLMClients() {
+  return window['go']['bindings']['Books']['RefreshLLMClients']();
+}
+
 export function RemoveFromReadList(arg1, arg2) {
   return window['go']['bindings']['Books']['RemoveFromReadList'](arg1, arg2);
 }

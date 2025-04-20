@@ -41,7 +41,7 @@ func NewMusicBinder(ctx context.Context, cm session.CentralManager, clientID str
 	// Initialize OpenAI client
 	openaiClient, err := openai.NewClient[session.Music](cm)
 	if err != nil {
-		log.Printf("ERROR: Failed to create OpenAI client: %v", err)
+		log.Printf("WARNING: Failed to create OpenAI client: %v", err)
 	} else {
 		llmClients["openai"] = openaiClient
 	}
@@ -49,15 +49,14 @@ func NewMusicBinder(ctx context.Context, cm session.CentralManager, clientID str
 	// Initialize Gemini client
 	geminiClient, err := gemini.NewClient[session.Music](cm)
 	if err != nil {
-		log.Printf("ERROR: Failed to create Gemini client: %v", err)
+		log.Printf("WARNING: Failed to create Gemini client: %v", err)
 	} else {
 		llmClients["gemini"] = geminiClient
 	}
 
-	// If no clients were successfully created, return nil
+	// No longer fail if no clients were created - they can be refreshed later
 	if len(llmClients) == 0 {
-		log.Printf("ERROR: Failed to create any LLM clients")
-		return nil
+		log.Printf("WARNING: No LLM clients available, credentials may need to be added")
 	}
 
 	spotifyClient := spotify.NewClient()
@@ -114,7 +113,19 @@ func (m *Music) RequestNewSuggestion() (*spotify.SuggestedTrackInfo, error) {
 		log.Printf("WARNING: Requested LLM provider '%s' not available, falling back to openai", provider)
 		llmClient, ok = m.llmClients["openai"]
 		if !ok {
-			return nil, errors.New("no LLM clients available")
+			log.Printf("WARNING: No LLM clients available, providing a default suggestion")
+			// Create a fallback track with a warning message
+			fallbackTrack := &spotify.SuggestedTrackInfo{
+				ID:          "",
+				Name:        "LLM Suggestion Unavailable",
+				Artist:      "System Message",
+				Album:       "Interestnaut",
+				PreviewURL:  "",
+				AlbumArtURL: "",
+				Reason:      "LLM services are currently unavailable. Please ensure your API keys are correctly configured.",
+				URI:         "",
+			}
+			return fallbackTrack, nil
 		}
 	}
 
@@ -302,4 +313,39 @@ func (m *Music) setSpotifyClient(client spotify.Client) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.spotifyClient = client
+}
+
+// RefreshLLMClients attempts to recreate LLM clients that may have failed to initialize
+func (m *Music) RefreshLLMClients() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	log.Println("Refreshing Music LLM clients")
+
+	// Check if OpenAI client is missing
+	if _, ok := m.llmClients["openai"]; !ok {
+		openaiClient, err := openai.NewClient[session.Music](m.centralManager)
+		if err != nil {
+			log.Printf("WARNING: Failed to create OpenAI client: %v", err)
+		} else {
+			m.llmClients["openai"] = openaiClient
+			log.Println("Successfully created OpenAI client for Music")
+		}
+	}
+
+	// Check if Gemini client is missing
+	if _, ok := m.llmClients["gemini"]; !ok {
+		geminiClient, err := gemini.NewClient[session.Music](m.centralManager)
+		if err != nil {
+			log.Printf("WARNING: Failed to create Gemini client: %v", err)
+		} else {
+			m.llmClients["gemini"] = geminiClient
+			log.Println("Successfully created Gemini client for Music")
+		}
+	}
+
+	// Log warning if still no clients instead of returning error
+	if len(m.llmClients) == 0 {
+		log.Printf("WARNING: Could not create any LLM clients after refresh, functionality may be limited")
+	}
 }
