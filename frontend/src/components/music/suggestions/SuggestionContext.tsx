@@ -519,6 +519,10 @@ export function SuggestionProvider({
         "success",
       );
 
+      // Trigger a refresh of the library tracks
+      // This creates a custom event that the useTracks hook listens for
+      window.dispatchEvent(new CustomEvent("refreshSavedTracks"));
+      
       // Get a new recommendation after adding to library
       const currentTrack = suggestedTrack;
       setSuggestedTrack(null);
