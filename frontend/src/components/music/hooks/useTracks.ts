@@ -38,14 +38,12 @@ export function useTracks(itemsPerPage: number = 20) {
   const loadSavedTracks = useCallback(
     async (page: number) => {
       try {
-        console.log("Loading saved tracks for page:", page);
         setLoadingWithMinTime(true);
         setError(null);
         const offset = (page - 1) * itemsPerPage;
         const tracks = await GetSavedTracks(itemsPerPage, offset);
 
         if (tracks) {
-          console.log("Loaded", tracks.items?.length || 0, "tracks");
           setSavedTracks(spotify.SavedTracks.createFrom(tracks));
           setTotalTracks(tracks.total || 0);
           setCurrentPage(page);
@@ -170,14 +168,12 @@ export function useTracks(itemsPerPage: number = 20) {
 
   const handleNextPage = () => {
     if (currentPage * itemsPerPage < totalTracks) {
-      console.log("Moving to next page:", currentPage + 1);
       loadSavedTracks(currentPage + 1);
     }
   };
 
   const handlePrevPage = () => {
     if (currentPage > 1) {
-      console.log("Moving to previous page:", currentPage - 1);
       loadSavedTracks(currentPage - 1);
     }
   };

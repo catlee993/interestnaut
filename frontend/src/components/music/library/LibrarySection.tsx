@@ -1,11 +1,9 @@
 import React, { useEffect, useState } from "react";
-import { Box, Typography, Paper, Stack, Button } from "@mui/material";
+import { Box, Typography, Button } from "@mui/material";
 import { TrackCard } from "@/components/music/tracks/TrackCard";
 import { spotify } from "@wailsjs/go/models";
 import { styled } from "@mui/material/styles";
 import { usePlayer } from "@/components/music/player/PlayerContext";
-import { GetSavedTracks } from "@wailsjs/go/bindings/Music";
-import { useSettings } from "@/contexts/SettingsContext";
 
 interface LibrarySectionProps {
   savedTracks: spotify.SavedTracks | null;
@@ -76,38 +74,14 @@ export const LibrarySection: React.FC<LibrarySectionProps> = ({
   onNextPage,
   onPrevPage,
 }) => {
-  const {
-    updateSavedTracks,
-    setContinuousPlayback,
-    setNextTrack,
-    setNowPlayingTrack,
-  } = usePlayer();
-  
-  // Use settings from context
-  const { isContinuousPlayback } = useSettings();
-  
-  const [isLoading, setIsLoading] = useState(false);
-  const [hasMore, setHasMore] = useState(true);
-
-  // No need to load settings from API - they're already in context
-  useEffect(() => {
-    console.log("[LibrarySection] Using continuous playback from context:", isContinuousPlayback);
-  }, [isContinuousPlayback]);
+  const { updateSavedTracks } = usePlayer();
 
   // Add useEffect to call updateSavedTracks when savedTracks change
   useEffect(() => {
     if (savedTracks && savedTracks.items && savedTracks.items.length > 0) {
-      console.log(`[LibrarySection] Updating player context with ${savedTracks.items.length} tracks on page ${currentPage}`);
       updateSavedTracks(savedTracks, currentPage);
     }
   }, [savedTracks, currentPage, updateSavedTracks]);
-
-  // Log when the setting changes
-  useEffect(() => {
-    console.log(
-      `[LibrarySection] Continuous playback changed to: ${isContinuousPlayback}`,
-    );
-  }, [isContinuousPlayback]);
 
   return (
     <Box sx={{ py: 3, backgroundColor: "transparent" }}>

@@ -184,7 +184,6 @@ function AppContent() {
 
   // Handler for music search
   const handleMusicSearchFromHeader = (query: string) => {
-    console.log(`[App] Music search requested: "${query}"`);
     if (currentMedia === "music") {
       handleMusicSearch(query);
     }

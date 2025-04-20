@@ -5,7 +5,6 @@ import {
   FaStepForward,
   FaThumbsDown,
   FaThumbsUp,
-  FaRobot,
 } from "react-icons/fa";
 import { useSuggestion } from "@/components/music/suggestions/SuggestionContext";
 import { usePlayer } from "@/components/music/player/PlayerContext";
@@ -17,7 +16,6 @@ import {
   Typography,
   CircularProgress,
 } from "@mui/material";
-import { session } from "@wailsjs/go/models";
 import { ReasonCard } from "@/components/common/ReasonCard";
 import { useEffect } from "react";
 
@@ -93,16 +91,8 @@ const PlayButton = styled(IconButton)(({ theme }) => ({
 }));
 
 export const SuggestionDisplay: React.FC = () => {
-  console.log('[SuggestionDisplay] Component rendering');
-  
   const suggestionContext = useSuggestion();
-  console.log('[SuggestionDisplay] SuggestionContext:', {
-    hasSuggestedTrack: !!suggestionContext.suggestedTrack,
-    hasContext: !!suggestionContext.suggestionContext,
-    isLoading: suggestionContext.isFetchingSuggestion,
-    hasError: !!suggestionContext.suggestionError
-  });
-  
+
   const {
     suggestedTrack,
     suggestionContext: trackReason,
@@ -115,24 +105,8 @@ export const SuggestionDisplay: React.FC = () => {
     handleAddToLibrary,
   } = suggestionContext;
 
-  const { nowPlayingTrack, isPlaybackPaused, handlePlay, handlePlayPause } = usePlayer();
-
-  useEffect(() => {
-    console.log('[SuggestionDisplay] Current track state:', {
-      suggestedTrack: suggestedTrack ? JSON.stringify(suggestedTrack) : null,
-      suggestionContext,
-      isLoading: isFetchingSuggestion,
-      hasError: !!suggestionError,
-      isProcessing: isProcessingLibrary
-    });
-  }, [suggestedTrack, suggestionContext, isFetchingSuggestion, suggestionError, isProcessingLibrary]);
-
-  // Log when the component will return nothing
-  useEffect(() => {
-    if (!suggestedTrack && !isFetchingSuggestion && !suggestionError) {
-      console.log('[SuggestionDisplay] No track, not loading, no error - will render empty state');
-    }
-  }, [suggestedTrack, isFetchingSuggestion, suggestionError]);
+  const { nowPlayingTrack, isPlaybackPaused, handlePlay, handlePlayPause } =
+    usePlayer();
 
   if (isFetchingSuggestion) {
     return (
@@ -149,21 +123,25 @@ export const SuggestionDisplay: React.FC = () => {
 
   if (suggestionError) {
     // Truncate very long error messages
-    const truncatedError = suggestionError.length > 500 
-      ? suggestionError.substring(0, 500) + "..." 
-      : suggestionError;
-      
+    const truncatedError =
+      suggestionError.length > 500
+        ? suggestionError.substring(0, 500) + "..."
+        : suggestionError;
+
     return (
       <Box className="suggestion-error-state">
-        <Typography className="error-message" sx={{ 
-          color: "var(--purple-red)",
-          fontWeight: 500,
-          fontFamily: "var(--body-font)",
-          padding: "12px 16px",
-          backgroundColor: "rgba(194, 59, 133, 0.1)",
-          borderRadius: "8px",
-          border: "1px solid rgba(194, 59, 133, 0.3)"
-        }}>
+        <Typography
+          className="error-message"
+          sx={{
+            color: "var(--purple-red)",
+            fontWeight: 500,
+            fontFamily: "var(--body-font)",
+            padding: "12px 16px",
+            backgroundColor: "rgba(194, 59, 133, 0.1)",
+            borderRadius: "8px",
+            border: "1px solid rgba(194, 59, 133, 0.3)",
+          }}
+        >
           {truncatedError}
         </Typography>
         <StyledButton
@@ -179,12 +157,15 @@ export const SuggestionDisplay: React.FC = () => {
 
   if (!suggestedTrack) {
     return (
-      <Box className="empty-suggestion-state" sx={{
-        display: "flex", 
-        justifyContent: "center", 
-        alignItems: "center", 
-        minHeight: "200px"
-      }}>
+      <Box
+        className="empty-suggestion-state"
+        sx={{
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          minHeight: "200px",
+        }}
+      >
         <StyledButton
           onClick={handleRequestSuggestion}
           className="request-suggestion-button"
@@ -216,20 +197,20 @@ export const SuggestionDisplay: React.FC = () => {
         )}
 
         <Box className="suggestion-info">
-          <Typography 
-            variant="h4" 
-            component="h4" 
-            sx={{ 
-              fontFamily: "var(--heading-font)", 
-              fontWeight: 600 
+          <Typography
+            variant="h4"
+            component="h4"
+            sx={{
+              fontFamily: "var(--heading-font)",
+              fontWeight: 600,
             }}
           >
             {suggestedTrack.name}
           </Typography>
-          <Typography 
-            component="p" 
-            sx={{ 
-              fontFamily: "var(--body-font)" 
+          <Typography
+            component="p"
+            sx={{
+              fontFamily: "var(--body-font)",
             }}
           >
             {suggestedTrack.artist}
@@ -262,7 +243,10 @@ export const SuggestionDisplay: React.FC = () => {
           <PlayButton
             className={`play-button ${!isPlaybackPaused && nowPlayingTrack?.id === suggestedTrack.id ? "playing" : ""}`}
             onClick={() => {
-              if (!isPlaybackPaused && nowPlayingTrack?.id === suggestedTrack.id) {
+              if (
+                !isPlaybackPaused &&
+                nowPlayingTrack?.id === suggestedTrack.id
+              ) {
                 handlePlayPause();
               } else {
                 handlePlay(suggestedTrack);
@@ -309,9 +293,14 @@ export const SuggestionDisplay: React.FC = () => {
               }
             }}
             disabled={isProcessingLibrary}
-            aria-label={suggestionContext.hasLikedCurrentSuggestion ? "Get next suggestion" : "Skip this suggestion"}
+            aria-label={
+              suggestionContext.hasLikedCurrentSuggestion
+                ? "Get next suggestion"
+                : "Skip this suggestion"
+            }
           >
-            {suggestionContext.hasLikedCurrentSuggestion ? "Next" : "Skip"} <FaStepForward />
+            {suggestionContext.hasLikedCurrentSuggestion ? "Next" : "Skip"}{" "}
+            <FaStepForward />
           </StyledButton>
         </Box>
       </Box>
