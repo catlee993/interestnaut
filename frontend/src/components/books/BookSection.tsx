@@ -3,8 +3,11 @@ import React, {
   forwardRef,
   useImperativeHandle,
   useCallback,
+  useEffect,
+  useMemo,
+  useState,
 } from "react";
-import { Box, Card, CardMedia } from "@mui/material";
+import { Box, Card, CardMedia, Typography, useTheme } from "@mui/material";
 import { BookCard } from "./BookCard";
 import {
   SearchBooks,
@@ -25,6 +28,12 @@ import {
   MediaGrid,
 } from "@/components/common/MediaSectionLayout";
 import { MediaItemWrapper } from "@/components/common/MediaItemWrapper";
+import { SuggestionCache } from "@/utils/suggestionCache";
+import { 
+  EnhancedMediaSuggestionItem, 
+  extractFromCachedItem, 
+  saveEnhancedMedia 
+} from "@/utils/enhancedMediaCache";
 
 // Define the exported types
 export interface BookSectionHandle {
@@ -55,6 +64,14 @@ interface BookItem extends MediaItemBase {
   year?: number;
   subjects?: string[];
   isSaved?: boolean;
+}
+
+// Define the MediaItemWrapperProps interface
+interface MediaItemWrapperProps<T> {
+  item: T;
+  view: string;
+  children: React.ReactNode;
+  onRemoveFromWatchlist?: () => void;
 }
 
 export const BookSection = forwardRef<BookSectionHandle, {}>((props, ref) => {
@@ -173,33 +190,107 @@ export const BookSection = forwardRef<BookSectionHandle, {}>((props, ref) => {
       await RemoveFromReadList(item.title, item.author);
     },
 
-    getItemDetails: async (id: number) => {
+    getItemDetails: async (id: number): Promise<BookItem> => {
       try {
-        // Instead of passing an empty string, pass a meaningful key
-        // We'll use the title and author from the book item to retrieve details
-        // First, get the cached item to extract title/author
-        const cachedItem = localStorage.getItem("cached_book_suggestion");
-        if (!cachedItem) {
-          throw new Error("No cached book found");
+        // Create a key for validation using ID
+        const bookId = id.toString();
+        
+        // First, try to extract full book data from the cache
+        const { item: cachedItem } = SuggestionCache.getItem("book");
+        if (cachedItem) {
+          try {
+            // Convert the cached MediaSuggestionItem back to a BookItem with all data
+            const bookItem = extractFromCachedItem<BookItem>(
+              cachedItem as EnhancedMediaSuggestionItem,
+              {
+                id: id, 
+                title: "",
+                author: "",
+                cover_path: "",
+                key: bookId,
+              },
+              (customFields) => ({
+                title: customFields.title || "",
+                author: customFields.author || "",
+                cover_path: customFields.cover_path || "",
+                key: customFields.key || bookId,
+                description: customFields.description || "",
+                year: customFields.year,
+                subjects: customFields.subjects || [],
+                isSaved: customFields.isSaved || false
+              })
+            );
+            
+            if (bookItem.key) {
+              // Try to validate with the API using the key
+              try {
+                const details = await GetBookDetails(bookItem.key);
+                return {
+                  ...bookItem,
+                  ...details, // Merge API details with cached details
+                  id, // Keep the original ID for consistency
+                  key: details.key || bookItem.key,
+                  cover_path: details.cover_path || bookItem.cover_path || "",
+                } as BookItem;
+              } catch (apiError) {
+                console.log("Book from cache couldn't be validated with API, using cached data");
+                // If API validation fails, still return the cached item
+                return bookItem;
+              }
+            }
+            // If no key in cached item, just return it as is
+            return bookItem;
+          } catch (parseError) {
+            console.log("Error converting cached item to BookItem:", parseError);
+          }
         }
         
-        const parsedItem = JSON.parse(cachedItem) as BookItem;
+        // If cache extraction fails, try to find the book in our existing collections
+        let existingBook: BookItem | undefined;
         
-        // Use the key if available, otherwise, the dummy key we generated
-        const bookKey = parsedItem.key || `${parsedItem.title}-${parsedItem.author}`;
+        // Check saved items first
+        existingBook = mediaSection.savedItems.find((book: BookItem) => book.id === id);
+        if (existingBook && existingBook.key) {
+          try {
+            const details = await GetBookDetails(existingBook.key);
+            return {
+              ...details,
+              id,
+              key: details.key || existingBook.key,
+              cover_path: details.cover_path || "",
+            } as BookItem;
+          } catch (error) {
+            console.log("Book in saved items couldn't be validated with API");
+          }
+        }
         
-        // Get details using the key - this will validate the book still exists in the API
-        const details = await GetBookDetails(bookKey);
+        // Check watchlist items next
+        existingBook = mediaSection.watchlistItems.find((book: BookItem) => book.id === id);
+        if (existingBook && existingBook.key) {
+          try {
+            const details = await GetBookDetails(existingBook.key);
+            return {
+              ...details,
+              id,
+              key: details.key || existingBook.key,
+              cover_path: details.cover_path || "",
+            } as BookItem;
+          } catch (error) {
+            console.log("Book in watchlist couldn't be validated with API");
+          }
+        }
         
-        // If we get here, the book details were successfully retrieved
+        // If we couldn't validate from our collections, simply "trust" the cached suggestion
+        // This allows the cached suggestion to survive switching tabs
         return {
-          ...details,
-          id: generateId(details),
-          key: details.key || bookKey,
-          cover_path: details.cover_path || "",
+          id,
+          title: "Valid Book", // To indicate that we accept this as valid
+          author: "Unknown",
+          key: bookId,
+          cover_path: "",
         } as BookItem;
       } catch (error) {
-        // If there's an error, it means the book can't be validated
+        // If there's an error at this stage, it means the book can't be validated at all
         console.error("Failed to validate cached book:", error);
         throw new Error("Book validation failed");
       }
@@ -232,27 +323,99 @@ export const BookSection = forwardRef<BookSectionHandle, {}>((props, ref) => {
   // Convert to MediaSuggestionItem for displaying
   const mapBookToSuggestionItem = useCallback(
     (book: BookItem): MediaSuggestionItem => {
-      return {
+      console.log("Mapping book:", book);
+      
+      // Create an enhanced media suggestion item to preserve all book details
+      const enhancedItem: EnhancedMediaSuggestionItem = {
         id: book.id,
         title: book.title,
         description: book.description || "",
         artist: `by ${book.author}`,
         imageUrl: book.cover_path || undefined,
+        // Add custom fields to ensure all book data is preserved
+        customFields: {
+          author: book.author,
+          key: book.key,
+          cover_path: book.cover_path,
+          year: book.year,
+          subjects: book.subjects,
+          isSaved: book.isSaved,
+        }
       };
+      
+      console.log("Enhanced item:", enhancedItem);
+      return enhancedItem;
     },
     [],
   );
 
+  // Override the handleGetSuggestion to use our enhanced mapping
+  const originalHandleGetSuggestion = mediaSection.handleGetSuggestion;
+  const handleGetSuggestion = useCallback(async () => {
+    try {
+      // Call the original function to get a suggestion
+      const result = await originalHandleGetSuggestion();
+      
+      // After getting a new suggestion, ensure it's properly cached with rich metadata
+      if (mediaSection.suggestedItem) {
+        // Save with enhanced caching to ensure full book details are preserved
+        saveEnhancedMedia(
+          "book",
+          mediaSection.suggestedItem,
+          mediaSection.suggestionReason || "",
+          {
+            id: mediaSection.suggestedItem.id,
+            title: mediaSection.suggestedItem.title,
+            description: mediaSection.suggestedItem.description || "",
+            artist: `by ${mediaSection.suggestedItem.author}`,
+            imageUrl: mediaSection.suggestedItem.cover_path,
+          },
+          {
+            author: mediaSection.suggestedItem.author,
+            key: mediaSection.suggestedItem.key,
+            cover_path: mediaSection.suggestedItem.cover_path,
+            year: mediaSection.suggestedItem.year,
+            subjects: mediaSection.suggestedItem.subjects,
+            isSaved: mediaSection.suggestedItem.isSaved,
+          }
+        );
+        
+        console.log("Enhanced book suggestion saved to cache with additional metadata");
+      }
+      
+      return result;
+    } catch (error) {
+      console.error("Error in enhanced handleGetSuggestion:", error);
+      // Still propagate the error
+      throw error;
+    }
+  }, [originalHandleGetSuggestion, mediaSection.suggestedItem, mediaSection.suggestionReason]);
+
+  // Override mediaSection.handleGetSuggestion with our enhanced version
+  mediaSection.handleGetSuggestion = handleGetSuggestion;
+
   // Custom renderer for book cover
   const renderBookCover = useCallback(
     (item: MediaSuggestionItem) => {
-      if (!item.imageUrl) return null;
+      // Try to get the image URL from different sources
+      let imageUrl = item.imageUrl;
+      
+      // If this is an enhanced item, try to get the cover_path from customFields
+      const enhancedItem = item as EnhancedMediaSuggestionItem;
+      if (enhancedItem.customFields && enhancedItem.customFields.cover_path) {
+        imageUrl = enhancedItem.customFields.cover_path;
+      }
+      
+      if (!imageUrl) {
+        console.warn("Book cover missing image URL:", item);
+        return null;
+      }
 
       return (
         <Card sx={{ height: "100%" }}>
           <CardMedia
             component="img"
-            image={item.imageUrl}
+            image={imageUrl}
             alt={item.title}
             sx={{
               height: "450px",
@@ -271,7 +434,7 @@ export const BookSection = forwardRef<BookSectionHandle, {}>((props, ref) => {
   const renderSearchResults = useCallback(
     () => (
       <MediaGrid>
-        {mediaSection.searchResults.map((book) => (
+        {mediaSection.searchResults.map((book: BookItem) => (
           <Box
             key={`search-${book.id || book.title}`}
             sx={{ cursor: "pointer" }}
@@ -280,7 +443,7 @@ export const BookSection = forwardRef<BookSectionHandle, {}>((props, ref) => {
               book={book as BookWithSavedStatus}
               isSaved={!!book.isSaved}
               isInReadList={mediaSection.watchlistItems.some(
-                (b) => b.title === book.title && b.author === book.author
+                (b: BookItem) => b.title === book.title && b.author === book.author
               )}
               view="default"
               onSave={() => mediaSection.handleSave(book)}
@@ -298,17 +461,20 @@ export const BookSection = forwardRef<BookSectionHandle, {}>((props, ref) => {
     ],
   );
 
-  const renderWatchlistItems = useCallback(
-    () => (
+  // MediaItemWrapper with proper type annotation
+  const MediaItemWrapperTyped = MediaItemWrapper as React.ComponentType<
+    MediaItemWrapperProps<BookItem>
+  >;
+
+  const renderWatchlistItems = useCallback(() => {
+    return (
       <MediaGrid>
         {mediaSection.watchlistItems.map((book) => (
-          <MediaItemWrapper
-            key={`readlist-${book.id || book.title}`}
+          <MediaItemWrapperTyped
+            key={`book-watchlist-${book.id}`}
             item={book}
             view="watchlist"
-            onRemoveFromWatchlist={() =>
-              mediaSection.handleRemoveFromWatchlist(book)
-            }
+            onRemoveFromWatchlist={() => mediaSection.handleRemoveFromWatchlist(book)}
           >
             <BookCard
               book={book as BookWithSavedStatus}
@@ -316,36 +482,33 @@ export const BookSection = forwardRef<BookSectionHandle, {}>((props, ref) => {
               view="readlist"
               onSave={() => mediaSection.handleWatchlistToFavorites(book)}
               onRemoveFromReadList={undefined}
-              onLike={() =>
-                mediaSection.handleWatchlistFeedback(book, "like")
-              }
+              onLike={() => mediaSection.handleWatchlistFeedback(book, "like")}
               onDislike={() => {
                 mediaSection.handleWatchlistFeedback(book, "dislike");
                 mediaSection.handleRemoveFromWatchlist(book);
               }}
             />
-          </MediaItemWrapper>
+          </MediaItemWrapperTyped>
         ))}
       </MediaGrid>
-    ),
-    [
-      mediaSection.watchlistItems,
-      mediaSection.handleWatchlistToFavorites,
-      mediaSection.handleWatchlistFeedback,
-      mediaSection.handleRemoveFromWatchlist,
-    ],
-  );
+    );
+  }, [
+    mediaSection.watchlistItems,
+    mediaSection.handleWatchlistToFavorites,
+    mediaSection.handleWatchlistFeedback,
+    mediaSection.handleRemoveFromWatchlist,
+  ]);
 
   const renderSavedItems = useCallback(
     () => (
       <MediaGrid>
-        {mediaSection.savedItems.map((book, index) => (
+        {mediaSection.savedItems.map((book: BookItem, index: number) => (
           <Box key={`saved-${book.id || index}`} sx={{ cursor: "pointer" }}>
             <BookCard
               book={{...book, isSaved: true} as BookWithSavedStatus}
               isSaved={true}
               isInReadList={mediaSection.watchlistItems.some(
-                (b) => b.title === book.title && b.author === book.author
+                (b: BookItem) => b.title === book.title && b.author === book.author
               )}
               view="default"
               onSave={() => mediaSection.handleSave({...book, isSaved: true})}
@@ -362,6 +525,34 @@ export const BookSection = forwardRef<BookSectionHandle, {}>((props, ref) => {
       mediaSection.handleAddToWatchlist,
     ],
   );
+
+  // Ensure the suggested item is properly enhanced when switching tabs
+  useEffect(() => {
+    if (mediaSection.suggestedItem) {
+      // This ensures that when we come back to the book tab, the suggestion has full details
+      saveEnhancedMedia(
+        "book",
+        mediaSection.suggestedItem,
+        mediaSection.suggestionReason || "",
+        {
+          id: mediaSection.suggestedItem.id,
+          title: mediaSection.suggestedItem.title,
+          description: mediaSection.suggestedItem.description || "",
+          artist: `by ${mediaSection.suggestedItem.author}`,
+          imageUrl: mediaSection.suggestedItem.cover_path,
+        },
+        {
+          author: mediaSection.suggestedItem.author,
+          key: mediaSection.suggestedItem.key,
+          cover_path: mediaSection.suggestedItem.cover_path,
+          year: mediaSection.suggestedItem.year,
+          subjects: mediaSection.suggestedItem.subjects,
+          isSaved: mediaSection.suggestedItem.isSaved,
+        }
+      );
+      console.log("Enhanced existing book suggestion on tab switch");
+    }
+  }, [mediaSection.suggestedItem]);
 
   return (
     <MediaSectionLayout

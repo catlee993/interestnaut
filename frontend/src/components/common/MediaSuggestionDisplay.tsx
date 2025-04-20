@@ -15,6 +15,7 @@ import {
 } from "@mui/material";
 import { PlaylistAdd, Favorite } from "@mui/icons-material";
 import { ReasonCard } from "@/components/common/ReasonCard";
+import { EnhancedMediaSuggestionItem, getBestImageUrl } from "@/utils/enhancedMediaCache";
 
 const StyledButton = styled(Button)(({ theme }) => ({
   padding: "8px 16px",
@@ -172,13 +173,15 @@ export const MediaSuggestionDisplay: React.FC<MediaSuggestionDisplayProps> = ({
   }
 
   const renderDefaultImage = () => {
-    if (!suggestedItem.imageUrl) return null;
+    // Try to get the best image URL using our enhanced function
+    const imageUrl = getBestImageUrl(suggestedItem, mediaType);
+    if (!imageUrl) return null;
 
     return (
       <Card sx={{ height: "100%", maxWidth: "300px" }}>
         <CardMedia
           component="img"
-          src={suggestedItem.imageUrl}
+          src={imageUrl}
           alt={`${suggestedItem.title} image`}
           sx={{
             height: "450px",

@@ -1,4 +1,4 @@
-import React, { forwardRef, useImperativeHandle, useCallback } from "react";
+import React, { forwardRef, useImperativeHandle, useCallback, useEffect } from "react";
 import { Box, Card, CardMedia } from "@mui/material";
 import { GameCard, ExtendedGame } from "./GameCard";
 import {
@@ -22,6 +22,8 @@ import {
   MediaGrid,
 } from "@/components/common/MediaSectionLayout";
 import { MediaItemWrapper } from "@/components/common/MediaItemWrapper";
+import { EnhancedMediaSuggestionItem, createEnhancedCachingEffect, getBestImageUrl } from "@/utils/enhancedMediaCache";
+import { SuggestionCache } from "@/utils/suggestionCache";
 
 // Define the exported types
 export interface GameSectionHandle {
@@ -34,6 +36,8 @@ interface GameItem extends Omit<ExtendedGame, "convertValues">, MediaItemBase {
   id: number;
   name: string;
   background_image?: string;
+  description?: string;
+  description_raw?: string;
   isSaved?: boolean;
   // Implement any methods required
   convertValues?: (a: any, classs: any, asMap?: boolean) => any;
@@ -168,7 +172,8 @@ export const GameSection = forwardRef<GameSectionHandle, {}>((props, ref) => {
       return {
         id: game.id,
         title: game.name,
-        description: game.description || "",
+        // Use description_raw first if available, then fallback to description
+        description: game.description_raw || game.description || "",
         imageUrl: game.background_image || undefined,
         releaseDate: game.released,
         rating: game.rating ? game.rating * 2 : 0, // RAWG ratings are out of 5, convert to 10 for consistency
@@ -184,13 +189,15 @@ export const GameSection = forwardRef<GameSectionHandle, {}>((props, ref) => {
       if (!item) return null;
 
       // Just show the image, descriptions are handled by MediaSuggestionDisplay
-      if (!item.imageUrl) return null;
+      // Try to get the best image URL using our enhanced function
+      const imageUrl = getBestImageUrl(item, "game");
+      if (!imageUrl) return null;
 
       return (
         <Card sx={{ height: "100%" }}>
           <CardMedia
             component="img"
-            image={item.imageUrl}
+            image={imageUrl}
             alt={item.title}
             sx={{
               height: "450px",
@@ -305,6 +312,12 @@ export const GameSection = forwardRef<GameSectionHandle, {}>((props, ref) => {
       console.error("Failed to refresh RAWG credentials:", error);
     }
   }, [mediaSection.checkCredentials]);
+
+  // Ensure the suggested item is properly enhanced when switching tabs
+  useEffect(
+    createEnhancedCachingEffect("game", mediaSection.suggestedItem, mediaSection.suggestionReason),
+    [mediaSection.suggestedItem, mediaSection.suggestionReason]
+  );
 
   return (
     <MediaSectionLayout

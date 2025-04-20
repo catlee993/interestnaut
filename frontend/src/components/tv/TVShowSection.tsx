@@ -1,4 +1,4 @@
-import React, { forwardRef, useImperativeHandle, useCallback } from "react";
+import React, { forwardRef, useImperativeHandle, useCallback, useEffect } from "react";
 import { Box, Card, CardMedia } from "@mui/material";
 import { TVShowCard } from "./TVShowCard";
 import {
@@ -23,6 +23,8 @@ import {
   MediaGrid,
 } from "@/components/common/MediaSectionLayout";
 import { MediaItemWrapper } from "@/components/common/MediaItemWrapper";
+import { EnhancedMediaSuggestionItem, createEnhancedCachingEffect, getBestImageUrl } from "@/utils/enhancedMediaCache";
+import { SuggestionCache } from "@/utils/suggestionCache";
 
 // Define the exported types
 export interface TVShowSectionHandle {
@@ -182,13 +184,20 @@ export const TVShowSection = forwardRef<TVShowSectionHandle, {}>(
     // Custom renderer for show poster
     const renderShowPoster = useCallback(
       (item: MediaSuggestionItem) => {
-        if (!item.imageUrl) return null;
+        // Try to get the best image URL using our enhanced function
+        const imageUrl = getBestImageUrl(item, "tv");
+        if (!imageUrl) return null;
+
+        // For TMDB images, add the base URL if it's not already there
+        const fullImageUrl = imageUrl.startsWith('http') 
+          ? imageUrl 
+          : `https://image.tmdb.org/t/p/w500${imageUrl}`;
 
         return (
           <Card sx={{ height: "100%" }}>
             <CardMedia
               component="img"
-              image={item.imageUrl}
+              image={fullImageUrl}
               alt={item.title}
               sx={{
                 height: "450px",
@@ -308,6 +317,12 @@ export const TVShowSection = forwardRef<TVShowSectionHandle, {}>(
         console.error("Failed to refresh TMDB credentials:", error);
       }
     }, [mediaSection.checkCredentials]);
+
+    // Ensure the suggested item is properly enhanced when switching tabs
+    useEffect(
+      createEnhancedCachingEffect("tv", mediaSection.suggestedItem, mediaSection.suggestionReason),
+      [mediaSection.suggestedItem, mediaSection.suggestionReason]
+    );
 
     return (
       <MediaSectionLayout

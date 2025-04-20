@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { session } from "@wailsjs/go/models";
 import { useSnackbar } from "notistack";
+import { SuggestionCache } from "@/utils/suggestionCache";
+import { MediaSuggestionItem } from "@/components/common/MediaSuggestionDisplay";
 
 // Generic interface for media items with common properties
 export interface MediaItemBase {
@@ -59,6 +61,102 @@ export function useMediaSection<T extends MediaItemBase>(
     queueListName = "Watchlist", // Default if not provided
   } = options;
 
+  // Convert MediaItemBase to MediaSuggestionItem for SuggestionCache
+  const toMediaSuggestionItem = (item: T): MediaSuggestionItem => {
+    let enhancedItem: any = {
+      id: item.id,
+      title: item.title || item.name || 'Unknown Title',
+      imageUrl: item.poster_path || item.background_image,
+      description: '',  // Provide defaults for required MediaSuggestionItem properties
+      artist: '',
+    };
+
+    // For all media types, store type-specific data in customFields
+    const customFields: Record<string, any> = {
+      isSaved: item.isSaved,
+      isInWatchlist: item.isInWatchlist,
+    };
+
+    // Handle book-specific properties
+    if (type === "book") {
+      // Book items have special properties like author and cover_path
+      const bookItem = item as any;
+      
+      // Use proper book fields for standard fields
+      enhancedItem.imageUrl = bookItem.cover_path;
+      enhancedItem.artist = bookItem.author ? `by ${bookItem.author}` : '';
+      enhancedItem.description = bookItem.description || '';
+      
+      // Add book-specific fields to customFields
+      customFields.author = bookItem.author;
+      customFields.key = bookItem.key;
+      customFields.cover_path = bookItem.cover_path;
+      customFields.year = bookItem.year;
+      customFields.subjects = bookItem.subjects;
+    } 
+    // Handle movie-specific properties
+    else if (type === "movie") {
+      const movieItem = item as any;
+      
+      // Use proper movie fields for standard fields
+      enhancedItem.imageUrl = movieItem.poster_path;
+      enhancedItem.description = movieItem.overview || '';
+      
+      // Add movie-specific fields to customFields
+      customFields.poster_path = movieItem.poster_path;
+      customFields.backdrop_path = movieItem.backdrop_path;
+      customFields.overview = movieItem.overview;
+      customFields.release_date = movieItem.release_date;
+      customFields.vote_average = movieItem.vote_average;
+      customFields.vote_count = movieItem.vote_count;
+      customFields.genres = movieItem.genres;
+    }
+    // Handle TV-specific properties
+    else if (type === "tv") {
+      const tvItem = item as any;
+      
+      // Use TV show name as title if available
+      enhancedItem.title = tvItem.name || tvItem.title || 'Unknown TV Show';
+      enhancedItem.imageUrl = tvItem.poster_path;
+      enhancedItem.description = tvItem.overview || '';
+      
+      // Add TV-specific fields to customFields
+      customFields.name = tvItem.name;
+      customFields.poster_path = tvItem.poster_path;
+      customFields.backdrop_path = tvItem.backdrop_path;
+      customFields.overview = tvItem.overview;
+      customFields.first_air_date = tvItem.first_air_date;
+      customFields.vote_average = tvItem.vote_average;
+      customFields.vote_count = tvItem.vote_count;
+      customFields.genres = tvItem.genres;
+      customFields.number_of_seasons = tvItem.number_of_seasons;
+    }
+    // Handle game-specific properties
+    else if (type === "game") {
+      const gameItem = item as any;
+      
+      enhancedItem.imageUrl = gameItem.background_image;
+      enhancedItem.description = gameItem.description_raw || gameItem.description || '';
+      
+      // Add game-specific fields to customFields
+      customFields.name = gameItem.name;
+      customFields.background_image = gameItem.background_image;
+      customFields.description_raw = gameItem.description_raw;
+      customFields.released = gameItem.released;
+      customFields.rating = gameItem.rating;
+      customFields.ratings_count = gameItem.ratings_count;
+      customFields.genres = gameItem.genres;
+      customFields.platforms = gameItem.platforms;
+      customFields.developers = gameItem.developers;
+      customFields.publishers = gameItem.publishers;
+    }
+
+    // Add the customFields to the enhanced item
+    enhancedItem.customFields = customFields;
+
+    return enhancedItem as MediaSuggestionItem;
+  };
+
   const { enqueueSnackbar } = useSnackbar();
 
   // Common state
@@ -88,13 +186,108 @@ export function useMediaSection<T extends MediaItemBase>(
         await loadLibraryItems();
         await loadWatchlistFromAPI();
 
-        // Try to load cached suggestion first
-        const cachedItem = localStorage.getItem(cachedSuggestionKey);
-        const cachedReason = localStorage.getItem(cachedReasonKey);
+        // Try to load cached suggestion using SuggestionCache
+        const { item: cachedItem, reason: cachedReason } = SuggestionCache.getItem(type);
 
         if (cachedItem && cachedReason) {
           try {
-            const parsedItem = JSON.parse(cachedItem) as T;
+            // Check if this is an enhanced item with customFields
+            let parsedItem: T;
+            if ((cachedItem as any).customFields) {
+              const enhancedFields = (cachedItem as any).customFields;
+              
+              // Handle different media types
+              if (type === "book") {
+                // Create a book item with all the necessary fields
+                parsedItem = {
+                  id: typeof cachedItem.id === 'number' ? cachedItem.id : parseInt(cachedItem.id as string, 10),
+                  title: cachedItem.title,
+                  description: cachedItem.description,
+                  // Book-specific fields
+                  author: enhancedFields.author || (cachedItem.artist ? cachedItem.artist.replace('by ', '') : ''),
+                  cover_path: enhancedFields.cover_path || cachedItem.imageUrl,
+                  key: enhancedFields.key || `book-${cachedItem.id}`,
+                  year: enhancedFields.year,
+                  subjects: enhancedFields.subjects || [],
+                  isSaved: enhancedFields.isSaved || false,
+                  isInWatchlist: enhancedFields.isInWatchlist || false
+                } as any as T;
+                
+                console.log("Restored enhanced book item from cache:", parsedItem);
+              } 
+              else if (type === "movie") {
+                parsedItem = {
+                  id: typeof cachedItem.id === 'number' ? cachedItem.id : parseInt(cachedItem.id as string, 10),
+                  title: cachedItem.title,
+                  // Movie-specific fields
+                  poster_path: enhancedFields.poster_path || cachedItem.imageUrl,
+                  backdrop_path: enhancedFields.backdrop_path,
+                  overview: enhancedFields.overview || cachedItem.description,
+                  release_date: enhancedFields.release_date,
+                  vote_average: enhancedFields.vote_average,
+                  vote_count: enhancedFields.vote_count,
+                  genres: enhancedFields.genres,
+                  isSaved: enhancedFields.isSaved || false,
+                  isInWatchlist: enhancedFields.isInWatchlist || false
+                } as any as T;
+                
+                console.log("Restored enhanced movie item from cache:", parsedItem);
+              }
+              else if (type === "tv") {
+                parsedItem = {
+                  id: typeof cachedItem.id === 'number' ? cachedItem.id : parseInt(cachedItem.id as string, 10),
+                  title: cachedItem.title,
+                  name: enhancedFields.name || cachedItem.title,
+                  // TV-specific fields
+                  poster_path: enhancedFields.poster_path || cachedItem.imageUrl,
+                  backdrop_path: enhancedFields.backdrop_path,
+                  overview: enhancedFields.overview || cachedItem.description,
+                  first_air_date: enhancedFields.first_air_date,
+                  vote_average: enhancedFields.vote_average,
+                  vote_count: enhancedFields.vote_count,
+                  genres: enhancedFields.genres,
+                  number_of_seasons: enhancedFields.number_of_seasons,
+                  isSaved: enhancedFields.isSaved || false,
+                  isInWatchlist: enhancedFields.isInWatchlist || false
+                } as any as T;
+                
+                console.log("Restored enhanced TV item from cache:", parsedItem);
+              }
+              else if (type === "game") {
+                parsedItem = {
+                  id: typeof cachedItem.id === 'number' ? cachedItem.id : parseInt(cachedItem.id as string, 10),
+                  title: cachedItem.title,
+                  name: enhancedFields.name || cachedItem.title,
+                  // Game-specific fields
+                  background_image: enhancedFields.background_image || cachedItem.imageUrl,
+                  description: enhancedFields.description_raw || cachedItem.description,
+                  description_raw: enhancedFields.description_raw,
+                  released: enhancedFields.released,
+                  rating: enhancedFields.rating,
+                  ratings_count: enhancedFields.ratings_count,
+                  genres: enhancedFields.genres,
+                  platforms: enhancedFields.platforms,
+                  developers: enhancedFields.developers,
+                  publishers: enhancedFields.publishers,
+                  isSaved: enhancedFields.isSaved || false,
+                  isInWatchlist: enhancedFields.isInWatchlist || false
+                } as any as T;
+                
+                console.log("Restored enhanced game item from cache:", parsedItem);
+              }
+              else {
+                // For other media types or without specific handling
+                parsedItem = {
+                  ...cachedItem,
+                  ...enhancedFields,
+                  id: typeof cachedItem.id === 'number' ? cachedItem.id : parseInt(cachedItem.id as string, 10)
+                } as T;
+              }
+            } else {
+              // For items without customFields (backwards compatibility)
+              parsedItem = cachedItem as T;
+            }
+            
             setSuggestedItem(parsedItem);
             setSuggestionReason(cachedReason);
 
@@ -107,9 +300,8 @@ export function useMediaSection<T extends MediaItemBase>(
                 console.log(
                   `Cached ${type} suggestion is no longer valid, getting a new one`,
                 );
-                // Clear localStorage
-                localStorage.removeItem(cachedSuggestionKey);
-                localStorage.removeItem(cachedReasonKey);
+                // Clear cache using SuggestionCache
+                SuggestionCache.clearItem(type);
                 // Get a new suggestion
                 handleGetSuggestion();
               }
@@ -117,8 +309,7 @@ export function useMediaSection<T extends MediaItemBase>(
           } catch (e) {
             console.error(`Failed to parse cached ${type} suggestion:`, e);
             // If parsing fails, get a new suggestion
-            localStorage.removeItem(cachedSuggestionKey);
-            localStorage.removeItem(cachedReasonKey);
+            SuggestionCache.clearItem(type);
             handleGetSuggestion();
           }
         } else {
@@ -133,27 +324,18 @@ export function useMediaSection<T extends MediaItemBase>(
 
     loadInitialData();
 
-    // Save suggestion to localStorage when component unmounts
+    // Save suggestion using SuggestionCache when component unmounts
     return () => {
-      if (suggestedItem) {
-        localStorage.setItem(
-          cachedSuggestionKey,
-          JSON.stringify(suggestedItem),
-        );
-      }
-      if (suggestionReason) {
-        localStorage.setItem(cachedReasonKey, suggestionReason);
+      if (suggestedItem && suggestionReason) {
+        SuggestionCache.saveItem(type, toMediaSuggestionItem(suggestedItem), suggestionReason);
       }
     };
   }, []);
 
   // Update cached suggestion whenever it changes
   useEffect(() => {
-    if (suggestedItem) {
-      localStorage.setItem(cachedSuggestionKey, JSON.stringify(suggestedItem));
-    }
-    if (suggestionReason) {
-      localStorage.setItem(cachedReasonKey, suggestionReason);
+    if (suggestedItem && suggestionReason) {
+      SuggestionCache.saveItem(type, toMediaSuggestionItem(suggestedItem), suggestionReason);
     }
   }, [suggestedItem, suggestionReason]);
 
@@ -425,9 +607,8 @@ export function useMediaSection<T extends MediaItemBase>(
         setSuggestedItem(null);
         setSuggestionReason(null);
 
-        // Clear localStorage cache
-        localStorage.removeItem(cachedSuggestionKey);
-        localStorage.removeItem(cachedReasonKey);
+        // Clear cache using SuggestionCache
+        SuggestionCache.clearItem(type);
 
         // Short delay for UI feedback
         setTimeout(() => {
@@ -441,9 +622,8 @@ export function useMediaSection<T extends MediaItemBase>(
       console.error("Failed to provide feedback:", error);
       enqueueSnackbar("Failed to record your feedback", { variant: "error" });
 
-      // Clear localStorage cache on error to prevent future issues
-      localStorage.removeItem(cachedSuggestionKey);
-      localStorage.removeItem(cachedReasonKey);
+      // Clear cache using SuggestionCache
+      SuggestionCache.clearItem(type);
 
       // Get a new suggestion after a short delay
       setTimeout(() => {
@@ -483,9 +663,8 @@ export function useMediaSection<T extends MediaItemBase>(
         setSuggestedItem(result.media);
         setSuggestionReason(result.reason || null);
 
-        // Cache the suggestion
-        localStorage.setItem(cachedSuggestionKey, JSON.stringify(result.media));
-        localStorage.setItem(cachedReasonKey, result.reason || "");
+        // Cache the suggestion using SuggestionCache
+        SuggestionCache.saveItem(type, toMediaSuggestionItem(result.media), result.reason || "");
       } else {
         // Handle case where no suggestion is available
         setSuggestionError(`No ${type} suggestions available at the moment.`);
@@ -563,9 +742,8 @@ export function useMediaSection<T extends MediaItemBase>(
         setSuggestedItem(null);
         setSuggestionReason(null);
 
-        // Clear localStorage cache
-        localStorage.removeItem(cachedSuggestionKey);
-        localStorage.removeItem(cachedReasonKey);
+        // Clear cache using SuggestionCache
+        SuggestionCache.clearItem(type);
 
         // Get a new suggestion after a short delay for better UX
         setTimeout(() => {
@@ -751,9 +929,8 @@ export function useMediaSection<T extends MediaItemBase>(
         variant: "error",
       });
 
-      // Clear localStorage cache on error
-      localStorage.removeItem(cachedSuggestionKey);
-      localStorage.removeItem(cachedReasonKey);
+      // Clear cache using SuggestionCache
+      SuggestionCache.clearItem(type);
 
       // Get a new suggestion
       setTimeout(() => {
