@@ -113,12 +113,12 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
 
   // Add effect to ensure isContinuousPlayback setting is applied when changed
   useEffect(() => {
-    console.debug("[PlayerContext] Continuous playback setting:", isContinuousPlayback);
+    console.log("[PlayerContext] Continuous playback setting:", isContinuousPlayback);
   }, [isContinuousPlayback]);
 
   // Wrapper for setContinuousPlayback to handle UI state updates
   const handleSetContinuousPlayback = useCallback((enabled: boolean) => {
-    console.debug("[PlayerContext] Setting continuous playback to:", enabled);
+    console.log("[PlayerContext] Setting continuous playback to:", enabled);
     setContinuousPlayback(enabled);
   }, [setContinuousPlayback]);
 
@@ -155,8 +155,9 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
         // Update state
         await updatePlaybackState();
         
-        // Only clear nowPlayingTrack if we successfully stopped
-        if (stopSuccessful) {
+        // When continuous playback is off, we want to keep the track in the UI
+        // Only clear nowPlayingTrack if we successfully stopped AND continuous playback is on
+        if (stopSuccessful && isContinuousPlayback) {
           setNowPlayingTrack(null);
         }
         
@@ -169,7 +170,7 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
       }
     }
     return false;
-  }, [spotifyPlayer, spotifyDeviceId, updatePlaybackState]);
+  }, [spotifyPlayer, spotifyDeviceId, updatePlaybackState, isContinuousPlayback]);
 
   // Set up listener for player state changes to detect track end
   useEffect(() => {
@@ -181,19 +182,19 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
       // If track has ended, handle it
       if (isTrackEnded(state)) {
         // Use the context value directly
-        console.debug("[PlayerContext] Track end detected", { 
+        console.log("[PlayerContext] Track end detected", { 
           isContinuousPlayback
         });
         
         if (isContinuousPlayback) {
-          console.debug("[PlayerContext] Initiating continuous playback");
+          console.log("[PlayerContext] Initiating continuous playback");
           const success = await handleTrackEnd(state);
           if (!success) {
-            console.debug("[PlayerContext] Continuous playback failed, updating UI state");
+            console.log("[PlayerContext] Continuous playback failed, updating UI state");
             setIsPlaybackPaused();
           }
         } else {
-          console.debug("[PlayerContext] No continuous playback, updating UI state");
+          console.log("[PlayerContext] No continuous playback, updating UI state");
           // Be extra explicit about stopping playback when continuous playback is off
           await stopPlayback();
           setIsPlaybackPaused();
@@ -222,11 +223,12 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
       : trackOrUri?.uri || null;
       
     // Debug logging to check if URI is present
-    console.debug('Play request:', {
-      isString: typeof trackOrUri === 'string',
-      currentUri: nowPlayingTrack?.uri,
-      currentId: nowPlayingTrack?.id,
-      newId: typeof trackOrUri !== 'string' && trackOrUri !== null ? trackOrUri.id : 'unknown'
+    console.log("[PlayerContext] Playing track:", { 
+      isString: typeof trackOrUri === "string",
+      extractedUri: trackUri,
+      currentTrackId: nowPlayingTrack?.id,
+      newTrackId: typeof trackOrUri !== "string" ? trackOrUri?.id : "unknown",
+      isPaused: isPlaybackPaused
     });
       
     if (!trackUri) {
@@ -237,13 +239,13 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
     try {
       // Reset player state to avoid issues when switching tracks
       if (nowPlayingTrack && nowPlayingTrack.id !== (typeof trackOrUri !== "string" ? trackOrUri?.id : null)) {
-        console.debug("[PlayerContext] Switching tracks, resetting player state");
+        console.log("[PlayerContext] Switching tracks, resetting player state");
       }
 
       // Important: Update the nowPlayingTrack BEFORE attempting to play
       // This ensures the UI updates even if the API call fails
       if (typeof trackOrUri !== "string" && trackOrUri !== null) {
-        console.debug("[PlayerContext] Setting nowPlayingTrack to:", trackOrUri.id);
+        console.log("[PlayerContext] Setting nowPlayingTrack to:", trackOrUri.id);
         setNowPlayingTrack(trackOrUri);
       }
       
@@ -311,7 +313,7 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
   // Handle play/pause toggle
   const handlePlayPause = useCallback(async () => {
     if (!nowPlayingTrack || !spotifyPlayer) {
-      console.debug("[PlayerContext] Cannot toggle play/pause - missing track or player");
+      console.log("[PlayerContext] Cannot toggle play/pause - missing track or player");
       return;
     }
 
@@ -319,13 +321,13 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
       // First update the playback state to get the current state
       await updatePlaybackState();
       
-      console.debug("[PlayerContext] Toggle play/pause for track:", {
+      console.log("[PlayerContext] Toggle play/pause for track:", {
         trackId: nowPlayingTrack.id,
         currentState: isPlaybackPaused ? "paused" : "playing"
       });
       
       if (isPlaybackPaused) {
-        console.debug("[PlayerContext] Resuming playback for track:", nowPlayingTrack.id);
+        console.log("[PlayerContext] Resuming playback for track:", nowPlayingTrack.id);
         
         // Make sure we still have the track in state before resuming
         if (!nowPlayingTrack) {
@@ -336,7 +338,7 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
         // Resume playback
         await spotifyPlayer.resume();
       } else {
-        console.debug("[PlayerContext] Pausing playback for track:", nowPlayingTrack.id);
+        console.log("[PlayerContext] Pausing playback for track:", nowPlayingTrack.id);
         // Pause playback
         await spotifyPlayer.pause();
       }
