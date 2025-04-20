@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"html"
 	"interestnaut/internal/directives"
 	"interestnaut/internal/gemini"
 	"interestnaut/internal/llm"
@@ -11,6 +12,7 @@ import (
 	"interestnaut/internal/rawg"
 	"interestnaut/internal/session"
 	"log"
+	"regexp"
 	"strings"
 )
 
@@ -94,7 +96,7 @@ func rawgGameToGameWithSavedStatus(game *rawg.Game, isSaved bool, isInWatchlist 
 		Rating:          game.Rating,
 		RatingsCount:    game.RatingsCount,
 		Playtime:        game.Playtime,
-		Description:     game.Description,
+		Description:     sanitizeHTMLDescription(game.Description),
 		IsSaved:         isSaved,
 		IsInWatchlist:   isInWatchlist,
 	}
@@ -171,7 +173,7 @@ func createBasicGame(title string, description string, primaryGenre string) *Gam
 	return &GameWithSavedStatus{
 		ID:          0,
 		Name:        title,
-		Description: description,
+		Description: sanitizeHTMLDescription(description),
 		Genres: []Genre{
 			{
 				Name: primaryGenre,
@@ -369,6 +371,11 @@ func (g *Games) SearchGames(query string) ([]*GameWithSavedStatus, error) {
 			}
 		}
 
+		// Sanitize the description before creating the GameWithSavedStatus
+		if result.Description != "" {
+			result.Description = sanitizeHTMLDescription(result.Description)
+		}
+
 		// Create a GameWithSavedStatus from the search result
 		games[i] = rawgGameToGameWithSavedStatus(&result, isSaved, isInWatchlist)
 
@@ -377,7 +384,8 @@ func (g *Games) SearchGames(query string) ([]*GameWithSavedStatus, error) {
 		if games[i].ID > 0 {
 			detailedGame, detailErr := g.client.GetGameDetails(context.Background(), games[i].ID)
 			if detailErr == nil && detailedGame != nil {
-				games[i].Description = detailedGame.Description
+				// Sanitize any HTML in the description
+				games[i].Description = sanitizeHTMLDescription(detailedGame.Description)
 			}
 		}
 	}
@@ -394,6 +402,11 @@ func (g *Games) GetGameDetails(id int) (*GameWithSavedStatus, error) {
 	game, err := g.client.GetGameDetails(context.Background(), id)
 	if err != nil {
 		return nil, err
+	}
+
+	// Sanitize HTML from description before creating GameWithSavedStatus
+	if game.Description != "" {
+		game.Description = sanitizeHTMLDescription(game.Description)
 	}
 
 	// Check if this game is in favorites
@@ -470,44 +483,41 @@ func (g *Games) GetGameSuggestion() (map[string]interface{}, error) {
 	}
 
 	var game *GameWithSavedStatus
+	var foundExactMatch bool
+	var detailedGame *rawg.Game
+
 	if err == nil && len(resp.Results) > 0 {
 		// Use the first result that matches closely enough
 		for _, result := range resp.Results {
 			if strings.EqualFold(result.Name, suggestion.Title) {
-				// Check if this game is saved in favorites
-				favorites := g.centralManager.Favorites().GetVideoGames()
-				isSaved := false
-				for _, favorite := range favorites {
-					if strings.EqualFold(favorite.Title, result.Name) {
-						isSaved = true
-						break
-					}
+				// We found an exact match, now get the detailed game info
+				foundExactMatch = true
+				detailedGame, err = g.client.GetGameDetails(ctx, result.ID)
+				if err != nil {
+					log.Printf("WARNING: Failed to get detailed info for game '%s' (ID: %d): %v", result.Name, result.ID, err)
+					// Fall back to using search result
+					detailedGame = &result
 				}
-
-				// Check if in watchlist
-				watchlist := g.centralManager.Queue().GetVideoGames()
-				isInWatchlist := false
-				for _, item := range watchlist {
-					if strings.EqualFold(item.Title, result.Name) {
-						isInWatchlist = true
-						break
-					}
-				}
-
-				game = rawgGameToGameWithSavedStatus(&result, isSaved, isInWatchlist)
 				break
 			}
 		}
 
-		// If no exact match, use the first result
-		if game == nil && len(resp.Results) > 0 {
-			result := resp.Results[0]
+		// If no exact match, use the first result and get details
+		if !foundExactMatch && len(resp.Results) > 0 {
+			detailedGame, err = g.client.GetGameDetails(ctx, resp.Results[0].ID)
+			if err != nil {
+				log.Printf("WARNING: Failed to get detailed info for game '%s' (ID: %d): %v", resp.Results[0].Name, resp.Results[0].ID, err)
+				// Fall back to using search result
+				detailedGame = &resp.Results[0]
+			}
+		}
 
+		if detailedGame != nil {
 			// Check if this game is saved in favorites
 			favorites := g.centralManager.Favorites().GetVideoGames()
 			isSaved := false
 			for _, favorite := range favorites {
-				if strings.EqualFold(favorite.Title, result.Name) {
+				if strings.EqualFold(favorite.Title, detailedGame.Name) {
 					isSaved = true
 					break
 				}
@@ -517,13 +527,13 @@ func (g *Games) GetGameSuggestion() (map[string]interface{}, error) {
 			watchlist := g.centralManager.Queue().GetVideoGames()
 			isInWatchlist := false
 			for _, item := range watchlist {
-				if strings.EqualFold(item.Title, result.Name) {
+				if strings.EqualFold(item.Title, detailedGame.Name) {
 					isInWatchlist = true
 					break
 				}
 			}
 
-			game = rawgGameToGameWithSavedStatus(&result, isSaved, isInWatchlist)
+			game = rawgGameToGameWithSavedStatus(detailedGame, isSaved, isInWatchlist)
 		}
 	}
 
@@ -637,4 +647,27 @@ func (g *Games) ProvideSuggestionFeedback(outcome session.Outcome, gameID int) e
 	}
 
 	return nil
+}
+
+// Helper function to sanitize HTML content from descriptions
+func sanitizeHTMLDescription(description string) string {
+	// Skip processing if empty
+	if description == "" {
+		return description
+	}
+
+	// Remove HTML tags
+	re := regexp.MustCompile("<[^>]*>")
+	cleanText := re.ReplaceAllString(description, " ")
+
+	// Replace multiple spaces with single space
+	cleanText = regexp.MustCompile(`\s+`).ReplaceAllString(cleanText, " ")
+
+	// Decode HTML entities
+	cleanText = html.UnescapeString(cleanText)
+
+	// Trim leading/trailing whitespace
+	cleanText = strings.TrimSpace(cleanText)
+
+	return cleanText
 }

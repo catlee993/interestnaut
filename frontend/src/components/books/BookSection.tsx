@@ -562,6 +562,7 @@ export const BookSection = forwardRef<BookSectionHandle, {}>((props, ref) => {
       credentialsError={mediaSection.credentialsError}
       isLoadingSuggestion={mediaSection.isLoadingSuggestion}
       suggestionError={mediaSection.suggestionError}
+      suggestionErrorDetails={mediaSection.suggestionErrorDetails}
       isProcessingFeedback={mediaSection.isProcessingFeedback}
       searchResults={mediaSection.searchResults}
       showSearchResults={mediaSection.showSearchResults}
@@ -575,31 +576,13 @@ export const BookSection = forwardRef<BookSectionHandle, {}>((props, ref) => {
       onRequestSuggestion={mediaSection.handleGetSuggestion}
       onLikeSuggestion={() => {
         mediaSection.handleFeedback(session.Outcome.liked);
-        // Update the library state directly
-        if (mediaSection.suggestedItem) {
-          const updatedBook = {
-            ...mediaSection.suggestedItem,
-            isSaved: true,
-          };
-          // Add to savedItems if not already there
-          if (!mediaSection.savedItems.some((b) => b.id === updatedBook.id)) {
-            mediaSection.setSavedItems([
-              ...mediaSection.savedItems,
-              updatedBook,
-            ]);
-          }
-        }
+        // Don't add to favorites, just mark as liked
       }}
       onDislikeSuggestion={() =>
         mediaSection.handleFeedback(session.Outcome.disliked)
       }
       onSkipSuggestion={() => {
-        if (mediaSection.suggestedItem && mediaSection.suggestedItem.isSaved) {
-          // Get a new suggestion
-          mediaSection.handleGetSuggestion();
-        } else {
-          mediaSection.handleFeedback(session.Outcome.skipped);
-        }
+        mediaSection.handleSkip();
       }}
       onAddToLibrary={mediaSection.handleAddToFavorites}
       onAddSuggestionToWatchlist={

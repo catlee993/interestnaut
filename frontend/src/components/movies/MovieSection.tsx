@@ -318,6 +318,7 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
       credentialsError={mediaSection.credentialsError}
       isLoadingSuggestion={mediaSection.isLoadingSuggestion}
       suggestionError={mediaSection.suggestionError}
+      suggestionErrorDetails={mediaSection.suggestionErrorDetails}
       isProcessingFeedback={mediaSection.isProcessingFeedback}
       searchResults={mediaSection.searchResults}
       showSearchResults={mediaSection.showSearchResults}
@@ -331,31 +332,13 @@ export const MovieSection = forwardRef<MovieSectionHandle, {}>((props, ref) => {
       onRequestSuggestion={mediaSection.handleGetSuggestion}
       onLikeSuggestion={() => {
         mediaSection.handleFeedback(session.Outcome.liked);
-        // Update the library state directly instead of using setSuggestedItem
-        if (mediaSection.suggestedItem) {
-          const updatedMovie = {
-            ...mediaSection.suggestedItem,
-            isSaved: true,
-          };
-          // Add to savedItems if not already there
-          if (!mediaSection.savedItems.some((m) => m.id === updatedMovie.id)) {
-            mediaSection.setSavedItems([
-              ...mediaSection.savedItems,
-              updatedMovie,
-            ]);
-          }
-        }
+        // Don't add to favorites, just mark as liked
       }}
       onDislikeSuggestion={() =>
         mediaSection.handleFeedback(session.Outcome.disliked)
       }
       onSkipSuggestion={() => {
-        if (mediaSection.suggestedItem && mediaSection.suggestedItem.isSaved) {
-          // Get a new suggestion by calling the handle directly
-          mediaSection.handleGetSuggestion();
-        } else {
-          mediaSection.handleFeedback(session.Outcome.skipped);
-        }
+        mediaSection.handleSkip();
       }}
       onAddToLibrary={mediaSection.handleAddToFavorites}
       onAddSuggestionToWatchlist={

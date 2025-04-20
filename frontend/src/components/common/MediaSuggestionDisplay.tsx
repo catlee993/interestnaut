@@ -77,6 +77,7 @@ interface MediaSuggestionDisplayProps {
   suggestionReason: string | null;
   isLoading: boolean;
   error: string | null;
+  errorDetails?: string | null; // Add detailed error information
   isProcessing: boolean;
   hasBeenLiked?: boolean; // Add prop to track if item has been liked
   onRequestSuggestion: () => void;
@@ -95,6 +96,7 @@ export const MediaSuggestionDisplay: React.FC<MediaSuggestionDisplayProps> = ({
   suggestionReason,
   isLoading,
   error,
+  errorDetails,
   isProcessing,
   hasBeenLiked = false, // Default to false (not liked)
   onRequestSuggestion,
@@ -125,7 +127,7 @@ export const MediaSuggestionDisplay: React.FC<MediaSuggestionDisplayProps> = ({
       error.length > 500 ? error.substring(0, 500) + "..." : error;
 
     return (
-      <Box className="suggestion-error-state">
+      <Box className="suggestion-error-state" sx={{ maxWidth: "100%" }}>
         <Typography
           className="error-message"
           sx={{
@@ -135,14 +137,35 @@ export const MediaSuggestionDisplay: React.FC<MediaSuggestionDisplayProps> = ({
             backgroundColor: "rgba(194, 59, 133, 0.1)",
             borderRadius: "8px",
             border: "1px solid rgba(194, 59, 133, 0.3)",
+            mb: errorDetails ? 2 : 3,
           }}
         >
           {truncatedError}
         </Typography>
+        
+        {errorDetails && (
+          <Typography
+            className="error-details"
+            sx={{
+              color: "text.secondary",
+              fontSize: "0.9rem",
+              padding: "12px 16px",
+              backgroundColor: "rgba(0, 0, 0, 0.05)",
+              borderRadius: "8px",
+              border: "1px solid rgba(0, 0, 0, 0.1)",
+              mb: 3,
+              whiteSpace: "pre-line", // Preserve line breaks
+            }}
+          >
+            {errorDetails}
+          </Typography>
+        )}
+        
         <StyledButton
           onClick={onRequestSuggestion}
           className="retry-button"
           disabled={isProcessing}
+          sx={{ mt: 2 }}
         >
           Try Again
         </StyledButton>

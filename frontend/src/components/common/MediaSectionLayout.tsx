@@ -18,6 +18,7 @@ interface MediaSectionLayoutProps<T extends MediaItemBase> {
   credentialsError: boolean;
   isLoadingSuggestion: boolean;
   suggestionError: string | null;
+  suggestionErrorDetails?: string | null;
   isProcessingFeedback: boolean;
   searchResults: T[];
   showSearchResults: boolean;
@@ -63,6 +64,7 @@ export function MediaSectionLayout<T extends MediaItemBase>({
   credentialsError,
   isLoadingSuggestion,
   suggestionError,
+  suggestionErrorDetails,
   isProcessingFeedback,
   searchResults,
   showSearchResults,
@@ -131,6 +133,7 @@ export function MediaSectionLayout<T extends MediaItemBase>({
           suggestionReason={suggestionReason}
           isLoading={isLoadingSuggestion}
           error={suggestionError}
+          errorDetails={suggestionErrorDetails}
           isProcessing={isProcessingFeedback}
           hasBeenLiked={suggestedItem?.isSaved}
           onRequestSuggestion={onRequestSuggestion}

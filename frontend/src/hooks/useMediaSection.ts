@@ -40,6 +40,43 @@ export interface UseMediaSectionOptions<T extends MediaItemBase> {
   queueListName?: string;
 }
 
+// Helper function to parse error objects consistently
+const parseErrorMessage = (
+  error: any,
+  defaultMessage: string = "An error occurred",
+): { message: string; details?: string } => {
+  let message = defaultMessage;
+  let details = undefined;
+  
+  if (typeof error === "string") {
+    message = error;
+  } else if (error instanceof Error) {
+    message = error.message;
+    if (error.stack) {
+      details = error.stack;
+    }
+    // Try to get more details from any properties the error might have
+    const anyError = error as any;
+    if (anyError.response?.data?.error) {
+      details = JSON.stringify(anyError.response.data.error);
+    }
+  } else if (error?.error) {
+    if (typeof error.error === "string") {
+      message = error.error;
+    } else if (error.error?.message) {
+      message = error.error.message;
+      details = JSON.stringify(error.error);
+    }
+  } else if (error?.message) {
+    message = error.message;
+    if (error.details || error.data) {
+      details = JSON.stringify(error.details || error.data);
+    }
+  }
+  
+  return { message, details };
+};
+
 export function useMediaSection<T extends MediaItemBase>(
   options: UseMediaSectionOptions<T>,
 ) {
@@ -170,6 +207,7 @@ export function useMediaSection<T extends MediaItemBase>(
   const [suggestionReason, setSuggestionReason] = useState<string | null>(null);
   const [credentialsError, setCredentialsError] = useState(false);
   const [suggestionError, setSuggestionError] = useState<string | null>(null);
+  const [suggestionErrorDetails, setSuggestionErrorDetails] = useState<string | null>(null);
   const [isProcessingFeedback, setIsProcessingFeedback] = useState(false);
   const [showWatchlist, setShowWatchlist] = useState(true);
   const [showLibrary, setShowLibrary] = useState(true);
@@ -448,17 +486,21 @@ export function useMediaSection<T extends MediaItemBase>(
     } catch (error) {
       console.error(`Search ${type} error:`, error);
 
+      // Parse the error to get a consistent message and details
+      const { message } = parseErrorMessage(
+        error,
+        `Failed to search for ${type}. Please try again.`
+      );
+
       // Check if this is a credentials error
-      if (
-        error instanceof Error &&
-        error.message.includes("credentials not available")
-      ) {
+      if (message.includes("credentials not available") || message.includes("authentication")) {
         setCredentialsError(true);
-        enqueueSnackbar("API credentials are not configured", {
+        const errorMsg = `${type.charAt(0).toUpperCase() + type.slice(1)} API credentials are not configured`;
+        enqueueSnackbar(errorMsg, {
           variant: "warning",
         });
       } else {
-        enqueueSnackbar(`Failed to search ${type}. Please try again.`, {
+        enqueueSnackbar(`Failed to search ${type}: ${message}`, {
           variant: "error",
         });
       }
@@ -602,7 +644,7 @@ export function useMediaSection<T extends MediaItemBase>(
       enqueueSnackbar(message, { variant: variant as any });
 
       // Only clear the current suggestion and get a new one if disliked or skipped
-      // For "liked", just leave the suggestion in place
+      // For "liked", just update the item to show it's been liked but don't change it
       if (outcome !== session.Outcome.liked) {
         setSuggestedItem(null);
         setSuggestionReason(null);
@@ -615,7 +657,14 @@ export function useMediaSection<T extends MediaItemBase>(
           handleGetSuggestion();
         }, 500);
       } else {
-        // If liked, just release the processing state without changing anything
+        // If liked, update the item's status to reflect it's been liked
+        // This will cause the "Skip" button to show as "Next"
+        if (suggestedItem) {
+          setSuggestedItem({
+            ...suggestedItem,
+            isSaved: true,
+          } as T);
+        }
         setIsProcessingFeedback(false);
       }
     } catch (error) {
@@ -640,14 +689,41 @@ export function useMediaSection<T extends MediaItemBase>(
     }
   };
 
+  // Function to handle "Skip" button click, which could be either skipping 
+  // or going to next suggestion after liking
+  const handleSkip = async () => {
+    // If the item has been liked already, we just want to get a new suggestion
+    // without sending feedback (since we already sent 'liked' feedback before)
+    if (suggestedItem?.isSaved) {
+      setIsProcessingFeedback(true);
+      setSuggestedItem(null);
+      setSuggestionReason(null);
+      
+      // Clear cache
+      SuggestionCache.clearItem(type);
+      
+      // Get new suggestion
+      setTimeout(() => {
+        handleGetSuggestion();
+      }, 500);
+    } else {
+      // Normal skip behavior - send skip feedback
+      await handleFeedback(session.Outcome.skipped);
+    }
+  };
+
   // Get a suggestion
   const handleGetSuggestion = async () => {
     // Reset any previous error
     setSuggestionError(null);
+    setSuggestionErrorDetails(null);
 
     // Check if credentials are valid
     if (credentialsError) {
-      enqueueSnackbar("Please set up your API credentials in Settings first", {
+      const errorMessage = `Please set up your ${type} API credentials in Settings first`;
+      setSuggestionError(errorMessage);
+      setSuggestionErrorDetails(`Missing or invalid credentials for ${type} API. Go to Settings > APIs to configure your credentials.`);
+      enqueueSnackbar(errorMessage, {
         variant: "warning",
       });
       return;
@@ -667,26 +743,52 @@ export function useMediaSection<T extends MediaItemBase>(
         SuggestionCache.saveItem(type, toMediaSuggestionItem(result.media), result.reason || "");
       } else {
         // Handle case where no suggestion is available
-        setSuggestionError(`No ${type} suggestions available at the moment.`);
+        const errorMessage = `No ${type} suggestions available at the moment.`;
+        setSuggestionError(errorMessage);
+        setSuggestionErrorDetails(`The API returned an empty result. This could be due to:
+        1. Limited data in your profile to generate recommendations
+        2. Temporary service limitations
+        3. API rate limiting
+        
+        Try adding more items to your library or try again later.`);
+        enqueueSnackbar(errorMessage, { variant: "warning" });
       }
     } catch (error) {
       console.error(`Failed to get ${type} suggestion:`, error);
-      let errorMessage = `Failed to get ${type} recommendation. Please try again.`;
-
-      if (error instanceof Error) {
-        // Check for specific error types
-        if (error.message.includes("credentials not available")) {
-          errorMessage = `${type} recommendations require API credentials to be configured.`;
-          setCredentialsError(true);
-        } else if (error.message.includes("rate limit")) {
-          errorMessage =
-            "OpenAI rate limit reached. Please try again in a few minutes.";
-        } else {
-          errorMessage = error.message;
-        }
+      
+      // Parse the error to get a consistent message and details
+      const { message, details } = parseErrorMessage(
+        error,
+        `Failed to get ${type} recommendation. Please try again.`
+      );
+      
+      // Check for specific error types and provide more helpful messages
+      let errorMessage = message;
+      let errorDetails = details;
+      
+      // Check for specific error signatures
+      if (message.includes("credentials not available") || message.includes("authentication")) {
+        errorMessage = `${type.charAt(0).toUpperCase() + type.slice(1)} recommendations require API credentials to be configured.`;
+        errorDetails = `To use ${type} recommendations, you need to set up your API credentials:
+        1. Go to Settings > APIs
+        2. Configure the ${type} API credentials
+        3. Save your settings and return to this page`;
+        setCredentialsError(true);
+      } else if (message.includes("rate limit") || message.includes("too many requests")) {
+        errorMessage = `API rate limit reached. Please try again in a few minutes.`;
+        errorDetails = `The ${type} API has a limit on how many requests you can make in a certain time period. Wait a few minutes and try again.`;
+      } else if (message.includes("network") || message.includes("timeout") || message.includes("connection")) {
+        errorMessage = `Network error. Please check your internet connection.`;
+        errorDetails = `Unable to reach the ${type} API. This could be due to:
+        1. Your internet connection is offline
+        2. The service may be temporarily unavailable
+        3. A firewall or security software might be blocking the connection
+        
+        Try checking your internet connection and try again.`;
       }
 
       setSuggestionError(errorMessage);
+      setSuggestionErrorDetails(errorDetails || null);
       enqueueSnackbar(errorMessage, { variant: "error" });
     } finally {
       setIsLoadingSuggestion(false);
@@ -1000,6 +1102,7 @@ export function useMediaSection<T extends MediaItemBase>(
     suggestionReason,
     credentialsError,
     suggestionError,
+    suggestionErrorDetails,
     isProcessingFeedback,
     showWatchlist,
     showLibrary,
@@ -1021,5 +1124,6 @@ export function useMediaSection<T extends MediaItemBase>(
     handleAddToFavorites,
     handleWatchlistFeedback,
     handleWatchlistToFavorites,
+    handleSkip,
   };
 }
