@@ -1091,7 +1091,6 @@ export function useMediaSection<T extends MediaItemBase>(
   };
 
   return {
-    // State
     searchResults,
     showSearchResults,
     savedItems,
@@ -1108,7 +1107,6 @@ export function useMediaSection<T extends MediaItemBase>(
     showLibrary,
     searchResultsRef,
 
-    // Actions
     setSavedItems,
     setWatchlistItems,
     setShowWatchlist,

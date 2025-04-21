@@ -38,20 +38,18 @@ func main() {
 		{session.Pending, "pending"},
 	}
 
-	// Create new instances of your binders
+	// binders map client to backend, see frontend/wailsjs/go/bindings
 	music := bindings.NewMusicBinder(ctx, cm, spotify.ClientID)
 	movies, mErr := bindings.NewMovieBinder(ctx, cm)
 	if mErr != nil {
 		log.Fatalf("Failed to create movies binder: %v", mErr)
 	}
 
-	// Create the TV Shows binder
 	tvShows, tErr := bindings.NewTVShowBinder(ctx, cm)
 	if tErr != nil {
 		log.Fatalf("Failed to create TV shows binder: %v", tErr)
 	}
 
-	// Create games binder
 	games, gErr := bindings.NewGames(ctx, cm)
 	if gErr != nil {
 		log.Fatalf("Failed to create games binder: %v", gErr)
@@ -62,7 +60,6 @@ func main() {
 		log.Fatalf("Failed to create books binder: %v", bErr)
 	}
 
-	// Create settings binder
 	settings := &bindings.Settings{ContentManager: cm}
 
 	// Collect all LLM handlers for credential change registration

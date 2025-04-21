@@ -13,11 +13,9 @@ import { useSpotifyPlayer } from "../hooks/useSpotifyPlayer";
 import { usePlaybackState } from "../hooks/usePlaybackState";
 import { useContinuousPlayback } from "../hooks/useContinuousPlayback";
 
-// Define a type for track to simplify code
 type Track = spotify.Track | spotify.SimpleTrack | spotify.SuggestedTrackInfo | null;
 
 interface PlayerContextType {
-  // State
   nowPlayingTrack: Track;
   isPlaybackPaused: boolean;
   spotifyPlayer: any;
@@ -26,7 +24,6 @@ interface PlayerContextType {
   duration: number;
   isContinuousPlayback: boolean;
   
-  // Actions
   setNextTrack: (track: Track) => void;
   setNowPlayingTrack: (track: Track) => void;
   handlePlay: (track: Track | string) => Promise<void>;
@@ -38,7 +35,6 @@ interface PlayerContextType {
   playNextTrack: () => Promise<void>;
 }
 
-// Default context value
 const defaultContext: PlayerContextType = {
   nowPlayingTrack: null,
   isPlaybackPaused: true,
@@ -59,7 +55,6 @@ const defaultContext: PlayerContextType = {
   playNextTrack: async () => {},
 };
 
-// Create the context
 export const PlayerContext = createContext<PlayerContextType>(defaultContext);
 
 interface PlayerProviderProps {
@@ -67,21 +62,17 @@ interface PlayerProviderProps {
 }
 
 export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
-  // Track state
   const [nowPlayingTrack, setNowPlayingTrack] = useState<Track>(null);
   const [nextTrack, setNextTrack] = useState<Track>(null);
   
-  // Use the settings context
   const { isContinuousPlayback } = useSettings();
   
-  // Use the Spotify Player hook
   const {
     spotifyPlayer,
     spotifyDeviceId,
     initializePlayer,
   } = useSpotifyPlayer();
   
-  // Use the Playback State hook
   const {
     isPaused: isPlaybackPaused,
     currentPosition,
@@ -90,14 +81,10 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
     seekTo,
   } = usePlaybackState(spotifyPlayer);
   
-  // Internal state setter for isPlaybackPaused
   const setIsPlaybackPaused = useCallback(() => {
-    // No direct setter from usePlaybackState, so we call updatePlaybackState
-    // and let the hook handle the state update
     updatePlaybackState();
   }, [updatePlaybackState]);
   
-  // Use Continuous Playback hook
   const {
     setContinuousPlayback,
     updateSavedTracks: updateTracksInPlayback,
@@ -111,23 +98,19 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
     setIsPlaybackPaused,
   });
 
-  // Add effect to ensure isContinuousPlayback setting is applied when changed
   useEffect(() => {
     console.log("[PlayerContext] Continuous playback setting:", isContinuousPlayback);
   }, [isContinuousPlayback]);
 
-  // Wrapper for setContinuousPlayback to handle UI state updates
   const handleSetContinuousPlayback = useCallback((enabled: boolean) => {
     console.log("[PlayerContext] Setting continuous playback to:", enabled);
     setContinuousPlayback(enabled);
   }, [setContinuousPlayback]);
 
-  // A wrapper for updateSavedTracks to pass the nowPlayingTrack
   const updateSavedTracks = useCallback((tracks: spotify.SavedTracks, page: number) => {
     updateTracksInPlayback(tracks, page, nowPlayingTrack);
   }, [updateTracksInPlayback, nowPlayingTrack]);
 
-  // Stop playback
   const stopPlayback = useCallback(async () => {
     if (spotifyPlayer && spotifyDeviceId) {
       try {
@@ -135,7 +118,6 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
         
         let stopSuccessful = false;
         
-        // Explicitly pause via the SDK
         try {
           await spotifyPlayer.pause();
           stopSuccessful = true;
@@ -149,14 +131,10 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
           }
         }
         
-        // Dispatch an event to prevent false track end detection
         window.dispatchEvent(new CustomEvent('trackStopped'));
         
-        // Update state
         await updatePlaybackState();
         
-        // When continuous playback is off, we want to keep the track in the UI
-        // Only clear nowPlayingTrack if we successfully stopped AND continuous playback is on
         if (stopSuccessful && isContinuousPlayback) {
           setNowPlayingTrack(null);
         }
@@ -164,7 +142,6 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
         return stopSuccessful;
       } catch (error) {
         console.error('Error stopping playback:', error);
-        // Update state but don't clear nowPlayingTrack on error
         await updatePlaybackState();
         return false;
       }
@@ -172,16 +149,13 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
     return false;
   }, [spotifyPlayer, spotifyDeviceId, updatePlaybackState, isContinuousPlayback]);
 
-  // Set up listener for player state changes to detect track end
   useEffect(() => {
     if (!spotifyPlayer) return;
     
     const onStateChange = async (state: any) => {
       if (!state) return;
       
-      // If track has ended, handle it
       if (isTrackEnded(state)) {
-        // Use the context value directly
         console.log("[PlayerContext] Track end detected", { 
           isContinuousPlayback
         });
@@ -195,7 +169,6 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
           }
         } else {
           console.log("[PlayerContext] No continuous playback, updating UI state");
-          // Be extra explicit about stopping playback when continuous playback is off
           await stopPlayback();
           setIsPlaybackPaused();
         }
@@ -209,11 +182,9 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
     };
   }, [spotifyPlayer, isContinuousPlayback, handleTrackEnd, isTrackEnded, setIsPlaybackPaused, stopPlayback]);
 
-  // Handle track play functionality
   const handlePlay = useCallback(async (trackOrUri: Track | string) => {
     if (!spotifyPlayer || !spotifyDeviceId) {
       await initializePlayer();
-      // Wait a bit for the player to initialize
       await new Promise((resolve) => setTimeout(resolve, 1000));
       if (!spotifyPlayer || !spotifyDeviceId) return;
     }
@@ -222,7 +193,6 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
       ? trackOrUri 
       : trackOrUri?.uri || null;
       
-    // Debug logging to check if URI is present
     console.log("[PlayerContext] Playing track:", { 
       isString: typeof trackOrUri === "string",
       extractedUri: trackUri,
@@ -237,45 +207,34 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
     }
 
     try {
-      // Reset player state to avoid issues when switching tracks
       if (nowPlayingTrack && nowPlayingTrack.id !== (typeof trackOrUri !== "string" ? trackOrUri?.id : null)) {
         console.log("[PlayerContext] Switching tracks, resetting player state");
       }
 
-      // Important: Update the nowPlayingTrack BEFORE attempting to play
-      // This ensures the UI updates even if the API call fails
       if (typeof trackOrUri !== "string" && trackOrUri !== null) {
         console.log("[PlayerContext] Setting nowPlayingTrack to:", trackOrUri.id);
         setNowPlayingTrack(trackOrUri);
       }
       
-      // Dispatch trackStarted event to prevent false track end detection
       window.dispatchEvent(new Event('trackStarted'));
       
       try {
-        // Clear previous playback errors
         window.dispatchEvent(new Event('clearPlaybackErrors'));
         
-        // Attempt to play the track
         await PlayTrackOnDevice(spotifyDeviceId, trackUri);
       } catch (playError) {
         console.error("[PlayerContext] Error playing track, but UI state was already updated:", playError);
-        // Even if the API call fails, we still show the track as the current one
-        // but we'll mark it as paused since playback didn't succeed
         await updatePlaybackState();
       }
       
-      // Ensure playback state is updated
       await updatePlaybackState();
     } catch (error) {
       console.error("[PlayerContext] Critical error in handlePlay:", error);
       
-      // Even on critical errors, maintain the UI state if we can
       if (typeof trackOrUri !== "string" && trackOrUri !== null) {
         setNowPlayingTrack(trackOrUri);
       }
       
-      // If the error is due to device not being active, try to reinitialize
       if (
         error instanceof Error &&
         (error.message.includes("No active device") ||
@@ -283,12 +242,9 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
       ) {
         try {
           await initializePlayer();
-          // Wait a bit for the player to initialize
           await new Promise((resolve) => setTimeout(resolve, 1000));
           
-          // Try playing again after reinitialization
           if (spotifyDeviceId) {
-            // Set the track again for UI consistency
             if (typeof trackOrUri !== "string" && trackOrUri !== null) {
               setNowPlayingTrack(trackOrUri);
             }
@@ -300,17 +256,14 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
           }
         } catch (retryError) {
           console.error("[PlayerContext] Failed even after player reinitialization:", retryError);
-          // Ensure we still update the playback state to maintain UI consistency
           await updatePlaybackState();
         }
       } else {
-        // For other errors, still ensure playback state is updated for UI consistency
         await updatePlaybackState();
       }
     }
   }, [spotifyPlayer, spotifyDeviceId, initializePlayer, updatePlaybackState, nowPlayingTrack, isPlaybackPaused]);
 
-  // Handle play/pause toggle
   const handlePlayPause = useCallback(async () => {
     if (!nowPlayingTrack || !spotifyPlayer) {
       console.log("[PlayerContext] Cannot toggle play/pause - missing track or player");
@@ -318,7 +271,6 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
     }
 
     try {
-      // First update the playback state to get the current state
       await updatePlaybackState();
       
       console.log("[PlayerContext] Toggle play/pause for track:", {
@@ -329,42 +281,31 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
       if (isPlaybackPaused) {
         console.log("[PlayerContext] Resuming playback for track:", nowPlayingTrack.id);
         
-        // Make sure we still have the track in state before resuming
         if (!nowPlayingTrack) {
           console.error("[PlayerContext] Cannot resume - track was cleared");
           return;
         }
         
-        // Resume playback
         await spotifyPlayer.resume();
       } else {
         console.log("[PlayerContext] Pausing playback for track:", nowPlayingTrack.id);
-        // Pause playback
         await spotifyPlayer.pause();
       }
       
-      // Important: Don't clear the nowPlayingTrack when pausing
-      // This keeps the UI consistent
-      
-      // Update state after action to reflect the new state
       await updatePlaybackState();
     } catch (error) {
       console.error("[PlayerContext] Play/pause error:", error);
-      // Force update state even on error to ensure UI is consistent
       await updatePlaybackState();
     }
   }, [nowPlayingTrack, spotifyPlayer, isPlaybackPaused, updatePlaybackState]);
 
-  // Wrapper for playNextTrack
   const playNextTrack = useCallback(async () => {
     await playNext();
   }, [playNext]);
 
-  // Add a useEffect to set up global error handling for 404 errors during playback
   useEffect(() => {
     const originalOnError = window.onerror;
     
-    // Global error handler to suppress 404 errors from Spotify playback
     window.onerror = function(message, source, lineno, colno, error) {
       if (
         message && 
@@ -375,11 +316,9 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
           (error && error.message && error.message.includes('404'))
         )
       ) {
-        // Suppress Spotify 404 error
         return true;
       }
       
-      // For other errors, use the original handler if it exists
       if (originalOnError) {
         return originalOnError(message, source, lineno, colno, error);
       }
@@ -387,7 +326,6 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
       return false;
     };
     
-    // Handler for unhandled promise rejections
     const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
       if (
         event.reason && 
@@ -399,28 +337,23 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
           (event.reason.toString && event.reason.toString().includes('404'))
         )
       ) {
-        // Suppress Spotify playback errors
         event.preventDefault();
       }
     };
     
     window.addEventListener('unhandledrejection', handleUnhandledRejection);
     
-    // Clean up
     return () => {
       window.onerror = originalOnError;
       window.removeEventListener('unhandledrejection', handleUnhandledRejection);
     };
   }, []);
 
-  // Add a listener for playback errors in spotifyPlayer
   useEffect(() => {
     if (!spotifyPlayer) return;
     
     const handlePlaybackError = (error: any) => {
-      // If it's a 404 during track loading, mark that we're still in startup
       if (error.message && error.message.includes('404')) {
-        // Dispatch a trackStarted event to ensure we have protection against false track end
         window.dispatchEvent(new Event('trackStarted'));
       }
     };
@@ -432,9 +365,7 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
     };
   }, [spotifyPlayer]);
 
-  // Create the context value object
   const contextValue: PlayerContextType = {
-    // State
     nowPlayingTrack,
     isPlaybackPaused,
     spotifyPlayer,
@@ -443,7 +374,6 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
     duration,
     isContinuousPlayback,
     
-    // Actions
     setNextTrack,
     setNowPlayingTrack,
     handlePlay,

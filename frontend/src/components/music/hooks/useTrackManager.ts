@@ -145,7 +145,6 @@ export function useTrackManager() {
   );
 
   return {
-    // State
     currentTrack,
     nextTrack,
     isPlaybackPaused: isPaused,
@@ -155,7 +154,6 @@ export function useTrackManager() {
     isLoading: isLoading || isInitializing,
     error,
 
-    // Actions
     playTrack,
     playNextTrack,
     togglePlayPause,

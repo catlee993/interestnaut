@@ -189,10 +189,8 @@ func createBasicGame(title string, description string, primaryGenre string) *Gam
 func NewGames(ctx context.Context, cm session.CentralManager) (*Games, error) {
 	client := rawg.NewClient()
 
-	// Create a map of LLM clients for both providers
 	llmClients := make(map[string]llm.Client[session.VideoGame])
 
-	// Initialize OpenAI client
 	openaiClient, err := openai.NewClient[session.VideoGame](cm)
 	if err != nil {
 		log.Printf("WARNING: Failed to create OpenAI client: %v", err)
@@ -200,7 +198,6 @@ func NewGames(ctx context.Context, cm session.CentralManager) (*Games, error) {
 		llmClients["openai"] = openaiClient
 	}
 
-	// Initialize Gemini client
 	geminiClient, err := gemini.NewClient[session.VideoGame](cm)
 	if err != nil {
 		log.Printf("WARNING: Failed to create Gemini client: %v", err)
@@ -208,7 +205,6 @@ func NewGames(ctx context.Context, cm session.CentralManager) (*Games, error) {
 		llmClients["gemini"] = geminiClient
 	}
 
-	// Log warning if no clients were successfully created, but continue
 	if len(llmClients) == 0 {
 		log.Printf("WARNING: No LLM clients available, functionality may be limited")
 	}
@@ -227,7 +223,6 @@ func NewGames(ctx context.Context, cm session.CentralManager) (*Games, error) {
 	}
 
 	g.baselineFunc = func() string {
-		// Get favorites directly from the central manager
 		favorites := cm.Favorites().GetVideoGames()
 		return directives.GetGameBaseline(ctx, favorites)
 	}

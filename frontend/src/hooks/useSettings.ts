@@ -23,35 +23,27 @@ export function useSettings() {
   const [isLoading, setIsLoading] = useState(true);
   const { enqueueSnackbar } = useSnackbar();
 
-  // Load settings on component mount
   useEffect(() => {
     const loadSettings = async () => {
       try {
         setIsLoading(true);
         
-        // Load continuous playback setting from backend
         const isContinuousPlayback = await GetContinuousPlayback();
         setContinuousPlaybackState(isContinuousPlayback);
         
-        // Load ChatGPT model from backend
         const model = await GetChatGPTModel();
-        // Validate that the model is one of our allowed types
         const validModel = ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'].includes(model) 
           ? model as ChatGPTModel 
           : 'gpt-4o';
         setChatGPTModel(validModel);
         
-        // Load LLM provider from backend
         const provider = await GetLLMProvider();
-        // Validate that the provider is one of our allowed types
         const validProvider = ['openai', 'gemini'].includes(provider)
           ? provider as LLMProvider
           : 'openai';
         setLLMProvider(validProvider);
         
-        // Load Gemini model from backend
         const gemModel = await GetGeminiModel();
-        // Validate that the model is one of our allowed types
         const validGeminiModel = [
           'gemini-1.5-pro', 
           'gemini-2.0-flash', 
@@ -73,12 +65,10 @@ export function useSettings() {
     loadSettings();
   }, [enqueueSnackbar]);
 
-  // Handle model change
   const updateChatGPTModel = useCallback(async (model: ChatGPTModel) => {
     try {
       setIsLoading(true);
       
-      // Call the Go binding to update the ChatGPT model
       await SetChatGPTModel(model);
       setChatGPTModel(model);
       console.log(`[useSettings] Updated ChatGPT model to ${model}`);
@@ -92,12 +82,10 @@ export function useSettings() {
     }
   }, [enqueueSnackbar]);
   
-  // Handle Gemini model change
   const updateGeminiModel = useCallback(async (model: GeminiModel) => {
     try {
       setIsLoading(true);
       
-      // Call the Go binding to update the Gemini model
       await SetGeminiModel(model);
       setGeminiModel(model);
       console.log(`[useSettings] Updated Gemini model to ${model}`);
@@ -111,12 +99,10 @@ export function useSettings() {
     }
   }, [enqueueSnackbar]);
   
-  // Handle LLM provider change
   const updateLLMProvider = useCallback(async (provider: LLMProvider) => {
     try {
       setIsLoading(true);
       
-      // Call the Go binding to update the LLM provider
       await SetLLMProvider(provider);
       setLLMProvider(provider);
       console.log(`[useSettings] Updated LLM provider to ${provider}`);
@@ -130,7 +116,6 @@ export function useSettings() {
     }
   }, [enqueueSnackbar]);
 
-  // Handle continuous playback toggle
   const setContinuousPlayback = useCallback(async (enabled: boolean) => {
     try {
       setIsLoading(true);

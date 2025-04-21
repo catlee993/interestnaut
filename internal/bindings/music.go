@@ -217,7 +217,6 @@ func (m *Music) ProvideSuggestionFeedback(outcome session.Outcome, title, artist
 	ctx := context.Background()
 	sess := m.manager.GetOrCreateSession(ctx, m.manager.Key(), m.taskFunc, m.baselineFunc)
 
-	// Use KeyerMusicInfo to generate the key
 	key := session.KeyerMusicInfo(title, artist, album)
 
 	if err := m.manager.UpdateSuggestionOutcome(ctx, sess, key, outcome); err != nil {
@@ -241,13 +240,11 @@ func (m *Music) GetAuthStatus() map[string]interface{} {
 
 // PlayTrackOnDevice calls the App method to start playback.
 func (m *Music) PlayTrackOnDevice(deviceID string, trackURI string) error {
-	// Create a background context to pass to the underlying app method
 	return m.spotifyClient.PlayTrackOnDevice(context.Background(), deviceID, trackURI)
 }
 
 // PausePlaybackOnDevice calls the App method to pause playback.
 func (m *Music) PausePlaybackOnDevice(deviceID string) error {
-	// Create a background context to pass to the underlying app method
 	return m.spotifyClient.PausePlaybackOnDevice(context.Background(), deviceID)
 }
 
@@ -344,7 +341,6 @@ func (m *Music) RefreshLLMClients() {
 		}
 	}
 
-	// Log warning if still no clients instead of returning error
 	if len(m.llmClients) == 0 {
 		log.Printf("WARNING: Could not create any LLM clients after refresh, functionality may be limited")
 	}
