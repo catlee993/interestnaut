@@ -1,3 +1,19 @@
+<div align="center">
+  <img src="frontend/src/assets/images/logo/interestnaut-logo.png" alt="Interestnaut Logo" width="200"/>
+</div>
+
+<div align="center">
+
+[![GitHub release](https://img.shields.io/github/v/release/catlee993/interestnaut)](https://github.com/catlee993/interestnaut/releases)
+[![License](https://img.shields.io/github/license/catlee993/interestnaut)](LICENSE)
+[![Issues](https://img.shields.io/github/issues/catlee993/interestnaut)](https://github.com/catlee993/interestnaut/issues)
+
+</div>
+
+<div align="center">
+  <strong><a href="https://github.com/catlee993/interestnaut/releases/latest">⬇️ Download the latest release</a></strong>
+</div>
+
 # Interestnaut
 
 A desktop application for managing your favorite media and getting AI-powered recommendations. Built with Wails, Go, and React.
@@ -55,12 +71,22 @@ Run `wails build` to create a production build.
 
 ## Tech Stack
 
-- [Wails](https://wails.io/) - Desktop app framework
-- [Go](https://go.dev/) - Backend
-- [React](https://react.dev/) + [TypeScript](https://www.typescriptlang.org/) + [MUI](https://mui.com/) - Frontend
-- [Spotify](https://spotify.com) Web API - Music data
-- [TMDB](https://www.themoviedb.org/) API - Movies and TV shows data
-- [RAWG](https://rawg.io/) API - Video games data
-- [OpenLibrary](https://openlibrary.org/) API - Books data
-- [OpenAI](https://openai.com/) API - AI recommendations
-- [Google](https://gemini.google.com/) Gemini API - AI recommendations
+**Framework & Core Languages**
+- [Wails](https://wails.io/) – Desktop app framework
+- [Go](https://go.dev/) – Backend
+- [React](https://react.dev/), [TypeScript](https://www.typescriptlang.org/), [MUI](https://mui.com/) – Frontend UI
+
+**APIs & Integrations**
+- [Spotify Web API](https://spotify.com) – Music metadata & playback
+- [TMDB API](https://www.themoviedb.org/) – Movie & TV metadata
+- [RAWG API](https://rawg.io/) – Video game metadata
+- [OpenLibrary API](https://openlibrary.org/) – Book metadata
+
+**LLM Providers**
+- [OpenAI API](https://openai.com/) – GPT-powered recommendations
+- [Gemini API](https://gemini.google.com/) – Google-powered recommendations
+
+## License
+
+Interestnaut is open source under the [Creative Commons Attribution 4.0 International License](https://creativecommons.org/licenses/by/4.0/).
+You are free to use, share, and adapt the code and assets, provided you give appropriate credit to the original author (cat lee).
