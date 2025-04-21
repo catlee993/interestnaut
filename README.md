@@ -88,5 +88,5 @@ Run `wails build` to create a production build.
 
 ## License
 
-Interestnaut is open source under the [Creative Commons Attribution 4.0 International License](https://creativecommons.org/licenses/by/4.0/).
-You are free to use, share, and adapt the code and assets, provided you give appropriate credit to the original author (cat lee).
+Interestnaut is open source under the [MIT License](LICENSE).
+You are free to use, share, and adapt the code and assets, provided you include attribution to the original author (cat lee).
