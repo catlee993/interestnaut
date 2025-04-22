@@ -6,14 +6,51 @@ interface SearchBarProps {
   placeholder: string;
   onSearch: (query: string) => void;
   onClear?: () => void;
+  debounceTime?: number;
 }
 
-export function SearchBar({ placeholder, onSearch, onClear }: SearchBarProps) {
+export function SearchBar({ 
+  placeholder, 
+  onSearch, 
+  onClear,
+  debounceTime = 500 
+}: SearchBarProps) {
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Debounce search query
+  useEffect(() => {
+    // Clear any existing timer
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+    }
+
+    // Set a new timer
+    timerRef.current = setTimeout(() => {
+      setDebouncedQuery(searchQuery);
+    }, debounceTime);
+
+    // Cleanup function
+    return () => {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+      }
+    };
+  }, [searchQuery, debounceTime]);
+
+  // Trigger search when debounced query changes
+  useEffect(() => {
+    if (debouncedQuery !== "") {
+      onSearch(debouncedQuery);
+    }
+  }, [debouncedQuery, onSearch]);
 
   const handleClearSearch = () => {
     setSearchQuery("");
+    setDebouncedQuery("");
     onSearch("");
     if (onClear) onClear();
     inputRef.current?.focus();
@@ -23,6 +60,8 @@ export function SearchBar({ placeholder, onSearch, onClear }: SearchBarProps) {
     if (e.key === 'Escape') {
       handleClearSearch();
     } else if (e.key === 'Enter') {
+      // Immediately perform search without waiting for debounce
+      onSearch(searchQuery);
       // Blur the input when Enter is pressed
       inputRef.current?.blur();
     }
@@ -43,8 +82,28 @@ export function SearchBar({ placeholder, onSearch, onClear }: SearchBarProps) {
     };
   }, []);
 
+  // Add mouseout event listener to blur the input when moving away
+  useEffect(() => {
+    const handleMouseLeave = () => {
+      if (document.activeElement === inputRef.current) {
+        inputRef.current?.blur();
+      }
+    };
+
+    const container = containerRef.current;
+    if (container) {
+      container.addEventListener('mouseleave', handleMouseLeave);
+    }
+    
+    return () => {
+      if (container) {
+        container.removeEventListener('mouseleave', handleMouseLeave);
+      }
+    };
+  }, []);
+
   return (
-    <Box sx={{ position: "relative", mb: 2 }}>
+    <Box sx={{ position: "relative" }} ref={containerRef}>
       <TextField
         fullWidth
         placeholder={placeholder}
@@ -53,9 +112,11 @@ export function SearchBar({ placeholder, onSearch, onClear }: SearchBarProps) {
         onChange={(e) => {
           const value = e.target.value;
           setSearchQuery(value);
-          onSearch(value);
-          if (value === "" && onClear) {
-            onClear();
+          if (value === "") {
+            // Clear search immediately when field is emptied
+            setDebouncedQuery("");
+            onSearch("");
+            if (onClear) onClear();
           }
         }}
         onKeyDown={handleKeyDown}

@@ -3,33 +3,105 @@ import { TrackCard } from "@/components/music/tracks/TrackCard";
 import { useTracks } from "@/components/music/hooks/useTracks";
 import { usePlayer } from "@/components/music/player/PlayerContext";
 import { FaTimes } from "react-icons/fa";
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 
 export function SearchSection() {
   const { searchResults, handleSearch, handleSave, handleRemove } = useTracks();
   const { handlePlay } = usePlayer();
   const [showResults, setShowResults] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const debounceTime = 500; // 500ms debounce time
 
   const handleClearSearch = () => {
     setSearchQuery("");
+    setDebouncedQuery("");
     handleSearch("");
     setShowResults(false);
   };
 
+  // Debounce search query
+  useEffect(() => {
+    // Clear any existing timer
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+    }
+
+    // Set a new timer
+    timerRef.current = setTimeout(() => {
+      setDebouncedQuery(searchQuery);
+    }, debounceTime);
+
+    // Cleanup function
+    return () => {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+      }
+    };
+  }, [searchQuery]);
+
+  // Trigger search when debounced query changes
+  useEffect(() => {
+    if (debouncedQuery !== "") {
+      handleSearch(debouncedQuery);
+      setShowResults(true);
+    }
+  }, [debouncedQuery, handleSearch]);
+
+  // Add mouseout event listener to blur the input when moving away
+  useEffect(() => {
+    const handleMouseLeave = () => {
+      if (document.activeElement === inputRef.current) {
+        inputRef.current?.blur();
+      }
+    };
+
+    const container = containerRef.current;
+    if (container) {
+      container.addEventListener('mouseleave', handleMouseLeave);
+    }
+    
+    return () => {
+      if (container) {
+        container.removeEventListener('mouseleave', handleMouseLeave);
+      }
+    };
+  }, []);
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      handleClearSearch();
+    } else if (e.key === 'Enter') {
+      // Immediately perform search without waiting for debounce
+      handleSearch(searchQuery);
+      // Blur the input
+      inputRef.current?.blur();
+    }
+  };
+
   return (
     <Box sx={{ p: 2 }}>
-      <Box sx={{ position: "relative", mb: 2 }}>
+      <Box sx={{ position: "relative", mb: 2 }} ref={containerRef}>
         <TextField
           fullWidth
           placeholder="Search tracks..."
           size="small"
           value={searchQuery}
           onChange={(e) => {
-            setSearchQuery(e.target.value);
-            handleSearch(e.target.value);
-            setShowResults(true);
+            const value = e.target.value;
+            setSearchQuery(value);
+            if (value === "") {
+              // Clear search immediately when field is emptied
+              setDebouncedQuery("");
+              handleSearch("");
+              setShowResults(false);
+            }
           }}
+          onKeyDown={handleKeyDown}
+          inputRef={inputRef}
           sx={{
             "& .MuiOutlinedInput-root": {
               "& fieldset": {

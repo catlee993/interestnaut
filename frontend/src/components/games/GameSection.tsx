@@ -361,6 +361,7 @@ export const GameSection = forwardRef<GameSectionHandle, {}>((props, ref) => {
       onToggleLibrary={() =>
         mediaSection.setShowLibrary(!mediaSection.showLibrary)
       }
+      onHideSearchResults={mediaSection.handleClearSearch}
       renderSearchResults={renderSearchResults}
       renderWatchlistItems={renderWatchlistItems}
       renderSavedItems={renderSavedItems}

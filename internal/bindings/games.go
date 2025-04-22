@@ -375,14 +375,15 @@ func (g *Games) SearchGames(query string) ([]*GameWithSavedStatus, error) {
 		games[i] = rawgGameToGameWithSavedStatus(&result, isSaved, isInWatchlist)
 
 		// Fetch detailed game information for each result to get the description
-		// This might slow down the search, but will provide descriptions
-		if games[i].ID > 0 {
-			detailedGame, detailErr := g.client.GetGameDetails(context.Background(), games[i].ID)
-			if detailErr == nil && detailedGame != nil {
-				// Sanitize any HTML in the description
-				games[i].Description = sanitizeHTMLDescription(detailedGame.Description)
-			}
-		}
+		// TODO - this slows down search too dramatically; not particularly useful
+		//  might chew on this later
+		//if games[i].ID > 0 {
+		//	detailedGame, detailErr := g.client.GetGameDetails(context.Background(), games[i].ID)
+		//	if detailErr == nil && detailedGame != nil {
+		//		// Sanitize any HTML in the description
+		//		games[i].Description = sanitizeHTMLDescription(detailedGame.Description)
+		//	}
+		//}
 	}
 
 	return games, nil

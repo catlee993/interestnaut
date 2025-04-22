@@ -367,6 +367,7 @@ export const TVShowSection = forwardRef<TVShowSectionHandle, {}>(
         onToggleLibrary={() =>
           mediaSection.setShowLibrary(!mediaSection.showLibrary)
         }
+        onHideSearchResults={mediaSection.handleClearSearch}
         renderSearchResults={renderSearchResults}
         renderWatchlistItems={renderWatchlistItems}
         renderSavedItems={renderSavedItems}

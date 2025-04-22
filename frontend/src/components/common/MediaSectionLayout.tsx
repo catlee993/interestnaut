@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { Box, Typography, Button, CircularProgress } from "@mui/material";
 import {
   MediaSuggestionDisplay,
@@ -41,6 +41,7 @@ interface MediaSectionLayoutProps<T extends MediaItemBase> {
   onAddSuggestionToWatchlist: (() => void) | undefined;
   onToggleWatchlist: () => void;
   onToggleLibrary: () => void;
+  onHideSearchResults?: () => void;
 
   // Render functions
   renderSearchResults: () => React.ReactNode;
@@ -83,6 +84,7 @@ export function MediaSectionLayout<T extends MediaItemBase>({
   onAddSuggestionToWatchlist,
   onToggleWatchlist,
   onToggleLibrary,
+  onHideSearchResults,
   renderSearchResults,
   renderWatchlistItems,
   renderSavedItems,
@@ -92,6 +94,37 @@ export function MediaSectionLayout<T extends MediaItemBase>({
   mapToSuggestionItem,
   queueName = "Watchlist",
 }: MediaSectionLayoutProps<T>) {
+  // Effect to add click outside listener for search results
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        searchResultsRef.current && 
+        !searchResultsRef.current.contains(event.target as Node) &&
+        showSearchResults
+      ) {
+        // Check if the click is on the NowPlayingBar
+        const nowPlayingBar = document.querySelector('.now-playing-bar');
+        if (nowPlayingBar && nowPlayingBar.contains(event.target as Node)) {
+          // Don't close search results when clicking on the now playing bar
+          return;
+        }
+        
+        // Hide search results if we have a callback
+        if (onHideSearchResults) {
+          onHideSearchResults();
+        }
+      }
+    };
+    
+    // Add event listener
+    document.addEventListener('mousedown', handleClickOutside);
+    
+    // Clean up
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showSearchResults, onHideSearchResults]);
+
   return (
     <Box sx={{ width: "100%" }}>
       {/* Optional header content */}
@@ -116,6 +149,16 @@ export function MediaSectionLayout<T extends MediaItemBase>({
               ? "The RAWG API credentials are not configured. Please set up your RAWG API key in the Settings to use game recommendations."
               : "The Movie Database API credentials are not configured. Please set up your TMDB API key in the Settings to use recommendations."}
           </Typography>
+        </Box>
+      )}
+
+      {/* Search Results Section */}
+      {searchResults.length > 0 && showSearchResults && (
+        <Box sx={{ mb: 4 }} ref={searchResultsRef}>
+          <Typography variant="h5" sx={{ mb: 2 }}>
+            Search Results
+          </Typography>
+          {renderSearchResults()}
         </Box>
       )}
 
@@ -146,16 +189,6 @@ export function MediaSectionLayout<T extends MediaItemBase>({
           queueName={queueName}
         />
       </Box>
-
-      {/* Search Results Section */}
-      {searchResults.length > 0 && showSearchResults && (
-        <Box sx={{ mb: 4 }} ref={searchResultsRef}>
-          <Typography variant="h5" sx={{ mb: 2 }}>
-            Search Results
-          </Typography>
-          {renderSearchResults()}
-        </Box>
-      )}
 
       {/* Watchlist Section */}
       <Box sx={{ mb: 4 }}>
