@@ -3,57 +3,81 @@ import { TrackCard } from "@/components/music/tracks/TrackCard";
 import { useTracks } from "@/components/music/hooks/useTracks";
 import { usePlayer } from "@/components/music/player/PlayerContext";
 import { FaTimes } from "react-icons/fa";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 
 export function SearchSection() {
   const { searchResults, handleSearch, handleSave, handleRemove } = useTracks();
   const { handlePlay } = usePlayer();
   const [showResults, setShowResults] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
-  const [debouncedQuery, setDebouncedQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleSearchRef = useRef(handleSearch);
+  const lastSearchRef = useRef(""); // Track last search to prevent duplicates
   const debounceTime = 500; // 500ms debounce time
+
+  // Update the ref when handleSearch changes
+  useEffect(() => {
+    handleSearchRef.current = handleSearch;
+  }, [handleSearch]);
 
   const handleClearSearch = () => {
     setSearchQuery("");
-    setDebouncedQuery("");
-    handleSearch("");
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+    }
+    lastSearchRef.current = "";
+    handleSearchRef.current("");
     setShowResults(false);
   };
 
   // Debounce search query
-  useEffect(() => {
-    // Clear any existing timer
+  const debouncedSearch = useCallback((query: string) => {
     if (timerRef.current) {
       clearTimeout(timerRef.current);
     }
 
-    // Set a new timer
-    timerRef.current = setTimeout(() => {
-      setDebouncedQuery(searchQuery);
-    }, debounceTime);
+    // Don't search again if query hasn't changed
+    if (query === lastSearchRef.current) {
+      return;
+    }
 
-    // Cleanup function
+    if (query === "") {
+      // Handle empty query immediately
+      lastSearchRef.current = "";
+      handleSearchRef.current("");
+      setShowResults(false);
+      return;
+    }
+
+    timerRef.current = setTimeout(() => {
+      if (query !== lastSearchRef.current) {
+        lastSearchRef.current = query;
+        handleSearchRef.current(query);
+        setShowResults(true);
+      }
+    }, debounceTime);
+  }, [debounceTime]);
+
+  // Cleanup timer on unmount
+  useEffect(() => {
     return () => {
       if (timerRef.current) {
         clearTimeout(timerRef.current);
       }
     };
-  }, [searchQuery]);
-
-  // Trigger search when debounced query changes
-  useEffect(() => {
-    if (debouncedQuery !== "") {
-      handleSearch(debouncedQuery);
-      setShowResults(true);
-    }
-  }, [debouncedQuery, handleSearch]);
+  }, []);
 
   // Add mouseout event listener to blur the input when moving away
   useEffect(() => {
-    const handleMouseLeave = () => {
+    const handleMouseLeave = (event: MouseEvent) => {
+      // Don't blur if moving to search results
+      if (event.relatedTarget && 
+         (event.relatedTarget as Element).closest('.search-results-container')) {
+        return;
+      }
+      
       if (document.activeElement === inputRef.current) {
         inputRef.current?.blur();
       }
@@ -76,11 +100,40 @@ export function SearchSection() {
       handleClearSearch();
     } else if (e.key === 'Enter') {
       // Immediately perform search without waiting for debounce
-      handleSearch(searchQuery);
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+      }
+      if (searchQuery !== lastSearchRef.current) {
+        lastSearchRef.current = searchQuery;
+        handleSearchRef.current(searchQuery);
+        setShowResults(true);
+      }
       // Blur the input
       inputRef.current?.blur();
     }
   };
+
+  // Prevent search bar from regaining focus during scrolling
+  useEffect(() => {
+    const preventFocusOnScroll = (event: Event) => {
+      if (document.activeElement !== inputRef.current) {
+        // Don't do anything if input isn't focused
+        return;
+      }
+      
+      // Blur input if user is scrolling the results
+      if (event.target &&
+         (event.target as Element).closest('.search-results-container')) {
+        inputRef.current?.blur();
+      }
+    };
+    
+    document.addEventListener('wheel', preventFocusOnScroll, { passive: true });
+    
+    return () => {
+      document.removeEventListener('wheel', preventFocusOnScroll);
+    };
+  }, []);
 
   return (
     <Box sx={{ p: 2 }}>
@@ -93,12 +146,7 @@ export function SearchSection() {
           onChange={(e) => {
             const value = e.target.value;
             setSearchQuery(value);
-            if (value === "") {
-              // Clear search immediately when field is emptied
-              setDebouncedQuery("");
-              handleSearch("");
-              setShowResults(false);
-            }
+            debouncedSearch(value);
           }}
           onKeyDown={handleKeyDown}
           inputRef={inputRef}
@@ -146,6 +194,7 @@ export function SearchSection() {
       {showResults && searchResults.length > 0 && (
         <Paper
           elevation={3}
+          className="search-results-container"
           sx={{
             position: "absolute",
             left: 0,

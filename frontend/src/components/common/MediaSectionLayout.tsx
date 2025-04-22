@@ -154,7 +154,11 @@ export function MediaSectionLayout<T extends MediaItemBase>({
 
       {/* Search Results Section */}
       {searchResults.length > 0 && showSearchResults && (
-        <Box sx={{ mb: 4 }} ref={searchResultsRef}>
+        <Box 
+          sx={{ mb: 4 }} 
+          ref={searchResultsRef}
+          className="search-results-container"
+        >
           <Typography variant="h5" sx={{ mb: 2 }}>
             Search Results
           </Typography>

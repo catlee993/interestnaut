@@ -1,6 +1,6 @@
 import { Box, TextField, IconButton } from "@mui/material";
 import { FaTimes } from "react-icons/fa";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 
 interface SearchBarProps {
   placeholder: string;
@@ -16,42 +16,60 @@ export function SearchBar({
   debounceTime = 500 
 }: SearchBarProps) {
   const [searchQuery, setSearchQuery] = useState("");
-  const [debouncedQuery, setDebouncedQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onSearchRef = useRef(onSearch);
+  const lastSearchRef = useRef(""); // Track last search to prevent duplicates
+
+  // Update the ref when onSearch changes
+  useEffect(() => {
+    onSearchRef.current = onSearch;
+  }, [onSearch]);
 
   // Debounce search query
-  useEffect(() => {
-    // Clear any existing timer
+  const debouncedSearch = useCallback((query: string) => {
     if (timerRef.current) {
       clearTimeout(timerRef.current);
     }
 
-    // Set a new timer
-    timerRef.current = setTimeout(() => {
-      setDebouncedQuery(searchQuery);
-    }, debounceTime);
+    // Don't search again if query hasn't changed
+    if (query === lastSearchRef.current) {
+      return;
+    }
 
-    // Cleanup function
+    if (query === "") {
+      // Handle empty query immediately
+      lastSearchRef.current = "";
+      onSearchRef.current("");
+      if (onClear) onClear();
+      return;
+    }
+
+    timerRef.current = setTimeout(() => {
+      if (query !== lastSearchRef.current) {
+        lastSearchRef.current = query;
+        onSearchRef.current(query);
+      }
+    }, debounceTime);
+  }, [debounceTime, onClear]);
+
+  // Cleanup timer on unmount
+  useEffect(() => {
     return () => {
       if (timerRef.current) {
         clearTimeout(timerRef.current);
       }
     };
-  }, [searchQuery, debounceTime]);
-
-  // Trigger search when debounced query changes
-  useEffect(() => {
-    if (debouncedQuery !== "") {
-      onSearch(debouncedQuery);
-    }
-  }, [debouncedQuery, onSearch]);
+  }, []);
 
   const handleClearSearch = () => {
     setSearchQuery("");
-    setDebouncedQuery("");
-    onSearch("");
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+    }
+    lastSearchRef.current = "";
+    onSearchRef.current("");
     if (onClear) onClear();
     inputRef.current?.focus();
   };
@@ -61,7 +79,13 @@ export function SearchBar({
       handleClearSearch();
     } else if (e.key === 'Enter') {
       // Immediately perform search without waiting for debounce
-      onSearch(searchQuery);
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+      }
+      if (searchQuery !== lastSearchRef.current) {
+        lastSearchRef.current = searchQuery;
+        onSearchRef.current(searchQuery);
+      }
       // Blur the input when Enter is pressed
       inputRef.current?.blur();
     }
@@ -70,6 +94,12 @@ export function SearchBar({
   // Add click outside event listener to blur the input
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
+      // Prevent triggering blur when user is trying to scroll results
+      if (event.target && 
+         (event.target as Element).closest('.search-results-container')) {
+        return;
+      }
+      
       if (inputRef.current && !inputRef.current.contains(event.target as Node)) {
         inputRef.current.blur();
       }
@@ -82,9 +112,15 @@ export function SearchBar({
     };
   }, []);
 
-  // Add mouseout event listener to blur the input when moving away
+  // Modify the mouseout behavior to not blur on scroll attempts
   useEffect(() => {
-    const handleMouseLeave = () => {
+    const handleMouseLeave = (event: MouseEvent) => {
+      // Don't blur if moving to search results
+      if (event.relatedTarget && 
+         (event.relatedTarget as Element).closest('.search-results-container')) {
+        return;
+      }
+      
       if (document.activeElement === inputRef.current) {
         inputRef.current?.blur();
       }
@@ -102,6 +138,28 @@ export function SearchBar({
     };
   }, []);
 
+  // Prevent search bar from regaining focus during scrolling
+  useEffect(() => {
+    const preventFocusOnScroll = (event: Event) => {
+      if (document.activeElement !== inputRef.current) {
+        // Don't do anything if input isn't focused
+        return;
+      }
+      
+      // Blur input if user is scrolling the results
+      if (event.target &&
+         (event.target as Element).closest('.search-results-container')) {
+        inputRef.current?.blur();
+      }
+    };
+    
+    document.addEventListener('wheel', preventFocusOnScroll, { passive: true });
+    
+    return () => {
+      document.removeEventListener('wheel', preventFocusOnScroll);
+    };
+  }, []);
+
   return (
     <Box sx={{ position: "relative" }} ref={containerRef}>
       <TextField
@@ -112,12 +170,7 @@ export function SearchBar({
         onChange={(e) => {
           const value = e.target.value;
           setSearchQuery(value);
-          if (value === "") {
-            // Clear search immediately when field is emptied
-            setDebouncedQuery("");
-            onSearch("");
-            if (onClear) onClear();
-          }
+          debouncedSearch(value);
         }}
         onKeyDown={handleKeyDown}
         inputRef={inputRef}
