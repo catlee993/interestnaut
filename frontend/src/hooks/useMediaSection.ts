@@ -47,7 +47,7 @@ const parseErrorMessage = (
 ): { message: string; details?: string } => {
   let message = defaultMessage;
   let details = undefined;
-  
+
   if (typeof error === "string") {
     message = error;
   } else if (error instanceof Error) {
@@ -73,7 +73,7 @@ const parseErrorMessage = (
       details = JSON.stringify(error.details || error.data);
     }
   }
-  
+
   return { message, details };
 };
 
@@ -102,10 +102,10 @@ export function useMediaSection<T extends MediaItemBase>(
   const toMediaSuggestionItem = (item: T): MediaSuggestionItem => {
     let enhancedItem: any = {
       id: item.id,
-      title: item.title || item.name || 'Unknown Title',
+      title: item.title || item.name || "Unknown Title",
       imageUrl: item.poster_path || item.background_image,
-      description: '',  // Provide defaults for required MediaSuggestionItem properties
-      artist: '',
+      description: "", // Provide defaults for required MediaSuggestionItem properties
+      artist: "",
     };
 
     // For all media types, store type-specific data in customFields
@@ -118,27 +118,27 @@ export function useMediaSection<T extends MediaItemBase>(
     if (type === "book") {
       // Book items have special properties like author and cover_path
       const bookItem = item as any;
-      
+
       // Use proper book fields for standard fields
       enhancedItem.imageUrl = bookItem.cover_path;
-      enhancedItem.artist = bookItem.author ? `by ${bookItem.author}` : '';
-      enhancedItem.description = bookItem.description || '';
-      
+      enhancedItem.artist = bookItem.author ? `by ${bookItem.author}` : "";
+      enhancedItem.description = bookItem.description || "";
+
       // Add book-specific fields to customFields
       customFields.author = bookItem.author;
       customFields.key = bookItem.key;
       customFields.cover_path = bookItem.cover_path;
       customFields.year = bookItem.year;
       customFields.subjects = bookItem.subjects;
-    } 
+    }
     // Handle movie-specific properties
     else if (type === "movie") {
       const movieItem = item as any;
-      
+
       // Use proper movie fields for standard fields
       enhancedItem.imageUrl = movieItem.poster_path;
-      enhancedItem.description = movieItem.overview || '';
-      
+      enhancedItem.description = movieItem.overview || "";
+
       // Add movie-specific fields to customFields
       customFields.poster_path = movieItem.poster_path;
       customFields.backdrop_path = movieItem.backdrop_path;
@@ -151,12 +151,12 @@ export function useMediaSection<T extends MediaItemBase>(
     // Handle TV-specific properties
     else if (type === "tv") {
       const tvItem = item as any;
-      
+
       // Use TV show name as title if available
-      enhancedItem.title = tvItem.name || tvItem.title || 'Unknown TV Show';
+      enhancedItem.title = tvItem.name || tvItem.title || "Unknown TV Show";
       enhancedItem.imageUrl = tvItem.poster_path;
-      enhancedItem.description = tvItem.overview || '';
-      
+      enhancedItem.description = tvItem.overview || "";
+
       // Add TV-specific fields to customFields
       customFields.name = tvItem.name;
       customFields.poster_path = tvItem.poster_path;
@@ -171,10 +171,11 @@ export function useMediaSection<T extends MediaItemBase>(
     // Handle game-specific properties
     else if (type === "game") {
       const gameItem = item as any;
-      
+
       enhancedItem.imageUrl = gameItem.background_image;
-      enhancedItem.description = gameItem.description_raw || gameItem.description || '';
-      
+      enhancedItem.description =
+        gameItem.description_raw || gameItem.description || "";
+
       // Add game-specific fields to customFields
       customFields.name = gameItem.name;
       customFields.background_image = gameItem.background_image;
@@ -207,7 +208,9 @@ export function useMediaSection<T extends MediaItemBase>(
   const [suggestionReason, setSuggestionReason] = useState<string | null>(null);
   const [credentialsError, setCredentialsError] = useState(false);
   const [suggestionError, setSuggestionError] = useState<string | null>(null);
-  const [suggestionErrorDetails, setSuggestionErrorDetails] = useState<string | null>(null);
+  const [suggestionErrorDetails, setSuggestionErrorDetails] = useState<
+    string | null
+  >(null);
   const [isProcessingFeedback, setIsProcessingFeedback] = useState(false);
   const [showWatchlist, setShowWatchlist] = useState(true);
   const [showLibrary, setShowLibrary] = useState(true);
@@ -225,7 +228,8 @@ export function useMediaSection<T extends MediaItemBase>(
         await loadWatchlistFromAPI();
 
         // Try to load cached suggestion using SuggestionCache
-        const { item: cachedItem, reason: cachedReason } = SuggestionCache.getItem(type);
+        const { item: cachedItem, reason: cachedReason } =
+          SuggestionCache.getItem(type);
 
         if (cachedItem && cachedReason) {
           try {
@@ -233,32 +237,45 @@ export function useMediaSection<T extends MediaItemBase>(
             let parsedItem: T;
             if ((cachedItem as any).customFields) {
               const enhancedFields = (cachedItem as any).customFields;
-              
+
               // Handle different media types
               if (type === "book") {
                 // Create a book item with all the necessary fields
                 parsedItem = {
-                  id: typeof cachedItem.id === 'number' ? cachedItem.id : parseInt(cachedItem.id as string, 10),
+                  id:
+                    typeof cachedItem.id === "number"
+                      ? cachedItem.id
+                      : parseInt(cachedItem.id as string, 10),
                   title: cachedItem.title,
                   description: cachedItem.description,
                   // Book-specific fields
-                  author: enhancedFields.author || (cachedItem.artist ? cachedItem.artist.replace('by ', '') : ''),
+                  author:
+                    enhancedFields.author ||
+                    (cachedItem.artist
+                      ? cachedItem.artist.replace("by ", "")
+                      : ""),
                   cover_path: enhancedFields.cover_path || cachedItem.imageUrl,
                   key: enhancedFields.key || `book-${cachedItem.id}`,
                   year: enhancedFields.year,
                   subjects: enhancedFields.subjects || [],
                   isSaved: enhancedFields.isSaved || false,
-                  isInWatchlist: enhancedFields.isInWatchlist || false
+                  isInWatchlist: enhancedFields.isInWatchlist || false,
                 } as any as T;
-                
-                console.log("Restored enhanced book item from cache:", parsedItem);
-              } 
-              else if (type === "movie") {
+
+                console.log(
+                  "Restored enhanced book item from cache:",
+                  parsedItem,
+                );
+              } else if (type === "movie") {
                 parsedItem = {
-                  id: typeof cachedItem.id === 'number' ? cachedItem.id : parseInt(cachedItem.id as string, 10),
+                  id:
+                    typeof cachedItem.id === "number"
+                      ? cachedItem.id
+                      : parseInt(cachedItem.id as string, 10),
                   title: cachedItem.title,
                   // Movie-specific fields
-                  poster_path: enhancedFields.poster_path || cachedItem.imageUrl,
+                  poster_path:
+                    enhancedFields.poster_path || cachedItem.imageUrl,
                   backdrop_path: enhancedFields.backdrop_path,
                   overview: enhancedFields.overview || cachedItem.description,
                   release_date: enhancedFields.release_date,
@@ -266,18 +283,24 @@ export function useMediaSection<T extends MediaItemBase>(
                   vote_count: enhancedFields.vote_count,
                   genres: enhancedFields.genres,
                   isSaved: enhancedFields.isSaved || false,
-                  isInWatchlist: enhancedFields.isInWatchlist || false
+                  isInWatchlist: enhancedFields.isInWatchlist || false,
                 } as any as T;
-                
-                console.log("Restored enhanced movie item from cache:", parsedItem);
-              }
-              else if (type === "tv") {
+
+                console.log(
+                  "Restored enhanced movie item from cache:",
+                  parsedItem,
+                );
+              } else if (type === "tv") {
                 parsedItem = {
-                  id: typeof cachedItem.id === 'number' ? cachedItem.id : parseInt(cachedItem.id as string, 10),
+                  id:
+                    typeof cachedItem.id === "number"
+                      ? cachedItem.id
+                      : parseInt(cachedItem.id as string, 10),
                   title: cachedItem.title,
                   name: enhancedFields.name || cachedItem.title,
                   // TV-specific fields
-                  poster_path: enhancedFields.poster_path || cachedItem.imageUrl,
+                  poster_path:
+                    enhancedFields.poster_path || cachedItem.imageUrl,
                   backdrop_path: enhancedFields.backdrop_path,
                   overview: enhancedFields.overview || cachedItem.description,
                   first_air_date: enhancedFields.first_air_date,
@@ -286,19 +309,26 @@ export function useMediaSection<T extends MediaItemBase>(
                   genres: enhancedFields.genres,
                   number_of_seasons: enhancedFields.number_of_seasons,
                   isSaved: enhancedFields.isSaved || false,
-                  isInWatchlist: enhancedFields.isInWatchlist || false
+                  isInWatchlist: enhancedFields.isInWatchlist || false,
                 } as any as T;
-                
-                console.log("Restored enhanced TV item from cache:", parsedItem);
-              }
-              else if (type === "game") {
+
+                console.log(
+                  "Restored enhanced TV item from cache:",
+                  parsedItem,
+                );
+              } else if (type === "game") {
                 parsedItem = {
-                  id: typeof cachedItem.id === 'number' ? cachedItem.id : parseInt(cachedItem.id as string, 10),
+                  id:
+                    typeof cachedItem.id === "number"
+                      ? cachedItem.id
+                      : parseInt(cachedItem.id as string, 10),
                   title: cachedItem.title,
                   name: enhancedFields.name || cachedItem.title,
                   // Game-specific fields
-                  background_image: enhancedFields.background_image || cachedItem.imageUrl,
-                  description: enhancedFields.description_raw || cachedItem.description,
+                  background_image:
+                    enhancedFields.background_image || cachedItem.imageUrl,
+                  description:
+                    enhancedFields.description_raw || cachedItem.description,
                   description_raw: enhancedFields.description_raw,
                   released: enhancedFields.released,
                   rating: enhancedFields.rating,
@@ -308,24 +338,29 @@ export function useMediaSection<T extends MediaItemBase>(
                   developers: enhancedFields.developers,
                   publishers: enhancedFields.publishers,
                   isSaved: enhancedFields.isSaved || false,
-                  isInWatchlist: enhancedFields.isInWatchlist || false
+                  isInWatchlist: enhancedFields.isInWatchlist || false,
                 } as any as T;
-                
-                console.log("Restored enhanced game item from cache:", parsedItem);
-              }
-              else {
+
+                console.log(
+                  "Restored enhanced game item from cache:",
+                  parsedItem,
+                );
+              } else {
                 // For other media types or without specific handling
                 parsedItem = {
                   ...cachedItem,
                   ...enhancedFields,
-                  id: typeof cachedItem.id === 'number' ? cachedItem.id : parseInt(cachedItem.id as string, 10)
+                  id:
+                    typeof cachedItem.id === "number"
+                      ? cachedItem.id
+                      : parseInt(cachedItem.id as string, 10),
                 } as T;
               }
             } else {
               // For items without customFields (backwards compatibility)
               parsedItem = cachedItem as T;
             }
-            
+
             setSuggestedItem(parsedItem);
             setSuggestionReason(cachedReason);
 
@@ -365,7 +400,11 @@ export function useMediaSection<T extends MediaItemBase>(
     // Save suggestion using SuggestionCache when component unmounts
     return () => {
       if (suggestedItem && suggestionReason) {
-        SuggestionCache.saveItem(type, toMediaSuggestionItem(suggestedItem), suggestionReason);
+        SuggestionCache.saveItem(
+          type,
+          toMediaSuggestionItem(suggestedItem),
+          suggestionReason,
+        );
       }
     };
   }, []);
@@ -373,7 +412,11 @@ export function useMediaSection<T extends MediaItemBase>(
   // Update cached suggestion whenever it changes
   useEffect(() => {
     if (suggestedItem && suggestionReason) {
-      SuggestionCache.saveItem(type, toMediaSuggestionItem(suggestedItem), suggestionReason);
+      SuggestionCache.saveItem(
+        type,
+        toMediaSuggestionItem(suggestedItem),
+        suggestionReason,
+      );
     }
   }, [suggestedItem, suggestionReason]);
 
@@ -489,11 +532,14 @@ export function useMediaSection<T extends MediaItemBase>(
       // Parse the error to get a consistent message and details
       const { message } = parseErrorMessage(
         error,
-        `Failed to search for ${type}. Please try again.`
+        `Failed to search for ${type}. Please try again.`,
       );
 
       // Check if this is a credentials error
-      if (message.includes("credentials not available") || message.includes("authentication")) {
+      if (
+        message.includes("credentials not available") ||
+        message.includes("authentication")
+      ) {
         setCredentialsError(true);
         const errorMsg = `${type.charAt(0).toUpperCase() + type.slice(1)} API credentials are not configured`;
         enqueueSnackbar(errorMsg, {
@@ -689,7 +735,7 @@ export function useMediaSection<T extends MediaItemBase>(
     }
   };
 
-  // Function to handle "Skip" button click, which could be either skipping 
+  // Function to handle "Skip" button click, which could be either skipping
   // or going to next suggestion after liking
   const handleSkip = async () => {
     // If the item has been liked already, we just want to get a new suggestion
@@ -698,10 +744,10 @@ export function useMediaSection<T extends MediaItemBase>(
       setIsProcessingFeedback(true);
       setSuggestedItem(null);
       setSuggestionReason(null);
-      
+
       // Clear cache
       SuggestionCache.clearItem(type);
-      
+
       // Get new suggestion
       setTimeout(() => {
         handleGetSuggestion();
@@ -722,7 +768,9 @@ export function useMediaSection<T extends MediaItemBase>(
     if (credentialsError) {
       const errorMessage = `Please set up your ${type} API credentials in Settings first`;
       setSuggestionError(errorMessage);
-      setSuggestionErrorDetails(`Missing or invalid credentials for ${type} API. Go to Settings > APIs to configure your credentials.`);
+      setSuggestionErrorDetails(
+        `Missing or invalid credentials for ${type} API. Go to Settings > APIs to configure your credentials.`,
+      );
       enqueueSnackbar(errorMessage, {
         variant: "warning",
       });
@@ -740,7 +788,11 @@ export function useMediaSection<T extends MediaItemBase>(
         setSuggestionReason(result.reason || null);
 
         // Cache the suggestion using SuggestionCache
-        SuggestionCache.saveItem(type, toMediaSuggestionItem(result.media), result.reason || "");
+        SuggestionCache.saveItem(
+          type,
+          toMediaSuggestionItem(result.media),
+          result.reason || "",
+        );
       } else {
         // Handle case where no suggestion is available
         const errorMessage = `No ${type} suggestions available at the moment.`;
@@ -755,29 +807,39 @@ export function useMediaSection<T extends MediaItemBase>(
       }
     } catch (error) {
       console.error(`Failed to get ${type} suggestion:`, error);
-      
+
       // Parse the error to get a consistent message and details
       const { message, details } = parseErrorMessage(
         error,
-        `Failed to get ${type} recommendation. Please try again.`
+        `Failed to get ${type} recommendation. Please try again.`,
       );
-      
+
       // Check for specific error types and provide more helpful messages
       let errorMessage = message;
       let errorDetails = details;
-      
+
       // Check for specific error signatures
-      if (message.includes("credentials not available") || message.includes("authentication")) {
+      if (
+        message.includes("credentials not available") ||
+        message.includes("authentication")
+      ) {
         errorMessage = `${type.charAt(0).toUpperCase() + type.slice(1)} recommendations require API credentials to be configured.`;
         errorDetails = `To use ${type} recommendations, you need to set up your API credentials:
         1. Go to Settings > APIs
         2. Configure the ${type} API credentials
         3. Save your settings and return to this page`;
         setCredentialsError(true);
-      } else if (message.includes("rate limit") || message.includes("too many requests")) {
+      } else if (
+        message.includes("rate limit") ||
+        message.includes("too many requests")
+      ) {
         errorMessage = `API rate limit reached. Please try again in a few minutes.`;
         errorDetails = `The ${type} API has a limit on how many requests you can make in a certain time period. Wait a few minutes and try again.`;
-      } else if (message.includes("network") || message.includes("timeout") || message.includes("connection")) {
+      } else if (
+        message.includes("network") ||
+        message.includes("timeout") ||
+        message.includes("connection")
+      ) {
         errorMessage = `Network error. Please check your internet connection.`;
         errorDetails = `Unable to reach the ${type} API. This could be due to:
         1. Your internet connection is offline
@@ -792,6 +854,7 @@ export function useMediaSection<T extends MediaItemBase>(
       enqueueSnackbar(errorMessage, { variant: "error" });
     } finally {
       setIsLoadingSuggestion(false);
+      setIsProcessingFeedback(false);
     }
   };
 
@@ -987,7 +1050,7 @@ export function useMediaSection<T extends MediaItemBase>(
               return true;
             }
           }
-          
+
           // Otherwise compare by title/name
           const watchlistTitle = watchlist.title || watchlist.name || "";
           const itemTitle = item.title || item.name || "";
