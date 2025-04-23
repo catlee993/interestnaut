@@ -1,8 +1,8 @@
-<div style="text-align:center">
+<div align="center">
   <img src="frontend/src/assets/images/logo/interestnaut-logo.png" alt="Interestnaut Logo" width="200"/>
 </div>
 
-<div style="text-align:center">
+<div align="center">
 
 [![GitHub release](https://img.shields.io/github/v/release/catlee993/interestnaut)](https://github.com/catlee993/interestnaut/releases)
 [![License](https://img.shields.io/github/license/catlee993/interestnaut)](LICENSE)
@@ -10,13 +10,13 @@
 
 </div>
 
-<div style="text-align:center">
+<div align="center">
   <img src="frontend/src/assets/video/interestnaut-demo.gif" alt="interestnaut demo" width="640"/>
   <br/>
   <sub>interestnaut demo</sub>
 </div>
 
-<div style="text-align:center">
+<div align="center">
   <strong><a href="https://github.com/catlee993/interestnaut/releases/latest">⬇️ Download the latest release</a></strong>
 </div>
 
