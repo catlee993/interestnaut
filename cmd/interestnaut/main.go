@@ -241,7 +241,22 @@ func launchFlutterApp() {
 	cmd.Dir = flutterAppPath
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	cmd.Env = append(os.Environ(), "FLUTTER_DYLIB_PATH="+targetLibPath)
+
+	//// Get current environment and augment PATH to include Ruby gems bin path
+	//env := os.Environ()
+	//for i, e := range env {
+	//	if len(e) >= 5 && e[0:5] == "PATH=" {
+	//		// Add Ruby gems bin directory to PATH
+	//		env[i] = e + ":/opt/homebrew/lib/ruby/gems/3.2.0/bin:/opt/homebrew/opt/ruby@3.2/bin"
+	//		log.Println("Updated PATH environment to include Ruby gems bin")
+	//		break
+	//	}
+	//}
+
+	//cmd.Env = append(env, "FLUTTER_DYLIB_PATH="+targetLibPath)
+
+	// Log the PATH for debugging
+	log.Println("Running Flutter with PATH:", os.Getenv("PATH")+":/opt/homebrew/lib/ruby/gems/3.2.0/bin:/opt/homebrew/opt/ruby@3.2/bin")
 
 	// Launch the Flutter app
 	log.Println("Starting Flutter app...")

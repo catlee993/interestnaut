@@ -101,12 +101,3 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/custom-fonts/#from-packages
-
-  fonts:
-    - family: FontAwesome
-      fonts:
-        - asset: assets/fonts/fontawesome-webfont.ttf
-  
-  assets:
-    - assets/images/
-    - assets/fonts/
