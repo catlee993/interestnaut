@@ -2,22 +2,20 @@ package main
 
 import (
 	"context"
-	"embed"
-	"fmt"
 	"interestnaut/internal/app/bindings"
-	"interestnaut/internal/app/session"
-	"log"
-
-	"github.com/wailsapp/wails/v2"
-	"github.com/wailsapp/wails/v2/pkg/options"
-	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
-
 	"interestnaut/internal/app/creds"
+	"interestnaut/internal/app/session"
 	"interestnaut/internal/app/spotify"
+	"log"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strconv"
 )
 
-//go:embed all:frontend/dist
-var assets embed.FS
+// Server port for local communication
+const serverPort = 50051
 
 func main() {
 	// Create an instance of the app structure
@@ -27,18 +25,7 @@ func main() {
 		log.Fatalf("Failed to create central manager: %v", err)
 	}
 
-	var suggestionOutcome = []struct {
-		Value  session.Outcome
-		TSName string
-	}{
-		{session.Liked, "liked"},
-		{session.Disliked, "disliked"},
-		{session.Skipped, "skipped"},
-		{session.Added, "added"},
-		{session.Pending, "pending"},
-	}
-
-	// binders map client to backend, see frontend/wailsjs/go/bindings
+	// binders map client to backend API
 	music := bindings.NewMusicBinder(ctx, cm, spotify.ClientID)
 	movies, mErr := bindings.NewMovieBinder(ctx, cm)
 	if mErr != nil {
@@ -60,8 +47,6 @@ func main() {
 		log.Fatalf("Failed to create books binder: %v", bErr)
 	}
 
-	settings := &bindings.Settings{ContentManager: cm}
-
 	// Collect all LLM handlers for credential change registration
 	llmHandlers := []creds.LLMCredentialChangeHandler{
 		music,
@@ -82,35 +67,37 @@ func main() {
 		games,
 	}
 
-	// Create application with options
-	rErr := wails.Run(&options.App{
-		Title:  "Interestnaut",
-		Width:  1024,
-		Height: 768,
-		AssetServer: &assetserver.Options{
-			Assets: assets,
-		},
-		BackgroundColour: &options.RGBA{R: 27, G: 38, B: 54, A: 1},
-		OnStartup: func(ctx context.Context) {
-			onStartup(ctx, llmHandlers, tmdbHandlers, rawgHandlers)
-		},
-		Bind: []interface{}{
-			&bindings.Auth{},
-			settings,
-			music,
-			movies,
-			tvShows,
-			games,
-			books,
-		},
-		EnumBind: []interface{}{
-			suggestionOutcome,
-		},
-	})
+	// Run startup processes
+	onStartup(ctx, llmHandlers, tmdbHandlers, rawgHandlers)
 
-	if rErr != nil {
-		fmt.Println("Error:", rErr.Error())
+	// Write service info to a file that Flutter app can read
+	// This is a temporary approach until we set up proper communication
+	writeServiceInfo()
+
+	// Launch Flutter app
+	launchFlutterApp()
+
+	// Keep main thread alive
+	select {}
+}
+
+// writeServiceInfo writes information about our services to a file
+// This is a temporary approach until we set up proper gRPC or other communication
+func writeServiceInfo() {
+	// Create a directory for communication files if it doesn't exist
+	commsDir := filepath.Join(os.TempDir(), "interestnaut")
+	if err := os.MkdirAll(commsDir, 0755); err != nil {
+		log.Printf("Failed to create communication directory: %v", err)
+		return
 	}
+
+	// Write the server port to a file
+	portFile := filepath.Join(commsDir, "server_port")
+	if err := os.WriteFile(portFile, []byte(strconv.Itoa(serverPort)), 0644); err != nil {
+		log.Printf("Failed to write server port file: %v", err)
+	}
+
+	log.Printf("Service info written to %s", commsDir)
 }
 
 func onStartup(ctx context.Context,
@@ -156,4 +143,54 @@ func onStartup(ctx context.Context,
 	} else {
 		log.Println("Using existing authorization code")
 	}
+}
+
+func launchFlutterApp() {
+	executableDir, err := filepath.Abs(filepath.Dir(os.Args[0]))
+	if err != nil {
+		log.Printf("Error getting executable directory: %v", err)
+		return
+	}
+
+	// Adjust path based on development or production environment
+	flutterAppPath := "internal/ui/flutter"
+	if _, err := os.Stat(flutterAppPath); os.IsNotExist(err) {
+		flutterAppPath = filepath.Join(executableDir, "flutter")
+	}
+
+	log.Printf("Launching Flutter app from: %s", flutterAppPath)
+
+	// Pass service info directory to Flutter app
+	commsDir := filepath.Join(os.TempDir(), "interestnaut")
+	os.Setenv("INTERESTNAUT_COMMS_DIR", commsDir)
+
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		// For macOS, we'll run the Flutter app directly during development
+		// In production, we'd launch the bundled macOS app
+		cmd = exec.Command("flutter", "run", "-d", "macos")
+		cmd.Dir = flutterAppPath
+	case "windows":
+		// For Windows, similar approach
+		cmd = exec.Command("flutter", "run", "-d", "windows")
+		cmd.Dir = flutterAppPath
+	case "linux":
+		// For Linux
+		cmd = exec.Command("flutter", "run", "-d", "linux")
+		cmd.Dir = flutterAppPath
+	default:
+		log.Printf("Unsupported OS: %s", runtime.GOOS)
+		return
+	}
+
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Start(); err != nil {
+		log.Printf("Error starting Flutter app: %v", err)
+		return
+	}
+
+	log.Println("Flutter app launched successfully")
 }
