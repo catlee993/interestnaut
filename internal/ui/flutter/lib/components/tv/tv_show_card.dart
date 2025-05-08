@@ -62,13 +62,11 @@ class TVShowCard extends StatelessWidget {
     return MediaItem(
       id: show.id,
       title: show.name,
-      overview: show.overview,
-      posterPath: show.posterPath,
-      voteAverage: show.voteAverage,
-      voteCount: show.voteCount,
-      date: show.firstAirDate,
-      isSaved: isSaved,
+      overview: show.overview ?? '',
+      posterPath: show.posterPath ?? '',
       mediaType: 'tv',
+      voteAverage: show.voteAverage,
+      releaseDate: show.firstAirDate,
     );
   }
 

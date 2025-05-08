@@ -3,18 +3,98 @@ import 'package:google_fonts/google_fonts.dart';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as path;
+import 'package:window_size/window_size.dart' as window_package;
 import 'components/movies/movie_section.dart';
 import 'components/tv/tv_show_section.dart';
 import 'components/books/book_section.dart';
 import 'components/games/game_section.dart';
 import 'components/audiobooks/audiobook_section.dart';
+import 'components/music/music_section.dart';
+import 'services/backend_service.dart';
 import 'theme.dart'; // Import our new theme
+import 'services/go_bindings.dart';
+import 'services/ffi_init.dart';
 
 // Flag to check if we're running on web
 bool get isWeb => kIsWeb;
 
-void main() {
+// Global navigator key for accessing the navigator from anywhere
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  
+  // Set window size to match the legacy app (1024x768)
+  if (!isWeb) {
+    if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+      window_package.setWindowTitle('Interestnaut');
+      Size minSize = const Size(1024, 768);
+      Size maxSize = const Size(1920, 1080);
+      Size initialSize = const Size(1024, 768);
+      window_package.setWindowMinSize(minSize);
+      window_package.setWindowMaxSize(maxSize);
+      window_package.setWindowFrame(Rect.fromLTWH(0, 0, initialSize.width, initialSize.height));
+    }
+  }
+  
+  // Initialize FFI and fail fast if it doesn't work
+  if (!isWeb) {
+    try {
+      await FFIInitializer.initialize();
+      debugPrint('FFI initialized successfully');
+      GoBindings.initialize();
+      
+      // Register for app lifecycle events to signal shutdown to Go
+      registerShutdownHooks();
+    } catch (e) {
+      // Log the error and exit
+      debugPrint('FATAL ERROR: FFI initialization failed');
+      debugPrint('$e');
+      exit(1);
+    }
+  }
+  
   runApp(const MyApp());
+}
+
+/// Register hooks to signal to the Go app when Flutter is terminating
+void registerShutdownHooks() {
+  // For desktop platforms, we need to tell Go when we're shutting down
+  if (!isWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux)) {
+    debugPrint('Registering shutdown hooks for Go interop');
+    
+    // Signal Go when app is being terminated
+    Future.delayed(Duration.zero, () {
+      WidgetsBinding.instance.addObserver(_AppLifecycleObserver());
+    });
+    
+    // Register a synchronous handler for more immediate termination scenarios
+    // This isn't perfect but helps in some cases
+    ProcessSignal.sigterm.watch().listen((_) {
+      debugPrint('SIGTERM received, signaling Go app');
+      try {
+        GoBindings.signalShutdown();
+      } catch (e) {
+        debugPrint('Error signaling Go shutdown: $e');
+      }
+    });
+  }
+}
+
+/// Life cycle observer to detect app termination
+class _AppLifecycleObserver extends WidgetsBindingObserver {
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    debugPrint('App lifecycle state changed to: $state');
+    if (state == AppLifecycleState.detached) {
+      debugPrint('App is detached, signaling Go app to shut down');
+      try {
+        GoBindings.signalShutdown();
+      } catch (e) {
+        debugPrint('Error signaling Go shutdown: $e');
+      }
+    }
+  }
 }
 
 class MyApp extends StatelessWidget {
@@ -28,6 +108,7 @@ class MyApp extends StatelessWidget {
       // Use our custom theme instead of the generic one
       theme: AppTheme.theme,
       home: const InterestnautApp(),
+      navigatorKey: navigatorKey,
     );
   }
 }
@@ -297,7 +378,7 @@ class _InterestnautAppState extends State<InterestnautApp> {
   Widget _buildCurrentContent() {
     switch (_currentMediaType) {
       case 'music':
-        return _buildMusicSection();
+        return const MusicSection();
       case 'movies':
         return const MovieSection();
       case 'tv':
@@ -307,315 +388,7 @@ class _InterestnautAppState extends State<InterestnautApp> {
       case 'games':
         return const GameSection();
       default:
-        return _buildMusicSection();
+        return const MusicSection();
     }
-  }
-
-  Widget _buildMusicSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Suggestions section
-        _buildSuggestionSection(),
-        const SizedBox(height: 24),
-        // Library section
-        _buildLibrarySection(),
-      ],
-    );
-  }
-
-  Widget _buildSuggestionSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(left: 8, bottom: 16),
-          child: Text(
-            'Suggested for You',
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 24,
-              color: AppTheme.textPrimary,
-            ),
-          ),
-        ),
-        Container(
-          width: double.infinity,
-          margin: const EdgeInsets.symmetric(horizontal: 4),
-          decoration: BoxDecoration(
-            color: AppTheme.surfaceColor,
-            borderRadius: BorderRadius.circular(AppTheme.cardBorderRadius),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.5),
-                offset: const Offset(0, 2),
-                blurRadius: 6,
-                spreadRadius: 0,
-              ),
-            ],
-            border: Border.all(
-              color: const Color(0xFF323232),
-              width: 1,
-            ),
-          ),
-          padding: const EdgeInsets.all(40),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.music_note, size: 56, color: AppTheme.primaryColor),
-              const SizedBox(height: 24),
-              Text(
-                'No suggestion currently. Click below to get one.',
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 16,
-                  color: AppTheme.textPrimary,
-                ),
-              ),
-              const SizedBox(height: 32),
-              ElevatedButton(
-                onPressed: () {
-                  // Here we would request a suggestion
-                  print('Requesting suggestion...');
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppTheme.primaryColor,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(AppTheme.buttonBorderRadius),
-                  ),
-                  padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-                  textStyle: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                child: const Text('Get a Suggestion'),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildLibrarySection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(left: 8, top: 36, bottom: 16),
-          child: Text(
-            'Your Library',
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 24,
-              color: AppTheme.textPrimary,
-            ),
-          ),
-        ),
-        Container(
-          width: double.infinity,
-          margin: const EdgeInsets.symmetric(horizontal: 4),
-          decoration: BoxDecoration(
-            color: AppTheme.surfaceColor,
-            borderRadius: BorderRadius.circular(AppTheme.cardBorderRadius),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.5),
-                offset: const Offset(0, 2),
-                blurRadius: 6,
-                spreadRadius: 0,
-              ),
-            ],
-            border: Border.all(
-              color: const Color(0xFF323232),
-              width: 1,
-            ),
-          ),
-          padding: const EdgeInsets.all(24),
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final cardWidth = (constraints.maxWidth - 48) / 3;
-              return Wrap(
-                spacing: 24,
-                runSpacing: 24,
-                children: List.generate(3, (index) => SizedBox(
-                  width: cardWidth,
-                  height: 240,
-                  child: _buildTrackCard(
-                    'Track ${index + 1}',
-                    'Artist ${index + 1}',
-                    'https://i.scdn.co/image/ab67616d0000b273ea7caaff71dea1051d49b2fe',
-                  ),
-                )),
-              );
-            }
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildTrackCard(String title, String artist, String imageUrl) {
-    return Container(
-      clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(
-        color: AppTheme.surfaceColor,
-        borderRadius: BorderRadius.circular(AppTheme.cardBorderRadius),
-        border: Border.all(
-          color: const Color(0xFF424242),
-          width: 1,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.4),
-            blurRadius: 4,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          // Album art
-          Positioned.fill(
-            child: Image.network(
-              imageUrl,
-              fit: BoxFit.cover,
-              errorBuilder: (context, error, stackTrace) {
-                return Container(
-                  color: AppTheme.cardBackgroundColor,
-                  child: const Center(
-                    child: Icon(Icons.music_note, size: 48, color: Colors.white54),
-                  ),
-                );
-              },
-            ),
-          ),
-          // Gradient overlay for text visibility
-          Positioned.fill(
-            child: Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Colors.transparent,
-                    Colors.black.withOpacity(0.6),
-                    Colors.black.withOpacity(0.9),
-                  ],
-                  stops: const [0.6, 0.8, 1.0],
-                ),
-              ),
-            ),
-          ),
-          // Text at bottom
-          Positioned(
-            bottom: 0,
-            left: 0,
-            right: 0,
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                      color: Colors.white,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    artist,
-                    style: TextStyle(
-                      color: AppTheme.textSecondary,
-                      fontSize: 14,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
-            ),
-          ),
-          // Play button overlay
-          Material(
-            color: Colors.transparent,
-            child: InkWell(
-              onTap: () {
-                // Play the track
-                print('Playing $title by $artist');
-              },
-              highlightColor: Colors.transparent,
-              splashColor: AppTheme.primaryColor.withOpacity(0.3),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildNowPlayingBar() {
-    return Container(
-      color: AppTheme.surfaceColor,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: Row(
-        children: [
-          // Album art
-          ClipRRect(
-            borderRadius: BorderRadius.circular(4),
-            child: Image.network(
-              'https://i.scdn.co/image/ab67616d0000b273ea7caaff71dea1051d49b2fe',
-              width: 48,
-              height: 48,
-              fit: BoxFit.cover,
-              errorBuilder: (context, error, stackTrace) {
-                return Container(
-                  width: 48,
-                  height: 48,
-                  color: AppTheme.cardBackgroundColor,
-                  child: const Icon(Icons.music_note),
-                );
-              },
-            ),
-          ),
-          const SizedBox(width: 16),
-          // Track info
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text(
-                  'Current Track Title',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                Text(
-                  'Artist Name',
-                  style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
-                ),
-              ],
-            ),
-          ),
-          // Play/pause button
-          IconButton(
-            icon: const Icon(Icons.pause),
-            onPressed: () {
-              // Toggle play/pause
-              print('Toggle play/pause');
-            },
-            color: AppTheme.primaryColor,
-          ),
-        ],
-      ),
-    );
   }
 }

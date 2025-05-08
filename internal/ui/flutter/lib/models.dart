@@ -52,36 +52,87 @@ class ImageData {
   ImageData({required this.url});
 }
 
+/// MediaItem represents a generic media item (music, movie, book, etc.)
 class MediaItem {
-  final int id;
+  final dynamic id;
   final String title;
-  final String? overview;
-  final String? posterPath;
-  final double voteAverage;
-  final int voteCount;
-  final String? date;
-  final bool isSaved;
+  final String overview;
+  final String posterPath;
+  final String mediaType;
+  final String reason;
   final String? director;
-  final String? writer;
   final String? author;
+  final String? uri;
+  final String? previewUrl;
+  final double? voteAverage;
+  final String? date;
   final List<String>? subjects;
-  final String mediaType; // 'movie', 'tv', 'book', 'game', 'music'
+  final double? rating;
+  final int? voteCount;
+  final String? releaseDate;
 
   MediaItem({
     required this.id,
     required this.title,
-    this.overview,
-    this.posterPath,
-    required this.voteAverage,
-    required this.voteCount,
-    this.date,
-    this.isSaved = false,
-    this.director,
-    this.writer,
-    this.author,
-    this.subjects,
     required this.mediaType,
+    this.overview = '',
+    this.posterPath = '',
+    this.reason = '',
+    this.director,
+    this.author,
+    this.uri,
+    this.previewUrl,
+    this.voteAverage,
+    this.date,
+    this.subjects,
+    this.rating,
+    this.voteCount,
+    this.releaseDate,
   });
+
+  /// Create a MediaItem from a Map, useful for JSON parsing
+  factory MediaItem.fromMap(Map<String, dynamic> map) {
+    return MediaItem(
+      id: map['id'],
+      title: map['title'] ?? map['name'] ?? 'Unknown',
+      overview: map['overview'] ?? map['artist'] ?? map['description'] ?? '',
+      posterPath: map['poster_path'] ?? map['album_art_url'] ?? map['image_url'] ?? '',
+      mediaType: map['media_type'] ?? 'unknown',
+      reason: map['reason'] ?? '',
+      director: map['director'],
+      author: map['author'],
+      uri: map['uri'],
+      previewUrl: map['preview_url'],
+      voteAverage: map['vote_average'] != null ? (map['vote_average'] is int ? (map['vote_average'] as int).toDouble() : map['vote_average'] as double) : 0.0,
+      date: map['date'] ?? map['release_date'] ?? map['published_date'],
+      subjects: map['subjects'] != null ? List<String>.from(map['subjects']) : null,
+      rating: map['rating'] != null ? (map['rating'] is int ? (map['rating'] as int).toDouble() : map['rating'] as double) : null,
+      voteCount: map['vote_count'],
+      releaseDate: map['release_date'],
+    );
+  }
+
+  /// Convert to a Map, useful for JSON serialization
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'title': title,
+      'overview': overview,
+      'poster_path': posterPath,
+      'media_type': mediaType,
+      'reason': reason,
+      if (director != null) 'director': director,
+      if (author != null) 'author': author,
+      if (uri != null) 'uri': uri,
+      if (previewUrl != null) 'preview_url': previewUrl,
+      if (voteAverage != null) 'vote_average': voteAverage,
+      if (date != null) 'date': date,
+      if (subjects != null) 'subjects': subjects,
+      if (rating != null) 'rating': rating,
+      if (voteCount != null) 'vote_count': voteCount,
+      if (releaseDate != null) 'release_date': releaseDate,
+    };
+  }
 }
 
 class MediaSuggestionItem {

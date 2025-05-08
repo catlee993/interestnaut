@@ -10,6 +10,11 @@ class BookWithSavedStatus {
   final int? year;
   final List<String>? subjects;
   final String? description;
+  
+  // Added fields to match the usage in _toMediaItem()
+  String get id => key;
+  String get imageUrl => coverPath;
+  String? get publishedDate => year?.toString();
 
   BookWithSavedStatus({
     required this.title,
@@ -48,17 +53,15 @@ class BookCard extends StatelessWidget {
 
   MediaItem _toMediaItem() {
     return MediaItem(
-      id: int.parse(book.key), // Assuming key is a numeric string
+      id: book.id,
       title: book.title,
-      overview: book.description,
-      posterPath: book.coverPath,
-      voteAverage: 0.0, // Books don't have ratings in our current model
-      voteCount: 0,
-      date: book.year?.toString(),
-      isSaved: isSaved,
-      author: book.author,
-      subjects: book.subjects,
+      overview: book.description ?? '',
+      posterPath: book.imageUrl ?? '',
       mediaType: 'book',
+      subjects: book.subjects,
+      author: book.author,
+      voteAverage: 0,
+      releaseDate: book.publishedDate,
     );
   }
 

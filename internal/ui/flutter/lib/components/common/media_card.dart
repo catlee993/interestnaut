@@ -144,9 +144,9 @@ class MediaCard extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       )
-                    else if (!isBook && item.date != null)
+                    else if (!isBook && item.releaseDate != null)
                       Text(
-                        item.date!,
+                        item.releaseDate!,
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                           color: AppTheme.textSecondary,
                         ),
@@ -295,11 +295,11 @@ class MediaCard extends StatelessWidget {
           ),
         ),
       );
-    } else if (!isBook && !isAudiobook && item.voteAverage > 0) {
+    } else if (!isBook && !isAudiobook && item.voteAverage != null && item.voteAverage! > 0) {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         decoration: BoxDecoration(
-          color: _getScoreColor(item.voteAverage),
+          color: _getScoreColor(item.voteAverage!),
           borderRadius: BorderRadius.circular(4),
         ),
         child: Row(
@@ -312,7 +312,7 @@ class MediaCard extends StatelessWidget {
             ),
             const SizedBox(width: 2),
             Text(
-              '${item.voteAverage.toStringAsFixed(1)}',
+              '${item.voteAverage!.toStringAsFixed(1)}',
               style: TextStyle(
                 color: AppTheme.textPrimary, 
                 fontSize: 12,

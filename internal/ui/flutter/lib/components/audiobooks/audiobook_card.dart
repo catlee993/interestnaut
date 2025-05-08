@@ -12,6 +12,11 @@ class AudiobookWithSavedStatus {
   final String? description;
   final String? narrator;
   final double? durationHours;
+  
+  // Added fields to match the usage in _toMediaItem()
+  String get id => key;
+  String get imageUrl => coverPath;
+  String? get publishedDate => year?.toString();
 
   AudiobookWithSavedStatus({
     required this.title,
@@ -52,17 +57,15 @@ class AudiobookCard extends StatelessWidget {
 
   MediaItem _toMediaItem() {
     return MediaItem(
-      id: int.tryParse(audiobook.key) ?? audiobook.key.hashCode,
+      id: audiobook.id,
       title: audiobook.title,
-      overview: audiobook.description,
-      posterPath: audiobook.coverPath,
-      voteAverage: 0.0,
-      voteCount: 0,
-      date: audiobook.year?.toString(),
-      isSaved: isSaved,
+      overview: audiobook.description ?? '',
+      posterPath: audiobook.imageUrl ?? '',
+      mediaType: 'audiobook',
+      voteAverage: 0,
       author: audiobook.author,
       subjects: audiobook.subjects,
-      mediaType: 'audiobook',
+      releaseDate: audiobook.publishedDate,
     );
   }
 

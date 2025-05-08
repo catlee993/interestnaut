@@ -58,13 +58,11 @@ class GameCard extends StatelessWidget {
     return MediaItem(
       id: game.id,
       title: game.name,
-      overview: game.description,
-      posterPath: game.coverUrl,
-      voteAverage: game.rating,
-      voteCount: game.ratingsCount,
-      date: game.releaseDate,
-      isSaved: isSaved,
+      overview: game.description ?? '',
+      posterPath: game.coverUrl ?? '',
       mediaType: 'game',
+      voteAverage: game.rating ?? 0,
+      releaseDate: game.releaseDate,
     );
   }
 

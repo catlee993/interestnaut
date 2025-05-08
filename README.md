@@ -22,7 +22,113 @@
 
 # Interestnaut
 
-A desktop application for managing your favorite media and getting AI-powered recommendations. Built with Wails, Go, and React.
+A multi-media discovery app that helps you find and track content across different media types: music, movies, TV shows, books, and games.
+
+## Project Structure
+
+The application is built using:
+- **Go backend**: Handles API integrations, data processing, and business logic
+- **Flutter frontend**: Provides the user interface for all platforms
+- **FFI (Foreign Function Interface)**: Enables direct communication between Go and Flutter
+
+```
+├── cmd/interestnaut      # Main Go application code
+├── internal/
+│   ├── app/              # Backend application code
+│   │   ├── bindings/     # API integrations for various media types
+│   │   ├── creds/        # Credential management
+│   │   ├── ffi/          # Foreign Function Interface code (Go side)
+│   │   └── session/      # Session management
+│   └── ui/
+│       └── flutter/      # Flutter app for UI
+├── scripts/              # Build and utility scripts
+└── dist/                 # Distribution output (created by build script)
+```
+
+## Development Setup
+
+### Prerequisites
+
+- Go 1.17+
+- Flutter 3.0+
+- C compiler (for CGO)
+
+### Running in Development Mode
+
+Option 1: Launch the Go app which will start the Flutter UI:
+
+```bash
+go run cmd/interestnaut/main.go
+```
+
+Option 2: Run the Flutter app directly (requires the Go library to be built first):
+
+```bash
+# Build the shared library
+go build -buildmode=c-shared -o libinterestnaut.dylib ./cmd/interestnaut/
+
+# Run the Flutter app
+cd internal/ui/flutter
+flutter run
+```
+
+## Building for Production
+
+Use the provided production build script:
+
+```bash
+./scripts/build_production.sh
+```
+
+This script will:
+1. Build the Go binary executable
+2. Build the Go shared library for FFI
+3. Build the Flutter app in release mode
+4. Package everything together for the current platform
+5. Create a distribution package in the `dist/` directory
+
+## Running the Production Build
+
+After building, you can run the application:
+
+### On macOS:
+```bash
+# From the dist/Interestnaut directory
+./launch.sh
+```
+
+### On Linux:
+```bash
+# From the dist/Interestnaut directory
+./launch.sh
+```
+
+### On Windows:
+```bash
+# From the dist/Interestnaut directory
+launch.bat
+```
+
+## Deployment Model
+
+The production deployment model uses the Go binary as the main executable, which:
+
+1. Launches and manages the Flutter UI process
+2. Provides a shared library for FFI communication
+3. Handles all backend API calls and business logic
+
+The Flutter UI communicates with the Go backend through FFI calls, without needing a separate network service.
+
+## App Store Distribution
+
+For app store distribution (macOS App Store, iOS App Store, etc.), additional steps are needed:
+
+1. Code signing with appropriate developer certificates
+2. Notarization (macOS)
+3. Entitlements configuration
+4. App store metadata preparation
+
+Refer to the platform-specific documentation for detailed instructions on app store submission.
 
 ## Features
 
@@ -64,7 +170,6 @@ You can switch between providers in the Settings panel. The application dynamica
    1. Note -- all authorization keys are stored in your OS's keychain using https://github.com/zalando/go-keyring
 4. Spotify should request authorization at bootup if no token is found; this token will be saved in your OS's keychain
 5. OpenLibrary does not require an API key, so if you have LLMs set up, you can start using it right away
-
 
 ## Development
 

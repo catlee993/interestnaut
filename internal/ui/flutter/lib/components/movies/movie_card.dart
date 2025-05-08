@@ -54,15 +54,12 @@ class MovieCard extends StatelessWidget {
     return MediaItem(
       id: movie.id,
       title: movie.title,
-      overview: movie.overview,
-      posterPath: movie.posterPath,
-      voteAverage: movie.voteAverage,
-      voteCount: movie.voteCount,
-      date: movie.releaseDate,
-      isSaved: isSaved,
-      director: movie.director,
-      writer: movie.writer,
+      overview: movie.overview ?? '',
+      posterPath: movie.posterPath ?? '',
       mediaType: 'movie',
+      voteAverage: movie.voteAverage,
+      releaseDate: movie.releaseDate,
+      director: movie.director,
     );
   }
 
