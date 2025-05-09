@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'search_bar.dart';
+import 'search_bar.dart' as custom;
 import 'settings_drawer.dart';
 
 class MediaHeader extends StatefulWidget {
@@ -71,7 +71,7 @@ class _MediaHeaderState extends State<MediaHeader> {
         position.dx + button.size.width,
         position.dy,
       ),
-      color: Color.fromRGBO(18, 18, 18, 0.95),
+      color: const Color.fromRGBO(18, 18, 18, 0.95),
       items: [
         _buildMenuItem('music'),
         _buildMenuItem('movies'),
@@ -79,6 +79,10 @@ class _MediaHeaderState extends State<MediaHeader> {
         _buildMenuItem('games'),
         _buildMenuItem('books'),
       ],
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(6),
+        side: const BorderSide(color: Color.fromRGBO(255, 255, 255, 0.1)),
+      ),
     );
   }
 
@@ -87,11 +91,11 @@ class _MediaHeaderState extends State<MediaHeader> {
       value: media,
       child: Text(
         _getMediaDisplayName(media),
-        style: TextStyle(
+        style: const TextStyle(
+          color: Colors.white,
           fontSize: 14,
-          fontWeight: FontWeight.w300,
-          letterSpacing: 1,
-          textBaseline: TextBaseline.alphabetic,
+          fontWeight: FontWeight.bold,
+          letterSpacing: 1.5,
         ),
       ),
       onTap: () => _handleMediaChange(media),
@@ -100,145 +104,134 @@ class _MediaHeaderState extends State<MediaHeader> {
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        Material(
-          color: Color.fromRGBO(18, 18, 18, 0.95),
-          elevation: 0,
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
-                child: SizedBox(
-                  height: 46,
-                  child: Row(
-                    children: [
-                      // Left section: Media selector
-                      SizedBox(
-                        width: 200,
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: GestureDetector(
-                            key: _menuKey,
-                            onTap: _showMediaMenu,
-                            child: Container(
-                              padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(4),
-                                color: Colors.transparent,
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(
-                                    _getMediaDisplayName(activeMedia),
-                                    style: TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w300,
-                                      letterSpacing: 1,
-                                    ),
-                                  ),
-                                  SizedBox(width: 8),
-                                  Icon(Icons.arrow_drop_down, color: Colors.white, size: 18),
-                                ],
-                              ),
-                            ),
+    return Material(
+      color: const Color.fromRGBO(18, 18, 18, 0.95),
+      elevation: 0,
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+            child: SizedBox(
+              height: 46,
+              child: Row(
+                children: [
+                  // Left section: Media selector
+                  SizedBox(
+                    width: 200,
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: GestureDetector(
+                        key: _menuKey,
+                        onTap: _showMediaMenu,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(4),
+                            color: Colors.transparent,
                           ),
-                        ),
-                      ),
-                      // Center section: Logo
-                      Expanded(
-                        child: Center(
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               Text(
-                                'interestnaut',
-                                style: TextStyle(
-                                  fontFamily: 'Inter',
-                                  fontWeight: FontWeight.w300,
+                                _getMediaDisplayName(activeMedia),
+                                style: const TextStyle(
+                                  color: Colors.white,
                                   fontSize: 16,
+                                  fontWeight: FontWeight.bold,
                                   letterSpacing: 1,
-                                  foreground: Paint()
-                                    ..shader = LinearGradient(
-                                      colors: [
-                                        Color(0xFFc165dd),
-                                        Color(0xFF9880ff),
-                                      ],
-                                      begin: Alignment.topLeft,
-                                      end: Alignment.bottomRight,
-                                    ).createShader(Rect.fromLTWH(0, 0, 120, 20)),
                                 ),
                               ),
-                              SizedBox(width: 6),
-                              Container(
-                                height: 28,
-                                width: 28,
-                                margin: EdgeInsets.only(bottom: 4),
-                                child: Image.asset(
-                                  'assets/images/logo/interestnaut-mascot.png',
-                                  fit: BoxFit.contain,
-                                ),
-                              ),
+                              const SizedBox(width: 8),
+                              const Icon(Icons.arrow_drop_down, color: Colors.white, size: 18),
                             ],
                           ),
                         ),
                       ),
-                      // Right section: Additional controls and settings
-                      SizedBox(
-                        width: 200,
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          children: [
-                            if (widget.additionalControl != null)
-                              widget.additionalControl!,
-                            IconButton(
-                              icon: Icon(Icons.settings, color: Color(0xFF7b68ee)),
-                              onPressed: () {
-                                setState(() {
-                                  _showSettingsDrawer = true;
-                                });
-                              },
-                              padding: EdgeInsets.all(2),
-                              splashRadius: 18,
-                              tooltip: 'Settings',
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
-                ),
+                  // Center section: Logo
+                  Expanded(
+                    child: Center(
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            'INTERESTNAUT',
+                            style: TextStyle(
+                              fontFamily: 'Inter',
+                              fontWeight: FontWeight.bold,
+                              fontSize: 22,
+                              letterSpacing: 2,
+                              color: const Color(0xFFb39ddb),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Container(
+                            height: 28,
+                            width: 28,
+                            margin: const EdgeInsets.only(bottom: 4),
+                            child: Image.asset(
+                              'assets/images/logo/interestnaut-mascot.png',
+                              fit: BoxFit.contain,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  // Right section: Additional controls and settings
+                  SizedBox(
+                    width: 200,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        if (widget.additionalControl != null)
+                          widget.additionalControl!,
+                        IconButton(
+                          icon: const Icon(Icons.settings, color: Color(0xFF7b68ee)),
+                          onPressed: () {
+                            setState(() {
+                              _showSettingsDrawer = true;
+                            });
+                          },
+                          padding: const EdgeInsets.all(2),
+                          splashRadius: 18,
+                          tooltip: 'Settings',
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-                child: SearchBar(
-                  placeholder: activeMedia == 'music'
-                      ? 'Search tracks...'
-                      : activeMedia == 'movies'
-                          ? 'Search movies...'
-                          : activeMedia == 'tv'
-                              ? 'Search TV shows...'
-                              : activeMedia == 'books'
-                                  ? 'Search books...'
-                                  : 'Search games...',
-                  onSearch: widget.onSearch,
-                  onClear: widget.onClearSearch,
-                ),
-              ),
-            ],
+            ),
           ),
-        ),
-        SettingsDrawer(
-          open: _showSettingsDrawer,
-          onClose: () {
-            setState(() {
-              _showSettingsDrawer = false;
-            });
-          },
-        ),
-      ],
+          const SizedBox(height: 12),
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 0, horizontal: 16),
+            child: custom.SearchBar(
+              placeholder: activeMedia == 'music'
+                  ? 'Search tracks...'
+                  : activeMedia == 'movies'
+                      ? 'Search movies...'
+                      : activeMedia == 'tv'
+                          ? 'Search TV shows...'
+                          : activeMedia == 'books'
+                              ? 'Search books...'
+                              : 'Search games...',
+              onSearch: widget.onSearch,
+              onClear: widget.onClearSearch,
+            ),
+          ),
+          SettingsDrawer(
+            open: _showSettingsDrawer,
+            onClose: () {
+              setState(() {
+                _showSettingsDrawer = false;
+              });
+            },
+          ),
+        ],
+      ),
     );
   }
 } 

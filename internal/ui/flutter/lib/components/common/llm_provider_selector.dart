@@ -14,7 +14,9 @@ class LLMProviderSelector extends StatelessWidget {
   Widget build(BuildContext context) {
     return DropdownButtonFormField<String>(
       value: value,
-      onChanged: onChanged,
+      onChanged: (value) {
+        if (value != null) onChanged(value);
+      },
       decoration: InputDecoration(
         labelText: 'LLM Provider',
         labelStyle: TextStyle(color: Colors.white.withOpacity(0.7)),

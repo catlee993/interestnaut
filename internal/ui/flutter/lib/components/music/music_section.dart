@@ -236,107 +236,17 @@ class _MusicSectionState extends State<MusicSection> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // User profile or connect button
-        _buildUserSection(),
+        // Remove user/auth UI from here. Only show music content.
         const SizedBox(height: 24),
-        
         // Suggestions section
         _buildSuggestionSection(),
         const SizedBox(height: 24),
-        
         // Library section
         _buildLibrarySection(),
       ],
     );
   }
   
-  Widget _buildUserSection() {
-    if (_isAuthenticated && _userProfile != null) {
-      return Align(
-        alignment: Alignment.centerRight,
-        child: _buildUserControl(_userProfile!),
-      );
-    } else {
-      return Align(
-        alignment: Alignment.centerRight,
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Text(
-            'Please connect to Spotify using the button in the header',
-            style: TextStyle(
-              color: AppTheme.textSecondary,
-              fontStyle: FontStyle.italic,
-            ),
-          ),
-        ),
-      );
-    }
-  }
-
-  Widget _buildUserControl(Map<String, dynamic> user) {
-    final displayName = user['display_name'] ?? 'Spotify User';
-    final hasAvatar = user['images'] != null && 
-        user['images'].isNotEmpty && 
-        user['images'][0]['url'] != null && 
-        user['images'][0]['url'].isNotEmpty;
-    
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Text(
-              'Logged in as',
-              style: TextStyle(
-                color: AppTheme.spotifyGreen,
-                fontSize: 10,
-              ),
-            ),
-            Text(
-              displayName,
-              style: TextStyle(
-                color: AppTheme.spotifyGreen,
-                fontSize: 12,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(width: 8),
-        CircleAvatar(
-          radius: 16,
-          backgroundColor: hasAvatar ? null : AppTheme.spotifyGreen,
-          backgroundImage: hasAvatar 
-              ? NetworkImage(user['images'][0]['url'])
-              : null,
-          child: hasAvatar 
-              ? null 
-              : Text(
-                  displayName.isNotEmpty ? displayName[0].toUpperCase() : 'S',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-        ),
-        const SizedBox(width: 8),
-        OutlinedButton(
-          onPressed: _clearAuth,
-          style: OutlinedButton.styleFrom(
-            foregroundColor: AppTheme.purpleRed,
-            side: BorderSide(color: AppTheme.purpleRed),
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            minimumSize: const Size(70, 24),
-            textStyle: const TextStyle(fontSize: 12),
-          ),
-          child: const Text('Clear Auth'),
-        ),
-      ],
-    );
-  }
-
   Widget _buildSuggestionSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,

@@ -1,6 +1,5 @@
 import 'dart:ffi' as ffi;
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as path;
@@ -9,11 +8,12 @@ import 'components/movies/movie_section.dart';
 import 'components/tv/tv_show_section.dart';
 import 'components/books/book_section.dart';
 import 'components/games/game_section.dart';
-import 'components/audiobooks/audiobook_section.dart';
 import 'components/music/music_section.dart';
 import 'theme.dart';
 import 'services/go_bindings.dart';
 import 'services/ffi_init.dart';
+import 'components/common/media_header.dart';
+import 'components/music/spotify_user_control.dart';
 
 // Flag to check if we're running on web
 bool get isWeb => kIsWeb;
@@ -270,6 +270,30 @@ class _InterestnautAppState extends State<InterestnautApp> {
     }
   }
 
+  void _handleClearAuth() async {
+    try {
+      await GoBindings.instance.music.clearSpotifyCredentials();
+      setState(() {
+        _isAuthenticated = false;
+        _userProfile = null;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Spotify credentials cleared'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+    } catch (e) {
+      print('Error clearing auth: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to clear Spotify credentials: $e'),
+          duration: const Duration(seconds: 5),
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     // Main app UI
@@ -278,293 +302,37 @@ class _InterestnautAppState extends State<InterestnautApp> {
       body: Column(
         children: [
           // Header
-          Container(
-            color: AppTheme.backgroundColor,
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-            child: Column(
-              children: [
-                // Top row with user info and auth
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    if (_isAuthenticated && _userProfile != null)
-                      _buildUserControl(_userProfile!)
-                    else
-                      TextButton(
-                        onPressed: () async {
-                          // Connect to Spotify using our FFI bridge
-                          print('Connecting to Spotify...');
-                          try {
-                            // Show a loading dialog
-                            showDialog(
-                              context: context,
-                              barrierDismissible: false,
-                              builder: (context) =>
-                              const AlertDialog(
-                                content: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    CircularProgressIndicator(),
-                                    SizedBox(height: 16),
-                                    Text('Connecting to Spotify...'),
-                                  ],
-                                ),
-                              ),
-                            );
-
-                            // Make sure FFI is initialized
-                            if (!GoBindings.ffiAvailable) {
-                              await FFIInitializer.initialize();
-                              await GoBindings.initialize();
-                            }
-
-                            // Explicitly trigger Spotify auth
-                            await GoBindings.instance.music
-                                .initiateSpotifyAuth();
-
-                            // Check if auth succeeded
-                            final authStatus = await GoBindings.instance.music
-                                .getAuthStatus();
-                            setState(() {
-                              _isAuthenticated =
-                                  authStatus['isAuthenticated'] == true;
-                            });
-
-                            // Close the loading dialog
-                            Navigator.of(context).pop();
-
-                            // If authenticated, load user profile
-                            if (_isAuthenticated) {
-                              final profile = await GoBindings.instance.music
-                                  .getCurrentUser();
-                              setState(() {
-                                _userProfile = profile;
-                              });
-
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text(
-                                      'Successfully connected to Spotify!'),
-                                  duration: Duration(seconds: 3),
-                                ),
-                              );
-                            } else {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text(
-                                      'Authentication with Spotify did not complete. Please try again.'),
-                                  duration: Duration(seconds: 3),
-                                ),
-                              );
-                            }
-                          } catch (e) {
-                            // Close the loading dialog if open
-                            if (Navigator.of(context).canPop()) {
-                              Navigator.of(context).pop();
-                            }
-
-                            print('Error connecting to Spotify: $e');
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                    'Failed to connect to Spotify. Please try again.'),
-                                duration: Duration(seconds: 5),
-                              ),
-                            );
-                          }
-                        },
-                        style: TextButton.styleFrom(
-                          foregroundColor: AppTheme.spotifyGreen,
-                          textStyle: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        child: const Text('Connect to Spotify'),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 20),
-                // App title
-                Text(
-                  'INTERESTNAUT',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 36, // Increased to match MUI
-                    color: AppTheme.primaryColor,
-                    letterSpacing: 1.5,
-                  ),
-                ),
-                const SizedBox(height: 24),
-                // Media selector
-                _buildMediaSelector(),
-              ],
-            ),
+          MediaHeader(
+            currentMedia: _currentMediaType,
+            onMediaChange: (media) {
+              setState(() {
+                _currentMediaType = media;
+              });
+            },
+            onSearch: (query) {
+              // TODO: Implement search per media type
+            },
+            onClearSearch: () {
+              // TODO: Implement clear search per media type
+            },
+            additionalControl: _currentMediaType == 'music' && _isAuthenticated
+                ? SpotifyUserControl(
+                    user: _userProfile,
+                    onClearAuth: _handleClearAuth,
+                  )
+                : null,
           ),
-
-          // Content area with media section
+          // Main content area
           Expanded(
             child: Container(
               color: AppTheme.backgroundColor,
               child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 16, vertical: 24),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
                 child: _buildCurrentContent(),
               ),
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildUserControl(Map<String, dynamic> user) {
-    final displayName = user['display_name'] ?? 'Spotify User';
-    final hasAvatar = user['images'] != null &&
-        user['images'].isNotEmpty &&
-        user['images'][0]['url'] != null &&
-        user['images'][0]['url'].isNotEmpty;
-
-    return Row(
-      children: [
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Text(
-              'Logged in as',
-              style: TextStyle(
-                color: AppTheme.spotifyGreen,
-                fontSize: 10,
-              ),
-            ),
-            Text(
-              displayName,
-              style: TextStyle(
-                color: AppTheme.spotifyGreen,
-                fontSize: 12,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(width: 8),
-        CircleAvatar(
-          radius: 12,
-          backgroundColor: hasAvatar ? null : AppTheme.spotifyGreen,
-          backgroundImage: hasAvatar
-              ? NetworkImage(user['images'][0]['url'])
-              : null,
-          child: hasAvatar
-              ? null
-              : Text(
-            displayName.isNotEmpty ? displayName[0].toUpperCase() : 'S',
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 12,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ),
-        const SizedBox(width: 8),
-        OutlinedButton(
-          onPressed: () async {
-            // Clear Spotify credentials using our FFI bridge
-            print('Clearing auth...');
-            try {
-              // Make sure FFI is initialized
-              if (!GoBindings.ffiAvailable) {
-                await FFIInitializer.initialize();
-                GoBindings.initialize();
-              }
-
-              // Clear Spotify credentials
-              await GoBindings.instance.music.clearSpotifyCredentials();
-
-              setState(() {
-                _isAuthenticated = false;
-                _userProfile = null;
-              });
-
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Spotify credentials cleared'),
-                  duration: Duration(seconds: 2),
-                ),
-              );
-            } catch (e) {
-              print('Error clearing auth: $e');
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Failed to clear Spotify credentials: $e'),
-                  duration: const Duration(seconds: 5),
-                ),
-              );
-            }
-          },
-          style: OutlinedButton.styleFrom(
-            foregroundColor: AppTheme.purpleRed,
-            side: BorderSide(color: AppTheme.purpleRed),
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
-            minimumSize: const Size(70, 20),
-            textStyle: const TextStyle(fontSize: 10),
-          ),
-          child: const Text('Clear Auth'),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildMediaSelector() {
-    return Container(
-      decoration: const BoxDecoration(
-        border: Border(
-          bottom: BorderSide(
-            color: Color(0xFF1E1E1E),
-            width: 1,
-          ),
-        ),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          _mediaTypeButton('Music', 'music'),
-          _mediaTypeButton('Movies', 'movies'),
-          _mediaTypeButton('TV Shows', 'tv'),
-          _mediaTypeButton('Books', 'books'),
-          _mediaTypeButton('Games', 'games'),
-        ],
-      ),
-    );
-  }
-
-  Widget _mediaTypeButton(String label, String mediaType) {
-    final isSelected = _currentMediaType == mediaType;
-
-    return InkWell(
-      onTap: () {
-        setState(() {
-          _currentMediaType = mediaType;
-        });
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-        margin: const EdgeInsets.symmetric(horizontal: 6),
-        decoration: BoxDecoration(
-          border: Border(
-            bottom: BorderSide(
-              color: isSelected ? AppTheme.primaryColor : Colors.transparent,
-              width: 3,
-            ),
-          ),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: isSelected ? AppTheme.primaryColor : AppTheme.textPrimary,
-            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-            fontSize: 16,
-          ),
-        ),
       ),
     );
   }

@@ -33,7 +33,6 @@ dependencies:
   cupertino_icons: ^1.0.2
   
   # Google Fonts for MUI-like typography
-  google_fonts: ^6.0.0
   
   # Additional dependencies for our app
   path: ^1.8.3
@@ -70,6 +69,9 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
+  assets:
+    - assets/images/logo/interestnaut-mascot.png
 
   # To add assets to your application, add an assets section, like this:
   # assets:

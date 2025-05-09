@@ -30,7 +30,9 @@ class ModelSelector extends StatelessWidget {
     }
     return DropdownButtonFormField<String>(
       value: value,
-      onChanged: onChanged,
+      onChanged: (value) {
+        if (value != null) onChanged(value);
+      },
       decoration: InputDecoration(
         labelText: provider == 'openai' ? 'ChatGPT Model' : 'Gemini Model',
         labelStyle: TextStyle(color: Colors.white.withOpacity(0.7)),
