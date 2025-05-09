@@ -94,7 +94,7 @@ class _MediaHeaderState extends State<MediaHeader> {
         style: const TextStyle(
           color: Colors.white,
           fontSize: 14,
-          fontWeight: FontWeight.bold,
+          fontWeight: FontWeight.w500,
           letterSpacing: 1.5,
         ),
       ),
@@ -117,7 +117,7 @@ class _MediaHeaderState extends State<MediaHeader> {
                 children: [
                   // Left section: Media selector
                   SizedBox(
-                    width: 200,
+                    width: 220,
                     child: Align(
                       alignment: Alignment.centerLeft,
                       child: GestureDetector(
@@ -137,8 +137,8 @@ class _MediaHeaderState extends State<MediaHeader> {
                                 style: const TextStyle(
                                   color: Colors.white,
                                   fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                  letterSpacing: 1,
+                                  fontWeight: FontWeight.w500,
+                                  letterSpacing: 2.0,
                                 ),
                               ),
                               const SizedBox(width: 8),
@@ -155,14 +155,23 @@ class _MediaHeaderState extends State<MediaHeader> {
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Text(
-                            'INTERESTNAUT',
-                            style: TextStyle(
-                              fontFamily: 'Inter',
-                              fontWeight: FontWeight.bold,
-                              fontSize: 22,
-                              letterSpacing: 2,
-                              color: const Color(0xFFb39ddb),
+                          // Gradient text for INTERESTNAUT
+                          ShaderMask(
+                            shaderCallback: (Rect bounds) {
+                              return const LinearGradient(
+                                colors: [Color(0xFFb39ddb), Color(0xFFA855F7)],
+                                begin: Alignment.centerLeft,
+                                end: Alignment.centerRight,
+                              ).createShader(bounds);
+                            },
+                            child: const Text(
+                              'INTERESTNAUT',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                fontSize: 22,
+                                letterSpacing: 3,
+                                color: Colors.white,
+                              ),
                             ),
                           ),
                           const SizedBox(width: 6),
@@ -181,7 +190,7 @@ class _MediaHeaderState extends State<MediaHeader> {
                   ),
                   // Right section: Additional controls and settings
                   SizedBox(
-                    width: 200,
+                    width: 220,
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.end,
                       children: [
@@ -208,18 +217,23 @@ class _MediaHeaderState extends State<MediaHeader> {
           const SizedBox(height: 12),
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 0, horizontal: 16),
-            child: custom.SearchBar(
-              placeholder: activeMedia == 'music'
-                  ? 'Search tracks...'
-                  : activeMedia == 'movies'
-                      ? 'Search movies...'
-                      : activeMedia == 'tv'
-                          ? 'Search TV shows...'
-                          : activeMedia == 'books'
-                              ? 'Search books...'
-                              : 'Search games...',
-              onSearch: widget.onSearch,
-              onClear: widget.onClearSearch,
+            child: Center(
+              child: SizedBox(
+                width: MediaQuery.of(context).size.width * 0.7,
+                child: custom.SearchBar(
+                  placeholder: activeMedia == 'music'
+                      ? 'Search tracks...'
+                      : activeMedia == 'movies'
+                          ? 'Search movies...'
+                          : activeMedia == 'tv'
+                              ? 'Search TV shows...'
+                              : activeMedia == 'books'
+                                  ? 'Search books...'
+                                  : 'Search games...',
+                  onSearch: widget.onSearch,
+                  onClear: widget.onClearSearch,
+                ),
+              ),
             ),
           ),
           SettingsDrawer(
