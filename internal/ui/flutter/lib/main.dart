@@ -11,7 +11,7 @@ import 'components/books/book_section.dart';
 import 'components/games/game_section.dart';
 import 'components/audiobooks/audiobook_section.dart';
 import 'components/music/music_section.dart';
-import 'theme.dart'; // Import our new theme
+import 'theme.dart';
 import 'services/go_bindings.dart';
 import 'services/ffi_init.dart';
 
@@ -23,7 +23,7 @@ final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
+
   // Set window size to match the legacy app (1024x768)
   if (!isWeb) {
     if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
@@ -33,48 +33,57 @@ void main() async {
       Size initialSize = const Size(1024, 768);
       window_package.setWindowMinSize(minSize);
       window_package.setWindowMaxSize(maxSize);
-      window_package.setWindowFrame(Rect.fromLTWH(0, 0, initialSize.width, initialSize.height));
+      window_package.setWindowFrame(
+          Rect.fromLTWH(0, 0, initialSize.width, initialSize.height));
     }
   }
-  
+
   // Initialize FFI and handle errors
   if (!isWeb) {
     try {
       // 1. Initialize FFI to load the dylib
       await FFIInitializer.initialize();
-      debugPrint('Dart: FFIInitializer.initialize() complete. Dylib loaded. Status: ${FFIInitializer.isInitialized}');
+      debugPrint(
+          'Dart: FFIInitializer.initialize() complete. Dylib loaded. Status: ${FFIInitializer
+              .isInitialized}');
 
       if (FFIInitializer.isInitialized) {
         // 2. Call the exported Go function to initialize Go-side resources
         try {
           final goInitFFIBridge =
-              FFIInitializer.dylib.lookupFunction<ffi.Void Function(), void Function()>('InitializeFFIBridge');
+          FFIInitializer.dylib.lookupFunction<ffi.Void Function(),
+              void Function()>('InitializeFFIBridge');
           debugPrint('Dart: Calling Go InitializeFFIBridge()...');
           goInitFFIBridge();
           debugPrint('Dart: Go InitializeFFIBridge() called successfully.');
         } catch (e) {
-          debugPrint('Dart: ERROR looking up or calling InitializeFFIBridge: $e');
+          debugPrint(
+              'Dart: ERROR looking up or calling InitializeFFIBridge: $e');
           // Handle critical error: Go FFI resources might not be set up.
           // The app might not function correctly.
         }
       } else {
-        debugPrint('Dart: FFIInitializer.isInitialized is false. Skipping call to InitializeFFIBridge.');
+        debugPrint(
+            'Dart: FFIInitializer.isInitialized is false. Skipping call to InitializeFFIBridge.');
         // Handle critical error: Dylib not loaded.
       }
-      
+
       // 3. Initialize GoBindings (Dart wrapper for FFI calls)
       // This should now find that FFIInitializer.isInitialized is true, 
       // and Go-side resources are also ready.
       await GoBindings.initialize();
-      debugPrint('Dart: GoBindings.initialize() complete. Status: ${GoBindings.ffiAvailable}');
-      
+      debugPrint('Dart: GoBindings.initialize() complete. Status: ${GoBindings
+          .ffiAvailable}');
+
       // Verify by trying to access a function
       if (GoBindings.ffiAvailable) {
         debugPrint('Verifying FFI by looking up FreeString function...');
-        final freeStringFn = FFIInitializer.dylib.lookupFunction<ffi.Void Function(ffi.Pointer<ffi.Char>), void Function(ffi.Pointer<ffi.Char>)>('FreeString');
+        final freeStringFn = FFIInitializer.dylib.lookupFunction<
+            ffi.Void Function(ffi.Pointer<ffi.Char>),
+            void Function(ffi.Pointer<ffi.Char>)>('FreeString');
         debugPrint('Successfully verified FreeString function exists');
       }
-      
+
       // Register for app lifecycle events to signal shutdown to Go
       registerShutdownHooks();
     } catch (e) {
@@ -82,7 +91,7 @@ void main() async {
       // Continue anyway, the app will handle missing FFI gracefully
     }
   }
-  
+
   runApp(const MyApp());
 }
 
@@ -91,12 +100,12 @@ void registerShutdownHooks() {
   // For desktop platforms, we need to tell Go when we're shutting down
   if (!isWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux)) {
     debugPrint('Registering shutdown hooks for Go interop');
-    
+
     // Signal Go when app is being terminated
     Future.delayed(Duration.zero, () {
       WidgetsBinding.instance.addObserver(_AppLifecycleObserver());
     });
-    
+
     // Register a synchronous handler for more immediate termination scenarios
     // This isn't perfect but helps in some cases
     ProcessSignal.sigterm.watch().listen((_) {
@@ -153,13 +162,13 @@ class _InterestnautAppState extends State<InterestnautApp> {
   String _currentMediaType = 'music';
   bool _isAuthenticated = false;
   Map<String, dynamic>? _userProfile;
-  
+
   @override
   void initState() {
     super.initState();
     _ensureInitialized();
   }
-  
+
   // Ensure FFI is properly initialized
   Future<void> _ensureInitialized() async {
     if (isWeb) {
@@ -167,23 +176,23 @@ class _InterestnautAppState extends State<InterestnautApp> {
       _checkServerConnection();
       return;
     }
-    
+
     try {
       if (!GoBindings.ffiAvailable) {
         await FFIInitializer.initialize();
         await GoBindings.initialize();
       }
-      
+
       // Now proceed with server connection check
       await _checkServerConnection();
-      
+
       // And check if we're already authenticated with Spotify
       try {
         final authStatus = await GoBindings.instance.music.getAuthStatus();
         setState(() {
           _isAuthenticated = authStatus['isAuthenticated'] == true;
         });
-        
+
         if (_isAuthenticated) {
           try {
             final profile = await GoBindings.instance.music.getCurrentUser();
@@ -200,7 +209,7 @@ class _InterestnautAppState extends State<InterestnautApp> {
     } catch (e) {
       debugPrint('Failed to initialize FFI: $e');
       // Continue anyway - app will handle missing FFI gracefully
-      
+
       // Still check the server connection
       await _checkServerConnection();
     }
@@ -224,17 +233,17 @@ class _InterestnautAppState extends State<InterestnautApp> {
         });
         return;
       }
-      
+
       // Native platforms
-      final commsDir = Platform.environment['INTERESTNAUT_COMMS_DIR'] ?? 
+      final commsDir = Platform.environment['INTERESTNAUT_COMMS_DIR'] ??
           path.join(Directory.systemTemp.path, 'interestnaut');
-      
+
       // Read the server port file
       final portFile = File(path.join(commsDir, 'server_port'));
       if (await portFile.exists()) {
         final port = await portFile.readAsString();
         print('Found server port: $port');
-        
+
         // Here we would establish communication with the Go backend
         // For now, we'll just simulate being authenticated
         setState(() {
@@ -290,7 +299,8 @@ class _InterestnautAppState extends State<InterestnautApp> {
                             showDialog(
                               context: context,
                               barrierDismissible: false,
-                              builder: (context) => const AlertDialog(
+                              builder: (context) =>
+                              const AlertDialog(
                                 content: Column(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
@@ -301,42 +311,48 @@ class _InterestnautAppState extends State<InterestnautApp> {
                                 ),
                               ),
                             );
-                            
+
                             // Make sure FFI is initialized
                             if (!GoBindings.ffiAvailable) {
                               await FFIInitializer.initialize();
                               await GoBindings.initialize();
                             }
-                            
+
                             // Explicitly trigger Spotify auth
-                            await GoBindings.instance.music.initiateSpotifyAuth();
-                            
+                            await GoBindings.instance.music
+                                .initiateSpotifyAuth();
+
                             // Check if auth succeeded
-                            final authStatus = await GoBindings.instance.music.getAuthStatus();
+                            final authStatus = await GoBindings.instance.music
+                                .getAuthStatus();
                             setState(() {
-                              _isAuthenticated = authStatus['isAuthenticated'] == true;
+                              _isAuthenticated =
+                                  authStatus['isAuthenticated'] == true;
                             });
-                            
+
                             // Close the loading dialog
                             Navigator.of(context).pop();
-                            
+
                             // If authenticated, load user profile
                             if (_isAuthenticated) {
-                              final profile = await GoBindings.instance.music.getCurrentUser();
+                              final profile = await GoBindings.instance.music
+                                  .getCurrentUser();
                               setState(() {
                                 _userProfile = profile;
                               });
-                              
+
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(
-                                  content: Text('Successfully connected to Spotify!'),
+                                  content: Text(
+                                      'Successfully connected to Spotify!'),
                                   duration: Duration(seconds: 3),
                                 ),
                               );
                             } else {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(
-                                  content: Text('Authentication with Spotify did not complete. Please try again.'),
+                                  content: Text(
+                                      'Authentication with Spotify did not complete. Please try again.'),
                                   duration: Duration(seconds: 3),
                                 ),
                               );
@@ -346,12 +362,13 @@ class _InterestnautAppState extends State<InterestnautApp> {
                             if (Navigator.of(context).canPop()) {
                               Navigator.of(context).pop();
                             }
-                            
+
                             print('Error connecting to Spotify: $e');
                             ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('Failed to connect to Spotify. Please try again.'),
-                                duration: const Duration(seconds: 5),
+                              const SnackBar(
+                                content: Text(
+                                    'Failed to connect to Spotify. Please try again.'),
+                                duration: Duration(seconds: 5),
                               ),
                             );
                           }
@@ -384,13 +401,14 @@ class _InterestnautAppState extends State<InterestnautApp> {
               ],
             ),
           ),
-          
+
           // Content area with media section
           Expanded(
             child: Container(
               color: AppTheme.backgroundColor,
               child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 16, vertical: 24),
                 child: _buildCurrentContent(),
               ),
             ),
@@ -402,11 +420,11 @@ class _InterestnautAppState extends State<InterestnautApp> {
 
   Widget _buildUserControl(Map<String, dynamic> user) {
     final displayName = user['display_name'] ?? 'Spotify User';
-    final hasAvatar = user['images'] != null && 
-        user['images'].isNotEmpty && 
-        user['images'][0]['url'] != null && 
+    final hasAvatar = user['images'] != null &&
+        user['images'].isNotEmpty &&
+        user['images'][0]['url'] != null &&
         user['images'][0]['url'].isNotEmpty;
-    
+
     return Row(
       children: [
         Column(
@@ -433,19 +451,19 @@ class _InterestnautAppState extends State<InterestnautApp> {
         CircleAvatar(
           radius: 12,
           backgroundColor: hasAvatar ? null : AppTheme.spotifyGreen,
-          backgroundImage: hasAvatar 
+          backgroundImage: hasAvatar
               ? NetworkImage(user['images'][0]['url'])
               : null,
-          child: hasAvatar 
-              ? null 
+          child: hasAvatar
+              ? null
               : Text(
-                  displayName.isNotEmpty ? displayName[0].toUpperCase() : 'S',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
+            displayName.isNotEmpty ? displayName[0].toUpperCase() : 'S',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
         ),
         const SizedBox(width: 8),
         OutlinedButton(
@@ -458,15 +476,15 @@ class _InterestnautAppState extends State<InterestnautApp> {
                 await FFIInitializer.initialize();
                 GoBindings.initialize();
               }
-              
+
               // Clear Spotify credentials
               await GoBindings.instance.music.clearSpotifyCredentials();
-              
+
               setState(() {
                 _isAuthenticated = false;
                 _userProfile = null;
               });
-              
+
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
                   content: Text('Spotify credentials cleared'),
@@ -521,7 +539,7 @@ class _InterestnautAppState extends State<InterestnautApp> {
 
   Widget _mediaTypeButton(String label, String mediaType) {
     final isSelected = _currentMediaType == mediaType;
-    
+
     return InkWell(
       onTap: () {
         setState(() {

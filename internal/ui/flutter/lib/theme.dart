@@ -278,7 +278,6 @@ class AppTheme {
     );
   }
 
-  /// Build input decoration theme to match MUI styling
   static InputDecorationTheme _buildInputDecorationTheme() {
     return InputDecorationTheme(
       filled: true,
