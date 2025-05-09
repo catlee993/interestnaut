@@ -93,8 +93,8 @@ class _MediaHeaderState extends State<MediaHeader> {
         _getMediaDisplayName(media),
         style: const TextStyle(
           color: Colors.white,
-          fontSize: 12,
-          fontWeight: FontWeight.normal,
+          fontSize: 14,
+          fontWeight: FontWeight.w100,
           letterSpacing: 1.5,
         ),
       ),
@@ -136,9 +136,9 @@ class _MediaHeaderState extends State<MediaHeader> {
                                 _getMediaDisplayName(activeMedia),
                                 style: const TextStyle(
                                   color: Colors.white,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w400,
-                                  letterSpacing: 2.5,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w100,
+                                  letterSpacing: 1.5,
                                 ),
                               ),
                               const SizedBox(width: 8),
@@ -160,8 +160,8 @@ class _MediaHeaderState extends State<MediaHeader> {
                             shaderCallback: (Rect bounds) {
                               return const LinearGradient(
                                 colors: [Color(0xFFb39ddb), Color(0xFFA855F7)],
-                                begin: Alignment.centerLeft,
-                                end: Alignment.centerRight,
+                                begin: Alignment.centerRight,
+                                end: Alignment.centerLeft,
                               ).createShader(bounds);
                             },
                             child: const Text(
@@ -194,8 +194,10 @@ class _MediaHeaderState extends State<MediaHeader> {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.end,
                       children: [
-                        if (widget.additionalControl != null)
-                          widget.additionalControl!,
+                        if (widget.additionalControl != null) 
+                          Expanded(
+                            child: widget.additionalControl!,
+                          ),
                         IconButton(
                           icon: const Icon(Icons.settings, color: Color(0xFF7b68ee)),
                           onPressed: () {
@@ -219,7 +221,7 @@ class _MediaHeaderState extends State<MediaHeader> {
             padding: const EdgeInsets.symmetric(vertical: 0, horizontal: 16),
             child: Center(
               child: SizedBox(
-                width: MediaQuery.of(context).size.width * 0.7,
+                width: MediaQuery.of(context).size.width * 0.95,
                 child: custom.SearchBar(
                   placeholder: activeMedia == 'music'
                       ? 'Search tracks...'

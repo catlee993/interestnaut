@@ -15,31 +15,23 @@ import 'services/ffi_init.dart';
 import 'components/common/media_header.dart';
 import 'components/music/spotify_user_control.dart';
 
-// Flag to check if we're running on web
-bool get isWeb => kIsWeb;
-
 // Global navigator key for accessing the navigator from anywhere
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Set window size to match the legacy app (1024x768)
-  if (!isWeb) {
     if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
       window_package.setWindowTitle('Interestnaut');
-      Size minSize = const Size(1024, 768);
       Size maxSize = const Size(1920, 1080);
+      Size minSize = const Size(800, 200);
       Size initialSize = const Size(1024, 768);
-      window_package.setWindowMinSize(minSize);
       window_package.setWindowMaxSize(maxSize);
+      window_package.setWindowMinSize(minSize);
       window_package.setWindowFrame(
           Rect.fromLTWH(0, 0, initialSize.width, initialSize.height));
     }
-  }
 
-  // Initialize FFI and handle errors
-  if (!isWeb) {
     try {
       // 1. Initialize FFI to load the dylib
       await FFIInitializer.initialize();
@@ -90,7 +82,6 @@ void main() async {
       debugPrint('Dart: Overall FFI setup failed: $e');
       // Continue anyway, the app will handle missing FFI gracefully
     }
-  }
 
   runApp(const MyApp());
 }
@@ -98,7 +89,7 @@ void main() async {
 /// Register hooks to signal to the Go app when Flutter is terminating
 void registerShutdownHooks() {
   // For desktop platforms, we need to tell Go when we're shutting down
-  if (!isWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux)) {
+  if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) {
     debugPrint('Registering shutdown hooks for Go interop');
 
     // Signal Go when app is being terminated
@@ -171,12 +162,6 @@ class _InterestnautAppState extends State<InterestnautApp> {
 
   // Ensure FFI is properly initialized
   Future<void> _ensureInitialized() async {
-    if (isWeb) {
-      // Web doesn't use FFI
-      _checkServerConnection();
-      return;
-    }
-
     try {
       if (!GoBindings.ffiAvailable) {
         await FFIInitializer.initialize();
@@ -218,22 +203,6 @@ class _InterestnautAppState extends State<InterestnautApp> {
   // In a production app, this would communicate with our Go backend
   Future<void> _checkServerConnection() async {
     try {
-      // Web doesn't have access to Platform.environment
-      if (isWeb) {
-        print('Running on web, simulating auth...');
-        // For web, we'll just simulate being authenticated
-        setState(() {
-          _isAuthenticated = true;
-          _userProfile = {
-            'display_name': 'Web User',
-            'images': [
-              {'url': ''}
-            ]
-          };
-        });
-        return;
-      }
-
       // Native platforms
       final commsDir = Platform.environment['INTERESTNAUT_COMMS_DIR'] ??
           path.join(Directory.systemTemp.path, 'interestnaut');

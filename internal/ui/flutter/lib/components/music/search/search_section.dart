@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../models.dart';
 import '../tracks/track_card.dart';
-import '../../common/search_bar.dart';
+import '../../common/search_bar.dart' as custom;
 import '../../common/media_grid.dart';
 import 'dart:async';
 
@@ -64,7 +64,7 @@ class _SearchSectionState extends State<SearchSection> {
       padding: const EdgeInsets.all(16),
       child: Column(
         children: [
-          SearchBar(
+          custom.SearchBar(
             placeholder: 'Search tracks...',
             onSearch: _onSearchChanged,
             onClear: _onClear,

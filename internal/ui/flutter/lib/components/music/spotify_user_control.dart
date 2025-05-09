@@ -14,16 +14,16 @@ class SpotifyUserControl extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (user == null) {
-      return Row(
+      return const Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const SizedBox(
+          SizedBox(
             width: 16,
             height: 16,
             child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF1DB954)),
           ),
-          const SizedBox(width: 6),
-          const Text(
+          SizedBox(width: 6),
+          Text(
             'Loading...',
             style: TextStyle(
               color: Color(0xFF1DB954),
