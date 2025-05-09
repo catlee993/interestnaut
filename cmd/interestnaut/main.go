@@ -9,25 +9,29 @@ import (
 	"interestnaut/internal/app/spotify"
 	"log"
 	"os"
-	"os/exec"
 	"os/signal"
-	"path/filepath"
-	"runtime"
 	"sync"
 	"syscall"
+	// Import "C" is required for CGO exports, but must be in its own block if it has comments above it.
+	// Or, ensure no comments are directly above it in the import block.
 )
+
+/*
+#include <stdlib.h>
+*/
+import "C" // This is the correct way to import C for CGO exports
 
 //export InitializeApp
 func InitializeApp() {
-	// This function can be called from FFI to initialize the app
-	log.Println("Initializing app from FFI...")
-	// The init logic will be called automatically when this happens
+	log.Println("Go: (Legacy?) InitializeApp CALLED")
+	// This function might need to be updated or removed if InitializeFFIBridge is the new primary init.
+	// For now, it can coexist or call InitializeFFIBridge as well if it serves a distinct purpose.
 }
 
 //export SignalGoAppShutdown
 func SignalGoAppShutdown() {
-	log.Println("Go app shutdown signaled from FFI")
-	// This will exit the process from the FFI layer
+	log.Println("Go: SignalGoAppShutdown CALLED")
+	ffi.SignalShutdown() // Assuming ffi package has a public SignalShutdown
 }
 
 var wg sync.WaitGroup
@@ -93,15 +97,6 @@ func main() {
 	// Run startup processes
 	onStartup(ctx, llmHandlers, tmdbHandlers, rawgHandlers)
 
-	// Launch Flutter app in a separate goroutine
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		launchFlutterApp()
-		// When Flutter app exits, the goroutine will complete
-		log.Println("Flutter app has exited")
-	}()
-
 	// Wait for either a signal or for all tasks to complete
 	go func() {
 		sig := <-signalChan
@@ -159,123 +154,25 @@ func onStartup(ctx context.Context,
 	}
 }
 
-func launchFlutterApp() {
-	// Get the Flutter app path
-	flutterAppPath := "internal/ui/flutter"
-	absFlutterPath, err := filepath.Abs(flutterAppPath)
+// InitializeFFIBridge is called by Dart to set up Go-side FFI resources.
+//
+//export InitializeFFIBridge
+func InitializeFFIBridge() {
+	log.Println("Go: InitializeFFIBridge() CALLED from Dart")
+
+	ctx := context.Background()
+	cm, err := session.NewCentralManager(ctx, session.DefaultUserID)
 	if err != nil {
-		log.Printf("Error getting absolute path: %v", err)
+		log.Printf("Go: CRITICAL - Failed to create CentralManager in InitializeFFIBridge: %v", err)
+		// In a real scenario, you might want to communicate this error back to Dart
+		// or panic if the app cannot proceed without CentralManager.
+		return
+	}
+	if cm == nil {
+		log.Println("Go: CRITICAL - CentralManager is nil after creation in InitializeFFIBridge")
 		return
 	}
 
-	log.Printf("Launching Flutter app from: %s", absFlutterPath)
-
-	// Set up and build the shared library
-	libName := "libinterestnaut.dylib"
-	if runtime.GOOS == "windows" {
-		libName = "interestnaut.dll"
-	} else if runtime.GOOS == "linux" {
-		libName = "libinterestnaut.so"
-	}
-
-	// Build the shared library
-	absLibPath, err := filepath.Abs(libName)
-	if err != nil {
-		log.Printf("Error getting absolute path for library: %v", err)
-		return
-	}
-
-	if _, err := os.Stat(absLibPath); os.IsNotExist(err) {
-		log.Println("Building FFI library...")
-		buildCmd := exec.Command("go", "build", "-buildmode=c-shared", "-o", absLibPath, "./cmd/interestnaut/")
-		buildCmd.Stdout = os.Stdout
-		buildCmd.Stderr = os.Stderr
-		if err := buildCmd.Run(); err != nil {
-			log.Printf("Error building library: %v", err)
-			return
-		}
-	}
-
-	// Copy the library to the Flutter app's Frameworks directory inside macOS app bundle
-	// This allows the library to be accessible inside the app sandbox
-	var targetLibPath string
-	if runtime.GOOS == "darwin" {
-		// On macOS, we need to put the library in the app bundle's Frameworks directory
-		macOSBundlePath := filepath.Join(absFlutterPath, "build", "macos", "Build", "Products", "Debug", "interestnaut.app")
-		frameworksPath := filepath.Join(macOSBundlePath, "Contents", "Frameworks")
-
-		// Create Frameworks directory if it doesn't exist
-		if err := os.MkdirAll(frameworksPath, 0755); err != nil {
-			log.Printf("Error creating Frameworks directory: %v", err)
-		}
-
-		targetLibPath = filepath.Join(frameworksPath, libName)
-		log.Printf("Copying library to macOS app bundle: %s", targetLibPath)
-	} else {
-		// For other platforms, just copy to the Flutter directory
-		targetLibPath = filepath.Join(absFlutterPath, libName)
-	}
-
-	// Copy the library to the target path
-	if err := copyFile(absLibPath, targetLibPath); err != nil {
-		log.Printf("Error copying library: %v", err)
-	} else {
-		log.Printf("Copied library to: %s", targetLibPath)
-	}
-
-	// Run Flutter with the appropriate platform target and set the environment variable
-	// to point to the library location
-	var cmd *exec.Cmd
-	if runtime.GOOS == "darwin" {
-		cmd = exec.Command("flutter", "run", "-d", "macos")
-	} else if runtime.GOOS == "windows" {
-		cmd = exec.Command("flutter", "run", "-d", "windows")
-	} else if runtime.GOOS == "linux" {
-		cmd = exec.Command("flutter", "run", "-d", "linux")
-	} else {
-		log.Printf("Unsupported OS: %s", runtime.GOOS)
-		return
-	}
-
-	// Set up the command environment
-	cmd.Dir = flutterAppPath
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	//// Get current environment and augment PATH to include Ruby gems bin path
-	//env := os.Environ()
-	//for i, e := range env {
-	//	if len(e) >= 5 && e[0:5] == "PATH=" {
-	//		// Add Ruby gems bin directory to PATH
-	//		env[i] = e + ":/opt/homebrew/lib/ruby/gems/3.2.0/bin:/opt/homebrew/opt/ruby@3.2/bin"
-	//		log.Println("Updated PATH environment to include Ruby gems bin")
-	//		break
-	//	}
-	//}
-
-	//cmd.Env = append(env, "FLUTTER_DYLIB_PATH="+targetLibPath)
-
-	// Log the PATH for debugging
-	log.Println("Running Flutter with PATH:", os.Getenv("PATH")+":/opt/homebrew/lib/ruby/gems/3.2.0/bin:/opt/homebrew/opt/ruby@3.2/bin")
-
-	// Launch the Flutter app
-	log.Println("Starting Flutter app...")
-	if err := cmd.Run(); err != nil {
-		log.Printf("Error running Flutter: %v", err)
-	}
-}
-
-// Helper function to copy a file
-func copyFile(src, dst string) error {
-	input, err := os.ReadFile(src)
-	if err != nil {
-		return err
-	}
-
-	err = os.MkdirAll(filepath.Dir(dst), 0755)
-	if err != nil {
-		return err
-	}
-
-	return os.WriteFile(dst, input, 0644)
+	ffi.Initialize(cm) // This calls the Initialize function in ffi/bridge.go
+	log.Println("Go: FFI bridge initialization triggered from InitializeFFIBridge.")
 }

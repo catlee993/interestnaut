@@ -66,8 +66,8 @@ class AppTheme {
       // Card theme - updated to match MUI styling exactly
       cardTheme: CardTheme(
         color: surfaceColor,
-        elevation: 6,
-        shadowColor: Colors.black.withOpacity(0.4),
+        elevation: 4,
+        shadowColor: Colors.black.withOpacity(0.3),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(cardBorderRadius),
           side: BorderSide(color: const Color(0xFF323232), width: 1),

@@ -345,3 +345,19 @@ func (m *Music) RefreshLLMClients() {
 		log.Printf("WARNING: Could not create any LLM clients after refresh, functionality may be limited")
 	}
 }
+
+// InitiateSpotifyAuth explicitly starts the Spotify authentication flow
+func (m *Music) InitiateSpotifyAuth() error {
+	log.Println("Explicitly initiating Spotify authentication flow")
+	err := spotify.RunInitialAuthFlow(context.Background())
+	if err != nil {
+		log.Printf("ERROR: Failed to initiate Spotify auth flow: %v", err)
+		return err
+	}
+
+	// Update the Spotify client after authentication
+	spotifyClient := spotify.NewClient()
+	m.setSpotifyClient(spotifyClient)
+
+	return nil
+}

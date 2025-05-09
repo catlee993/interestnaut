@@ -35,53 +35,65 @@ var (
 	// Exit handling
 	exitChan      = make(chan struct{})
 	exitWaitGroup sync.WaitGroup
+
+	ffiInitialized bool // Flag to ensure Initialize is called only once
 )
+
+// init function for the FFI package. This will run when the dylib is loaded.
+func init() {
+	log.Println("FFI package init() called - dylib loaded.")
+	// We can't fully initialize here if we need CentralManager passed from a main context.
+	// However, this confirms the package level init is working.
+}
 
 // Initialize initializes all bindings for FFI use
 func Initialize(cm session.CentralManager) {
-	log.Println("Initializing FFI bindings")
+	if ffiInitialized {
+		log.Println("FFI bindings already initialized, skipping.")
+		return
+	}
+	log.Println("FFI bridge Initialize() CALLED")
 	centralManager = cm
+	if centralManager == nil {
+		log.Println("CRITICAL: CentralManager is nil in Initialize()")
+		// Handle this error appropriately, maybe panic or return an error
+		// For now, just log and continue to see other errors
+	}
 
-	// Create instances of all bindings
 	authBindings = &bindings.Auth{}
-
 	var err error
 
-	// Create Books bindings
 	bookBindings, err = bindings.NewBooks(context.Background(), cm)
 	if err != nil {
 		log.Printf("ERROR initializing book bindings: %v", err)
 	}
 
-	// Create Games bindings
 	gameBindings, err = bindings.NewGames(context.Background(), cm)
 	if err != nil {
 		log.Printf("ERROR initializing game bindings: %v", err)
 	}
 
-	// Create Movies bindings
 	movieBindings, err = bindings.NewMovieBinder(context.Background(), cm)
 	if err != nil {
 		log.Printf("ERROR initializing movie bindings: %v", err)
 	}
 
-	// Create Music bindings (using empty client ID for now)
-	musicBindings = bindings.NewMusicBinder(context.Background(), cm, "")
-
-	// Create Settings bindings
-	settingsBindings = &bindings.Settings{
-		ContentManager: cm,
+	log.Println("Attempting to initialize musicBindings...")
+	musicBindings = bindings.NewMusicBinder(context.Background(), cm, "3bb48a30577342869a9ffcb176dee7d2")
+	if musicBindings == nil {
+		log.Println("CRITICAL: musicBindings is NIL after NewMusicBinder call!")
+	} else {
+		log.Println("SUCCESS: musicBindings initialized.")
 	}
 
-	// Create TV bindings
+	settingsBindings = &bindings.Settings{ContentManager: cm}
 	tvBindings, err = bindings.NewTVShowBinder(context.Background(), cm)
 	if err != nil {
 		log.Printf("ERROR initializing TV bindings: %v", err)
 	}
 
-	log.Println("FFI bindings initialization complete")
-
-	// Start the exit watcher to handle graceful shutdown
+	log.Println("FFI bindings initialization process complete.")
+	ffiInitialized = true
 	startExitWatcher()
 }
 

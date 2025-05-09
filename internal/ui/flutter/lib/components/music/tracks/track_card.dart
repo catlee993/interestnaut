@@ -105,7 +105,7 @@ class _TrackCardState extends State<TrackCard> {
         child: AspectRatio(
           aspectRatio: 1, // 1:1 aspect ratio as in React
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(AppTheme.cardBorderRadius - 2), // Adjust for border
+            borderRadius: BorderRadius.circular(AppTheme.cardBorderRadius),
             child: Stack(
               children: [
                 // Album art background
@@ -138,12 +138,12 @@ class _TrackCardState extends State<TrackCard> {
                   right: 0,
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 200),
-                    height: 4,
+                    height: 3, // Reduced from 4 to match MUI
                     color: widget.isPlaying ? AppTheme.primaryColor : Colors.transparent,
                   ),
                 ),
                 
-                // Gradient overlay
+                // Gradient overlay - updated to match MUI
                 Positioned.fill(
                   child: Container(
                     decoration: BoxDecoration(
@@ -151,12 +151,13 @@ class _TrackCardState extends State<TrackCard> {
                         begin: Alignment.bottomCenter,
                         end: Alignment.topCenter,
                         colors: [
-                          Colors.black.withOpacity(0.98),
-                          Colors.black.withOpacity(0.75),
+                          Colors.black.withOpacity(0.9),
+                          Colors.black.withOpacity(0.6),
                           Colors.black.withOpacity(0.4),
+                          Colors.black.withOpacity(0.2),
                           Colors.transparent,
                         ],
-                        stops: const [0.0, 0.4, 0.75, 1.0],
+                        stops: const [0.0, 0.3, 0.6, 0.8, 1.0],
                       ),
                     ),
                   ),

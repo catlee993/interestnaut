@@ -46,12 +46,13 @@ class MediaCard extends StatelessWidget {
                     : Icons.headphones;
 
     return Card(
-      elevation: 8,
+      elevation: 4,
       color: AppTheme.surfaceColor,
+      margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
       clipBehavior: Clip.antiAlias,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(AppTheme.cardBorderRadius),
-        side: BorderSide(color: AppTheme.primaryColor.withOpacity(0.2), width: 1),
+        side: BorderSide(color: AppTheme.primaryColor.withOpacity(0.1), width: 1),
       ),
       child: InkWell(
         onTap: () {},
@@ -95,14 +96,13 @@ class MediaCard extends StatelessWidget {
                     begin: Alignment.bottomCenter,
                     end: Alignment.topCenter,
                     colors: [
-                      Colors.black.withOpacity(0.95),  // More opaque at bottom
-                      Colors.black.withOpacity(0.7),
-                      Colors.black.withOpacity(0.5),
-                      Colors.black.withOpacity(0.3),
-                      Colors.black.withOpacity(0.0),
+                      Colors.black.withOpacity(0.9),  // More opaque at bottom
+                      Colors.black.withOpacity(0.6),
+                      Colors.black.withOpacity(0.4),
+                      Colors.black.withOpacity(0.2),
                       Colors.transparent,             // Transparent at top
                     ],
-                    stops: const [0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
+                    stops: const [0.0, 0.3, 0.6, 0.8, 1.0],
                   ),
                 ),
               ),

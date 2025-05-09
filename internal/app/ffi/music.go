@@ -7,6 +7,8 @@ import "C"
 
 import (
 	"interestnaut/internal/app/session"
+	"log"
+	"os"
 	"unsafe"
 )
 
@@ -165,4 +167,28 @@ func Music_SearchTracks(queryC *C.char, limitC C.int) *C.char {
 	}
 
 	return returnJSON(tracks)
+}
+
+//export Music_InitiateSpotifyAuth
+func Music_InitiateSpotifyAuth() *C.char {
+	log.Println("Music_InitiateSpotifyAuth CALLED (stdout)")
+	f, errFile := os.OpenFile("/tmp/interestnaut_go.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	if errFile != nil {
+		log.Printf("Error opening log file: %v", errFile)
+	} else {
+		log.SetOutput(f)
+		defer f.Close()
+	}
+	log.Println("Music_InitiateSpotifyAuth CALLED (log output)")
+
+	if musicBindings == nil {
+		log.Println("musicBindings is nil!")
+		return C.CString("{\"error\": \"Music bindings not initialized\"}")
+	}
+	err := musicBindings.InitiateSpotifyAuth()
+	if err != nil {
+		log.Printf("InitiateSpotifyAuth error: %v", err)
+	}
+	log.SetOutput(os.Stdout)
+	return processError(err)
 }
