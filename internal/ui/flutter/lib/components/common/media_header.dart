@@ -93,8 +93,8 @@ class _MediaHeaderState extends State<MediaHeader> {
         _getMediaDisplayName(media),
         style: const TextStyle(
           color: Colors.white,
-          fontSize: 14,
-          fontWeight: FontWeight.w500,
+          fontSize: 12,
+          fontWeight: FontWeight.normal,
           letterSpacing: 1.5,
         ),
       ),
@@ -137,8 +137,8 @@ class _MediaHeaderState extends State<MediaHeader> {
                                 style: const TextStyle(
                                   color: Colors.white,
                                   fontSize: 16,
-                                  fontWeight: FontWeight.w500,
-                                  letterSpacing: 2.0,
+                                  fontWeight: FontWeight.w400,
+                                  letterSpacing: 2.5,
                                 ),
                               ),
                               const SizedBox(width: 8),
@@ -167,9 +167,9 @@ class _MediaHeaderState extends State<MediaHeader> {
                             child: const Text(
                               'INTERESTNAUT',
                               style: TextStyle(
-                                fontWeight: FontWeight.w600,
+                                fontWeight: FontWeight.w100,
                                 fontSize: 22,
-                                letterSpacing: 3,
+                                letterSpacing: 4.0,
                                 color: Colors.white,
                               ),
                             ),

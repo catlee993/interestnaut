@@ -15,62 +15,47 @@ class SpotifyUserControl extends StatelessWidget {
   Widget build(BuildContext context) {
     if (user == null) {
       return Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
           const SizedBox(
-            width: 20,
-            height: 20,
+            width: 16,
+            height: 16,
             child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF1DB954)),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 6),
           const Text(
-            'Loading user...',
+            'Loading...',
             style: TextStyle(
               color: Color(0xFF1DB954),
-              fontSize: 12,
+              fontSize: 11,
             ),
           ),
         ],
       );
     }
+    
     final displayName = user!['display_name'] ?? 'Spotify User';
     final hasAvatar = user!['images'] != null &&
         user!['images'].isNotEmpty &&
         user!['images'][0]['url'] != null &&
         user!['images'][0]['url'].isNotEmpty;
+    
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-      decoration: BoxDecoration(
-        color: Colors.transparent,
-        borderRadius: BorderRadius.circular(6),
-      ),
+      padding: const EdgeInsets.only(right: 8),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              const Text(
-                'Logged in as',
-                style: TextStyle(
-                  color: Color(0xFF1DB954),
-                  fontSize: 10,
-                  height: 1.2,
-                ),
-              ),
-              Text(
-                displayName,
-                style: const TextStyle(
-                  color: Color(0xFF1DB954),
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  height: 1.2,
-                ),
-              ),
-            ],
+          Text(
+            'Logged in as ${displayName}',
+            style: const TextStyle(
+              color: Color(0xFF1DB954),
+              fontSize: 10,
+              fontWeight: FontWeight.w400,
+            ),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 6),
           CircleAvatar(
-            radius: 12,
+            radius: 10,
             backgroundColor: hasAvatar ? null : const Color(0xFF1DB954),
             backgroundImage: hasAvatar ? NetworkImage(user!['images'][0]['url']) : null,
             child: hasAvatar
@@ -79,22 +64,22 @@ class SpotifyUserControl extends StatelessWidget {
                     displayName.isNotEmpty ? displayName[0].toUpperCase() : 'S',
                     style: const TextStyle(
                       color: Colors.white,
-                      fontSize: 12,
+                      fontSize: 10,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 6),
           OutlinedButton(
             onPressed: onClearAuth,
             style: OutlinedButton.styleFrom(
               foregroundColor: AppTheme.purpleRed,
               side: BorderSide(color: AppTheme.purpleRed),
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
-              minimumSize: const Size(70, 20),
-              textStyle: const TextStyle(fontSize: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 0),
+              minimumSize: const Size(50, 18),
+              textStyle: const TextStyle(fontSize: 9),
             ),
-            child: const Text('Clear Auth'),
+            child: const Text('Clear'),
           ),
         ],
       ),
