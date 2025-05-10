@@ -40,49 +40,87 @@ class SpotifyUserControl extends StatelessWidget {
         user!['images'][0]['url'] != null &&
         user!['images'][0]['url'].isNotEmpty;
     
-    return Container(
-      padding: const EdgeInsets.only(right: 8),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            'Logged in as ${displayName}',
-            style: const TextStyle(
-              color: Color(0xFF1DB954),
-              fontSize: 10,
-              fontWeight: FontWeight.w400,
-            ),
-          ),
-          const SizedBox(width: 6),
-          CircleAvatar(
-            radius: 10,
-            backgroundColor: hasAvatar ? null : const Color(0xFF1DB954),
-            backgroundImage: hasAvatar ? NetworkImage(user!['images'][0]['url']) : null,
-            child: hasAvatar
-                ? null
-                : Text(
-                    displayName.isNotEmpty ? displayName[0].toUpperCase() : 'S',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return Container(
+          constraints: BoxConstraints(maxWidth: constraints.maxWidth),
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerRight,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Logged in as',
+                      style: const TextStyle(
+                        color: Color(0xFF1DB954),
+                        fontSize: 8.5, 
+                        fontWeight: FontWeight.w300,
+                        fontFamily: 'Inter, Roboto, -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif',
+                        height: 1.2,
+                      ),
                     ),
+                    Text(
+                      displayName,
+                      style: const TextStyle(
+                        color: Color(0xFF1DB954),
+                        fontSize: 9.5, 
+                        fontWeight: FontWeight.w600, 
+                        fontFamily: 'Inter, Roboto, -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif',
+                        height: 1.2,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(width: 6),
+                CircleAvatar(
+                  radius: 12,
+                  backgroundColor: hasAvatar ? null : const Color(0xFF1DB954),
+                  backgroundImage: hasAvatar ? NetworkImage(user!['images'][0]['url']) : null,
+                  child: hasAvatar
+                      ? null
+                      : Text(
+                          displayName.isNotEmpty ? displayName[0].toUpperCase() : 'S',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  height: 20, 
+                  child: OutlinedButton(
+                    onPressed: onClearAuth,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppTheme.purpleRed,
+                      side: BorderSide(color: AppTheme.purpleRed),
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+                      minimumSize: const Size(70, 0),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      textStyle: const TextStyle(
+                        fontSize: 8.5, 
+                        fontWeight: FontWeight.w400,
+                        letterSpacing: 0.3,
+                        fontFamily: 'Inter, Roboto, -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif',
+                      ),
+                    ),
+                    child: const Text('Clear Auth'),
                   ),
-          ),
-          const SizedBox(width: 6),
-          OutlinedButton(
-            onPressed: onClearAuth,
-            style: OutlinedButton.styleFrom(
-              foregroundColor: AppTheme.purpleRed,
-              side: BorderSide(color: AppTheme.purpleRed),
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 0),
-              minimumSize: const Size(50, 18),
-              textStyle: const TextStyle(fontSize: 9),
+                ),
+              ],
             ),
-            child: const Text('Clear'),
           ),
-        ],
-      ),
+        );
+      }
     );
   }
-} 
+}

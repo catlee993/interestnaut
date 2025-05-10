@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
+import '../../theme.dart';
 
 class SearchBar extends StatefulWidget {
   final String placeholder;
   final void Function(String) onSearch;
   final VoidCallback? onClear;
   final int debounceTime;
+  final TextStyle? style;
 
   const SearchBar({
     Key? key,
@@ -13,6 +15,7 @@ class SearchBar extends StatefulWidget {
     required this.onSearch,
     this.onClear,
     this.debounceTime = 500,
+    this.style,
   }) : super(key: key);
 
   @override
@@ -21,6 +24,7 @@ class SearchBar extends StatefulWidget {
 
 class _SearchBarState extends State<SearchBar> {
   final TextEditingController _controller = TextEditingController();
+  final FocusNode _focusNode = FocusNode();
   Timer? _debounce;
   String _lastSearch = '';
 
@@ -28,6 +32,7 @@ class _SearchBarState extends State<SearchBar> {
   void dispose() {
     _debounce?.cancel();
     _controller.dispose();
+    _focusNode.dispose();
     super.dispose();
   }
 
@@ -54,7 +59,7 @@ class _SearchBarState extends State<SearchBar> {
     _lastSearch = '';
     widget.onSearch('');
     widget.onClear?.call();
-    FocusScope.of(context).requestFocus(FocusNode());
+    _focusNode.requestFocus();
     setState(() {});
   }
 
@@ -64,49 +69,80 @@ class _SearchBarState extends State<SearchBar> {
       _lastSearch = value;
       widget.onSearch(value);
     }
-    FocusScope.of(context).unfocus();
+    _focusNode.unfocus();
   }
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      alignment: Alignment.centerRight,
-      children: [
-        TextField(
-          controller: _controller,
-          onChanged: _onChanged,
-          onSubmitted: _onSubmitted,
-          decoration: InputDecoration(
-            hintText: widget.placeholder,
-            filled: true,
-            fillColor: Colors.transparent,
-            contentPadding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-              borderSide: const BorderSide(color: Color.fromRGBO(123, 104, 238, 0.5)),
+    return Container(
+      height: 40,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: const Color.fromRGBO(123, 104, 238, 0.5), width: 1),
+        color: Colors.transparent,
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Stack(
+        alignment: Alignment.centerRight,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(right: 24.0),
+            child: TextField(
+              controller: _controller,
+              focusNode: _focusNode,
+              onChanged: _onChanged,
+              onSubmitted: _onSubmitted,
+              decoration: InputDecoration(
+                hintText: widget.placeholder,
+                filled: false,
+                fillColor: Colors.transparent,
+                contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
+                isDense: true,
+                border: InputBorder.none,
+                enabledBorder: InputBorder.none,
+                focusedBorder: InputBorder.none,
+                disabledBorder: InputBorder.none,
+                hintStyle: const TextStyle(
+                  color: Color.fromRGBO(255, 255, 255, 0.55),
+                  fontSize: 14,
+                  fontWeight: FontWeight.w300,
+                  letterSpacing: 2.0,
+                  wordSpacing: 4.0,
+                  fontFamily: 'Inter',
+                ),
+              ),
+              style: widget.style ?? const TextStyle(
+                color: Color.fromRGBO(255, 255, 255, 0.9),
+                fontSize: 14,
+                fontWeight: FontWeight.w300,
+                letterSpacing: 2.0,
+                wordSpacing: 4.0,
+                fontFamily: 'Inter',
+              ),
             ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-              borderSide: const BorderSide(color: Color.fromRGBO(123, 104, 238, 0.5)),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-              borderSide: const BorderSide(color: Color.fromRGBO(123, 104, 238, 0.9)),
-            ),
-            hintStyle: TextStyle(color: Colors.white.withOpacity(0.75), fontSize: 14),
           ),
-          style: const TextStyle(color: Colors.white, fontSize: 14),
-        ),
-        if (_controller.text.isNotEmpty)
-          IconButton(
-            icon: const Icon(Icons.clear, color: Color.fromRGBO(123, 104, 238, 0.7)),
-            onPressed: _handleClear,
-            splashRadius: 18,
-            tooltip: 'Clear',
-            hoverColor: const Color.fromRGBO(123, 104, 238, 0.1),
-            highlightColor: Colors.transparent,
-          ),
-      ],
+          if (_controller.text.isNotEmpty)
+            Positioned(
+              right: 8,
+              top: 10,
+              child: IconButton(
+                icon: const Icon(Icons.clear, color: Color.fromRGBO(123, 104, 238, 0.7), size: 16),
+                onPressed: _handleClear,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(
+                  minWidth: 20,
+                  minHeight: 20,
+                ),
+                splashRadius: 16,
+                tooltip: 'Clear',
+                style: IconButton.styleFrom(
+                  hoverColor: const Color.fromRGBO(123, 104, 238, 0.1),
+                  highlightColor: Colors.transparent,
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
-} 
+}

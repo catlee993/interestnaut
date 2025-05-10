@@ -205,7 +205,10 @@ class _MusicSectionState extends State<MusicSection> {
         // Remove user/auth UI from here. Only show music content.
         const SizedBox(height: 24),
         // Suggestions section
-        _buildSuggestionSection(),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: _buildSuggestionSection(),
+        ),
         const SizedBox(height: 24),
         // Library section
         _buildLibrarySection(),
@@ -222,8 +225,8 @@ class _MusicSectionState extends State<MusicSection> {
           child: Text(
             'Suggested for You',
             style: TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 24,
+              fontWeight: FontWeight.w600,
+              fontSize: 20,
               color: AppTheme.textPrimary,
             ),
           ),

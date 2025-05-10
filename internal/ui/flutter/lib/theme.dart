@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-// import 'package:google_fonts/google_fonts.dart';
 
 /// Interestnaut app theme - matches React/MUI styling
 class AppTheme {
@@ -23,6 +22,14 @@ class AppTheme {
   static const Color purpleRed = Color(0xFFC23B85); // For errors/warnings
   static const Color purpleBlue = Color(0xFF6A5ACD); // For specific UI elements
 
+  // Logo gradient colors - exactly matching MUI
+  static const Gradient logoGradient = LinearGradient(
+    colors: [Color(0xFFC165DD), Color(0xFF9880FF)],
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    stops: [0.3, 0.9],
+  );
+
   // Spacing values from App.css
   static const double spacingXS = 4;
   static const double spacingSM = 8;
@@ -34,6 +41,36 @@ class AppTheme {
   static const double borderRadius = 8;
   static const double cardBorderRadius = 12;
   static const double buttonBorderRadius = 24; // Matching MUI's rounded buttons - increased to match screenshot
+
+  // Typography
+  static TextStyle get headingStyle => const TextStyle(
+        fontFamily: 'Inter, Roboto, -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif',
+        fontWeight: FontWeight.w600,
+        color: textPrimary,
+      );
+
+  static TextStyle get bodyStyle => const TextStyle(
+        fontFamily: 'Inter, Roboto, -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif',
+        fontWeight: FontWeight.w400,
+        color: textPrimary,
+      );
+      
+  static TextStyle get logoTextStyle => const TextStyle(
+    fontFamily: 'Inter',
+    fontWeight: FontWeight.w300,
+    fontSize: 14,
+    letterSpacing: 1.0,
+    height: 1.0,
+    textBaseline: TextBaseline.alphabetic,
+  );
+  
+  static TextStyle get headerSelectorStyle => const TextStyle(
+    fontFamily: 'Inter',
+    fontWeight: FontWeight.w300,
+    fontSize: 14, 
+    letterSpacing: 1.0,
+    color: Colors.white,
+  );
 
   /// Returns the main ThemeData for the app
   static ThemeData get theme {
@@ -169,27 +206,27 @@ class AppTheme {
     // Create a base text theme with system fonts
     const TextTheme baseTheme = TextTheme(
       bodyLarge: TextStyle(
-        fontFamily: 'Roboto, -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif',
+        fontFamily: 'Inter, Roboto, -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif',
         fontSize: 16,
         color: textPrimary,
       ),
       bodyMedium: TextStyle(
-        fontFamily: 'Roboto, -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif',
+        fontFamily: 'Inter, Roboto, -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif',
         fontSize: 14,
         color: textPrimary,
       ),
       bodySmall: TextStyle(
-        fontFamily: 'Roboto, -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif',
+        fontFamily: 'Inter, Roboto, -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif',
         fontSize: 12,
         color: textSecondary,
       ),
     );
     
     const TextStyle headingStyle = TextStyle(
-      fontFamily: '-apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif',
-      fontWeight: FontWeight.w600,
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif',
+      fontWeight: FontWeight.w300,
       color: textPrimary, 
-      letterSpacing: -0.01,
+      letterSpacing: 1.0,
     );
     
     return baseTheme.copyWith(
@@ -205,103 +242,165 @@ class AppTheme {
       
       // Title styles
       titleLarge: headingStyle.copyWith(fontSize: 22),
-      titleMedium: headingStyle.copyWith(fontSize: 16, fontWeight: FontWeight.w600),
-      titleSmall: headingStyle.copyWith(fontSize: 14, fontWeight: FontWeight.w600),
+      titleMedium: headingStyle.copyWith(fontSize: 16, fontWeight: FontWeight.w400),
+      titleSmall: headingStyle.copyWith(fontSize: 14, fontWeight: FontWeight.w400),
       
-      // Label styles
-      labelLarge: headingStyle.copyWith(fontSize: 14, letterSpacing: 0.1),
-      labelMedium: headingStyle.copyWith(fontSize: 12, letterSpacing: 0.5),
-      labelSmall: headingStyle.copyWith(fontSize: 11, letterSpacing: 0.5),
+      // Label styles - for buttons, tabs, etc.
+      labelLarge: TextStyle(
+        fontFamily: 'Inter, Roboto, -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif',
+        fontSize: 14,
+        fontWeight: FontWeight.w500,
+        color: textPrimary,
+        letterSpacing: 0.5,
+      ),
+      labelMedium: TextStyle(
+        fontFamily: 'Inter, Roboto, -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif',
+        fontSize: 12,
+        fontWeight: FontWeight.w500,
+        color: textPrimary,
+        letterSpacing: 0.5,
+      ),
+      labelSmall: TextStyle(
+        fontFamily: 'Inter, Roboto, -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif',
+        fontSize: 11,
+        fontWeight: FontWeight.w500,
+        color: textSecondary,
+        letterSpacing: 0.5,
+      ),
     );
   }
-
-  /// Build elevated button theme to match MUI styling
+  
+  /// Build the elevated button theme - matching MUI contained buttons
   static ElevatedButtonThemeData _buildElevatedButtonTheme() {
     return ElevatedButtonThemeData(
       style: ElevatedButton.styleFrom(
         backgroundColor: primaryColor,
         foregroundColor: textPrimary,
-        elevation: 0,
-        padding: const EdgeInsets.symmetric(horizontal: spacingLG, vertical: spacingMD),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(buttonBorderRadius),
-        ),
         textStyle: const TextStyle(
-          fontFamily: '-apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif',
-          fontWeight: FontWeight.w600,
-          fontSize: 16,
-          letterSpacing: 0.5,
-        ),
-        shadowColor: Colors.transparent,
-        minimumSize: const Size(140, 45),
-      ),
-    );
-  }
-
-  /// Build outlined button theme to match MUI styling
-  static OutlinedButtonThemeData _buildOutlinedButtonTheme() {
-    return OutlinedButtonThemeData(
-      style: OutlinedButton.styleFrom(
-        foregroundColor: textPrimary,
-        side: const BorderSide(color: surfaceHover, width: 1),
-        padding: const EdgeInsets.symmetric(horizontal: spacingLG, vertical: spacingMD),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(buttonBorderRadius),
-        ),
-        textStyle: const TextStyle(
-          fontFamily: '-apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif',
-          fontWeight: FontWeight.w600,
+          fontFamily: 'Inter, Roboto, -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif',
+          fontWeight: FontWeight.w500,
           fontSize: 14,
           letterSpacing: 0.5,
         ),
-        minimumSize: const Size(120, 40),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(buttonBorderRadius),
+        ),
+        elevation: 0,
+      ).copyWith(
+        overlayColor: MaterialStateProperty.resolveWith<Color>((states) {
+          if (states.contains(MaterialState.hovered)) {
+            return primaryHover;
+          }
+          if (states.contains(MaterialState.focused) || states.contains(MaterialState.pressed)) {
+            return primaryHover.withOpacity(0.8);
+          }
+          return Colors.transparent;
+        }),
       ),
     );
   }
-
-  /// Build text button theme to match MUI styling
+  
+  /// Build the outlined button theme - matching MUI outlined buttons
+  static OutlinedButtonThemeData _buildOutlinedButtonTheme() {
+    return OutlinedButtonThemeData(
+      style: OutlinedButton.styleFrom(
+        foregroundColor: primaryColor,
+        textStyle: const TextStyle(
+          fontFamily: 'Inter, Roboto, -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif',
+          fontWeight: FontWeight.w500,
+          fontSize: 14,
+          letterSpacing: 0.5,
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(buttonBorderRadius),
+        ),
+        side: const BorderSide(color: primaryColor, width: 1),
+      ).copyWith(
+        overlayColor: MaterialStateProperty.resolveWith<Color>((states) {
+          if (states.contains(MaterialState.hovered)) {
+            return primaryColor.withOpacity(0.1);
+          }
+          if (states.contains(MaterialState.focused) || states.contains(MaterialState.pressed)) {
+            return primaryColor.withOpacity(0.2);
+          }
+          return Colors.transparent;
+        }),
+      ),
+    );
+  }
+  
+  /// Build the text button theme - matching MUI text buttons
   static TextButtonThemeData _buildTextButtonTheme() {
     return TextButtonThemeData(
       style: TextButton.styleFrom(
         foregroundColor: primaryColor,
-        padding: const EdgeInsets.symmetric(horizontal: spacingMD, vertical: spacingSM),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(borderRadius),
-        ),
         textStyle: const TextStyle(
-          fontFamily: '-apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif',
-          fontWeight: FontWeight.w600,
-          fontSize: 16, // Increased to match MUI
+          fontFamily: 'Inter, Roboto, -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif',
+          fontWeight: FontWeight.w500,
+          fontSize: 14,
           letterSpacing: 0.5,
         ),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(buttonBorderRadius),
+        ),
+      ).copyWith(
+        overlayColor: MaterialStateProperty.resolveWith<Color>((states) {
+          if (states.contains(MaterialState.hovered)) {
+            return primaryColor.withOpacity(0.1);
+          }
+          if (states.contains(MaterialState.focused) || states.contains(MaterialState.pressed)) {
+            return primaryColor.withOpacity(0.2);
+          }
+          return Colors.transparent;
+        }),
       ),
     );
   }
-
+  
+  /// Build the input decoration theme - matching MUI TextField and Input components
   static InputDecorationTheme _buildInputDecorationTheme() {
     return InputDecorationTheme(
+      fillColor: surfaceColor,
       filled: true,
-      fillColor: backgroundColor,
-      hoverColor: surfaceHover,
-      contentPadding: const EdgeInsets.symmetric(horizontal: spacingMD, vertical: spacingMD),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(borderRadius),
-        borderSide: const BorderSide(color: surfaceHover),
+        borderSide: const BorderSide(color: Color(0xFF323232), width: 1),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(borderRadius),
-        borderSide: const BorderSide(color: surfaceHover),
+        borderSide: const BorderSide(color: Color(0xFF323232), width: 1),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(borderRadius),
-        borderSide: const BorderSide(color: primaryColor),
+        borderSide: const BorderSide(color: primaryColor, width: 2),
       ),
       errorBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(borderRadius),
-        borderSide: const BorderSide(color: errorColor),
+        borderSide: const BorderSide(color: errorColor, width: 1),
       ),
-      labelStyle: const TextStyle(color: textSecondary),
-      hintStyle: const TextStyle(color: textSecondary),
+      focusedErrorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(borderRadius),
+        borderSide: const BorderSide(color: errorColor, width: 2),
+      ),
+      labelStyle: const TextStyle(
+        fontFamily: 'Inter, Roboto, -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif',
+        color: textSecondary,
+        fontSize: 14,
+      ),
+      hintStyle: const TextStyle(
+        fontFamily: 'Inter, Roboto, -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif',
+        color: textSecondary,
+        fontSize: 14,
+      ),
+      errorStyle: const TextStyle(
+        fontFamily: 'Inter, Roboto, -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif',
+        color: errorColor,
+        fontSize: 12,
+      ),
     );
   }
-} 
+}
