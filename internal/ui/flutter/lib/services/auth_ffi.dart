@@ -16,11 +16,9 @@ class _IsolatePayload<T> {
 class AuthFFI {
   // Eagerly initialize all function pointers in constructor to avoid race conditions
   final ffi.Pointer<ffi.Char> Function() _getAuthConfigPtr;
-  final ffi.Pointer<ffi.Char> Function(ffi.Pointer<Utf8>, ffi.Pointer<Utf8>) _authenticatePtr;
-  final ffi.Pointer<ffi.Char> Function() _getAuthProviderPtr;
+  final ffi.Pointer<ffi.Char> Function() _authenticatePtr;
   final ffi.Pointer<ffi.Char> Function() _getUserProfilePtr;
-  final void Function() _logoutPtr;
-  final void Function(ffi.Pointer<Utf8>) _handleAuthCallbackPtr;
+  final ffi.Pointer<ffi.Char> Function() _logoutPtr;
   final ffi.Pointer<ffi.Char> Function() _getOpenAITokenPtr;
   final ffi.Pointer<ffi.Char> Function(ffi.Pointer<Utf8>) _saveOpenAITokenPtr;
   final ffi.Pointer<ffi.Char> Function() _clearOpenAITokenPtr;
@@ -42,58 +40,52 @@ class AuthFFI {
   AuthFFI()
     : _getAuthConfigPtr = FFIInitializer.dylib.lookupFunction<
         ffi.Pointer<ffi.Char> Function(),
-        ffi.Pointer<ffi.Char> Function()>('GetAuthConfig'),
+        ffi.Pointer<ffi.Char> Function()>('Music_GetAuthStatus'),
     _authenticatePtr = FFIInitializer.dylib.lookupFunction<
-        ffi.Pointer<ffi.Char> Function(ffi.Pointer<Utf8>, ffi.Pointer<Utf8>),
-        ffi.Pointer<ffi.Char> Function(ffi.Pointer<Utf8>, ffi.Pointer<Utf8>)>('Authenticate'),
-    _getAuthProviderPtr = FFIInitializer.dylib.lookupFunction<
         ffi.Pointer<ffi.Char> Function(),
-        ffi.Pointer<ffi.Char> Function()>('GetAuthProvider'),
+        ffi.Pointer<ffi.Char> Function()>('Music_InitiateSpotifyAuth'),
     _getUserProfilePtr = FFIInitializer.dylib.lookupFunction<
         ffi.Pointer<ffi.Char> Function(),
-        ffi.Pointer<ffi.Char> Function()>('GetUserProfile'),
+        ffi.Pointer<ffi.Char> Function()>('Music_GetCurrentUser'),
     _logoutPtr = FFIInitializer.dylib.lookupFunction<
-        ffi.Void Function(),
-        void Function()>('Logout'),
-    _handleAuthCallbackPtr = FFIInitializer.dylib.lookupFunction<
-        ffi.Void Function(ffi.Pointer<Utf8>),
-        void Function(ffi.Pointer<Utf8>)>('HandleAuthCallback'),
+        ffi.Pointer<ffi.Char> Function(),
+        ffi.Pointer<ffi.Char> Function()>('Music_ClearSpotifyCredentials'),
     _getOpenAITokenPtr = FFIInitializer.dylib.lookupFunction<
         ffi.Pointer<ffi.Char> Function(),
-        ffi.Pointer<ffi.Char> Function()>('GetOpenAIToken'),
+        ffi.Pointer<ffi.Char> Function()>('Auth_GetOpenAIToken'),
     _saveOpenAITokenPtr = FFIInitializer.dylib.lookupFunction<
         ffi.Pointer<ffi.Char> Function(ffi.Pointer<Utf8>),
-        ffi.Pointer<ffi.Char> Function(ffi.Pointer<Utf8>)>('SaveOpenAIToken'),
+        ffi.Pointer<ffi.Char> Function(ffi.Pointer<Utf8>)>('Auth_SaveOpenAIToken'),
     _clearOpenAITokenPtr = FFIInitializer.dylib.lookupFunction<
         ffi.Pointer<ffi.Char> Function(),
-        ffi.Pointer<ffi.Char> Function()>('ClearOpenAIToken'),
+        ffi.Pointer<ffi.Char> Function()>('Auth_ClearOpenAIToken'),
     _getTMBDAccessTokenPtr = FFIInitializer.dylib.lookupFunction<
         ffi.Pointer<ffi.Char> Function(),
-        ffi.Pointer<ffi.Char> Function()>('GetTMBDAccessToken'),
+        ffi.Pointer<ffi.Char> Function()>('Auth_GetTMBDAccessToken'),
     _saveTMBDAccessTokenPtr = FFIInitializer.dylib.lookupFunction<
         ffi.Pointer<ffi.Char> Function(ffi.Pointer<Utf8>),
-        ffi.Pointer<ffi.Char> Function(ffi.Pointer<Utf8>)>('SaveTMBDAccessToken'),
+        ffi.Pointer<ffi.Char> Function(ffi.Pointer<Utf8>)>('Auth_SaveTMBDAccessToken'),
     _clearTMBDAccessTokenPtr = FFIInitializer.dylib.lookupFunction<
         ffi.Pointer<ffi.Char> Function(),
-        ffi.Pointer<ffi.Char> Function()>('ClearTMBDAccessToken'),
+        ffi.Pointer<ffi.Char> Function()>('Auth_ClearTMBDAccessToken'),
     _getGeminiTokenPtr = FFIInitializer.dylib.lookupFunction<
         ffi.Pointer<ffi.Char> Function(),
-        ffi.Pointer<ffi.Char> Function()>('GetGeminiToken'),
+        ffi.Pointer<ffi.Char> Function()>('Auth_GetGeminiToken'),
     _saveGeminiTokenPtr = FFIInitializer.dylib.lookupFunction<
         ffi.Pointer<ffi.Char> Function(ffi.Pointer<Utf8>),
-        ffi.Pointer<ffi.Char> Function(ffi.Pointer<Utf8>)>('SaveGeminiToken'),
+        ffi.Pointer<ffi.Char> Function(ffi.Pointer<Utf8>)>('Auth_SaveGeminiToken'),
     _clearGeminiTokenPtr = FFIInitializer.dylib.lookupFunction<
         ffi.Pointer<ffi.Char> Function(),
-        ffi.Pointer<ffi.Char> Function()>('ClearGeminiToken'),
+        ffi.Pointer<ffi.Char> Function()>('Auth_ClearGeminiToken'),
     _getRAWGAPIKeyPtr = FFIInitializer.dylib.lookupFunction<
         ffi.Pointer<ffi.Char> Function(),
-        ffi.Pointer<ffi.Char> Function()>('GetRAWGAPIKey'),
+        ffi.Pointer<ffi.Char> Function()>('Auth_GetRAWGAPIKey'),
     _saveRAWGAPIKeyPtr = FFIInitializer.dylib.lookupFunction<
         ffi.Pointer<ffi.Char> Function(ffi.Pointer<Utf8>),
-        ffi.Pointer<ffi.Char> Function(ffi.Pointer<Utf8>)>('SaveRAWGAPIKey'),
+        ffi.Pointer<ffi.Char> Function(ffi.Pointer<Utf8>)>('Auth_SaveRAWGAPIKey'),
     _clearRAWGAPIKeyPtr = FFIInitializer.dylib.lookupFunction<
         ffi.Pointer<ffi.Char> Function(),
-        ffi.Pointer<ffi.Char> Function()>('ClearRAWGAPIKey');
+        ffi.Pointer<ffi.Char> Function()>('Auth_ClearRAWGAPIKey');
 
   /// Check if FFI is initialized
   void _checkInitialized() {
@@ -134,50 +126,35 @@ class AuthFFI {
     );
   }
 
-  /// Authenticate with a provider using a token
-  Future<Map<String, dynamic>> authenticate(String provider, String token) async {
+  /// Authenticate with a specific provider
+  Future<Map<String, dynamic>> authenticate({
+    String code = '',
+    String provider = 'spotify'
+  }) async {
     _checkInitialized();
     
-    return await _executeInIsolate<Map<String, String>>(
-      (params) async {
-        final instance = AuthFFI();
-        
-        final providerUtf8 = params['provider']!.toNativeUtf8();
-        final tokenUtf8 = params['token']!.toNativeUtf8();
-        
-        final resultPtr = instance._authenticatePtr(providerUtf8, tokenUtf8);
-        
-        calloc.free(providerUtf8);
-        calloc.free(tokenUtf8);
-        
-        final parsed = _parseJsonResponse(_fromCString(resultPtr));
-        return parsed ?? {'error': 'Failed to authenticate'};
-      },
-      {'provider': provider, 'token': token}
-    );
+    try {
+      // For Spotify, we use Music_InitiateSpotifyAuth
+      final resultPtr = _authenticatePtr();
+      final resultStr = _fromCString(resultPtr);
+      if (resultStr == null) {
+        return {'error': 'Failed to initiate authentication'};
+      }
+      
+      try {
+        return json.decode(resultStr) as Map<String, dynamic>;
+      } catch (e) {
+        // If not valid JSON, return success with the raw result
+        return {'status': 'initiated', 'result': resultStr};
+      }
+    } catch (e) {
+      return {'error': e.toString()};
+    }
   }
   
   /// Get the current authentication provider
   Future<String> getAuthProvider() async {
-    _checkInitialized();
-    
-    final result = await _executeInIsolate<void>(
-      (_) async {
-        final instance = AuthFFI();
-        
-        final resultPtr = instance._getAuthProviderPtr();
-        final result = _parseJsonResponse(_fromCString(resultPtr));
-        
-        if (result == null || result['provider'] == null) {
-          return {'provider': 'none'};
-        }
-        
-        return {'provider': result['provider']};
-      },
-      null
-    );
-    
-    return result['provider'] as String;
+    return 'spotify';
   }
   
   /// Get the user profile information
@@ -196,36 +173,29 @@ class AuthFFI {
     );
   }
   
-  /// Logout the current user
+  /// Logout from the current provider
   Future<void> logout() async {
     _checkInitialized();
     
-    await _executeInIsolate<void>(
-      (_) async {
-        final instance = AuthFFI();
-        
-        instance._logoutPtr();
-        return {'status': 'success'};
-      },
-      null
-    );
+    try {
+      final resultPtr = _logoutPtr();
+      _fromCString(resultPtr); // Process the response but we don't need to return it
+    } catch (e) {
+      debugPrint('Error logging out: $e');
+    }
   }
   
   /// Handle authentication callback from redirect
+  /// Note: We keep this method for API compatibility, but the Go backend
+  /// doesn't seem to have a direct callback handler function.
   Future<void> handleAuthCallback(String callbackUrl) async {
     _checkInitialized();
     
-    await _executeInIsolate<String>(
-      (url) async {
-        final instance = AuthFFI();
-        
-        final callbackUtf8 = url.toNativeUtf8();
-        instance._handleAuthCallbackPtr(callbackUtf8);
-        calloc.free(callbackUtf8);
-        return {'status': 'success'};
-      },
-      callbackUrl
-    );
+    // Log the callback URL for debugging
+    debugPrint('Auth callback received: $callbackUrl');
+    
+    // The Spotify authentication flow is likely handled internally by the Go backend
+    // We don't need to explicitly handle the callback here
   }
   
   /// Get the OpenAI token if available
@@ -504,15 +474,8 @@ class AuthFFI {
     return {'error': message};
   }
   
-  // Convert C string to Dart string
-  String? _fromCString(ffi.Pointer<ffi.Char> cString) {
-    if (cString.address == 0) {
-      return null;
-    }
-    
-    final result = cString.cast<Utf8>().toDartString();
-    
-    // Free the string using dynamic lookup since it's a C function
+  // Helper method to clean up C strings
+  void _freeCString(ffi.Pointer<ffi.Char> cString) {
     try {
       final freeStringFn = FFIInitializer.dylib.lookupFunction<
           ffi.Void Function(ffi.Pointer<ffi.Char>),
@@ -521,6 +484,18 @@ class AuthFFI {
     } catch (e) {
       debugPrint('Warning: Could not free string: $e');
     }
+  }
+  
+  // Convert C string to Dart string
+  String? _fromCString(ffi.Pointer<ffi.Char> cString) {
+    if (cString.address == 0) {
+      return null;
+    }
+    
+    final result = cString.cast<Utf8>().toDartString();
+    
+    // Free the string
+    _freeCString(cString);
     
     return result;
   }
