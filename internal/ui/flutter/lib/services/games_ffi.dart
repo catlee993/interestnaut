@@ -28,31 +28,31 @@ class GamesFFI extends FFIBindingBase {
   GamesFFI._() : 
     _getGameSuggestion = GoFFILibrary.dylib.lookupFunction<
         Pointer<Char> Function(),
-        Pointer<Char> Function()>('Games_GetSuggestion'),
+        Pointer<Char> Function()>('Games_GetGameSuggestion'),
     _provideSuggestionFeedback = GoFFILibrary.dylib.lookupFunction<
         Pointer<Char> Function(Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>),
         Pointer<Char> Function(Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>)>('Games_ProvideSuggestionFeedback'),
     _searchGames = GoFFILibrary.dylib.lookupFunction<
         Pointer<Char> Function(Pointer<Utf8>),
-        Pointer<Char> Function(Pointer<Utf8>)>('Games_Search'),
+        Pointer<Char> Function(Pointer<Utf8>)>('Games_SearchGames'),
     _getGameDetails = GoFFILibrary.dylib.lookupFunction<
         Pointer<Char> Function(Pointer<Utf8>),
-        Pointer<Char> Function(Pointer<Utf8>)>('Games_GetDetails'),
+        Pointer<Char> Function(Pointer<Utf8>)>('Games_GetGameDetails'),
     _getFavoriteGames = GoFFILibrary.dylib.lookupFunction<
         Pointer<Char> Function(),
-        Pointer<Char> Function()>('Games_GetFavorites'),
+        Pointer<Char> Function()>('Games_GetFavoriteGames'),
     _setFavoriteGames = GoFFILibrary.dylib.lookupFunction<
         Pointer<Char> Function(Pointer<Utf8>),
-        Pointer<Char> Function(Pointer<Utf8>)>('Games_SetFavorites'),
+        Pointer<Char> Function(Pointer<Utf8>)>('Games_SetFavoriteGames'),
     _addToGameList = GoFFILibrary.dylib.lookupFunction<
         Pointer<Char> Function(Pointer<Utf8>),
-        Pointer<Char> Function(Pointer<Utf8>)>('Games_AddToPlayList'),
+        Pointer<Char> Function(Pointer<Utf8>)>('Games_AddToWatchlist'),
     _removeFromGameList = GoFFILibrary.dylib.lookupFunction<
         Pointer<Char> Function(Pointer<Utf8>, Pointer<Utf8>),
-        Pointer<Char> Function(Pointer<Utf8>, Pointer<Utf8>)>('Games_RemoveFromPlayList'),
+        Pointer<Char> Function(Pointer<Utf8>, Pointer<Utf8>)>('Games_RemoveFromWatchlist'),
     _getGameList = GoFFILibrary.dylib.lookupFunction<
         Pointer<Char> Function(),
-        Pointer<Char> Function()>('Games_GetPlayList'),
+        Pointer<Char> Function()>('Games_GetWatchlist'),
     _refreshLLMClients = GoFFILibrary.dylib.lookupFunction<
         Pointer<Char> Function(),
         Pointer<Char> Function()>('Games_RefreshLLMClients') {

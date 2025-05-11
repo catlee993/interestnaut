@@ -7,7 +7,12 @@ import 'suggestions/suggestion_display.dart';
 import 'tracks/track_card.dart';
 
 class MusicSection extends StatefulWidget {
-  const MusicSection({super.key});
+  final Function(bool isAuthenticated, Map<String, dynamic>? userProfile)? onAuthStatusChanged;
+  
+  const MusicSection({
+    super.key,
+    this.onAuthStatusChanged,
+  });
 
   @override
   State<MusicSection> createState() => _MusicSectionState();
@@ -36,15 +41,34 @@ class _MusicSectionState extends State<MusicSection> {
     try {
       final authStatus = await _musicFfi.getAuthStatus();
       if (authStatus.containsKey('isAuthenticated')) {
+        final isAuth = authStatus['isAuthenticated'] == true;
         setState(() {
-          _isAuthenticated = authStatus['isAuthenticated'] == true;
+          _isAuthenticated = isAuth;
         });
+        
+        // Get user profile if authenticated
+        Map<String, dynamic>? userProfile;
+        if (isAuth) {
+          try {
+            userProfile = await _musicFfi.getCurrentUser();
+          } catch (e) {
+            debugPrint('Error fetching user profile: $e');
+          }
+        }
+        
+        // Notify parent about authentication status and user profile
+        if (widget.onAuthStatusChanged != null) {
+          widget.onAuthStatusChanged!(isAuth, userProfile);
+        }
       }
     } catch (e) {
       debugPrint('Error checking authentication: $e');
       setState(() {
         _isAuthenticated = false;
       });
+      if (widget.onAuthStatusChanged != null) {
+        widget.onAuthStatusChanged!(false, null);
+      }
     }
   }
 

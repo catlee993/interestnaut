@@ -163,29 +163,42 @@ class _InterestnautAppState extends State<InterestnautApp> {
       try {
         final musicService = GoBindings.instance.music;
         final authStatus = await musicService.getAuthStatus();
-        setState(() {
-          _isAuthenticated = authStatus['isAuthenticated'] == true;
-        });
+        
+        // Only update state if we got a valid response
+        if (authStatus != null && authStatus.containsKey('isAuthenticated')) {
+          setState(() {
+            _isAuthenticated = authStatus['isAuthenticated'] == true;
+          });
 
-        if (_isAuthenticated) {
-          try {
-            final profile = await musicService.getCurrentUser();
-            setState(() {
-              _userProfile = profile;
-            });
-          } catch (e) {
-            debugPrint('Failed to get user profile: $e');
+          if (_isAuthenticated) {
+            try {
+              final profile = await musicService.getCurrentUser();
+              if (profile != null) {
+                setState(() {
+                  _userProfile = profile;
+                });
+              } else {
+                debugPrint('User profile is null even though authentication succeeded');
+              }
+            } catch (e) {
+              debugPrint('Failed to get user profile: $e');
+              // Set default profile if we can't get the actual profile
+              setState(() {
+                _userProfile = {
+                  'display_name': 'Spotify User',
+                  'images': []
+                };
+              });
+            }
           }
+        } else {
+          debugPrint('Invalid auth status response: $authStatus');
         }
       } catch (e) {
         debugPrint('Failed to check auth status: $e');
       }
     } catch (e) {
-      debugPrint('Failed to initialize FFI: $e');
-      // Continue anyway - app will handle missing FFI gracefully
-
-      // Still check the server connection
-      await _checkServerConnection();
+      debugPrint('Error during initialization: $e');
     }
   }
 
@@ -200,12 +213,30 @@ class _InterestnautAppState extends State<InterestnautApp> {
       final portFile = File(path.join(commsDir, 'server_port'));
       if (await portFile.exists()) {
         final port = await portFile.readAsString();
-        print('Found server port: $port');
-
-        // Here we would establish communication with the Go backend
-        // For now, we'll just simulate being authenticated
+        debugPrint('Found server port: $port');
+        
+        // Don't override authentication state if FFI is properly initialized
+        // as it will be handled by _ensureInitialized
+        if (!FFIInitializer.isInitialized) {
+          debugPrint('FFI not initialized, using mock authentication');
+          setState(() {
+            _isAuthenticated = true;
+            _userProfile = {
+              'display_name': 'Demo User',
+              'images': [
+                {'url': ''}
+              ]
+            };
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Error connecting to server: $e');
+      // Only set mock authentication if FFI isn't initialized
+      if (!FFIInitializer.isInitialized) {
+        debugPrint('Using mock authentication due to server connection error');
         setState(() {
-          _isAuthenticated = true;
+          _isAuthenticated = true; // For demo purposes only
           _userProfile = {
             'display_name': 'Demo User',
             'images': [
@@ -214,17 +245,6 @@ class _InterestnautAppState extends State<InterestnautApp> {
           };
         });
       }
-    } catch (e) {
-      print('Error connecting to server: $e');
-      setState(() {
-        _isAuthenticated = true; // For demo purposes, always authenticate
-        _userProfile = {
-          'display_name': 'Demo User',
-          'images': [
-            {'url': ''}
-          ]
-        };
-      });
     }
   }
 
@@ -298,17 +318,32 @@ class _InterestnautAppState extends State<InterestnautApp> {
   Widget _buildCurrentContent() {
     switch (_currentMediaType) {
       case 'music':
-        return const MusicSection();
+        return MusicSection(
+          onAuthStatusChanged: (isAuthenticated, userProfile) {
+            setState(() {
+              _isAuthenticated = isAuthenticated;
+              if (userProfile != null) {
+                _userProfile = userProfile;
+              } else if (isAuthenticated) {
+                // Provide a minimal profile if authenticated but no profile data
+                _userProfile = {
+                  'display_name': 'Spotify User',
+                  'images': []
+                };
+              }
+            });
+          },
+        );
       case 'movies':
-        return const Center(child: Text('Movies section is under development'));
+        return const Text('Movies');
       case 'tv':
-        return const Center(child: Text('TV Shows section is under development'));
+        return const Text('TV Shows');
       case 'books':
-        return const Center(child: Text('Books section is under development'));
+        return const Text('Books');
       case 'games':
-        return const Center(child: Text('Games section is under development'));
+        return const Text('Games');
       default:
-        return const MusicSection();
+        return const Text('Unknown media type');
     }
   }
 }
