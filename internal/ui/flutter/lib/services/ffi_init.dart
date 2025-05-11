@@ -48,99 +48,129 @@ class FFIInitializer {
     
     _searchPaths.clear();
     debugPrint('Initializing FFI bindings...');
-    
-    // Try direct project root approach first
-    final projectRoot = '/Users/catastrophe/stuff/interestnaut';
+
     final libraryName = 'libinterestnaut.dylib';
-    final libPath = path.join(projectRoot, libraryName);
-    _searchPaths.add(libPath);
     
-    if (File(libPath).existsSync()) {
+    // Try to find the library in app's temporary directory which should be accessible
+    if (Platform.isMacOS) {
       try {
-        debugPrint('Attempting to load library from: $libPath');
-        final lib = ffi.DynamicLibrary.open(libPath);
-        if (_verifyLibrary(lib)) {
-          _dylib = lib;
-          _initialized = true;
-          debugPrint('Successfully loaded and verified library from project root');
-          return;
+        // Get the application's temp directory which should be accessible in the sandbox
+        final appExecDir = path.dirname(Platform.resolvedExecutable);
+        final appBundleDir = path.dirname(appExecDir); // Go up one level from MacOS dir
+        final frameworksDir = path.join(appBundleDir, 'Frameworks');
+        
+        // Create Frameworks directory if it doesn't exist
+        final frameworksDirEntity = Directory(frameworksDir);
+        if (!await frameworksDirEntity.exists()) {
+          await frameworksDirEntity.create(recursive: true);
+          debugPrint('Created Frameworks directory: $frameworksDir');
+        }
+        
+        // Path for the dylib in the Frameworks directory
+        final targetDylibPath = path.join(frameworksDir, libraryName);
+        
+        // Check if we need to copy the dylib
+        final targetFile = File(targetDylibPath);
+        if (!await targetFile.exists()) {
+          // Source dylib path
+          final sourceDylibPath = '/Users/catastrophe/stuff/interestnaut/internal/ui/flutter/libinterestnaut.dylib';
+          final sourceFile = File(sourceDylibPath);
+          
+          if (await sourceFile.exists()) {
+            debugPrint('Copying dylib from: $sourceDylibPath to: $targetDylibPath');
+            
+            // Copy the file
+            try {
+              await sourceFile.copy(targetDylibPath);
+              
+              // Set execute permissions
+              await Process.run('chmod', ['+x', targetDylibPath]);
+              
+              debugPrint('Successfully copied dylib to Frameworks directory');
+            } catch (e) {
+              debugPrint('Error copying dylib: $e');
+            }
+          } else {
+            debugPrint('Source dylib not found at: $sourceDylibPath');
+          }
         } else {
-          debugPrint('Library verification failed for: $libPath');
+          debugPrint('Dylib already exists in Frameworks directory: $targetDylibPath');
+        }
+        
+        // Now try to load the dylib from the Frameworks directory
+        if (await targetFile.exists()) {
+          try {
+            debugPrint('Attempting to load library from Frameworks directory: $targetDylibPath');
+            final lib = ffi.DynamicLibrary.open(targetDylibPath);
+            
+            if (_verifyLibrary(lib)) {
+              _dylib = lib;
+              _initialized = true;
+              debugPrint('Successfully loaded and verified library from Frameworks directory');
+              return;
+            } else {
+              debugPrint('Library verification failed for Framework directory copy');
+            }
+          } catch (e) {
+            debugPrint('Failed to load from Frameworks directory: $e');
+          }
         }
       } catch (e) {
-        debugPrint('Failed to load from project root: $e');
+        debugPrint('Error during Frameworks directory setup: $e');
       }
-    } else {
-      debugPrint('Library not found at: $libPath');
     }
     
-    // Check environment variable path (set by Go launcher)
-    final envLibPath = Platform.environment['FLUTTER_DYLIB_PATH'];
-    if (envLibPath != null && File(envLibPath).existsSync()) {
-      _searchPaths.add(envLibPath);
-      try {
-        debugPrint('Attempting to load library from environment path: $envLibPath');
-        final lib = ffi.DynamicLibrary.open(envLibPath);
-        if (_verifyLibrary(lib)) {
-          _dylib = lib;
-          _initialized = true;
-          debugPrint('Successfully loaded and verified library from environment path');
-          return;
-        } else {
-          debugPrint('Library verification failed for: $envLibPath');
-        }
-      } catch (e) {
-        debugPrint('Failed to load from environment path: $e');
-      }
-    } else {
-      debugPrint('Environment path not set or library not found');
-    }
+    // Try the following paths
+    final pathsToTry = <String>[];
     
-    // Try to find the library inside the app bundle
     if (Platform.isMacOS) {
       final appBundle = path.dirname(Platform.resolvedExecutable);
       
-      // List of places to search
-      final possibleLocations = [
+      // Add all potential paths
+      pathsToTry.addAll([
         // Frameworks directory in macOS app bundle
         path.join(path.dirname(appBundle), 'Frameworks', libraryName),
         path.join(appBundle, '..', 'Frameworks', libraryName),
         
-        // Current directory and up
-        path.join(Directory.current.path, libraryName),
-        path.join(Directory.current.path, '..', libraryName),
-        path.join(Directory.current.path, '..', '..', libraryName),
-        
         // App bundle directory
         path.join(appBundle, libraryName),
-      ];
+        
+        // Current directory
+        path.join(Directory.current.path, libraryName),
+        
+        // Original location
+        '/Users/catastrophe/stuff/interestnaut/internal/ui/flutter/libinterestnaut.dylib',
+      ]);
+    }
+    
+    for (final location in pathsToTry) {
+      _searchPaths.add(location);
+      debugPrint('Checking location: $location');
       
-      for (final location in possibleLocations) {
-        _searchPaths.add(location);
-        if (File(location).existsSync()) {
-          try {
-            debugPrint('Attempting to load library from: $location');
-            final lib = ffi.DynamicLibrary.open(location);
-            if (_verifyLibrary(lib)) {
-              _dylib = lib;
-              _initialized = true;
-              debugPrint('Successfully loaded and verified library from: $location');
-              return;
-            } else {
-              debugPrint('Library verification failed for: $location');
-            }
-          } catch (e) {
-            debugPrint('Failed to load from: $location');
+      if (File(location).existsSync()) {
+        try {
+          debugPrint('Attempting to load library from: $location');
+          final lib = ffi.DynamicLibrary.open(location);
+          
+          if (_verifyLibrary(lib)) {
+            _dylib = lib;
+            _initialized = true;
+            debugPrint('Successfully loaded and verified library from: $location');
+            return;
+          } else {
+            debugPrint('Library verification failed for: $location');
           }
-        } else {
-          debugPrint('Library not found at: $location');
+        } catch (e) {
+          debugPrint('Failed to load from: $location: $e');
         }
+      } else {
+        debugPrint('Library not found at: $location');
       }
     }
     
     // If we get here, we failed to initialize
     _initialized = false;
     _dylib = null;
-    throw Exception('Failed to load FFI library. The library could not be found or is inaccessible. Searched paths: ${_searchPaths.join(", ")}');
+    throw Exception('Failed to load FFI library. The library could not be found or is inaccessible due to sandbox restrictions. Check the debug logs for more details.');
   }
-} 
+}

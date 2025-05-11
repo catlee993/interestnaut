@@ -111,6 +111,11 @@ class MediaItem {
       releaseDate: map['release_date'],
     );
   }
+  
+  /// Create a MediaItem from a JSON string
+  factory MediaItem.fromJson(Map<String, dynamic> json) {
+    return MediaItem.fromMap(json);
+  }
 
   /// Convert to a Map, useful for JSON serialization
   Map<String, dynamic> toMap() {
@@ -159,4 +164,4 @@ class MediaSuggestionItem {
     this.rating,
     this.voteCount,
   });
-} 
+}

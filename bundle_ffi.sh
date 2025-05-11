@@ -34,38 +34,39 @@ bundle_macos() {
     for bundle in "${MACOS_BUNDLE_PATHS[@]}"; do
         if [ -d "$bundle" ]; then
             app_bundle="$bundle"
-            break
+            echo "Found app bundle at: $bundle"
+            
+            # Create necessary directories
+            local frameworks_dir="$bundle/Contents/Frameworks"
+            local resources_dir="$bundle/Contents/Resources"
+            local macos_dir="$bundle/Contents/MacOS"
+            
+            mkdir -p "$frameworks_dir"
+            mkdir -p "$resources_dir"
+            
+            # Copy the library to all necessary locations
+            echo "Copying FFI library to app bundle: $bundle"
+            cp "$SRC_DYLIB" "$frameworks_dir/$DYLIB_NAME"
+            cp "$SRC_DYLIB" "$resources_dir/$DYLIB_NAME"
+            cp "$SRC_DYLIB" "$macos_dir/$DYLIB_NAME"
+            
+            echo "Checking install name tool settings for $bundle..."
+            otool -L "$frameworks_dir/$DYLIB_NAME" || true
+            
+            echo "FFI files bundled successfully for: $bundle"
         fi
     done
+    
+    # Always copy to Flutter directory for runtime access
+    echo "Copying FFI library to Flutter directory"
+    mkdir -p "$MACOS_DEV_DIR"
+    cp "$SRC_DYLIB" "$MACOS_FLUTTER_DIR/$DYLIB_NAME"
+    cp "$SRC_HEADER" "$MACOS_DEV_DIR/$HEADER_NAME"
     
     if [ -z "$app_bundle" ]; then
         echo "No app bundle found. Please build the app first with 'flutter build macos'."
         return 1
     fi
-    
-    echo "Found app bundle at: $app_bundle"
-    
-    # Create necessary directories
-    local frameworks_dir="$app_bundle/Contents/Frameworks"
-    local resources_dir="$app_bundle/Contents/Resources"
-    local macos_dir="$app_bundle/Contents/MacOS"
-    
-    mkdir -p "$frameworks_dir"
-    mkdir -p "$resources_dir"
-    mkdir -p "$MACOS_DEV_DIR"
-    
-    # Move the library to app bundle and header to dev directory
-    echo "Moving FFI files..."
-    mv "$SRC_DYLIB" "$frameworks_dir/$DYLIB_NAME"
-    mv "$SRC_HEADER" "$MACOS_DEV_DIR/$HEADER_NAME"
-    
-    if [ "$is_release" = true ]; then
-        cp "$frameworks_dir/$DYLIB_NAME" "$resources_dir/$DYLIB_NAME"
-        cp "$frameworks_dir/$DYLIB_NAME" "$macos_dir/$DYLIB_NAME"
-    fi
-    
-    echo "Checking install name tool settings..."
-    otool -L "$frameworks_dir/$DYLIB_NAME" || true
     
     echo "FFI files bundled successfully for macOS!"
 }
@@ -84,4 +85,4 @@ case "$1" in
         echo "  macos-release - Bundle for macOS distribution"
         exit 1
         ;;
-esac 
+esac

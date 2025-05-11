@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../models.dart';
-import '../../services/go_bindings.dart';
+import '../../services/music_ffi.dart';
 import '../../theme.dart';
 import 'suggestions/suggestion_display.dart';
 import 'tracks/track_card.dart';
@@ -21,6 +21,9 @@ class _MusicSectionState extends State<MusicSection> {
   String? _suggestionError;
   int _totalTracks = 0;
   bool _isAuthenticated = false;
+  
+  // Create an instance of MusicFFI
+  final MusicFFI _musicFfi = MusicFFI();
 
   @override
   void initState() {
@@ -31,7 +34,7 @@ class _MusicSectionState extends State<MusicSection> {
 
   Future<void> _checkAuthentication() async {
     try {
-      final authStatus = await GoBindings.instance.music.getAuthStatus();
+      final authStatus = await _musicFfi.getAuthStatus();
       if (authStatus.containsKey('isAuthenticated')) {
         setState(() {
           _isAuthenticated = authStatus['isAuthenticated'] == true;
@@ -39,6 +42,9 @@ class _MusicSectionState extends State<MusicSection> {
       }
     } catch (e) {
       debugPrint('Error checking authentication: $e');
+      setState(() {
+        _isAuthenticated = false;
+      });
     }
   }
 
@@ -47,151 +53,183 @@ class _MusicSectionState extends State<MusicSection> {
 
     setState(() {
       _isLoadingLibrary = true;
+      _library = []; // Clear the library before loading
     });
 
     try {
-      final response =
-          await GoBindings.instance.music.getSavedTracks(limit, offset);
-
-      if (response.containsKey('items') && response['items'] is List) {
+      final response = await _musicFfi.getSavedTracks(limit, offset);
+      
+      // Handle different response formats
+      if (response is List) {
+        // Direct list of tracks
+        final List<Map<String, dynamic>> tracks = [];
+        for (var i = 0; i < response.length; i++) {
+          final item = response[i];
+          if (item is Map) {
+            tracks.add(Map<String, dynamic>.from(item));
+          }
+        }
+        
         setState(() {
-          _library = List<Map<String, dynamic>>.from(response['items'] as List);
-          _totalTracks = response['total'] ?? 0;
+          _library = tracks;
+          _totalTracks = tracks.length;
           _isLoadingLibrary = false;
         });
+      } else      // Response with 'items' field
+      if (response.containsKey('items')) {
+        final items = response['items'];
+        if (items is List) {
+          final List<Map<String, dynamic>> tracks = [];
+          for (var i = 0; i < items.length; i++) {
+            final item = items[i];
+            if (item is Map) {
+              tracks.add(Map<String, dynamic>.from(item));
+            }
+          }
+
+          setState(() {
+            _library = tracks;
+            _totalTracks = response['total'] ?? tracks.length;
+            _isLoadingLibrary = false;
+          });
+        } else {
+          setState(() {
+            _isLoadingLibrary = false;
+            // No valid items found
+          });
+        }
       } else {
         setState(() {
           _isLoadingLibrary = false;
+          // No items field found
         });
       }
+
     } catch (e) {
       debugPrint('Error loading library: $e');
       setState(() {
         _isLoadingLibrary = false;
+        // Show error in UI
       });
     }
   }
 
-  Future<void> _getNewSuggestion() async {
+  Future<void> _loadSuggestion() async {
     if (!_isAuthenticated) return;
 
     setState(() {
       _isLoadingSuggestion = true;
-      _suggestion = null;
       _suggestionError = null;
     });
 
     try {
-      final suggestion = await GoBindings.instance.music.requestNewSuggestion();
-      setState(() {
-        _suggestion = suggestion;
-        _isLoadingSuggestion = false;
-      });
+      final suggestion = await _musicFfi.requestNewSuggestion();
+      
+      // Convert Map<String, dynamic> to MediaItem
+      if (suggestion is Map<String, dynamic>) {
+        setState(() {
+          _suggestion = MediaItem.fromJson(suggestion);
+          _isLoadingSuggestion = false;
+        });
+      } else {
+        throw Exception('Unexpected suggestion format');
+      }
     } catch (e) {
-      debugPrint('Error getting suggestion: $e');
+      debugPrint('Error loading suggestion: $e');
       setState(() {
-        _suggestionError = e.toString();
         _isLoadingSuggestion = false;
+        _suggestionError = 'Failed to load suggestion: $e';
       });
     }
   }
 
-  Future<void> _provideFeedback(String outcome) async {
+  /// Provide feedback on a suggestion
+  Future<void> _provideFeedback(bool liked) async {
     if (_suggestion == null) return;
 
-    final title = _suggestion!.title;
-    final artist = _suggestion!.overview;
+    final outcome = liked ? 'liked' : 'disliked';
+    final title = _suggestion?.title ?? '';
+    final artist = _suggestion?.overview ?? ''; // Use overview as artist
     final album = ''; // We don't have album info in the MediaItem
 
     try {
-      await GoBindings.instance.music
-          .provideSuggestionFeedback(outcome, title, artist, album);
+      await _musicFfi.provideSuggestionFeedback(outcome, title, artist, album);
       // Show feedback confirmation
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Feedback recorded: $outcome'),
-          duration: const Duration(seconds: 2),
+          content: Text('Thank you for your feedback! You $outcome the song.'),
         ),
       );
     } catch (e) {
       debugPrint('Error providing feedback: $e');
     }
   }
+  
+  /// Process feedback from the suggestion display
+  Future<void> _handleSuggestionFeedback(String feedback) async {
+    final bool liked = feedback == 'liked';
+    await _provideFeedback(liked);
+  }
 
   Future<void> _saveTrack(String trackId) async {
     try {
-      await GoBindings.instance.music.saveTrack(trackId);
+      await _musicFfi.saveTrack(trackId);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Track saved to your library'),
-          duration: Duration(seconds: 2),
         ),
       );
-      // Refresh library
-      _loadLibrary();
+      
+      // Refresh library after saving
+      await _loadLibrary();
     } catch (e) {
       debugPrint('Error saving track: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to save track: $e'),
+        ),
+      );
     }
   }
 
   Future<void> _removeTrack(String trackId) async {
     try {
-      await GoBindings.instance.music.removeTrack(trackId);
+      await _musicFfi.removeTrack(trackId);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Track removed from your library'),
-          duration: Duration(seconds: 2),
         ),
       );
-      // Refresh library
-      _loadLibrary();
+      
+      // Refresh library after removing
+      await _loadLibrary();
     } catch (e) {
       debugPrint('Error removing track: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to remove track: $e'),
+        ),
+      );
     }
   }
 
-  Future<void> _authenticate() async {
-    // Show authentication in progress message
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-            'Starting Spotify authentication. Please check your browser to complete the process.'),
-        duration: Duration(seconds: 5),
-      ),
-    );
+  Future<void> _authenticateWithSpotify() async {
+    setState(() {
+      _isAuthenticated = false;
+    });
 
     try {
       // Explicitly initiate Spotify authentication flow
-      await GoBindings.instance.music.initiateSpotifyAuth();
+      await _musicFfi.initiateSpotifyAuth();
 
       // Check authentication status after a short delay
       await Future.delayed(const Duration(seconds: 2));
       await _checkAuthentication();
-
-      if (_isAuthenticated) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Successfully connected to Spotify!'),
-            duration: Duration(seconds: 3),
-          ),
-        );
-
-        // Load user profile and library after successful authentication
-        await _loadLibrary();
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Authentication did not complete. Please try again.'),
-            duration: Duration(seconds: 3),
-          ),
-        );
-      }
     } catch (e) {
-      debugPrint('Authentication error: $e');
+      debugPrint('Error authenticating with Spotify: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Authentication error: $e'),
-          duration: const Duration(seconds: 5),
+          content: Text('Failed to authenticate with Spotify: $e'),
         ),
       );
     }
@@ -205,10 +243,7 @@ class _MusicSectionState extends State<MusicSection> {
         // Remove user/auth UI from here. Only show music content.
         const SizedBox(height: 24),
         // Suggestions section
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: _buildSuggestionSection(),
-        ),
+        _buildSuggestionSection(),
         const SizedBox(height: 24),
         // Library section
         _buildLibrarySection(),
@@ -217,34 +252,34 @@ class _MusicSectionState extends State<MusicSection> {
   }
 
   Widget _buildSuggestionSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Padding(
-          padding: EdgeInsets.only(left: 8, bottom: 16),
-          child: Text(
-            'Suggested for You',
-            style: TextStyle(
-              fontWeight: FontWeight.w600,
-              fontSize: 20,
-              color: AppTheme.textPrimary,
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Padding(
+            padding: EdgeInsets.only(left: 8, bottom: 16),
+            child: Text(
+              'Suggested for You',
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 20,
+                color: AppTheme.textPrimary,
+              ),
             ),
           ),
-        ),
-        Container(
-          margin: const EdgeInsets.symmetric(horizontal: 4),
-          child: SuggestionDisplay(
+          SuggestionDisplay(
             suggestedTrack: _suggestion,
             suggestionContext: _suggestion?.reason,
             isProcessingLibrary: _isLoadingLibrary,
             suggestionError: _suggestionError,
             isFetchingSuggestion: _isLoadingSuggestion,
-            onRequestSuggestion: _getNewSuggestion,
-            onSkipSuggestion: _getNewSuggestion,
-            onSuggestionFeedback: _provideFeedback,
+            onRequestSuggestion: _loadSuggestion,
+            onSkipSuggestion: _loadSuggestion,
+            onSuggestionFeedback: _handleSuggestionFeedback,
             onAddToLibrary: () {
               if (_suggestion?.id != null) {
-                _saveTrack(_suggestion!.id.toString());
+                _saveTrack(_suggestion!.id);
               }
             },
             onPlay: (track) {
@@ -252,8 +287,8 @@ class _MusicSectionState extends State<MusicSection> {
               debugPrint('Playing ${track.title} by ${track.overview}');
             },
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -391,34 +426,65 @@ class _MusicSectionState extends State<MusicSection> {
                         spacing: 24,
                         runSpacing: 24,
                         children: _library.map((track) {
-                          final trackData =
-                              track['track'] as Map<String, dynamic>;
-                          final title = trackData['name'] as String;
-                          final artistsData = trackData['artists'] as List;
-                          final artistNames = artistsData
-                              .cast<Map<String, dynamic>>()
-                              .map((a) => a['name'] as String)
-                              .join(', ');
+                          // Handle both formats - either direct track data or nested track data
+                          final Map<String, dynamic> trackData =
+                              track.containsKey('track') ? track['track'] : track;
 
+                          final String title =
+                              trackData['name'] ?? trackData['title'] ?? 'Unknown Title';
+
+                          // Handle both formats of artist data
+                          String artist = 'Unknown Artist';
+                          if (trackData.containsKey('artists') &&
+                              trackData['artists'] is List) {
+                            final artistsData = trackData['artists'] as List;
+                            artist = artistsData
+                                .map((a) => a is Map ? a['name'] ?? '' : a.toString())
+                                .where((name) => name.isNotEmpty)
+                                .join(', ');
+                          } else if (trackData.containsKey('artist')) {
+                            artist = trackData['artist'].toString();
+                          } else if (trackData.containsKey('overview')) {
+                            // Use overview field as artist fallback (MediaItem format)
+                            artist = trackData['overview'].toString();
+                          }
+
+                          // Handle both formats of album data
+                          String album = 'Unknown Album';
+                          if (trackData.containsKey('album') &&
+                              trackData['album'] is Map) {
+                            album = trackData['album']['name'] ?? 'Unknown Album';
+                          } else if (trackData.containsKey('album')) {
+                            album = trackData['album'].toString();
+                          }
+
+                          // Handle different ID formats
+                          String id = '';
+                          if (trackData.containsKey('id')) {
+                            id = trackData['id'].toString();
+                          }
+
+                          // Handle different image formats
                           String imageUrl = '';
                           if (trackData.containsKey('album') &&
                               trackData['album'] is Map &&
                               trackData['album'].containsKey('images') &&
                               trackData['album']['images'] is List &&
-                              (trackData['album']['images'] as List)
-                                  .isNotEmpty) {
-                            imageUrl = (trackData['album']['images'] as List)
-                                .first['url'] as String;
+                              (trackData['album']['images'] as List).isNotEmpty) {
+                            imageUrl = trackData['album']['images'][0]['url'] ?? '';
+                          } else if (trackData.containsKey('imageUrl')) {
+                            imageUrl = trackData['imageUrl'].toString();
+                          } else if (trackData.containsKey('posterPath')) {
+                            // MediaItem format
+                            imageUrl = trackData['posterPath'].toString();
                           }
-
-                          final id = trackData['id'] as String;
 
                           return SizedBox(
                             width: cardWidth,
                             height: 240,
                             child: _buildTrackCard(
                               title,
-                              artistNames,
+                              artist,
                               imageUrl,
                               id,
                             ),

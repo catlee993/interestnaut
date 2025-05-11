@@ -3,9 +3,18 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as path;
 import '../models.dart';
-import 'ffi_bridge.dart';
+import 'ffi_bridge.dart' show FFIBindingBase, GoFFILibrary;
 import 'ffi_init.dart';
 import 'dart:convert';
+
+// Import all FFI bindings
+import 'auth_ffi.dart';
+import 'books_ffi.dart';
+import 'games_ffi.dart';
+import 'movies_ffi.dart';
+import 'music_ffi.dart';
+import 'settings_ffi.dart';
+import 'tv_ffi.dart';
 
 /// GoBindings provides direct access to the Go backend functions
 /// Similar to the Wails bindings in frontend/wailsjs/go/bindings
@@ -20,6 +29,7 @@ class GoBindings {
   late BookBindings books;
   late GameBindings games;
   late SettingsBindings settings;
+  late AuthBindings auth;
   
   // Private constructor for singleton
   GoBindings._() {
@@ -29,6 +39,7 @@ class GoBindings {
     books = BookBindings();
     games = GameBindings();
     settings = SettingsBindings();
+    auth = AuthBindings();
   }
   
   /// Returns the singleton instance
@@ -112,7 +123,7 @@ class MusicBindings {
       debugPrint("FFI not initialized or valid in MusicBindings, attempting initialization...");
       
       // Log FFI status for diagnosis
-      debugPrint('FFI status before init: [32m${FFIInitializer.isInitialized}[0m');
+      debugPrint('FFI status before init: ${FFIInitializer.isInitialized}');
       
       try {
         // First ensure FFI is initialized
@@ -196,28 +207,18 @@ class MusicBindings {
   }
   
   /// Request a new suggestion
-  Future<MediaItem> requestNewSuggestion() async {
+  Future<Map<String, dynamic>> requestNewSuggestion() async {
     try {
       await _ensureInitialized();
-      final Map<String, dynamic> response = await _ffi.requestNewSuggestion();
-      
-      // Parse the response into a MediaItem
-      return MediaItem(
-        id: response['id'] ?? '',
-        title: response['name'] ?? 'Unknown Track',
-        overview: response['artist'] ?? 'Unknown Artist',
-        posterPath: response['album_art_url'] ?? '',
-        mediaType: 'music',
-        reason: response['reason'] ?? '',
-      );
+      return await _ffi.requestNewSuggestion();
     } catch (e) {
       debugPrint('Error getting music suggestion: $e');
-      return MediaItem(
-        id: 'error',
-        title: 'Error',
-        overview: 'Could not get suggestion',
-        mediaType: 'music',
-      );
+      return {
+        'id': 'error',
+        'title': 'Error',
+        'overview': 'Could not get suggestion',
+        'mediaType': 'music',
+      };
     }
   }
   
@@ -270,19 +271,10 @@ class MusicBindings {
   }
   
   /// Search for tracks
-  Future<List<MediaItem>> searchTracks(String query, int limit) async {
+  Future<List<dynamic>> searchTracks(String query, int limit) async {
     try {
       await _ensureInitialized();
-      final List<dynamic> results = await _ffi.searchTracks(query, limit);
-      return results.map((track) {
-        return MediaItem(
-          id: track['id'] ?? '',
-          title: track['name'] ?? 'Unknown Track',
-          overview: track['artist'] ?? 'Unknown Artist',
-          posterPath: track['album_art_url'] ?? '',
-          mediaType: 'music',
-        );
-      }).toList().cast<MediaItem>();
+      return await _ffi.searchTracks(query, limit);
     } catch (e) {
       debugPrint('Error searching tracks: $e');
       return [];
@@ -295,31 +287,17 @@ class MovieBindings {
   final _ffi = MoviesFFI();
   
   /// Get movie suggestions
-  Future<MediaItem> requestNewSuggestion() async {
+  Future<Map<String, dynamic>> getMovieSuggestion() async {
     try {
-      final Map<String, dynamic> response = await _ffi.getMovieSuggestion();
-      final movie = response['movie'];
-      
-      if (movie == null) {
-        throw Exception('Movie suggestion not found in response');
-      }
-      
-      return MediaItem(
-        id: movie['id'] ?? 0,
-        title: movie['title'] ?? movie['name'] ?? 'Unknown Movie',
-        overview: movie['overview'] ?? response['reason'] ?? '',
-        posterPath: movie['poster_path'] ?? '',
-        mediaType: 'movie',
-        reason: response['reason'],
-      );
+      return await _ffi.getMovieSuggestion();
     } catch (e) {
       debugPrint('Error getting movie suggestion: $e');
-      return MediaItem(
-        id: 0,
-        title: 'Error',
-        overview: 'Could not get suggestion',
-        mediaType: 'movie',
-      );
+      return {
+        'id': 'error',
+        'title': 'Error',
+        'overview': 'Could not get suggestion',
+        'mediaType': 'movie',
+      };
     }
   }
   
@@ -333,18 +311,9 @@ class MovieBindings {
   }
   
   /// Search for movies
-  Future<List<MediaItem>> searchMovies(String query) async {
+  Future<List<dynamic>> searchMovies(String query) async {
     try {
-      final List<dynamic> results = await _ffi.searchMovies(query);
-      return results.map((movie) {
-        return MediaItem(
-          id: movie['id'] ?? 0,
-          title: movie['title'] ?? movie['name'] ?? 'Unknown Movie',
-          overview: movie['overview'] ?? '',
-          posterPath: movie['poster_path'] ?? '',
-          mediaType: 'movie',
-        );
-      }).toList().cast<MediaItem>();
+      return await _ffi.searchMovies(query);
     } catch (e) {
       debugPrint('Error searching movies: $e');
       return [];
@@ -352,42 +321,19 @@ class MovieBindings {
   }
   
   /// Get movie details
-  Future<MediaItem> getMovieDetails(int movieId) async {
+  Future<Map<String, dynamic>> getMovieDetails(int movieId) async {
     try {
-      final Map<String, dynamic> movie = await _ffi.getMovieDetails(movieId);
-      
-      return MediaItem(
-        id: movie['id'] ?? 0,
-        title: movie['title'] ?? movie['name'] ?? 'Unknown Movie',
-        overview: movie['overview'] ?? '',
-        posterPath: movie['poster_path'] ?? '',
-        mediaType: 'movie',
-      );
+      return await _ffi.getMovieDetails(movieId);
     } catch (e) {
       debugPrint('Error getting movie details: $e');
-      return MediaItem(
-        id: movieId,
-        title: 'Error',
-        overview: 'Could not get movie details',
-        mediaType: 'movie',
-      );
+      return {'title': 'Error', 'overview': 'Could not get movie details'};
     }
   }
   
   /// Get favorite movies
-  Future<List<MediaItem>> getFavoriteMovies() async {
+  Future<List<dynamic>> getFavoriteMovies() async {
     try {
-      final List<dynamic> favorites = await _ffi.getFavoriteMovies();
-      return favorites.map((movie) {
-        return MediaItem(
-          id: 0, // Favorites might not have IDs
-          title: movie['title'] ?? 'Unknown Movie',
-          overview: movie['director'] ?? '',
-          posterPath: movie['poster_path'] ?? '',
-          mediaType: 'movie',
-          director: movie['director'],
-        );
-      }).toList().cast<MediaItem>();
+      return await _ffi.getFavoriteMovies();
     } catch (e) {
       debugPrint('Error getting favorite movies: $e');
       return [];
@@ -395,19 +341,9 @@ class MovieBindings {
   }
   
   /// Get movie watchlist
-  Future<List<MediaItem>> getWatchlist() async {
+  Future<List<dynamic>> getWatchlist() async {
     try {
-      final List<dynamic> watchlist = await _ffi.getWatchlist();
-      return watchlist.map((movie) {
-        return MediaItem(
-          id: 0, // Watchlist items might not have IDs
-          title: movie['title'] ?? 'Unknown Movie',
-          overview: movie['director'] ?? '',
-          posterPath: movie['poster_path'] ?? '',
-          mediaType: 'movie',
-          director: movie['director'],
-        );
-      }).toList().cast<MediaItem>();
+      return await _ffi.getWatchlist();
     } catch (e) {
       debugPrint('Error getting movie watchlist: $e');
       return [];
@@ -418,39 +354,39 @@ class MovieBindings {
 /// TVShowBindings provides direct access to the Go TVShow functions
 class TVShowBindings {
   /// Get TV show suggestions
-  Future<MediaItem> requestNewSuggestion() async {
+  Future<Map<String, dynamic>> requestNewSuggestion() async {
     // This will be implemented similarly to MovieBindings
-    return MediaItem(
-      id: 0,
-      title: 'Example TV Show',
-      mediaType: 'tv',
-    );
+    return {
+      'id': 'tv0',
+      'title': 'Example TV Show',
+      'mediaType': 'tv',
+    };
   }
 }
 
 /// BookBindings provides direct access to the Go Book functions
 class BookBindings {
   /// Get book suggestions
-  Future<MediaItem> requestNewSuggestion() async {
+  Future<Map<String, dynamic>> requestNewSuggestion() async {
     // This will be implemented similarly to MovieBindings
-    return MediaItem(
-      id: 'book0',
-      title: 'Example Book',
-      mediaType: 'book',
-    );
+    return {
+      'id': 'book0',
+      'title': 'Example Book',
+      'mediaType': 'book',
+    };
   }
 }
 
 /// GameBindings provides direct access to the Go Game functions
 class GameBindings {
   /// Get game suggestions
-  Future<MediaItem> requestNewSuggestion() async {
+  Future<Map<String, dynamic>> requestNewSuggestion() async {
     // This will be implemented similarly to MovieBindings
-    return MediaItem(
-      id: 'game0',
-      title: 'Example Game',
-      mediaType: 'game',
-    );
+    return {
+      'id': 'game0',
+      'title': 'Example Game',
+      'mediaType': 'game',
+    };
   }
 }
 
@@ -466,4 +402,42 @@ class SettingsBindings {
   Future<void> setLLMProvider(String provider) async {
     // This will be implemented with FFI
   }
-} 
+}
+
+/// AuthBindings provides direct access to the Go Auth functions
+class AuthBindings {
+  final _ffi = AuthFFI();
+  
+  /// Ensure FFI is initialized before making a call
+  Future<void> _ensureInitialized() async {
+    if (!GoBindings.ffiAvailable) {
+      debugPrint("FFI not initialized or valid in AuthBindings, attempting initialization...");
+      
+      // Log FFI status for diagnosis
+      debugPrint('FFI status before init: ${FFIInitializer.isInitialized}');
+      
+      try {
+        // First ensure FFI is initialized
+        if (!FFIInitializer.isInitialized) {
+          await FFIInitializer.initialize();
+          debugPrint('FFI initialized successfully');
+        }
+        
+        // Then ensure GoBindings is initialized
+        await GoBindings.initialize();
+        debugPrint('GoBindings initialized successfully');
+        
+        // Verify initialization was successful
+        if (!GoBindings.ffiAvailable) {
+          final paths = FFIInitializer.searchPaths.join(', ');
+          throw Exception('FFI initialization completed but verification failed. Searched paths: $paths');
+        }
+        
+        debugPrint('FFI and GoBindings successfully initialized');
+      } catch (e) {
+        debugPrint('Error during initialization: $e');
+        throw Exception('Failed to initialize FFI: $e');
+      }
+    }
+  }
+}
