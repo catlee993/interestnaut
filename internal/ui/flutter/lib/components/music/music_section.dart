@@ -51,6 +51,10 @@ class _MusicSectionState extends State<MusicSection> {
         if (isAuth) {
           try {
             userProfile = await _musicFfi.getCurrentUser();
+            
+            // Automatically load library and suggestions when authenticated
+            _loadLibrary();
+            _loadSuggestion();
           } catch (e) {
             debugPrint('Error fetching user profile: $e');
           }
@@ -402,13 +406,7 @@ class _MusicSectionState extends State<MusicSection> {
                   color: AppTheme.textSecondary,
                 ),
               ),
-              const SizedBox(width: 16),
-              IconButton(
-                onPressed: () => _loadLibrary(),
-                icon: const Icon(Icons.refresh),
-                tooltip: 'Refresh Library',
-                color: AppTheme.primaryColor,
-              ),
+              // Reload button removed as requested since loading is automatic
             ],
           ),
         ),
