@@ -6,51 +6,57 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
-	"os/signal"
-	"syscall"
 	"time"
 )
 
 // Start initializes and starts the HTTP server; this is currently only used to respond
 // to Spotify's auth code callback to exchange for a token; should be short-lived,
-// and shouldn't run when a refresh token is available in the keychain
+// and shouldn't run when a refresh token is available in the keychain.
+//
+// This implementation is fully synchronous and blocking - it doesn't spawn any goroutines
+// that outlive the function call, making it compatible with iOS App Store requirements.
 func Start(ctx context.Context, stop <-chan struct{}, handler http.Handler) error {
 	srv := &http.Server{
 		Addr:    ":8080",
 		Handler: handler,
 	}
 
-	// Listen for system interrupts for graceful shutdown
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	// Use error channels for synchronous error handling
+	serverErrChan := make(chan error, 1)
 
-	// Channel to communicate server errors
-	errChan := make(chan error, 1)
-
+	// This is the only goroutine, and it's guaranteed to be cleaned up when this function returns
+	// because we explicitly call Shutdown() before returning
 	go func() {
 		log.Println("Server listening on http://localhost:8080")
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			errChan <- fmt.Errorf("ListenAndServe error: %w", err)
+			serverErrChan <- err
 		}
 	}()
 
-	// Wait for stop signal or error
+	// Block and wait for a signal to stop or an error
+	var err error
 	select {
 	case <-stop:
 		log.Println("Received stop signal")
-	case <-sigChan:
-		log.Println("Received OS interrupt signal")
-	case err := <-errChan:
-		return err
+	case err = <-serverErrChan:
+		log.Printf("Server error: %v", err)
+	case <-ctx.Done():
+		log.Println("Context canceled")
 	}
 
-	cCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	// Shutdown the server gracefully regardless of how we got here
+	log.Println("Shutting down server...")
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := srv.Shutdown(cCtx); err != nil {
-		return fmt.Errorf("server Shutdown Failed: %w", err)
+	if shutdownErr := srv.Shutdown(shutdownCtx); shutdownErr != nil {
+		if err != nil {
+			// Combine errors if we already had one
+			return fmt.Errorf("multiple errors: server: %v, shutdown: %v", err, shutdownErr)
+		}
+		return fmt.Errorf("server shutdown failed: %w", shutdownErr)
 	}
+
 	log.Println("Server exited properly")
-	return nil
+	return err
 }

@@ -3,10 +3,37 @@ package ffi
 // This file provides the bridge between Go and Dart using CGO
 
 /*
+#cgo CFLAGS: -x objective-c
+#cgo LDFLAGS: -framework Foundation -framework Security
 #include <stdlib.h>
+#include <signal.h>
+#include <string.h>
+#include <stdio.h>
+#include <pthread.h>
+#include <sched.h>
+
+// Signal handling approach - ignore signals at process level
+static void interestnaut_ignoreSignals() {
+    // Ignore SIGPIPE which commonly occurs with network/audio operations
+    signal(SIGPIPE, SIG_IGN);
+    
+    // Configure the app to not crash on these signals
+    // Note: We don't use sigaction with SA_ONSTACK as this causes conflicts with Go runtime
+    fprintf(stderr, "Configured app to ignore SIGPIPE\n");
+}
+
+// Additional safeguards for GC stability
+static void set_thread_priority_high() {
+    #ifdef __APPLE__
+    // On macOS, use sched_param to set high priority
+    struct sched_param param;
+    param.sched_priority = sched_get_priority_max(SCHED_RR);
+    pthread_setschedparam(pthread_self(), SCHED_RR, &param);
+    fprintf(stderr, "Set thread priority to high for FFI thread\n");
+    #endif
+}
 */
 import "C"
-
 import (
 	"context"
 	"encoding/json"
@@ -46,6 +73,32 @@ func init() {
 	// However, this confirms the package level init is working.
 }
 
+//export InitializeFFIBridge
+func InitializeFFIBridge() *C.char {
+	log.Println("InitializeFFIBridge called from Dart")
+
+	// Only initialize if not already done
+	if !ffiInitialized {
+		// Create a central manager for the FFI context
+		ctx := context.Background()
+		cm, err := session.NewCentralManager(ctx, session.DefaultUserID)
+		if err != nil {
+			log.Printf("Failed to create central manager in InitializeFFIBridge: %v", err)
+			return C.CString("{\"error\": \"Failed to initialize central manager\"}")
+		}
+
+		// Initialize all the bindings
+		Initialize(cm)
+	}
+
+	// Check if music bindings were properly initialized
+	if musicBindings == nil {
+		return C.CString("{\"error\": \"Music bindings initialization failed\"}")
+	}
+
+	return C.CString("{\"status\": \"success\"}")
+}
+
 // Initialize initializes all bindings for FFI use
 func Initialize(cm session.CentralManager) {
 	if ffiInitialized {
@@ -53,6 +106,15 @@ func Initialize(cm session.CentralManager) {
 		return
 	}
 	log.Println("FFI bridge Initialize() CALLED")
+
+	// Configure signal handling to prevent crashes
+	C.interestnaut_ignoreSignals()
+	
+	// Commenting out high thread priority since we're no longer polling
+	// This was primarily needed for continuous polling operations
+	// If no performance issues are observed, this can be permanently removed
+	// C.set_thread_priority_high()
+	
 	centralManager = cm
 	if centralManager == nil {
 		log.Println("CRITICAL: CentralManager is nil in Initialize()")

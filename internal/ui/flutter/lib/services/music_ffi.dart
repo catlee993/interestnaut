@@ -22,6 +22,8 @@ class MusicFFI {
   final void Function() _clearSpotifyCredentialsPtr;
   final void Function() _initiateSpotifyAuthPtr;
   final ffi.Pointer<ffi.Char> Function(ffi.Pointer<Utf8>, int) _searchTracksPtr;
+  final ffi.Pointer<ffi.Char> Function(ffi.Pointer<Utf8>, ffi.Pointer<Utf8>) _playTrackOnDevicePtr;
+  final ffi.Pointer<ffi.Char> Function(ffi.Pointer<Utf8>) _pausePlaybackOnDevicePtr;
   
   /// Private constructor that initializes all function pointers eagerly
   MusicFFI._() : 
@@ -59,7 +61,13 @@ class MusicFFI {
         void Function()>('Music_InitiateSpotifyAuth'),
     _searchTracksPtr = FFIInitializer.dylib.lookupFunction<
         ffi.Pointer<ffi.Char> Function(ffi.Pointer<Utf8>, ffi.Int32),
-        ffi.Pointer<ffi.Char> Function(ffi.Pointer<Utf8>, int)>('Music_SearchTracks');
+        ffi.Pointer<ffi.Char> Function(ffi.Pointer<Utf8>, int)>('Music_SearchTracks'),
+    _playTrackOnDevicePtr = FFIInitializer.dylib.lookupFunction<
+        ffi.Pointer<ffi.Char> Function(ffi.Pointer<Utf8>, ffi.Pointer<Utf8>),
+        ffi.Pointer<ffi.Char> Function(ffi.Pointer<Utf8>, ffi.Pointer<Utf8>)>('Music_PlayTrackOnDevice'),
+    _pausePlaybackOnDevicePtr = FFIInitializer.dylib.lookupFunction<
+        ffi.Pointer<ffi.Char> Function(ffi.Pointer<Utf8>),
+        ffi.Pointer<ffi.Char> Function(ffi.Pointer<Utf8>)>('Music_PausePlaybackOnDevice');
         
   /// Get authentication status with Spotify
   Future<Map<String, dynamic>> getAuthStatus() async {
@@ -197,6 +205,55 @@ class MusicFFI {
     
     if (result == null) {
       return [];
+    }
+    
+    return result;
+  }
+  
+  /// Play a track on a specific device
+  Future<Map<String, dynamic>?> playTrackOnDevice(String deviceId, String trackUri) async {
+    FFIBindingBase.checkInitialized();
+    
+    final deviceIdUtf8 = deviceId.toNativeUtf8();
+    final trackUriUtf8 = trackUri.toNativeUtf8();
+    
+    final resultPtr = _playTrackOnDevicePtr(deviceIdUtf8, trackUriUtf8);
+    
+    calloc.free(deviceIdUtf8);
+    calloc.free(trackUriUtf8);
+    
+    return FFIBindingBase.parseJSONFromPtr(resultPtr);
+  }
+  
+  /// Pause playback on a specific device
+  Future<Map<String, dynamic>?> pausePlaybackOnDevice(String deviceId) async {
+    FFIBindingBase.checkInitialized();
+    
+    final deviceIdUtf8 = deviceId.toNativeUtf8();
+    final resultPtr = _pausePlaybackOnDevicePtr(deviceIdUtf8);
+    calloc.free(deviceIdUtf8);
+    
+    return FFIBindingBase.parseJSONFromPtr(resultPtr);
+  }
+  
+  /// Play a track without specifying a device (let Spotify choose the active device)
+  Future<Map<String, dynamic>?> playTrack(String trackUri) async {
+    FFIBindingBase.checkInitialized();
+    
+    // For empty device ID, Spotify will use the current active device
+    // This is handled by the Go code in musicBindings.PlayTrackOnDevice
+    const String defaultDeviceId = ""; // empty string = use active device
+    final deviceIdUtf8 = defaultDeviceId.toNativeUtf8();
+    final trackUriUtf8 = trackUri.toNativeUtf8();
+    
+    final resultPtr = _playTrackOnDevicePtr(deviceIdUtf8, trackUriUtf8);
+    
+    calloc.free(deviceIdUtf8);
+    calloc.free(trackUriUtf8);
+    
+    final result = FFIBindingBase.parseJSONFromPtr(resultPtr);
+    if (result == null || result['error'] != null) {
+      throw Exception(result?['error'] ?? 'Failed to play track');
     }
     
     return result;

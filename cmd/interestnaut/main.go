@@ -10,7 +10,6 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"sync"
 	"syscall"
 	// Import "C" is required for CGO exports, but must be in its own block if it has comments above it.
 	// Or, ensure no comments are directly above it in the import block.
@@ -33,8 +32,6 @@ func SignalGoAppShutdown() {
 	log.Println("Go: SignalGoAppShutdown CALLED")
 	ffi.SignalShutdown() // Assuming ffi package has a public SignalShutdown
 }
-
-var wg sync.WaitGroup
 
 func main() {
 	// Set up signal handling for graceful shutdown
@@ -97,16 +94,10 @@ func main() {
 	// Run startup processes
 	onStartup(ctx, llmHandlers, tmdbHandlers, rawgHandlers)
 
-	// Wait for either a signal or for all tasks to complete
-	go func() {
-		sig := <-signalChan
-		log.Printf("Received signal: %v, initiating shutdown", sig)
-		// Let the WaitGroup complete naturally when processes exit
-	}()
-
-	// Wait for all processes to exit
-	wg.Wait()
-	log.Println("All processes completed, exiting main")
+	// Wait for a signal using a synchronous approach instead of goroutine
+	// This doesn't create a background goroutine that might be orphaned
+	sig := <-signalChan
+	log.Printf("Received signal: %v, initiating shutdown", sig)
 }
 
 func onStartup(ctx context.Context,
@@ -152,27 +143,4 @@ func onStartup(ctx context.Context,
 	} else {
 		log.Println("Using existing authorization code")
 	}
-}
-
-// InitializeFFIBridge is called by Dart to set up Go-side FFI resources.
-//
-//export InitializeFFIBridge
-func InitializeFFIBridge() {
-	log.Println("Go: InitializeFFIBridge() CALLED from Dart")
-
-	ctx := context.Background()
-	cm, err := session.NewCentralManager(ctx, session.DefaultUserID)
-	if err != nil {
-		log.Printf("Go: CRITICAL - Failed to create CentralManager in InitializeFFIBridge: %v", err)
-		// In a real scenario, you might want to communicate this error back to Dart
-		// or panic if the app cannot proceed without CentralManager.
-		return
-	}
-	if cm == nil {
-		log.Println("Go: CRITICAL - CentralManager is nil after creation in InitializeFFIBridge")
-		return
-	}
-
-	ffi.Initialize(cm) // This calls the Initialize function in ffi/bridge.go
-	log.Println("Go: FFI bridge initialization triggered from InitializeFFIBridge.")
 }

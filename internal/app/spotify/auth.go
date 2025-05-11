@@ -6,10 +6,8 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"interestnaut/internal/app/creds"
-	"interestnaut/internal/app/server"
 	"io"
 	"log"
 	"net/http"
@@ -19,9 +17,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	request "github.com/catlee993/go-request"
-	"github.com/zalando/go-keyring"
 )
 
 // Constants remain mostly unchanged
@@ -58,43 +53,48 @@ func computeCodeChallenge(verifier string) (string, error) {
 	return base64.RawURLEncoding.EncodeToString(hash[:]), nil
 }
 
-// RunInitialAuthFlow starts a local server, opens the browser to start OAuth with PKCE, and waits
-// for callback to save credentials.
+// RunInitialAuthFlow runs the Spotify authentication flow synchronously, blocking until
+// the auth process completes. This is safe to call from FFI because it doesn't
+// spawn any background goroutines that outlive the function call.
 func RunInitialAuthFlow(ctx context.Context) error {
-	stop := make(chan struct{})
+	log.Println("Starting blocking Spotify authentication...")
+	
+	// Generate PKCE code verifier
+	var err error
+	codeVerifier, err = generateCodeVerifier()
+	if err != nil {
+		return fmt.Errorf("failed to generate code verifier: %w", err)
+	}
+	
+	// Compute the corresponding code challenge
+	codeChallenge, err := computeCodeChallenge(codeVerifier)
+	if err != nil {
+		return fmt.Errorf("failed to compute code challenge: %w", err)
+	}
+	
+	// Build auth URL with PKCE
+	signinURL := fmt.Sprintf("%s?client_id=%s&response_type=code&redirect_uri=%s&scope=%s&code_challenge=%s&code_challenge_method=S256",
+		authURL,
+		url.QueryEscape(ClientID),
+		url.QueryEscape(redirectURI),
+		url.QueryEscape(scope),
+		url.QueryEscape(codeChallenge),
+	)
+	
+	// Channel for receiving the authorization code
+	codeChan := make(chan string, 1)
 	errChan := make(chan error, 1)
-
+	
+	// Create a server mux for the callback
 	mux := http.NewServeMux()
 	mux.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
 		code := r.URL.Query().Get("code")
 		if code == "" {
-			errChan <- fmt.Errorf("missing 'code' parameter in callback")
-			http.Error(w, "Missing 'code' parameter in callback", http.StatusBadRequest)
+			errChan <- fmt.Errorf("missing code parameter")
+			http.Error(w, "Missing code parameter", http.StatusBadRequest)
 			return
 		}
-
-		// Exchange the authorization code for tokens using PKCE
-		authResp, err := exchangeCodeForToken(ctx, ClientID, code)
-		if err != nil {
-			errChan <- fmt.Errorf("failed to exchange code for token: %w", err)
-			http.Error(w, fmt.Sprintf("Failed to exchange code for token: %v", err), http.StatusInternalServerError)
-			return
-		}
-
-		// Save the refresh token in the keychain
-		if err := creds.SaveSpotifyToken(authResp.RefreshToken); err != nil {
-			errChan <- fmt.Errorf("failed to save refresh token: %w", err)
-			http.Error(w, "Failed to save refresh token", http.StatusInternalServerError)
-			return
-		}
-
-		// Store the access token and its expiry in memory only
-		tokenMutex.Lock()
-		accessToken = authResp.AccessToken
-		tokenExpiry = time.Now().Add(time.Duration(authResp.ExpiresIn) * time.Second)
-		log.Printf("DEBUG (Callback): Stored initial token expiring at %s", tokenExpiry.Format(time.RFC3339))
-		tokenMutex.Unlock()
-
+		
 		// Send success response to browser
 		w.Header().Set("Content-Type", "text/html")
 		successHTML := `
@@ -111,53 +111,78 @@ func RunInitialAuthFlow(ctx context.Context) error {
 				</div>
 			</body>
 		</html>`
-		_, _ = fmt.Fprint(w, successHTML)
-
-		// Signal successful completion
-		close(stop)
+		w.Write([]byte(successHTML))
+		
+		// Send the code to the channel
+		codeChan <- code
 	})
-
-	serverCtx, serverCancel := context.WithCancel(ctx)
-	defer serverCancel()
-
-	// Start server and handle errors
-	serverErrChan := make(chan error, 1)
+	
+	// Create the server
+	server := &http.Server{
+		Addr:    ":8080",
+		Handler: mux,
+	}
+	
+	// Open the browser first to get the auth flow started
+	log.Println("Opening browser for authentication...")
+	if err := openBrowser(signinURL); err != nil {
+		return fmt.Errorf("failed to open browser: %w", err)
+	}
+	
+	// This is just like in server.go - the goroutine is safely cleaned up
+	// because we explicitly call Shutdown() before returning
+	serverErrorChan := make(chan error, 1)
 	go func() {
-		if err := server.Start(serverCtx, stop, mux); err != nil {
-			serverErrChan <- err
+		log.Println("Starting auth server on port 8080...")
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			serverErrorChan <- err
 		}
 	}()
-
-	// Start auth flow in browser
-	if err := startAuth(ClientID); err != nil {
-		serverCancel() // Cancel server context if browser launch fails
-		return fmt.Errorf("failed to start auth flow: %w", err)
-	}
-
-	// Wait for either success, error, or context cancellation
-	select {
-	case <-stop:
-		log.Println("Authentication successful")
-		serverCancel() // Ensure server is stopped
-		// Wait for server to stop
-		select {
-		case err := <-serverErrChan:
-			if err != nil && !errors.Is(err, http.ErrServerClosed) {
-				return fmt.Errorf("server error during shutdown: %w", err)
-			}
-		case <-time.After(5 * time.Second):
-			// Timeout waiting for server shutdown
+	
+	// Make sure we always shut down the server
+	defer func() {
+		log.Println("Shutting down auth server...")
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			log.Printf("Error shutting down server: %v", err)
 		}
-		return nil
+	}()
+	
+	// Wait for an auth code, server error, or timeout
+	var code string
+	select {
+	case code = <-codeChan:
+		log.Println("Got authorization code")
 	case err := <-errChan:
-		serverCancel() // Ensure server is stopped
-		return err
-	case err := <-serverErrChan:
+		return fmt.Errorf("authorization error: %w", err)
+	case err := <-serverErrorChan:
 		return fmt.Errorf("server error: %w", err)
 	case <-ctx.Done():
-		serverCancel() // Ensure server is stopped
-		return ctx.Err()
+		return fmt.Errorf("context canceled: %w", ctx.Err())
+	case <-time.After(5 * time.Minute):
+		return fmt.Errorf("authentication timed out after 5 minutes")
 	}
+	
+	// Exchange the code for a token
+	authResp, err := exchangeCodeForToken(ctx, ClientID, code)
+	if err != nil {
+		return fmt.Errorf("failed to exchange code for token: %w", err)
+	}
+	
+	// Save the refresh token
+	if err := creds.SaveSpotifyToken(authResp.RefreshToken); err != nil {
+		return fmt.Errorf("failed to save refresh token: %w", err)
+	}
+	
+	// Store the access token in memory
+	tokenMutex.Lock()
+	accessToken = authResp.AccessToken
+	tokenExpiry = time.Now().Add(time.Duration(authResp.ExpiresIn) * time.Second)
+	tokenMutex.Unlock()
+	
+	log.Println("Authentication completed successfully")
+	return nil
 }
 
 // ClearSpotifyCredentials clears stored Spotify tokens and resets in-memory state.
@@ -174,13 +199,6 @@ func ClearSpotifyCredentials(ctx context.Context) error {
 	tokenExpiry = time.Time{}
 	tokenMutex.Unlock()
 	log.Println("Cleared Spotify credentials from storage and memory.")
-
-	// Start a new authentication flow
-	if err := RunInitialAuthFlow(ctx); err != nil {
-		log.Printf("ERROR: Failed to start new auth flow after clearing credentials: %v", err)
-		return fmt.Errorf("failed to start new auth flow after clearing credentials: %w", err)
-	}
-
 	return nil
 }
 
@@ -203,111 +221,36 @@ func GetValidToken(ctx context.Context) (string, error) {
 		return accessToken, nil
 	}
 
+	// Attempt to refresh using stored refresh token
 	refreshToken, err := creds.GetSpotifyToken()
+	if err != nil || refreshToken == "" {
+		log.Printf("ERROR: No refresh token found: %v", err)
+		return "", fmt.Errorf("no refresh token available")
+	}
+
+	// Use refresh token to get a new access token
+	log.Println("Refreshing access token...")
+	values := url.Values{}
+	values.Set("grant_type", "refresh_token")
+	values.Set("refresh_token", refreshToken)
+	values.Set("client_id", ClientID)
+
+	authResp, err := makeTokenRequest(ctx, values)
 	if err != nil {
-		log.Printf("ERROR: Failed to get refresh token from storage: %v", err)
-		// Instead of just returning an error, try to start a new auth flow
-		if err := RunInitialAuthFlow(ctx); err != nil {
-			log.Printf("ERROR: Failed to start new auth flow after refresh token retrieval error: %v", err)
-			return "", fmt.Errorf("failed to refresh token and re-authenticate: %w", err)
-		}
-		// If auth flow successful, try to get the token again
-		newToken, tokenErr := creds.GetSpotifyToken()
-		if tokenErr != nil {
-			return "", ErrNotAuthenticated
-		}
-		refreshToken = newToken
+		log.Printf("ERROR: Failed to refresh token: %v", err)
+		return "", fmt.Errorf("failed to refresh token: %w", err)
 	}
 
-	if refreshToken == "" {
-		log.Println("ERROR: Retrieved empty refresh token from storage.")
-		// Start new auth flow if refresh token is empty
-		if err := RunInitialAuthFlow(ctx); err != nil {
-			log.Printf("ERROR: Failed to start new auth flow after empty refresh token: %v", err)
-			return "", fmt.Errorf("failed to re-authenticate with empty refresh token: %w", err)
-		}
-		// If successful, we need to wait a moment for the new token to be saved
-		time.Sleep(1 * time.Second)
-		return GetValidToken(ctx) // Retry with the new credentials
-	}
-
-	form := url.Values{}
-	form.Set("grant_type", "refresh_token")
-	form.Set("refresh_token", refreshToken)
-	form.Set("client_id", ClientID)
-
-	req, err := http.NewRequestWithContext(ctx, "POST", tokenURL, strings.NewReader(form.Encode()))
-	if err != nil {
-		log.Printf("ERROR: Failed to create token refresh request: %v", err)
-		return "", fmt.Errorf("failed to create token refresh request: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-
-	httpClient := &http.Client{Timeout: 10 * time.Second}
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		log.Printf("ERROR: Token refresh request failed: %v", err)
-		return "", fmt.Errorf("token refresh request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		log.Printf("ERROR: Failed to read token refresh response body: %v", err)
-		return "", fmt.Errorf("failed to read token refresh response body: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		log.Printf("ERROR: Token refresh failed with status %d: %s", resp.StatusCode, string(body))
-		if strings.Contains(string(body), "invalid_grant") {
-			log.Println("ERROR: Invalid refresh token (invalid_grant). Clearing stored credentials and initiating re-auth.")
-			// Clear invalid credentials
-			if err := keyring.Delete(creds.ServiceName, creds.SpotifyRefreshTokenKey); err != nil {
-				log.Printf("ERROR: Failed to clear invalid credentials from keyring: %v", err)
-			}
-			accessToken = ""
-			tokenExpiry = time.Time{}
-
-			// Automatically start a new auth flow
-			if err := RunInitialAuthFlow(ctx); err != nil {
-				log.Printf("ERROR: Failed to start new auth flow after invalid_grant: %v", err)
-				return "", fmt.Errorf("invalid refresh token and failed to re-authenticate: %w", err)
-			}
-
-			// If the auth flow completes, try to get a token again with the new credentials
-			// We need a short delay to ensure the token is properly saved by the callback
-			time.Sleep(1 * time.Second)
-
-			// Re-acquire the lock since we'll release it when we recursively call GetValidToken
-			tokenMutex.Unlock()
-			defer tokenMutex.Lock()
-
-			return GetValidToken(ctx)
-		}
-		return "", fmt.Errorf("token refresh failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var authResp AuthResponse
-	if err := json.Unmarshal(body, &authResp); err != nil {
-		log.Printf("ERROR: Failed to unmarshal token refresh response: %v", err)
-		return "", fmt.Errorf("failed to unmarshal token refresh response: %w", err)
-	}
-
-	if authResp.AccessToken == "" {
-		log.Println("ERROR: Token refresh response did not contain an access token.")
-		return "", ErrNotAuthenticated
-	}
-
-	// Update cached token and expiry
+	// Update access token in memory
 	accessToken = authResp.AccessToken
 	tokenExpiry = time.Now().Add(time.Duration(authResp.ExpiresIn) * time.Second)
-	log.Printf("DEBUG: Successfully refreshed token, new expiry: %s", tokenExpiry.Format(time.RFC3339))
+	log.Printf("Refreshed token, expires at %s", tokenExpiry.Format(time.RFC3339))
 
-	// If the response included a *new* refresh token, update storage
-	if authResp.RefreshToken != "" && authResp.RefreshToken != refreshToken {
+	// If a new refresh token was provided, update it in storage
+	if authResp.RefreshToken != "" {
 		if err := creds.SaveSpotifyToken(authResp.RefreshToken); err != nil {
-			log.Printf("ERROR: Failed to store new refresh token: %v", err)
+			log.Printf("WARNING: Failed to save new refresh token: %v", err)
+			// This is not a fatal error, we can continue with the access token
 		}
 	}
 
@@ -320,65 +263,43 @@ func exchangeCodeForToken(ctx context.Context, clientID, code string) (*AuthResp
 	values.Set("grant_type", "authorization_code")
 	values.Set("code", code)
 	values.Set("redirect_uri", redirectURI)
-	// Add PKCE parameters
 	values.Set("client_id", clientID)
-	values.Set("code_verifier", codeVerifier)
+	values.Set("code_verifier", codeVerifier) // Send the original code verifier
 
 	return makeTokenRequest(ctx, values)
 }
 
 // makeTokenRequest makes a request to Spotify's token endpoint.
-// In this PKCE flow, we no longer send a Basic Authorization header.
 func makeTokenRequest(ctx context.Context, values url.Values) (*AuthResponse, error) {
-	body := values.Encode()
-
-	req, err := request.NewRequester(
-		request.WithScheme(request.HTTPS),
-		request.WithMethod(request.Post),
-		request.WithHost("accounts.spotify.com"),
-		request.WithPath("api", "token"),
-		request.WithBody([]byte(body)),
-		request.WithHeaders(map[string][]string{
-			"Content-Type": {"application/x-www-form-urlencoded"},
-		}),
-	)
+	client := &http.Client{Timeout: 10 * time.Second}
+	req, err := http.NewRequestWithContext(ctx, "POST", tokenURL, strings.NewReader(values.Encode()))
 	if err != nil {
-		return nil, fmt.Errorf("failed to create requester: %w", err)
+		return nil, err
+	}
+
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("token request failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
 	var authResp AuthResponse
-	_, rErr := req.Make(ctx, &authResp)
-	if rErr != nil {
-		return nil, fmt.Errorf("request failed: %w", rErr)
+	if err := json.Unmarshal(body, &authResp); err != nil {
+		return nil, err
 	}
 
 	return &authResp, nil
-}
-
-// startAuth initiates the OAuth flow with PKCE by constructing the authorization URL (including a code challenge)
-// and opening it in the default browser.
-func startAuth(clientID string) error {
-	var err error
-	// Generate PKCE code verifier
-	codeVerifier, err = generateCodeVerifier()
-	if err != nil {
-		return fmt.Errorf("failed to generate code verifier: %w", err)
-	}
-
-	// Compute the corresponding code challenge
-	codeChallenge, err := computeCodeChallenge(codeVerifier)
-	if err != nil {
-		return fmt.Errorf("failed to compute code challenge: %w", err)
-	}
-
-	signinUrl := fmt.Sprintf("%s?client_id=%s&response_type=code&redirect_uri=%s&scope=%s&code_challenge=%s&code_challenge_method=S256",
-		authURL,
-		url.QueryEscape(clientID),
-		url.QueryEscape(redirectURI),
-		url.QueryEscape(scope),
-		url.QueryEscape(codeChallenge),
-	)
-	return openBrowser(signinUrl)
 }
 
 // openBrowser opens the default browser with the given URL.
@@ -387,15 +308,16 @@ func openBrowser(url string) error {
 	var args []string
 
 	switch runtime.GOOS {
+	case "windows":
+		cmd = "cmd"
+		args = []string{"/c", "start", url}
 	case "darwin":
 		cmd = "open"
 		args = []string{url}
-	case "windows":
-		cmd = "rundll32"
-		args = []string{"url.dll,FileProtocolHandler", url}
-	default: // linux, freebsd, etc.
+	default: // "linux", "freebsd", etc.
 		cmd = "xdg-open"
 		args = []string{url}
 	}
+
 	return exec.Command(cmd, args...).Start()
 }

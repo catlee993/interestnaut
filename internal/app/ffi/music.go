@@ -171,24 +171,59 @@ func Music_SearchTracks(queryC *C.char, limitC C.int) *C.char {
 
 //export Music_InitiateSpotifyAuth
 func Music_InitiateSpotifyAuth() *C.char {
-	log.Println("Music_InitiateSpotifyAuth CALLED (stdout)")
-	f, errFile := os.OpenFile("/tmp/interestnaut_go.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
-	if errFile != nil {
-		log.Printf("Error opening log file: %v", errFile)
-	} else {
-		log.SetOutput(f)
-		defer f.Close()
-	}
-	log.Println("Music_InitiateSpotifyAuth CALLED (log output)")
-
 	if musicBindings == nil {
-		log.Println("musicBindings is nil!")
 		return C.CString("{\"error\": \"Music bindings not initialized\"}")
 	}
+
+	// Just start the authorization process and return a success message
+	// Since we're using the browser-based flow, there's not a lot to return
 	err := musicBindings.InitiateSpotifyAuth()
 	if err != nil {
-		log.Printf("InitiateSpotifyAuth error: %v", err)
+		log.Printf("Error initiating Spotify auth: %v", err)
+		return processError(err)
 	}
-	log.SetOutput(os.Stdout)
-	return processError(err)
+
+	if pid := os.Getpid(); pid > 0 {
+		log.Printf("Spotify auth initiated. PID is: %d", pid)
+	}
+
+	return C.CString("{\"status\": \"initiated\"}")
 }
+
+//export Music_PlayTrackOnDevice
+func Music_PlayTrackOnDevice(deviceIDC, trackURIC *C.char) *C.char {
+	if musicBindings == nil {
+		return C.CString("{\"error\": \"Music bindings not initialized\"}")
+	}
+
+	deviceID := C.GoString(deviceIDC)
+	trackURI := C.GoString(trackURIC)
+	defer C.free(unsafe.Pointer(deviceIDC))
+	defer C.free(unsafe.Pointer(trackURIC))
+
+	err := musicBindings.PlayTrackOnDevice(deviceID, trackURI)
+	if err != nil {
+		return processError(err)
+	}
+
+	return C.CString("{\"success\": true}")
+}
+
+//export Music_PausePlaybackOnDevice
+func Music_PausePlaybackOnDevice(deviceIDC *C.char) *C.char {
+	if musicBindings == nil {
+		return C.CString("{\"error\": \"Music bindings not initialized\"}")
+	}
+
+	deviceID := C.GoString(deviceIDC)
+	defer C.free(unsafe.Pointer(deviceIDC))
+
+	err := musicBindings.PausePlaybackOnDevice(deviceID)
+	if err != nil {
+		return processError(err)
+	}
+
+	return C.CString("{\"status\": \"success\"}")
+}
+
+// Note: Music_GetActivePlaybackState is removed as it causes polling issues

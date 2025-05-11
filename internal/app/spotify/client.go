@@ -7,7 +7,6 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -302,47 +301,8 @@ func (c *client) PlayTrackOnDevice(ctx context.Context, deviceID string, trackUR
 
 	resp, err := req.Make(ctx, nil)
 	if err != nil {
-		// Check if the error is due to an expired token
-		if strings.Contains(err.Error(), "401") {
-			// Clear the current token to force a refresh
-			tokenMutex.Lock()
-			accessToken = ""
-			tokenExpiry = time.Time{}
-			tokenMutex.Unlock()
-
-			// Get a fresh token
-			newToken, tokenErr := GetValidToken(ctx)
-			if tokenErr != nil {
-				return fmt.Errorf("failed to refresh token: %w", tokenErr)
-			}
-
-			// Retry the request with the new token
-			req, err = request.NewRequester(
-				request.WithScheme(request.HTTPS),
-				request.WithMethod(request.Put),
-				request.WithHost("api.spotify.com"),
-				request.WithPath("v1", "me", "player", "play"),
-				request.WithQueryArgs(map[string][]string{
-					"device_id": {deviceID},
-				}),
-				request.WithBody(bodyBytes),
-				request.WithHeaders(map[string][]string{
-					"Authorization": {"Bearer " + newToken},
-					"Content-Type":  {"application/json"},
-				}),
-			)
-			if err != nil {
-				return fmt.Errorf("failed to create retry play request: %w", err)
-			}
-
-			resp, err = req.Make(ctx, nil)
-			if err != nil {
-				return fmt.Errorf("retry play request failed: %w", err)
-			}
-		} else {
-			log.Printf("ERROR: Play request req.Make failed: %v", err)
-			return fmt.Errorf("play request failed during Make: %w", err)
-		}
+		log.Printf("ERROR: Play request req.Make failed: %v", err)
+		return fmt.Errorf("play request failed during Make: %w", err)
 	}
 	defer func() {
 		_ = resp.Body.Close()
@@ -432,16 +392,14 @@ func (c *client) GetAllLikedTracks(ctx context.Context) ([]SavedTrackItem, error
 	return allTracks, nil
 }
 
-// SaveOpenAICreds saves the OpenAI API key to the OS keychain.
-func SaveOpenAICreds(ctx context.Context, apiKey string) error {
+func (c *client) SaveOpenAICreds(ctx context.Context, apiKey string) error {
 	if err := creds.SaveOpenAIKey(apiKey); err != nil {
 		return fmt.Errorf("failed to save OpenAI API key: %w", err)
 	}
 	return nil
 }
 
-// GetOpenAICreds retrieves the OpenAI API key from the OS keychain.
-func GetOpenAICreds(ctx context.Context) (string, error) {
+func (c *client) GetOpenAICreds(ctx context.Context) (string, error) {
 	apiKey, err := creds.GetOpenAIKey()
 	if err != nil {
 		return "", fmt.Errorf("failed to get OpenAI API key: %w", err)
@@ -449,8 +407,7 @@ func GetOpenAICreds(ctx context.Context) (string, error) {
 	return apiKey, nil
 }
 
-// ClearOpenAICreds removes the OpenAI API key from the OS keychain.
-func ClearOpenAICreds(ctx context.Context) error {
+func (c *client) ClearOpenAICreds(ctx context.Context) error {
 	if err := creds.ClearOpenAIKey(); err != nil {
 		return fmt.Errorf("failed to clear OpenAI API key: %w", err)
 	}

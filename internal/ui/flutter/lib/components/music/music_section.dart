@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:async'; // Timer import
 
 import '../../models.dart';
 import '../../services/music_ffi.dart';
@@ -19,9 +20,9 @@ class MusicSection extends StatefulWidget {
 }
 
 class _MusicSectionState extends State<MusicSection> {
+  List<Map<String, dynamic>> _library = [];
   bool _isLoadingLibrary = false;
   bool _isLoadingSuggestion = false;
-  List<Map<String, dynamic>> _library = [];
   MediaItem? _suggestion;
   String? _suggestionError;
   int _totalTracks = 0;
@@ -34,7 +35,6 @@ class _MusicSectionState extends State<MusicSection> {
   void initState() {
     super.initState();
     _checkAuthentication();
-    _loadLibrary();
   }
 
   Future<void> _checkAuthentication() async {
@@ -154,7 +154,7 @@ class _MusicSectionState extends State<MusicSection> {
       final suggestion = await _musicFfi.requestNewSuggestion();
       
       // Convert Map<String, dynamic> to MediaItem
-      if (suggestion is Map<String, dynamic>) {
+      if (suggestion is Map) {
         setState(() {
           _suggestion = MediaItem.fromJson(suggestion);
           _isLoadingSuggestion = false;
@@ -171,32 +171,86 @@ class _MusicSectionState extends State<MusicSection> {
     }
   }
 
-  /// Provide feedback on a suggestion
-  Future<void> _provideFeedback(bool liked) async {
-    if (_suggestion == null) return;
-
-    final outcome = liked ? 'liked' : 'disliked';
-    final title = _suggestion?.title ?? '';
-    final artist = _suggestion?.overview ?? ''; // Use overview as artist
-    final album = ''; // We don't have album info in the MediaItem
+  Future<void> _authenticateWithSpotify() async {
+    setState(() {
+      _isAuthenticated = false;
+    });
 
     try {
-      await _musicFfi.provideSuggestionFeedback(outcome, title, artist, album);
-      // Show feedback confirmation
+      // Explicitly initiate Spotify authentication flow
+      await _musicFfi.initiateSpotifyAuth();
+
+      // Check authentication status after a short delay
+      await Future.delayed(const Duration(seconds: 2));
+      await _checkAuthentication();
+    } catch (e) {
+      debugPrint('Error authenticating with Spotify: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Thank you for your feedback! You $outcome the song.'),
+          content: Text('Failed to authenticate with Spotify: $e'),
+        ),
+      );
+    }
+  }
+
+  /// Play a track - simplified implementation without polling
+  Future<void> _playTrack(MediaItem track) async {
+    if (!_isAuthenticated) {
+      // Show authentication button if not authenticated
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Authentication required to play tracks'),
+          action: SnackBarAction(
+            label: 'Authenticate',
+            onPressed: _authenticateWithSpotify,
+          ),
+        ),
+      );
+      return;
+    }
+    
+    try {
+      // Ensure we have a valid Spotify URI
+      // MediaItem.uri might be null or not in the correct format
+      String uri;
+      if (track.uri != null && track.uri!.startsWith('spotify:track:')) {
+        uri = track.uri!;
+      } else {
+        // Fallback to constructing a URI from the track ID
+        uri = 'spotify:track:${track.id}';
+      }
+      
+      // Play the track using the musicFFI service
+      await _musicFfi.playTrack(uri);
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Playing ${track.title}'),
+          duration: const Duration(seconds: 2),
         ),
       );
     } catch (e) {
-      debugPrint('Error providing feedback: $e');
+      debugPrint('Error playing track: $e');
+      
+      // Check if error is authentication related
+      if (e.toString().contains('token') || e.toString().contains('auth')) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Authentication required'),
+            action: SnackBarAction(
+              label: 'Authenticate',
+              onPressed: _authenticateWithSpotify,
+            ),
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to play track: $e'),
+          ),
+        );
+      }
     }
-  }
-  
-  /// Process feedback from the suggestion display
-  Future<void> _handleSuggestionFeedback(String feedback) async {
-    final bool liked = feedback == 'liked';
-    await _provideFeedback(liked);
   }
 
   Future<void> _saveTrack(String trackId) async {
@@ -241,80 +295,131 @@ class _MusicSectionState extends State<MusicSection> {
     }
   }
 
-  Future<void> _authenticateWithSpotify() async {
-    setState(() {
-      _isAuthenticated = false;
-    });
-
+  Future<void> _handleSuggestionFeedback(String feedback) async {
+    if (_suggestion == null) {
+      return;
+    }
+    
     try {
-      // Explicitly initiate Spotify authentication flow
-      await _musicFfi.initiateSpotifyAuth();
-
-      // Check authentication status after a short delay
-      await Future.delayed(const Duration(seconds: 2));
-      await _checkAuthentication();
-    } catch (e) {
-      debugPrint('Error authenticating with Spotify: $e');
+      final String title = _suggestion!.title;
+      final String artist = _suggestion!.overview; // Artist name is stored in overview
+      final String album = ''; // We don't have album info in our MediaItem
+      
+      await _musicFfi.provideSuggestionFeedback(
+        feedback, 
+        title,
+        artist,
+        album
+      );
+      
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Failed to authenticate with Spotify: $e'),
+          content: Text(feedback == 'like' ? 'Added to your liked tracks' : 'Thanks for your feedback'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+      
+      // If they liked it, we could optionally trigger a save or load new suggestion
+      if (feedback == 'like') {
+        // Automatically load a new suggestion after liking
+        _loadSuggestion();
+      } else if (feedback == 'dislike') {
+        // Also load a new suggestion after disliking
+        _loadSuggestion();
+      }
+    } catch (e) {
+      debugPrint('Error providing feedback: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to submit feedback: $e'),
         ),
       );
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Remove user/auth UI from here. Only show music content.
-        const SizedBox(height: 24),
-        // Suggestions section
-        _buildSuggestionSection(),
-        const SizedBox(height: 24),
-        // Library section
-        _buildLibrarySection(),
-      ],
-    );
-  }
-
   Widget _buildSuggestionSection() {
+    // Show authentication button if not authenticated
+    if (!_isAuthenticated) {
+      return Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Text(
+                'Spotify authentication required to view music suggestions',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 16),
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: _authenticateWithSpotify,
+                child: const Text('Connect Spotify Account'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.all(16.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Padding(
-            padding: EdgeInsets.only(left: 8, bottom: 16),
-            child: Text(
-              'Suggested for You',
-              style: TextStyle(
-                fontWeight: FontWeight.w600,
-                fontSize: 20,
-                color: AppTheme.textPrimary,
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Suggested for You',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
-            ),
+              ElevatedButton(
+                onPressed: _loadSuggestion,
+                child: const Text('Get New Suggestion'),
+              ),
+            ],
           ),
-          SuggestionDisplay(
-            suggestedTrack: _suggestion,
-            suggestionContext: _suggestion?.reason,
-            isProcessingLibrary: _isLoadingLibrary,
-            suggestionError: _suggestionError,
-            isFetchingSuggestion: _isLoadingSuggestion,
-            onRequestSuggestion: _loadSuggestion,
-            onSkipSuggestion: _loadSuggestion,
-            onSuggestionFeedback: _handleSuggestionFeedback,
-            onAddToLibrary: () {
-              if (_suggestion?.id != null) {
-                _saveTrack(_suggestion!.id);
-              }
-            },
-            onPlay: (track) {
-              // Implementation would depend on your player system
-              debugPrint('Playing ${track.title} by ${track.overview}');
-            },
-          ),
+          const SizedBox(height: 16),
+          _isLoadingSuggestion
+              ? const Center(child: CircularProgressIndicator())
+              : _suggestionError != null
+                  ? Center(
+                      child: Column(
+                        children: [
+                          Text(
+                            'Error: $_suggestionError',
+                            style: const TextStyle(color: Colors.red),
+                          ),
+                          const SizedBox(height: 8),
+                          ElevatedButton(
+                            onPressed: _loadSuggestion,
+                            child: const Text('Try Again'),
+                          ),
+                        ],
+                      ),
+                    )
+                  : SuggestionDisplay(
+                      suggestedTrack: _suggestion,
+                      suggestionContext: _suggestion?.reason,
+                      suggestionError: _suggestionError,
+                      isFetchingSuggestion: _isLoadingSuggestion,
+                      isProcessingLibrary: false,
+                      onRequestSuggestion: _loadSuggestion,
+                      onSkipSuggestion: _loadSuggestion,
+                      onSuggestionFeedback: _handleSuggestionFeedback,
+                      onAddToLibrary: () {
+                        if (_suggestion != null) {
+                          _saveTrack(_suggestion!.id);
+                        }
+                      },
+                      onPlay: _playTrack,
+                      isPlaybackPaused: true,
+                      hasLikedCurrentSuggestion: false,
+                    ),
         ],
       ),
     );
@@ -406,7 +511,6 @@ class _MusicSectionState extends State<MusicSection> {
                   color: AppTheme.textSecondary,
                 ),
               ),
-              // Reload button removed as requested since loading is automatic
             ],
           ),
         ),
@@ -530,13 +634,26 @@ class _MusicSectionState extends State<MusicSection> {
         mediaType: 'music',
       ),
       isSaved: true,
-      isPlaying: false,
-      // Would be based on actual playback state
+      isPlaying: false, // Fixed: Set to static false since we don't track playback state
       onPlay: (track) {
-        // Implementation would depend on your player system
-        debugPrint('Playing $title by $artist');
+        _playTrack(track);
       },
       onRemove: (track) => _removeTrack(id),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 24),
+        // Suggestions section
+        _buildSuggestionSection(),
+        const SizedBox(height: 24),
+        // Library section
+        _buildLibrarySection(),
+      ],
     );
   }
 }

@@ -19,7 +19,7 @@ typedef struct { const char *p; ptrdiff_t n; } _GoString_;
 /* Start of preamble from import "C" comments.  */
 
 
-#line 19 "main.go"
+#line 18 "main.go"
 
 #include <stdlib.h>
 
@@ -81,10 +81,6 @@ extern "C" {
 
 extern void InitializeApp();
 extern void SignalGoAppShutdown();
-
-// InitializeFFIBridge is called by Dart to set up Go-side FFI resources.
-//
-extern void InitializeFFIBridge();
 
 #ifdef __cplusplus
 }

@@ -248,6 +248,11 @@ func (m *Music) PausePlaybackOnDevice(deviceID string) error {
 	return m.spotifyClient.PausePlaybackOnDevice(context.Background(), deviceID)
 }
 
+// GetActivePlaybackState returns the current playback state from Spotify
+func (m *Music) GetActivePlaybackState() (map[string]interface{}, error) {
+	return m.spotifyClient.GetActivePlaybackState(context.Background())
+}
+
 // ClearSpotifyCredentials clears stored Spotify tokens.
 func (m *Music) ClearSpotifyCredentials() error {
 	err := spotify.ClearSpotifyCredentials(context.Background())

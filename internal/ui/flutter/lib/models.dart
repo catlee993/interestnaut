@@ -138,6 +138,46 @@ class MediaItem {
       if (releaseDate != null) 'release_date': releaseDate,
     };
   }
+  
+  /// Create a copy with some fields replaced
+  MediaItem copyWith({
+    dynamic id,
+    String? title,
+    String? overview,
+    String? posterPath,
+    String? mediaType,
+    String? reason,
+    String? director,
+    String? author,
+    String? uri,
+    String? previewUrl,
+    double? voteAverage,
+    String? date,
+    List<String>? subjects,
+    double? rating,
+    int? voteCount,
+    String? releaseDate,
+    Map<String, dynamic>? extras,
+  }) {
+    return MediaItem(
+      id: id ?? this.id,
+      title: title ?? this.title,
+      overview: overview ?? this.overview,
+      posterPath: posterPath ?? this.posterPath,
+      mediaType: mediaType ?? this.mediaType,
+      reason: reason ?? this.reason,
+      director: director ?? this.director,
+      author: author ?? this.author,
+      uri: uri ?? this.uri,
+      previewUrl: previewUrl ?? this.previewUrl,
+      voteAverage: voteAverage ?? this.voteAverage,
+      date: date ?? this.date,
+      subjects: subjects ?? this.subjects,
+      rating: rating ?? this.rating,
+      voteCount: voteCount ?? this.voteCount,
+      releaseDate: releaseDate ?? this.releaseDate,
+    );
+  }
 }
 
 class MediaSuggestionItem {
