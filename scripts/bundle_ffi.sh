@@ -69,10 +69,14 @@ bundle_macos() {
 case "$1" in
     "macos")
         bundle_macos
+        # Clean up the source files after bundling
+        echo "Cleaning up source files from the root directory..."
+        rm -f "$SRC_DYLIB" "$SRC_HEADER"
+        echo "Cleanup completed."
         ;;
     *)
         echo "Usage: $0 [macos]"
-        echo "  macos - Bundle for macOS"
+        echo "  macos - Bundle for macOS development"
         exit 1
         ;;
 esac
