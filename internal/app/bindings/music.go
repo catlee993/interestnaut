@@ -248,11 +248,6 @@ func (m *Music) PausePlaybackOnDevice(deviceID string) error {
 	return m.spotifyClient.PausePlaybackOnDevice(context.Background(), deviceID)
 }
 
-// GetActivePlaybackState returns the current playback state from Spotify
-func (m *Music) GetActivePlaybackState() (map[string]interface{}, error) {
-	return m.spotifyClient.GetActivePlaybackState(context.Background())
-}
-
 // ClearSpotifyCredentials clears stored Spotify tokens.
 func (m *Music) ClearSpotifyCredentials() error {
 	err := spotify.ClearSpotifyCredentials(context.Background())
@@ -354,12 +349,46 @@ func (m *Music) RefreshLLMClients() {
 // InitiateSpotifyAuth explicitly starts the Spotify authentication flow
 func (m *Music) InitiateSpotifyAuth() error {
 	log.Println("Explicitly initiating Spotify authentication flow")
-	err := spotify.RunInitialAuthFlow(context.Background())
-	if err != nil {
-		log.Printf("ERROR: Failed to initiate Spotify auth flow: %v", err)
-		return err
-	}
 
+	// Create a semaphore channel to control concurrent auth attempts
+	authSemaphore := make(chan struct{}, 1)
+	
+	// Run the authentication in a separate goroutine to isolate signal handling
+	authSemaphore <- struct{}{} // Acquire the semaphore
+	
+	var authErr error
+	var wg sync.WaitGroup
+	wg.Add(1)
+	
+	// Move the authentication to a goroutine with its own signal context
+	go func() {
+		defer wg.Done()
+		defer func() { <-authSemaphore }() // Release semaphore when done
+		
+		// Additional safety to catch any panics
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("RECOVERED from panic in Spotify auth: %v", r)
+				authErr = fmt.Errorf("authentication process crashed: %v", r)
+			}
+		}()
+		
+		// Run the auth flow in a goroutine that's isolated from FFI signal context
+		err := spotify.RunInitialAuthFlow(context.Background())
+		if err != nil {
+			log.Printf("ERROR: Failed to run Spotify auth flow: %v", err)
+			authErr = err
+			return
+		}
+	}()
+	
+	// Wait for the authentication to complete
+	wg.Wait()
+	
+	if authErr != nil {
+		return authErr
+	}
+	
 	// Update the Spotify client after authentication
 	spotifyClient := spotify.NewClient()
 	m.setSpotifyClient(spotifyClient)

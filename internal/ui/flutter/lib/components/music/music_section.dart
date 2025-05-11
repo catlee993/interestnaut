@@ -40,15 +40,36 @@ class _MusicSectionState extends State<MusicSection> {
   Future<void> _checkAuthentication() async {
     try {
       final authStatus = await _musicFfi.getAuthStatus();
+      debugPrint('Auth status raw: $authStatus');
+      
       if (authStatus.containsKey('isAuthenticated')) {
         final isAuth = authStatus['isAuthenticated'] == true;
+        debugPrint('Spotify auth status from FFI: $isAuth'); // Debug print
+        
+        // Additional validation - if we're supposedly authenticated, try to get the user profile
+        bool validAuth = isAuth;
+        if (isAuth) {
+          try {
+            // Try to get user profile as a validation check
+            final userProfile = await _musicFfi.getCurrentUser();
+            if (userProfile.containsKey('error')) {
+              debugPrint('User profile returned error, treating as not authenticated');
+              validAuth = false;
+            }
+          } catch (e) {
+            debugPrint('Error getting user profile: $e, treating as not authenticated');
+            validAuth = false;
+          }
+        }
+        
+        debugPrint('Final auth status after validation: $validAuth');
         setState(() {
-          _isAuthenticated = isAuth;
+          _isAuthenticated = validAuth;
         });
         
         // Get user profile if authenticated
         Map<String, dynamic>? userProfile;
-        if (isAuth) {
+        if (validAuth) {
           try {
             userProfile = await _musicFfi.getCurrentUser();
             
@@ -62,7 +83,7 @@ class _MusicSectionState extends State<MusicSection> {
         
         // Notify parent about authentication status and user profile
         if (widget.onAuthStatusChanged != null) {
-          widget.onAuthStatusChanged!(isAuth, userProfile);
+          widget.onAuthStatusChanged!(validAuth, userProfile);
         }
       }
     } catch (e) {
@@ -172,16 +193,45 @@ class _MusicSectionState extends State<MusicSection> {
   }
 
   Future<void> _authenticateWithSpotify() async {
+    debugPrint('Initiating Spotify auth in MusicBindings...');
+    
     setState(() {
       _isAuthenticated = false;
     });
 
     try {
-      // Explicitly initiate Spotify authentication flow
-      await _musicFfi.initiateSpotifyAuth();
-
-      // Check authentication status after a short delay
-      await Future.delayed(const Duration(seconds: 2));
+      // Explicitly initiate Spotify authentication flow, which now returns the auth status
+      final authResult = await _musicFfi.initiateSpotifyAuth();
+      debugPrint('Spotify auth initiated successfully');
+      
+      if (authResult.containsKey('isAuthenticated') && authResult['isAuthenticated'] == true) {
+        // Get user profile if authenticated
+        Map<String, dynamic>? userProfile;
+        try {
+          userProfile = await _musicFfi.getCurrentUser();
+          
+          setState(() {
+            _isAuthenticated = true;
+          });
+          
+          // Load library and suggestions immediately since we're authenticated
+          _loadLibrary();
+          _loadSuggestion();
+          
+          // Notify parent about authentication status change
+          if (widget.onAuthStatusChanged != null) {
+            widget.onAuthStatusChanged!(true, userProfile);
+          }
+          
+          return; // Success path - exit early
+        } catch (e) {
+          debugPrint('Error getting user profile after successful auth: $e');
+          // Continue to fallback verification path
+        }
+      }
+      
+      // Fallback verification path - check authentication status directly
+      await Future.delayed(const Duration(milliseconds: 500));
       await _checkAuthentication();
     } catch (e) {
       debugPrint('Error authenticating with Spotify: $e');
@@ -642,12 +692,78 @@ class _MusicSectionState extends State<MusicSection> {
     );
   }
 
+  Widget _buildSpotifyHeader() {
+    // Only show the header with connect button when not authenticated
+    if (!_isAuthenticated) {
+      return Container(
+        width: double.infinity,
+        margin: const EdgeInsets.symmetric(horizontal: 16),
+        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+        decoration: BoxDecoration(
+          color: const Color(0xFF1DB954), // Spotify green
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.2),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            const Icon(
+              Icons.music_note,
+              color: Colors.white,
+              size: 24,
+            ),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Text(
+                "Connect to Spotify to get personalized music suggestions",
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w500,
+                  fontSize: 15,
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            ElevatedButton(
+              onPressed: _authenticateWithSpotify,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.white,
+                foregroundColor: const Color(0xFF1DB954),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+              ),
+              child: const Text(
+                "Connect",
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    
+    // When authenticated, don't show the header at all
+    return const SizedBox.shrink();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const SizedBox(height: 24),
+        // Spotify auth header - removing since it's now in the app header
+        // _buildSpotifyHeader(),
+        // const SizedBox(height: 24),
         // Suggestions section
         _buildSuggestionSection(),
         const SizedBox(height: 24),

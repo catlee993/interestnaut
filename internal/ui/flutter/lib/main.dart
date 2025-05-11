@@ -14,6 +14,7 @@ import 'services/go_bindings.dart';
 import 'services/ffi_init.dart';
 import 'components/common/media_header.dart';
 import 'components/music/spotify_user_control.dart';
+import 'components/music/spotify_connect_button.dart';
 import 'components/music/music_section.dart';
 
 /// Entry point for the Flutter app
@@ -293,11 +294,63 @@ class _InterestnautAppState extends State<InterestnautApp> {
             onClearSearch: () {
               // TODO: Implement clear search per media type
             },
-            additionalControl: _currentMediaType == 'music' && _isAuthenticated
-                ? SpotifyUserControl(
-                user: _userProfile,
-                onClearAuth: _handleClearAuth,
-              )
+            additionalControl: _currentMediaType == 'music' 
+                ? (_isAuthenticated 
+                  ? SpotifyUserControl(
+                      user: _userProfile,
+                      onClearAuth: _handleClearAuth,
+                    )
+                  : SpotifyConnectButton(
+                      onConnect: () async {
+                        try {
+                          // Call initiateSpotifyAuth which now returns auth status
+                          final authResult = await GoBindings.instance.music.initiateSpotifyAuth();
+                          
+                          if (authResult != null && 
+                              authResult.containsKey('isAuthenticated') && 
+                              authResult['isAuthenticated'] == true) {
+                            
+                            // Get user profile if authenticated
+                            Map<String, dynamic>? userProfile;
+                            try {
+                              userProfile = await GoBindings.instance.music.getCurrentUser();
+                            } catch (e) {
+                              debugPrint('Error getting user profile: $e');
+                              userProfile = {'display_name': 'Spotify User', 'images': []};
+                            }
+                            
+                            // Update the UI state
+                            setState(() {
+                              _isAuthenticated = true;
+                              _userProfile = userProfile;
+                            });
+                            
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Successfully connected to Spotify'),
+                                duration: Duration(seconds: 2),
+                              ),
+                            );
+                          } else {
+                            // Keep original flow for unsuccessful auth
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Spotify authentication initiated'),
+                                duration: Duration(seconds: 2),
+                              ),
+                            );
+                          }
+                        } catch (e) {
+                          debugPrint('Error initiating Spotify auth: $e');
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Failed to connect to Spotify: $e'),
+                              duration: const Duration(seconds: 5),
+                            ),
+                          );
+                        }
+                      },
+                    ))
                 : null,
           ),
           // Main content area

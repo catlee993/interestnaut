@@ -256,17 +256,18 @@ class MusicBindings {
   }
   
   /// Explicitly initiate Spotify authentication
-  Future<void> initiateSpotifyAuth() async {
+  Future<Map<String, dynamic>> initiateSpotifyAuth() async {
     try {
       debugPrint('Initiating Spotify auth in MusicBindings...');
       await _ensureInitialized();
       debugPrint('FFI initialized, calling _ffi.initiateSpotifyAuth()');
-      await _ffi.initiateSpotifyAuth();
+      final result = await _ffi.initiateSpotifyAuth();
       debugPrint('Spotify auth initiated successfully');
+      return result;
     } catch (e) {
       debugPrint('Error initiating Spotify auth: $e');
       debugPrint('FFI status: initialized=${FFIInitializer.isInitialized}');
-      rethrow;
+      return {'isAuthenticated': false, 'error': e.toString()};
     }
   }
   

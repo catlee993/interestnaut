@@ -20,7 +20,7 @@ class MusicFFI {
       ffi.Pointer<Utf8>, ffi.Pointer<Utf8>) _provideMusicFeedbackPtr;
   final ffi.Pointer<ffi.Char> Function() _getValidTokenPtr;
   final void Function() _clearSpotifyCredentialsPtr;
-  final void Function() _initiateSpotifyAuthPtr;
+  final ffi.Pointer<ffi.Char> Function() _initiateSpotifyAuthPtr;
   final ffi.Pointer<ffi.Char> Function(ffi.Pointer<Utf8>, int) _searchTracksPtr;
   final ffi.Pointer<ffi.Char> Function(ffi.Pointer<Utf8>, ffi.Pointer<Utf8>) _playTrackOnDevicePtr;
   final ffi.Pointer<ffi.Char> Function(ffi.Pointer<Utf8>) _pausePlaybackOnDevicePtr;
@@ -57,8 +57,8 @@ class MusicFFI {
         ffi.Void Function(),
         void Function()>('Music_ClearSpotifyCredentials'),
     _initiateSpotifyAuthPtr = FFIInitializer.dylib.lookupFunction<
-        ffi.Void Function(),
-        void Function()>('Music_InitiateSpotifyAuth'),
+        ffi.Pointer<ffi.Char> Function(),
+        ffi.Pointer<ffi.Char> Function()>('Music_InitiateSpotifyAuth'),
     _searchTracksPtr = FFIInitializer.dylib.lookupFunction<
         ffi.Pointer<ffi.Char> Function(ffi.Pointer<Utf8>, ffi.Int32),
         ffi.Pointer<ffi.Char> Function(ffi.Pointer<Utf8>, int)>('Music_SearchTracks'),
@@ -187,9 +187,16 @@ class MusicFFI {
   }
   
   /// Start the Spotify authentication process
-  Future<void> initiateSpotifyAuth() async {
+  Future<Map<String, dynamic>> initiateSpotifyAuth() async {
     FFIBindingBase.checkInitialized();
-    _initiateSpotifyAuthPtr();
+    final resultPtr = _initiateSpotifyAuthPtr();
+    final result = FFIBindingBase.parseJSONFromPtr(resultPtr);
+    
+    if (result == null) {
+      return {'isAuthenticated': false, 'error': 'Failed to initiate authentication'};
+    }
+    
+    return result;
   }
   
   /// Search for tracks on Spotify

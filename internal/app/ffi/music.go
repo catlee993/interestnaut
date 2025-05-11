@@ -187,7 +187,9 @@ func Music_InitiateSpotifyAuth() *C.char {
 		log.Printf("Spotify auth initiated. PID is: %d", pid)
 	}
 
-	return C.CString("{\"status\": \"initiated\"}")
+	// Return authentication status to allow the UI to update
+	authStatus := musicBindings.GetAuthStatus()
+	return returnJSON(authStatus)
 }
 
 //export Music_PlayTrackOnDevice

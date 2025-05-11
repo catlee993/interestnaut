@@ -16,6 +16,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -58,6 +59,11 @@ func computeCodeChallenge(verifier string) (string, error) {
 // spawn any background goroutines that outlive the function call.
 func RunInitialAuthFlow(ctx context.Context) error {
 	log.Println("Starting blocking Spotify authentication...")
+	
+	// Set up signal handling for this process
+	// This helps prevent signal-related crashes when called through FFI
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
 	
 	// Generate PKCE code verifier
 	var err error
@@ -132,7 +138,13 @@ func RunInitialAuthFlow(ctx context.Context) error {
 	// This is just like in server.go - the goroutine is safely cleaned up
 	// because we explicitly call Shutdown() before returning
 	serverErrorChan := make(chan error, 1)
+	
+	// Create a dedicated server goroutine with its own signal handling
 	go func() {
+		// Lock OS thread to isolate signal handling within this goroutine
+		runtime.LockOSThread()
+		defer runtime.UnlockOSThread()
+		
 		log.Println("Starting auth server on port 8080...")
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			serverErrorChan <- err
@@ -271,6 +283,11 @@ func exchangeCodeForToken(ctx context.Context, clientID, code string) (*AuthResp
 
 // makeTokenRequest makes a request to Spotify's token endpoint.
 func makeTokenRequest(ctx context.Context, values url.Values) (*AuthResponse, error) {
+	// Lock the thread for the duration of this network operation
+	// This prevents signal handling issues when called through FFI
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	
 	client := &http.Client{Timeout: 10 * time.Second}
 	req, err := http.NewRequestWithContext(ctx, "POST", tokenURL, strings.NewReader(values.Encode()))
 	if err != nil {
@@ -319,5 +336,12 @@ func openBrowser(url string) error {
 		args = []string{url}
 	}
 
-	return exec.Command(cmd, args...).Start()
+	// Create a new process group to isolate signal handling
+	command := exec.Command(cmd, args...)
+	// Set the process to run in its own process group
+	command.SysProcAttr = &syscall.SysProcAttr{
+		Setpgid: true,  // Use a new process group
+	}
+	// Start the command detached from our process
+	return command.Start()
 }
