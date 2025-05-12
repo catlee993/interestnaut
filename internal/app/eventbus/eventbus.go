@@ -2,6 +2,7 @@ package eventbus
 
 import (
 	"C"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Event represents a typed event with a payload
@@ -28,6 +30,13 @@ var (
 	// Track active connections with a mutex
 	connectionsMu sync.Mutex
 	connections   = make(map[net.Conn]bool)
+
+	// Global context and cancellation for the event bus
+	globalCtx       context.Context
+	globalCtxCancel context.CancelFunc
+
+	// Global notification channel for shutdown
+	shutdownCh = make(chan struct{})
 )
 
 // EventBus is a simple event bus for publishing events
@@ -54,13 +63,19 @@ func (b *EventBus) Emit(event Event) {
 }
 
 // handleConnection processes events for a single client connection
-func handleConnection(conn net.Conn, eb *EventBus) {
+func handleConnection(ctx context.Context, conn net.Conn, eb *EventBus) {
 	// Add connection to the tracking map
 	connectionsMu.Lock()
 	connections[conn] = true
 	connectionsMu.Unlock()
 
 	defer func() {
+		// Recover from any panics
+		if r := recover(); r != nil {
+			log.Printf("Recovered from panic in handleConnection: %v", r)
+		}
+
+		// Close connection and clean up
 		conn.Close()
 
 		// Remove connection from tracking map
@@ -76,34 +91,111 @@ func handleConnection(conn net.Conn, eb *EventBus) {
 	// Create a JSON encoder for this connection
 	encoder := json.NewEncoder(conn)
 
-	// Create channel for events specific to this client
-	clientEvents := make(chan Event)
+	// Create a done channel for this client
+	clientDone := make(chan struct{})
 
-	// Subscribe to events
+	// Start a goroutine to listen for context cancellation
 	go func() {
-		for event := range eb.events {
+		defer close(clientDone)
+		<-ctx.Done()
+	}()
+
+	// Create a channel for forwarding events
+	clientEvents := make(chan Event, 10)
+
+	// Create a WaitGroup to ensure all goroutines exit
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	// Start goroutine to forward events to this client
+	go func() {
+		defer wg.Done()
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("Recovered from panic in event forwarding goroutine: %v", r)
+			}
+		}()
+
+		for {
 			select {
-			case clientEvents <- event:
-				// Event sent to client
-			default:
-				// Client not keeping up, skip this event
+			case <-ctx.Done():
+				return
+			case <-clientDone:
+				return
+			case event, ok := <-eb.events:
+				if !ok {
+					return
+				}
+
+				// Forward event to client's channel, or drop if client is slow
+				select {
+				case clientEvents <- event:
+					// Successfully sent
+				case <-ctx.Done():
+					return
+				case <-clientDone:
+					return
+				default:
+					// Client channel is full, drop the event
+					log.Printf("Client queue full, dropping event: %s", event.Type)
+				}
 			}
 		}
 	}()
 
 	// Process events for this client
-	for event := range clientEvents {
-		if err := encoder.Encode(event); err != nil {
-			log.Printf("Error encoding event: %v", err)
-			return
+processEvents:
+	for {
+		select {
+		case <-ctx.Done():
+			break processEvents
+		case <-clientDone:
+			break processEvents
+		case event, ok := <-clientEvents:
+			if !ok {
+				break processEvents
+			}
+
+			// Set a write deadline to prevent blocking forever
+			conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+
+			if err := encoder.Encode(event); err != nil {
+				log.Printf("Error encoding event: %v", err)
+				break processEvents
+			}
 		}
 	}
+
+	// Wait for forwarding goroutine to exit
+	wg.Wait()
 }
 
 // startEventServer starts a TCP server for the event bus
 func startEventServer(bus *EventBus) (int, error) {
-	// Signal handling was causing conflicts with non-Go signal handlers
-	// Removing explicit signal handling to prevent crashes
+	// Create a context with cancellation for this server
+	ctx, cancel := context.WithCancel(context.Background())
+	globalCtx = ctx
+	globalCtxCancel = cancel
+
+	// IMPORTANT: We deliberately avoid using signal handling here
+	// as it can conflict with Go's runtime signal handling and
+	// cause "non-Go code set up signal handler without SA_ONSTACK flag" errors.
+	// Instead, we use a notification channel that can be triggered from our shutdown function.
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("Recovered from panic in shutdown listener: %v", r)
+			}
+		}()
+
+		select {
+		case <-shutdownCh:
+			log.Printf("Received shutdown notification, closing event bus")
+			cancel()
+		case <-ctx.Done():
+			// Context was cancelled elsewhere
+		}
+	}()
 
 	// If there's an existing listener, close it first
 	if globalListener != nil {
@@ -114,6 +206,7 @@ func startEventServer(bus *EventBus) (int, error) {
 	// Try to start on a random port
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
+		cancel() // Cancel the context if we can't start the server
 		return -1, fmt.Errorf("failed to start event server: %w", err)
 	}
 
@@ -123,6 +216,7 @@ func startEventServer(bus *EventBus) (int, error) {
 	addr, ok := listener.Addr().(*net.TCPAddr)
 	if !ok {
 		listener.Close()
+		cancel()
 		return -1, errors.New("failed to get TCP address")
 	}
 
@@ -131,12 +225,40 @@ func startEventServer(bus *EventBus) (int, error) {
 
 	// Start accepting connections in a goroutine
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("Recovered from panic in accept loop: %v", r)
+			}
+
+			listener.Close()
+			log.Println("Event server listener closed")
+		}()
+
+		// Use a ticker to periodically check for context cancellation
+		ticker := time.NewTicker(500 * time.Millisecond)
+		defer ticker.Stop()
+
 		for {
+			// Set accept deadline so we can check for cancellation
+			listener.(*net.TCPListener).SetDeadline(time.Now().Add(1 * time.Second))
+
+			// Check if context is cancelled
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				// Continue accepting connections
+			}
+
 			conn, err := listener.Accept()
 			if err != nil {
+				// Check if this is a timeout error
+				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+					continue
+				}
+
 				// Check if this is because the listener was closed
 				if strings.Contains(err.Error(), "use of closed network connection") {
-					log.Println("Event server listener closed")
 					return
 				}
 
@@ -144,10 +266,8 @@ func startEventServer(bus *EventBus) (int, error) {
 				continue
 			}
 
-			log.Println("New client connected to event bus")
-
 			// Handle each client connection in a separate goroutine
-			go handleConnection(conn, bus)
+			go handleConnection(ctx, conn, bus)
 		}
 	}()
 
@@ -209,6 +329,26 @@ func InitEventBus() C.int {
 //
 //export ShutdownEventBus
 func ShutdownEventBus() {
+	log.Println("ShutdownEventBus called, sending shutdown notification")
+
+	// Send notification on shutdown channel (non-blocking)
+	select {
+	case shutdownCh <- struct{}{}:
+		// Successfully sent shutdown notification
+	default:
+		// Channel is full or already closed - proceed anyway
+	}
+
+	// Give notification a moment to propagate
+	time.Sleep(50 * time.Millisecond)
+
+	// Cancel the context to stop all goroutines
+	if globalCtxCancel != nil {
+		globalCtxCancel()
+		// Give goroutines a moment to clean up
+		time.Sleep(100 * time.Millisecond)
+	}
+
 	// First close the listener to prevent new connections
 	if globalListener != nil {
 		globalListener.Close()
