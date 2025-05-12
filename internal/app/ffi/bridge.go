@@ -12,14 +12,24 @@ package ffi
 #include <pthread.h>
 #include <sched.h>
 
-// Signal handling approach - ignore signals at process level
-static void interestnaut_ignoreSignals() {
+// Signal handling approach - properly handle signals at process level
+static void interestnaut_configureSignals() {
     // Ignore SIGPIPE which commonly occurs with network/audio operations
     signal(SIGPIPE, SIG_IGN);
     
-    // Configure the app to not crash on these signals
-    // Note: We don't use sigaction with SA_ONSTACK as this causes conflicts with Go runtime
-    fprintf(stderr, "Configured app to ignore SIGPIPE\n");
+    // For SIGUSR1 and SIGUSR2, we must use sigaction with SA_ONSTACK
+    // to ensure proper coordination with Go's runtime signal handling
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = SIG_IGN;  // Ignore the signal
+    sa.sa_flags = SA_ONSTACK; // Important: use the signal stack!
+    
+    // Apply to SIGUSR1 (signal 16)
+    sigaction(SIGUSR1, &sa, NULL);
+    // Apply to SIGUSR2 (signal 17)
+    sigaction(SIGUSR2, &sa, NULL);
+    
+    fprintf(stderr, "Configured app to ignore SIGPIPE and properly handle SIGUSR signals\n");
 }
 
 // Additional safeguards for GC stability
@@ -108,7 +118,7 @@ func Initialize(cm session.CentralManager) {
 	log.Println("FFI bridge Initialize() CALLED")
 
 	// Configure signal handling to prevent crashes
-	C.interestnaut_ignoreSignals()
+	C.interestnaut_configureSignals()
 	
 	// Commenting out high thread priority since we're no longer polling
 	// This was primarily needed for continuous polling operations

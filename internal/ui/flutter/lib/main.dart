@@ -16,10 +16,26 @@ import 'components/common/media_header.dart';
 import 'components/music/spotify_user_control.dart';
 import 'components/music/spotify_connect_button.dart';
 import 'components/music/music_section.dart';
+import 'services/event_bus.dart';
 
 /// Entry point for the Flutter app
 void main() async {
+  // Ensure Flutter is initialized
   WidgetsFlutterBinding.ensureInitialized();
+  
+  // Initialize the FFI - must happen before anything else
+  try {
+    await FFIInitializer.initialize();
+    debugPrint('FFI initialized successfully');
+    
+    // Initialize the event bus (don't await - it should connect in background)
+    EventBus.initialize().catchError((e) {
+      debugPrint('Error initializing event bus (non-fatal): $e');
+    });
+  } catch (e) {
+    debugPrint('Error initializing FFI: $e');
+    // Continue anyway, the app will handle missing FFI gracefully
+  }
 
   if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
     window_package.setWindowTitle('Interestnaut');
@@ -33,55 +49,43 @@ void main() async {
   }
 
   try {
-    // 1. Initialize FFI to load the dylib
-    await FFIInitializer.initialize();
-    debugPrint(
-        'Dart: FFIInitializer.initialize() complete. Dylib loaded. Status: ${FFIInitializer
-            .isInitialized}');
-
-    if (FFIInitializer.isInitialized) {
-      // 2. Call the exported Go function to initialize Go-side resources
-      try {
-        final goInitFFIBridge =
-        FFIInitializer.dylib.lookupFunction<ffi.Void Function(),
-            void Function()>('InitializeFFIBridge');
-        debugPrint('Dart: Calling Go InitializeFFIBridge()...');
-        goInitFFIBridge();
-        debugPrint('Dart: Go InitializeFFIBridge() called successfully.');
-      } catch (e) {
-        debugPrint(
-            'Dart: ERROR looking up or calling InitializeFFIBridge: $e');
-        // Handle critical error: Go FFI resources might not be set up.
-        // The app might not function correctly.
-      }
-    } else {
+    // 2. Call the exported Go function to initialize Go-side resources
+    try {
+      final goInitFFIBridge =
+      FFIInitializer.dylib.lookupFunction<ffi.Void Function(),
+          void Function()>('InitializeFFIBridge');
+      debugPrint('Dart: Calling Go InitializeFFIBridge()...');
+      goInitFFIBridge();
+      debugPrint('Dart: Go InitializeFFIBridge() called successfully.');
+    } catch (e) {
       debugPrint(
-          'Dart: FFIInitializer.isInitialized is false. Skipping call to InitializeFFIBridge.');
-      // Handle critical error: Dylib not loaded.
+          'Dart: ERROR looking up or calling InitializeFFIBridge: $e');
+      // Handle critical error: Go FFI resources might not be set up.
+      // The app might not function correctly.
     }
-
-    // 3. Initialize GoBindings (Dart wrapper for FFI calls)
-    // This should now find that FFIInitializer.isInitialized is true, 
-    // and Go-side resources are also ready.
-    await GoBindings.initialize();
-    debugPrint('Dart: GoBindings.initialize() complete. Status: ${GoBindings
-        .ffiAvailable}');
-
-    // Verify by looking up a function without storing the reference
-    if (GoBindings.ffiAvailable) {
-      debugPrint('Verifying FFI by looking up FreeString function...');
-      FFIInitializer.dylib.lookupFunction<
-          ffi.Void Function(ffi.Pointer<ffi.Char>),
-          void Function(ffi.Pointer<ffi.Char>)>('FreeString');
-      debugPrint('Successfully verified FreeString function exists');
-    }
-
-    // Register for app lifecycle events to signal shutdown to Go
-    registerShutdownHooks();
   } catch (e) {
     debugPrint('Dart: Overall FFI setup failed: $e');
     // Continue anyway, the app will handle missing FFI gracefully
   }
+
+  // 3. Initialize GoBindings (Dart wrapper for FFI calls)
+  // This should now find that FFIInitializer.isInitialized is true, 
+  // and Go-side resources are also ready.
+  await GoBindings.initialize();
+  debugPrint('Dart: GoBindings.initialize() complete. Status: ${GoBindings
+      .ffiAvailable}');
+
+  // Verify by looking up a function without storing the reference
+  if (GoBindings.ffiAvailable) {
+    debugPrint('Verifying FFI by looking up FreeString function...');
+    FFIInitializer.dylib.lookupFunction<
+        ffi.Void Function(ffi.Pointer<ffi.Char>),
+        void Function(ffi.Pointer<ffi.Char>)>('FreeString');
+    debugPrint('Successfully verified FreeString function exists');
+  }
+
+  // Register for app lifecycle events to signal shutdown to Go
+  registerShutdownHooks();
 
   runApp(const MyApp());
 }
@@ -152,6 +156,7 @@ class _InterestnautAppState extends State<InterestnautApp> {
   void initState() {
     super.initState();
     _ensureInitialized();
+    _initEventBus();
   }
 
   // Ensure FFI is properly initialized
@@ -200,6 +205,34 @@ class _InterestnautAppState extends State<InterestnautApp> {
       }
     } catch (e) {
       debugPrint('Error during initialization: $e');
+    }
+  }
+
+  // Initialize the event bus and listen for authentication events
+  Future<void> _initEventBus() async {
+    try {
+      // Initialize the event bus
+      await EventBus.initialize();
+      
+      // Listen for authentication status changes
+      EventBus().authEvents.listen((authStatus) {
+        debugPrint('Received auth status event: $authStatus');
+        if (authStatus.containsKey('isAuthenticated')) {
+          setState(() {
+            _isAuthenticated = authStatus['isAuthenticated'] == true;
+            
+            if (_isAuthenticated && authStatus.containsKey('userProfile')) {
+              _userProfile = authStatus['userProfile'] as Map<String, dynamic>?;
+            } else if (!_isAuthenticated) {
+              _userProfile = null;
+            }
+          });
+        }
+      });
+      
+      debugPrint('Event bus initialized and auth events subscription active');
+    } catch (e) {
+      debugPrint('Failed to initialize event bus: $e');
     }
   }
 
@@ -303,43 +336,16 @@ class _InterestnautAppState extends State<InterestnautApp> {
                   : SpotifyConnectButton(
                       onConnect: () async {
                         try {
-                          // Call initiateSpotifyAuth which now returns auth status
-                          final authResult = await GoBindings.instance.music.initiateSpotifyAuth();
+                          // With the event bus, we only need to initiate auth
+                          // State updates will come through the event bus
+                          await GoBindings.instance.music.initiateSpotifyAuth();
                           
-                          if (authResult != null && 
-                              authResult.containsKey('isAuthenticated') && 
-                              authResult['isAuthenticated'] == true) {
-                            
-                            // Get user profile if authenticated
-                            Map<String, dynamic>? userProfile;
-                            try {
-                              userProfile = await GoBindings.instance.music.getCurrentUser();
-                            } catch (e) {
-                              debugPrint('Error getting user profile: $e');
-                              userProfile = {'display_name': 'Spotify User', 'images': []};
-                            }
-                            
-                            // Update the UI state
-                            setState(() {
-                              _isAuthenticated = true;
-                              _userProfile = userProfile;
-                            });
-                            
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Successfully connected to Spotify'),
-                                duration: Duration(seconds: 2),
-                              ),
-                            );
-                          } else {
-                            // Keep original flow for unsuccessful auth
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Spotify authentication initiated'),
-                                duration: Duration(seconds: 2),
-                              ),
-                            );
-                          }
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Spotify authentication initiated'),
+                              duration: Duration(seconds: 2),
+                            ),
+                          );
                         } catch (e) {
                           debugPrint('Error initiating Spotify auth: $e');
                           ScaffoldMessenger.of(context).showSnackBar(

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"interestnaut/internal/app/creds"
+	"interestnaut/internal/app/eventbus"
 	"io"
 	"log"
 	"net/http"
@@ -193,6 +194,25 @@ func RunInitialAuthFlow(ctx context.Context) error {
 	tokenExpiry = time.Now().Add(time.Duration(authResp.ExpiresIn) * time.Second)
 	tokenMutex.Unlock()
 	
+	// Emit authentication status event
+	go func() {
+		// Get user profile for the event if possible
+		profile, err := fetchCurrentUser()
+		payload := map[string]interface{}{
+			"isAuthenticated": true,
+		}
+		
+		if err == nil && profile != nil {
+			payload["userProfile"] = profile
+		}
+		
+		bus := eventbus.GetGlobalBus()
+		bus.Emit(eventbus.Event{
+			Type:    "spotify_auth_status_changed",
+			Payload: payload,
+		})
+	}()
+	
 	log.Println("Authentication completed successfully")
 	return nil
 }
@@ -210,6 +230,18 @@ func ClearSpotifyCredentials(ctx context.Context) error {
 	accessToken = ""
 	tokenExpiry = time.Time{}
 	tokenMutex.Unlock()
+	
+	// Emit authentication status event synchronously instead of using a goroutine
+	// to avoid potential signal handling issues when called through FFI
+	bus := eventbus.GetGlobalBus()
+	bus.Emit(eventbus.Event{
+		Type: "spotify_auth_status_changed",
+		Payload: map[string]interface{}{
+			"isAuthenticated": false,
+			"userProfile":     nil,
+		},
+	})
+	
 	log.Println("Cleared Spotify credentials from storage and memory.")
 	return nil
 }
@@ -266,6 +298,17 @@ func GetValidToken(ctx context.Context) (string, error) {
 		}
 	}
 
+	// Emit authentication status event
+	go func() {
+		bus := eventbus.GetGlobalBus()
+		bus.Emit(eventbus.Event{
+			Type: "spotify_auth_status_changed",
+			Payload: map[string]interface{}{
+				"isAuthenticated": true,
+			},
+		})
+	}()
+	
 	return accessToken, nil
 }
 
@@ -325,15 +368,17 @@ func openBrowser(url string) error {
 	var args []string
 
 	switch runtime.GOOS {
-	case "windows":
-		cmd = "cmd"
-		args = []string{"/c", "start", url}
 	case "darwin":
 		cmd = "open"
 		args = []string{url}
-	default: // "linux", "freebsd", etc.
+	case "linux":
 		cmd = "xdg-open"
 		args = []string{url}
+	case "windows":
+		cmd = "rundll32"
+		args = []string{"url.dll,FileProtocolHandler", url}
+	default:
+		return fmt.Errorf("unsupported platform")
 	}
 
 	// Create a new process group to isolate signal handling
@@ -344,4 +389,29 @@ func openBrowser(url string) error {
 	}
 	// Start the command detached from our process
 	return command.Start()
+}
+
+// fetchCurrentUser gets the current user's profile
+func fetchCurrentUser() (map[string]interface{}, error) {
+	// Create a client to fetch the user profile
+	c := NewClient()
+	
+	// Get the user profile
+	profile, err := c.GetCurrentUser(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("failed to get current user: %w", err)
+	}
+	
+	// Convert to map[string]interface{} for the event payload
+	profileJSON, err := json.Marshal(profile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal profile: %w", err)
+	}
+	
+	var profileMap map[string]interface{}
+	if err := json.Unmarshal(profileJSON, &profileMap); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal profile: %w", err)
+	}
+	
+	return profileMap, nil
 }
