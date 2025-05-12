@@ -3,12 +3,12 @@ package eventbus
 import (
 	"C"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log"
 	"net"
-	"os"
-	"os/signal"
+	"strings"
 	"sync"
-	"syscall"
 )
 
 // Event represents a typed event with a payload
@@ -20,14 +20,14 @@ type Event struct {
 var (
 	// Global singleton event bus
 	globalBus      *EventBus
-	globalListener net.Listener
 	globalPort     int
+	globalListener net.Listener
 	initOnce       sync.Once
-	eventsMu       sync.RWMutex
-	subscribers    = make(map[net.Conn]bool)
-	// Signal handling
-	signalChan     chan os.Signal
-	shutdownChan   chan struct{}
+	connCounter    int32
+
+	// Track active connections with a mutex
+	connectionsMu sync.Mutex
+	connections   = make(map[net.Conn]bool)
 )
 
 // EventBus is a simple event bus for publishing events
@@ -55,34 +55,38 @@ func (b *EventBus) Emit(event Event) {
 
 // handleConnection processes events for a single client connection
 func handleConnection(conn net.Conn, eb *EventBus) {
+	// Add connection to the tracking map
+	connectionsMu.Lock()
+	connections[conn] = true
+	connectionsMu.Unlock()
+
 	defer func() {
 		conn.Close()
-		eventsMu.Lock()
-		delete(subscribers, conn)
-		eventsMu.Unlock()
+
+		// Remove connection from tracking map
+		connectionsMu.Lock()
+		delete(connections, conn)
+		connectionsMu.Unlock()
+
 		log.Printf("Client disconnected from event bus")
 	}()
 
-	eventsMu.Lock()
-	subscribers[conn] = true
-	eventsMu.Unlock()
 	log.Printf("New client connected to event bus")
 
 	// Create a JSON encoder for this connection
 	encoder := json.NewEncoder(conn)
 
-	// Create a client-specific buffer of events
-	clientEvents := make(chan Event, 10)
+	// Create channel for events specific to this client
+	clientEvents := make(chan Event)
 
-	// Start a goroutine to forward global events to this client
+	// Subscribe to events
 	go func() {
 		for event := range eb.events {
-			// Non-blocking send to client's event channel
 			select {
 			case clientEvents <- event:
-				// Successfully queued
+				// Event sent to client
 			default:
-				log.Printf("WARNING: Client event buffer full, dropping event: %s", event.Type)
+				// Client not keeping up, skip this event
 			}
 		}
 	}()
@@ -97,65 +101,88 @@ func handleConnection(conn net.Conn, eb *EventBus) {
 }
 
 // startEventServer starts a TCP server for the event bus
-func startEventServer(eb *EventBus) (int, error) {
-	// Set up proper signal handling to avoid FFI issues
-	signalChan = make(chan os.Signal, 1)
-	shutdownChan = make(chan struct{})
-	
-	// Configure signal handling to ensure signals are properly handled on the signal stack
-	signal.Notify(signalChan, syscall.SIGUSR1, syscall.SIGUSR2, syscall.SIGINT)
-	
-	// Handle signals in a dedicated goroutine
-	go func() {
-		for {
-			select {
-			case sig := <-signalChan:
-				log.Printf("Event bus received signal: %v", sig)
-				// Just log the signal but continue running
-			case <-shutdownChan:
-				// Exit signal handler when shutting down
-				return
-			}
-		}
-	}()
-	
-	// Listen on a random port
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return 0, err
+func startEventServer(bus *EventBus) (int, error) {
+	// Signal handling was causing conflicts with non-Go signal handlers
+	// Removing explicit signal handling to prevent crashes
+
+	// If there's an existing listener, close it first
+	if globalListener != nil {
+		globalListener.Close()
+		globalListener = nil
 	}
 
-	// Save the listener to prevent garbage collection
+	// Try to start on a random port
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return -1, fmt.Errorf("failed to start event server: %w", err)
+	}
+
+	// Store the listener globally so we can close it if needed
 	globalListener = listener
 
-	// Get the chosen port
-	addr := listener.Addr().(*net.TCPAddr)
-	chosenPort := addr.Port
-	log.Printf("Event bus listening on port %d", chosenPort)
+	addr, ok := listener.Addr().(*net.TCPAddr)
+	if !ok {
+		listener.Close()
+		return -1, errors.New("failed to get TCP address")
+	}
 
-	// Accept connections in background
+	port := addr.Port
+	log.Printf("Event bus listening on port %d", port)
+
+	// Start accepting connections in a goroutine
 	go func() {
 		for {
 			conn, err := listener.Accept()
 			if err != nil {
 				// Check if this is because the listener was closed
-				if opErr, ok := err.(*net.OpError); ok && opErr.Err.Error() == "use of closed network connection" {
-					log.Printf("Event bus listener closed")
+				if strings.Contains(err.Error(), "use of closed network connection") {
+					log.Println("Event server listener closed")
 					return
 				}
+
 				log.Printf("Error accepting connection: %v", err)
 				continue
 			}
 
-			// Handle each connection in its own goroutine
-			go handleConnection(conn, eb)
+			log.Println("New client connected to event bus")
+
+			// Handle each client connection in a separate goroutine
+			go handleConnection(conn, bus)
 		}
 	}()
 
-	return chosenPort, nil
+	return port, nil
+}
+
+// GetGlobalBus returns the global event bus instance
+func GetGlobalBus() *EventBus {
+	if globalBus == nil {
+		initOnce.Do(func() {
+			globalBus = NewEventBus()
+			var err error
+			globalPort, err = startEventServer(globalBus)
+			if err != nil {
+				log.Printf("Failed to start event server: %v", err)
+				globalPort = -1
+			} else {
+				log.Printf("Event bus listening on port %d", globalPort)
+			}
+		})
+	} else if globalPort <= 0 {
+		// If bus exists but port is invalid, try to restart the server
+		var err error
+		globalPort, err = startEventServer(globalBus)
+		if err != nil {
+			log.Printf("Failed to restart event server: %v", err)
+		} else {
+			log.Printf("Event bus restarted and listening on port %d", globalPort)
+		}
+	}
+	return globalBus
 }
 
 // InitEventBus initializes the global event bus and returns the port number
+//
 //export InitEventBus
 func InitEventBus() C.int {
 	var port int
@@ -178,47 +205,23 @@ func InitEventBus() C.int {
 	return C.int(port)
 }
 
-// GetGlobalBus returns the global event bus instance
-func GetGlobalBus() *EventBus {
-	if globalBus == nil {
-		initOnce.Do(func() {
-			globalBus = NewEventBus()
-			var err error
-			globalPort, err = startEventServer(globalBus)
-			if err != nil {
-				log.Printf("Failed to start event server: %v", err)
-				globalPort = -1
-			}
-		})
-	}
-	return globalBus
-}
-
 // ShutdownEventBus closes the global event bus
+//
 //export ShutdownEventBus
 func ShutdownEventBus() {
-	log.Println("Shutting down event bus from FFI")
-	
-	// Stop signal handling
-	if signalChan != nil {
-		signal.Stop(signalChan)
-		close(shutdownChan)
-	}
-	
+	// First close the listener to prevent new connections
 	if globalListener != nil {
 		globalListener.Close()
+		globalListener = nil
 	}
-	
-	// Close all subscriber connections
-	eventsMu.Lock()
-	for conn := range subscribers {
+
+	// Close all connections
+	connectionsMu.Lock()
+	for conn := range connections {
 		conn.Close()
 	}
-	subscribers = make(map[net.Conn]bool)
-	eventsMu.Unlock()
-	
-	// Reset global state
-	globalBus = nil
-	globalListener = nil
-	globalPort = 0
+	connections = make(map[net.Conn]bool)
+	connectionsMu.Unlock()
+
+	log.Println("Event bus shut down successfully")
 }

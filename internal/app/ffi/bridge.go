@@ -79,6 +79,11 @@ var (
 // init function for the FFI package. This will run when the dylib is loaded.
 func init() {
 	log.Println("FFI package init() called - dylib loaded.")
+	
+	// Configure signal handling to avoid conflicts with Flutter
+	// This must happen as early as possible, before any goroutines are created
+	C.interestnaut_configureSignals()
+	
 	// We can't fully initialize here if we need CentralManager passed from a main context.
 	// However, this confirms the package level init is working.
 }
@@ -117,9 +122,6 @@ func Initialize(cm session.CentralManager) {
 	}
 	log.Println("FFI bridge Initialize() CALLED")
 
-	// Configure signal handling to prevent crashes
-	C.interestnaut_configureSignals()
-	
 	// Commenting out high thread priority since we're no longer polling
 	// This was primarily needed for continuous polling operations
 	// If no performance issues are observed, this can be permanently removed

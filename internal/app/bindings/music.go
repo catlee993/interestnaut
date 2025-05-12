@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"interestnaut/internal/app/directives"
+	"interestnaut/internal/app/eventbus"
 	"interestnaut/internal/app/gemini"
 	"interestnaut/internal/app/llm"
 	"interestnaut/internal/app/openai"
@@ -233,8 +234,22 @@ func (m *Music) GetValidToken() (string, error) {
 
 // GetAuthStatus exposes the App's GetAuthStatus method.
 func (m *Music) GetAuthStatus() map[string]interface{} {
+	// Lock to prevent race conditions during auth operations
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Check if client exists and has valid credentials
+	isAuthenticated := false
+
+	// Only report as authenticated if we can get a valid token
+	if m.spotifyClient != nil {
+		// Try to get a token, but don't return error to avoid crashing
+		_, err := m.GetValidToken()
+		isAuthenticated = (err == nil)
+	}
+
 	return map[string]interface{}{
-		"isAuthenticated": m.spotifyClient != nil,
+		"isAuthenticated": isAuthenticated,
 	}
 }
 
@@ -348,23 +363,27 @@ func (m *Music) RefreshLLMClients() {
 
 // InitiateSpotifyAuth explicitly starts the Spotify authentication flow
 func (m *Music) InitiateSpotifyAuth() error {
+	// Use mutex to prevent race conditions
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	log.Println("Explicitly initiating Spotify authentication flow")
 
 	// Create a semaphore channel to control concurrent auth attempts
 	authSemaphore := make(chan struct{}, 1)
-	
+
 	// Run the authentication in a separate goroutine to isolate signal handling
 	authSemaphore <- struct{}{} // Acquire the semaphore
-	
+
 	var authErr error
 	var wg sync.WaitGroup
 	wg.Add(1)
-	
+
 	// Move the authentication to a goroutine with its own signal context
 	go func() {
 		defer wg.Done()
 		defer func() { <-authSemaphore }() // Release semaphore when done
-		
+
 		// Additional safety to catch any panics
 		defer func() {
 			if r := recover(); r != nil {
@@ -372,7 +391,7 @@ func (m *Music) InitiateSpotifyAuth() error {
 				authErr = fmt.Errorf("authentication process crashed: %v", r)
 			}
 		}()
-		
+
 		// Run the auth flow in a goroutine that's isolated from FFI signal context
 		err := spotify.RunInitialAuthFlow(context.Background())
 		if err != nil {
@@ -381,17 +400,50 @@ func (m *Music) InitiateSpotifyAuth() error {
 			return
 		}
 	}()
-	
+
 	// Wait for the authentication to complete
 	wg.Wait()
-	
+
 	if authErr != nil {
 		return authErr
 	}
-	
+
 	// Update the Spotify client after authentication
 	spotifyClient := spotify.NewClient()
 	m.setSpotifyClient(spotifyClient)
+
+	// Verify token to ensure the authentication worked
+	_, tokenErr := m.GetValidToken()
+	if tokenErr != nil {
+		log.Printf("Error getting token after auth: %v", tokenErr)
+		return fmt.Errorf("auth succeeded but token verification failed: %w", tokenErr)
+	}
+
+	// Get the user profile for the event payload
+	userProfile, profileErr := m.GetCurrentUser()
+
+	// Emit auth success event to notify Flutter UI
+	if eb := eventbus.GetGlobalBus(); eb != nil {
+		// Create payload - include user profile if available
+		payload := map[string]interface{}{
+			"isAuthenticated": true,
+		}
+
+		// Add user profile if available
+		if profileErr == nil && userProfile != nil {
+			payload["userProfile"] = userProfile
+		}
+
+		// Emit the event
+		eb.Emit(eventbus.Event{
+			Type:    "spotify_auth_status_changed",
+			Payload: payload,
+		})
+
+		log.Println("Emitted auth success event to Flutter UI")
+	} else {
+		log.Println("Warning: Event bus unavailable, UI may not update immediately")
+	}
 
 	return nil
 }

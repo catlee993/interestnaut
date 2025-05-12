@@ -10,6 +10,7 @@ import 'ffi_init.dart';
 class EventBus {
   static final EventBus _instance = EventBus._internal();
   static bool _isInitialized = false;
+  static bool _isConnecting = false;
   
   // Eagerly initialize function pointers to prevent race conditions
   static int Function()? _initEventBus;
@@ -24,14 +25,23 @@ class EventBus {
       StreamController<Map<String, dynamic>>.broadcast();
   Stream<Map<String, dynamic>>? _events;
   int? _port;
-  
+  Timer? _reconnectTimer;
+  int _reconnectAttempts = 0;
+  static const int _maxReconnectAttempts = 5;
+  static const Duration _initialReconnectDelay = Duration(seconds: 1);
+  bool _shutdown = false;
+
   /// Initialize the event bus with the Go backend
   static Future<void> initialize() async {
     if (_isInitialized) return;
+    if (_isConnecting) return;
+
+    _isConnecting = true;
     
     try {
       // Check if FFI is initialized
       if (!FFIInitializer.isInitialized) {
+        _isConnecting = false;
         throw Exception('FFI library not initialized');
       }
       
@@ -47,7 +57,7 @@ class EventBus {
         'EventBus_Shutdown'
       );
       
-      // Initialize the event bus without using compute - it causes problems with FFI
+      // Initialize the event bus
       int port;
       if (_initEventBus == null) {
         debugPrint('ERROR: _initEventBus is null');
@@ -62,6 +72,7 @@ class EventBus {
       }
       
       if (port <= 0) {
+        _isConnecting = false;
         throw Exception('Failed to initialize event bus, port: $port');
       }
       
@@ -70,12 +81,19 @@ class EventBus {
       _isInitialized = true;
     } catch (e) {
       debugPrint('Failed to initialize event bus: $e');
-      // Don't rethrow - we want the app to continue even if event bus fails
+      // Schedule a retry
+      _instance._scheduleReconnect();
+    } finally {
+      _isConnecting = false;
     }
   }
   
   /// Connect to the event bus server
   Future<void> _connect(int port) async {
+    // Cancel any pending reconnections
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    
     if (_socket != null) {
       try {
         _socket!.close();
@@ -115,29 +133,64 @@ class EventBus {
         onError: (error) {
           debugPrint('Error from event stream: $error');
           _controller.addError(error);
-          _scheduleReconnect();
+          if (!_shutdown) {
+            _scheduleReconnect();
+          }
         },
         onDone: () {
           debugPrint('Event stream closed');
-          _scheduleReconnect();
+          if (!_shutdown) {
+            _scheduleReconnect();
+          }
         }
       );
+      
+      // Reset reconnect attempts on successful connection
+      _reconnectAttempts = 0;
       
       debugPrint('Connected to event bus on port $port');
     } catch (e) {
       debugPrint('Error connecting to event bus: $e');
-      _scheduleReconnect();
+      if (!_shutdown) {
+        _scheduleReconnect();
+      }
     }
   }
   
-  /// Schedule a reconnection attempt
+  /// Schedule a reconnection attempt with exponential backoff
   void _scheduleReconnect() {
-    if (_port == null) return;
+    if (_shutdown || _reconnectTimer != null) return;
     
-    Future.delayed(const Duration(seconds: 2), () {
-      if (!_isInitialized) return;
-      _connect(_port!);
-    });
+    _reconnectAttempts++;
+    
+    // Calculate backoff delay (exponential with jitter)
+    final backoffMillis = _initialReconnectDelay.inMilliseconds * 
+        (1 << (_reconnectAttempts.clamp(0, 5)));
+    final jitter = (backoffMillis * 0.2 * (0.5 - (DateTime.now().microsecondsSinceEpoch % 1000) / 1000.0)).toInt();
+    final delay = Duration(milliseconds: backoffMillis + jitter);
+    
+    debugPrint('Scheduling event bus reconnect attempt #$_reconnectAttempts in ${delay.inMilliseconds}ms');
+    
+    if (_reconnectAttempts <= _maxReconnectAttempts) {
+      _reconnectTimer = Timer(delay, () {
+        _reconnectTimer = null;
+        if (!_shutdown) {
+          debugPrint('Attempting to reconnect to event bus...');
+          initialize();
+        }
+      });
+    } else {
+      debugPrint('Maximum reconnect attempts reached, giving up');
+      // After max attempts, wait longer before trying again
+      _reconnectTimer = Timer(Duration(seconds: 30), () {
+        _reconnectTimer = null;
+        _reconnectAttempts = 0; // Reset counter for fresh attempts
+        if (!_shutdown) {
+          debugPrint('Retrying event bus connection after cooldown');
+          initialize();
+        }
+      });
+    }
   }
   
   /// Get all events from the event bus
@@ -160,7 +213,13 @@ class EventBus {
   static Future<void> shutdown() async {
     if (!_isInitialized) return;
     
+    _instance._shutdown = true;
+    
     try {
+      // Cancel any pending reconnect attempts
+      _instance._reconnectTimer?.cancel();
+      _instance._reconnectTimer = null;
+      
       if (_instance._socket != null) {
         await _instance._socket!.close();
         _instance._socket = null;
@@ -173,6 +232,8 @@ class EventBus {
       _isInitialized = false;
     } catch (e) {
       debugPrint('Error shutting down event bus: $e');
+    } finally {
+      _instance._shutdown = false;
     }
   }
 }
