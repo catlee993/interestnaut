@@ -20,8 +20,17 @@ import (
 
 // Signal handling utilities
 void configure_thread_signals() {
+    // Set up proper signal handling with SA_ONSTACK flag
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = SIG_IGN;
+    sa.sa_flags = SA_ONSTACK;
+    
     // Ignore SIGPIPE which commonly occurs with network/audio operations
-    signal(SIGPIPE, SIG_IGN);
+    sigaction(SIGPIPE, &sa, NULL);
+    
+    // Also set explicit handlers for common signals that might interfere with Go runtime
+    sigaction(SIGURG, &sa, NULL); // Signal 16 (SIGURG) that was causing the crash
 }
 
 // Thread priority settings
