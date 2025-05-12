@@ -363,8 +363,9 @@ func (m *Music) RefreshLLMClients() {
 
 // InitiateSpotifyAuth explicitly starts the Spotify authentication flow
 func (m *Music) InitiateSpotifyAuth() error {
-	// Use mutex to prevent race conditions
+	// Use mutex to prevent duplicate auth attempts
 	m.mu.Lock()
+	// Only lock during the check and goroutine creation, not during the entire auth flow
 	defer m.mu.Unlock()
 
 	log.Println("Explicitly initiating Spotify authentication flow")
@@ -372,78 +373,106 @@ func (m *Music) InitiateSpotifyAuth() error {
 	// Create a semaphore channel to control concurrent auth attempts
 	authSemaphore := make(chan struct{}, 1)
 
-	// Run the authentication in a separate goroutine to isolate signal handling
-	authSemaphore <- struct{}{} // Acquire the semaphore
-
-	var authErr error
-	var wg sync.WaitGroup
-	wg.Add(1)
+	// Check if semaphore can be acquired (meaning no auth is in progress)
+	select {
+	case authSemaphore <- struct{}{}: // Successfully acquired semaphore
+		// Continue with auth flow
+	default:
+		// Another auth is already in progress
+		log.Println("Spotify authentication already in progress, ignoring duplicate request")
+		return nil
+	}
 
 	// Move the authentication to a goroutine with its own signal context
 	go func() {
-		defer wg.Done()
-		defer func() { <-authSemaphore }() // Release semaphore when done
+		// Release semaphore when done to allow future auth attempts
+		defer func() { <-authSemaphore }()
 
 		// Additional safety to catch any panics
 		defer func() {
 			if r := recover(); r != nil {
 				log.Printf("RECOVERED from panic in Spotify auth: %v", r)
-				authErr = fmt.Errorf("authentication process crashed: %v", r)
+				
+				// Notify UI of auth failure via event bus
+				if eb := eventbus.GetGlobalBus(); eb != nil {
+					eb.Emit(eventbus.Event{
+						Type: "spotify_auth_status_changed",
+						Payload: map[string]interface{}{
+							"isAuthenticated": false,
+							"error": fmt.Sprintf("Authentication process crashed: %v", r),
+						},
+					})
+				}
 			}
 		}()
 
-		// Run the auth flow in a goroutine that's isolated from FFI signal context
+		// Run the auth flow
 		err := spotify.RunInitialAuthFlow(context.Background())
 		if err != nil {
 			log.Printf("ERROR: Failed to run Spotify auth flow: %v", err)
-			authErr = err
+			
+			// Notify UI of auth failure via event bus
+			if eb := eventbus.GetGlobalBus(); eb != nil {
+				eb.Emit(eventbus.Event{
+					Type: "spotify_auth_status_changed",
+					Payload: map[string]interface{}{
+						"isAuthenticated": false,
+						"error": err.Error(),
+					},
+				})
+			}
 			return
+		}
+
+		// Update the Spotify client after authentication
+		spotifyClient := spotify.NewClient()
+		m.setSpotifyClient(spotifyClient)
+
+		// Verify token to ensure the authentication worked
+		_, tokenErr := m.GetValidToken()
+		if tokenErr != nil {
+			log.Printf("Error getting token after auth: %v", tokenErr)
+			
+			// Notify UI of token verification failure via event bus
+			if eb := eventbus.GetGlobalBus(); eb != nil {
+				eb.Emit(eventbus.Event{
+					Type: "spotify_auth_status_changed",
+					Payload: map[string]interface{}{
+						"isAuthenticated": false,
+						"error": fmt.Sprintf("Auth succeeded but token verification failed: %v", tokenErr),
+					},
+				})
+			}
+			return
+		}
+
+		// Get the user profile for the event payload
+		userProfile, _ := m.GetCurrentUser()
+
+		// Emit auth success event to notify Flutter UI
+		if eb := eventbus.GetGlobalBus(); eb != nil {
+			// Create payload - include user profile if available
+			payload := map[string]interface{}{
+				"isAuthenticated": true,
+			}
+
+			// Add user profile if available
+			if userProfile != nil {
+				payload["userProfile"] = userProfile
+			}
+
+			// Emit the event
+			eb.Emit(eventbus.Event{
+				Type:    "spotify_auth_status_changed",
+				Payload: payload,
+			})
+
+			log.Println("Emitted auth success event to Flutter UI")
+		} else {
+			log.Println("Warning: Event bus unavailable, UI may not update")
 		}
 	}()
 
-	// Wait for the authentication to complete
-	wg.Wait()
-
-	if authErr != nil {
-		return authErr
-	}
-
-	// Update the Spotify client after authentication
-	spotifyClient := spotify.NewClient()
-	m.setSpotifyClient(spotifyClient)
-
-	// Verify token to ensure the authentication worked
-	_, tokenErr := m.GetValidToken()
-	if tokenErr != nil {
-		log.Printf("Error getting token after auth: %v", tokenErr)
-		return fmt.Errorf("auth succeeded but token verification failed: %w", tokenErr)
-	}
-
-	// Get the user profile for the event payload
-	userProfile, profileErr := m.GetCurrentUser()
-
-	// Emit auth success event to notify Flutter UI
-	if eb := eventbus.GetGlobalBus(); eb != nil {
-		// Create payload - include user profile if available
-		payload := map[string]interface{}{
-			"isAuthenticated": true,
-		}
-
-		// Add user profile if available
-		if profileErr == nil && userProfile != nil {
-			payload["userProfile"] = userProfile
-		}
-
-		// Emit the event
-		eb.Emit(eventbus.Event{
-			Type:    "spotify_auth_status_changed",
-			Payload: payload,
-		})
-
-		log.Println("Emitted auth success event to Flutter UI")
-	} else {
-		log.Println("Warning: Event bus unavailable, UI may not update immediately")
-	}
-
+	// Return immediately, the auth process continues in the background
 	return nil
 }

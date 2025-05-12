@@ -256,18 +256,21 @@ class MusicBindings {
   }
   
   /// Explicitly initiate Spotify authentication
-  Future<Map<String, dynamic>> initiateSpotifyAuth() async {
+  /// This is now non-blocking and returns immediately while auth happens in background.
+  /// Status updates are communicated via the event bus, not through the return value.
+  Future<void> initiateSpotifyAuth() async {
     try {
       debugPrint('Initiating Spotify auth in MusicBindings...');
       await _ensureInitialized();
       debugPrint('FFI initialized, calling _ffi.initiateSpotifyAuth()');
-      final result = await _ffi.initiateSpotifyAuth();
-      debugPrint('Spotify auth initiated successfully');
-      return result;
+      // The Go function will now return immediately, and the auth status
+      // will be communicated via the event bus
+      await _ffi.initiateSpotifyAuth();
+      debugPrint('Spotify auth initiated - waiting for event bus updates');
     } catch (e) {
       debugPrint('Error initiating Spotify auth: $e');
       debugPrint('FFI status: initialized=${FFIInitializer.isInitialized}');
-      return {'isAuthenticated': false, 'error': e.toString()};
+      // Don't rethrow - the UI should be listening to the event bus for auth status
     }
   }
   
