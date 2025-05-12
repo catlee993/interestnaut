@@ -11,8 +11,6 @@ import (
 
 	"github.com/pkg/errors"
 
-	"interestnaut/internal/app/creds"
-
 	request "github.com/catlee993/go-request"
 )
 
@@ -390,26 +388,4 @@ func (c *client) GetAllLikedTracks(ctx context.Context) ([]SavedTrackItem, error
 
 	log.Printf("Fetched %d total saved tracks.", len(allTracks))
 	return allTracks, nil
-}
-
-func (c *client) SaveOpenAICreds(ctx context.Context, apiKey string) error {
-	if err := creds.SaveOpenAIKey(apiKey); err != nil {
-		return fmt.Errorf("failed to save OpenAI API key: %w", err)
-	}
-	return nil
-}
-
-func (c *client) GetOpenAICreds(ctx context.Context) (string, error) {
-	apiKey, err := creds.GetOpenAIKey()
-	if err != nil {
-		return "", fmt.Errorf("failed to get OpenAI API key: %w", err)
-	}
-	return apiKey, nil
-}
-
-func (c *client) ClearOpenAICreds(ctx context.Context) error {
-	if err := creds.ClearOpenAIKey(); err != nil {
-		return fmt.Errorf("failed to clear OpenAI API key: %w", err)
-	}
-	return nil
 }
