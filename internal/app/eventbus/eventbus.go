@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"interestnaut/internal/app/bridge"
 	"log"
 	"net"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -36,7 +38,9 @@ var (
 	globalCtxCancel context.CancelFunc
 
 	// Global notification channel for shutdown
-	shutdownCh = make(chan struct{})
+	shutdownChMu sync.Mutex
+	shutdownCh   = make(chan struct{})
+	shutdownFlag bool
 )
 
 // EventBus is a simple event bus for publishing events
@@ -60,6 +64,21 @@ func (b *EventBus) Emit(event Event) {
 	default:
 		log.Printf("WARNING: Event bus buffer full, dropping event: %s", event.Type)
 	}
+}
+
+// EmitSafe is a thread-safe version of Emit specifically designed for FFI boundary crossing
+// It properly isolates signal handling to avoid FFI boundary crashes
+func (b *EventBus) EmitSafe(event Event) {
+	// Make a copy of the event to prevent race conditions
+	eventCopy := Event{
+		Type:    event.Type,
+		Payload: event.Payload,
+	}
+	
+	// Execute the emit on the dedicated FFI thread
+	bridge.ExecuteOnFFIThreadAsync(func() {
+		b.Emit(eventCopy)
+	})
 }
 
 // handleConnection processes events for a single client connection
@@ -94,8 +113,12 @@ func handleConnection(ctx context.Context, conn net.Conn, eb *EventBus) {
 	// Create a done channel for this client
 	clientDone := make(chan struct{})
 
-	// Start a goroutine to listen for context cancellation
+	// Start a goroutine to listen for context cancellation with thread isolation
 	go func() {
+		// Lock the OS thread for this goroutine to isolate signal handling
+		runtime.LockOSThread()
+		defer runtime.UnlockOSThread()
+		
 		defer close(clientDone)
 		<-ctx.Done()
 	}()
@@ -107,8 +130,12 @@ func handleConnection(ctx context.Context, conn net.Conn, eb *EventBus) {
 	var wg sync.WaitGroup
 	wg.Add(1)
 
-	// Start goroutine to forward events to this client
+	// Start goroutine to forward events to this client with thread isolation
 	go func() {
+		// Lock the OS thread for this goroutine to isolate signal handling
+		runtime.LockOSThread()
+		defer runtime.UnlockOSThread()
+		
 		defer wg.Done()
 		defer func() {
 			if r := recover(); r != nil {
@@ -182,6 +209,10 @@ func startEventServer(bus *EventBus) (int, error) {
 	// cause "non-Go code set up signal handler without SA_ONSTACK flag" errors.
 	// Instead, we use a notification channel that can be triggered from our shutdown function.
 	go func() {
+		// Lock the OS thread for this goroutine to isolate signal handling
+		runtime.LockOSThread()
+		defer runtime.UnlockOSThread()
+		
 		defer func() {
 			if r := recover(); r != nil {
 				log.Printf("Recovered from panic in shutdown listener: %v", r)
@@ -225,6 +256,10 @@ func startEventServer(bus *EventBus) (int, error) {
 
 	// Start accepting connections in a goroutine
 	go func() {
+		// Lock the OS thread for this goroutine to isolate signal handling
+		runtime.LockOSThread()
+		defer runtime.UnlockOSThread()
+		
 		defer func() {
 			if r := recover(); r != nil {
 				log.Printf("Recovered from panic in accept loop: %v", r)
@@ -266,8 +301,14 @@ func startEventServer(bus *EventBus) (int, error) {
 				continue
 			}
 
-			// Handle each client connection in a separate goroutine
-			go handleConnection(ctx, conn, bus)
+			// Handle each client connection in a separate goroutine with proper thread isolation
+			go func(ctx context.Context, conn net.Conn, bus *EventBus) {
+				// Lock the OS thread for this goroutine to isolate signal handling
+				runtime.LockOSThread()
+				defer runtime.UnlockOSThread()
+				
+				handleConnection(ctx, conn, bus)
+			}(ctx, conn, bus)
 		}
 	}()
 
@@ -329,39 +370,40 @@ func InitEventBus() C.int {
 //
 //export ShutdownEventBus
 func ShutdownEventBus() {
-	log.Println("ShutdownEventBus called, sending shutdown notification")
+	// Execute shutdown on the dedicated FFI thread to ensure proper signal handling
+	bridge.ExecuteOnFFIThread(func() {
+		log.Println("ShutdownEventBus called, sending shutdown notification")
+		
+		// Use mutex to protect shutdown operations and prevent double close
+		shutdownChMu.Lock()
+		if !shutdownFlag {
+			shutdownFlag = true
+			log.Println("Closing shutdown channel")
+			close(shutdownCh)
+		}
+		shutdownChMu.Unlock()
+		
+		// Also cancel context directly as a backup method
+		if globalCtxCancel != nil {
+			globalCtxCancel()
+			// Give goroutines a moment to clean up
+			time.Sleep(50 * time.Millisecond)
+		}
+		
+		// First close the listener to prevent new connections
+		if globalListener != nil {
+			globalListener.Close()
+			globalListener = nil
+		}
 
-	// Send notification on shutdown channel (non-blocking)
-	select {
-	case shutdownCh <- struct{}{}:
-		// Successfully sent shutdown notification
-	default:
-		// Channel is full or already closed - proceed anyway
-	}
+		// Close all connections
+		connectionsMu.Lock()
+		for conn := range connections {
+			conn.Close()
+		}
+		connections = make(map[net.Conn]bool)
+		connectionsMu.Unlock()
 
-	// Give notification a moment to propagate
-	time.Sleep(50 * time.Millisecond)
-
-	// Cancel the context to stop all goroutines
-	if globalCtxCancel != nil {
-		globalCtxCancel()
-		// Give goroutines a moment to clean up
-		time.Sleep(100 * time.Millisecond)
-	}
-
-	// First close the listener to prevent new connections
-	if globalListener != nil {
-		globalListener.Close()
-		globalListener = nil
-	}
-
-	// Close all connections
-	connectionsMu.Lock()
-	for conn := range connections {
-		conn.Close()
-	}
-	connections = make(map[net.Conn]bool)
-	connectionsMu.Unlock()
-
-	log.Println("Event bus shut down successfully")
+		log.Println("Event bus shut down successfully")
+	})
 }

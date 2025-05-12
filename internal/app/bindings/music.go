@@ -383,7 +383,7 @@ func (m *Music) InitiateSpotifyAuth() error {
 		return nil
 	}
 
-	// Move the authentication to a goroutine with its own signal context
+	// Move the authentication to a goroutine
 	go func() {
 		// Release semaphore when done to allow future auth attempts
 		defer func() { <-authSemaphore }()
@@ -395,7 +395,7 @@ func (m *Music) InitiateSpotifyAuth() error {
 				
 				// Notify UI of auth failure via event bus
 				if eb := eventbus.GetGlobalBus(); eb != nil {
-					eb.Emit(eventbus.Event{
+					eb.EmitSafe(eventbus.Event{
 						Type: "spotify_auth_status_changed",
 						Payload: map[string]interface{}{
 							"isAuthenticated": false,
@@ -413,7 +413,7 @@ func (m *Music) InitiateSpotifyAuth() error {
 			
 			// Notify UI of auth failure via event bus
 			if eb := eventbus.GetGlobalBus(); eb != nil {
-				eb.Emit(eventbus.Event{
+				eb.EmitSafe(eventbus.Event{
 					Type: "spotify_auth_status_changed",
 					Payload: map[string]interface{}{
 						"isAuthenticated": false,
@@ -435,7 +435,7 @@ func (m *Music) InitiateSpotifyAuth() error {
 			
 			// Notify UI of token verification failure via event bus
 			if eb := eventbus.GetGlobalBus(); eb != nil {
-				eb.Emit(eventbus.Event{
+				eb.EmitSafe(eventbus.Event{
 					Type: "spotify_auth_status_changed",
 					Payload: map[string]interface{}{
 						"isAuthenticated": false,
@@ -461,8 +461,8 @@ func (m *Music) InitiateSpotifyAuth() error {
 				payload["userProfile"] = userProfile
 			}
 
-			// Emit the event
-			eb.Emit(eventbus.Event{
+			// Emit the event - use EmitSafe for FFI boundary safety
+			eb.EmitSafe(eventbus.Event{
 				Type:    "spotify_auth_status_changed",
 				Payload: payload,
 			})

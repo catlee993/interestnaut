@@ -124,43 +124,38 @@ func RunInitialAuthFlow(ctx context.Context) error {
 		codeChan <- code
 	})
 	
-	// Create the server
+	// Create the server with a timeout handler to prevent hanging connections
 	server := &http.Server{
 		Addr:    ":8080",
 		Handler: mux,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 15 * time.Second,
+		IdleTimeout:  30 * time.Second,
 	}
 	
-	// Open the browser first to get the auth flow started
-	log.Println("Opening browser for authentication...")
-	if err := openBrowser(signinURL); err != nil {
-		return fmt.Errorf("failed to open browser: %w", err)
-	}
+	// Create a single channel to signal when we're done with the server
+	serverDone := make(chan struct{})
 	
-	// This is just like in server.go - the goroutine is safely cleaned up
-	// because we explicitly call Shutdown() before returning
-	serverErrorChan := make(chan error, 1)
-	
-	// Create a dedicated server goroutine with its own signal handling
+	// Run server in a single goroutine that also handles cleanup
 	go func() {
+		defer close(serverDone)
+		
 		// Lock OS thread to isolate signal handling within this goroutine
 		runtime.LockOSThread()
 		defer runtime.UnlockOSThread()
 		
 		log.Println("Starting auth server on port 8080...")
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			serverErrorChan <- err
+			// Only report errors other than expected server closure
+			errChan <- err
 		}
 	}()
 	
-	// Make sure we always shut down the server
-	defer func() {
-		log.Println("Shutting down auth server...")
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := server.Shutdown(shutdownCtx); err != nil {
-			log.Printf("Error shutting down server: %v", err)
-		}
-	}()
+	// Open the browser first to get the auth flow started
+	log.Println("Opening browser for authentication...")
+	if err := openBrowser(signinURL); err != nil {
+		return fmt.Errorf("failed to open browser: %w", err)
+	}
 	
 	// Wait for an auth code, server error, or timeout
 	var code string
@@ -169,8 +164,6 @@ func RunInitialAuthFlow(ctx context.Context) error {
 		log.Println("Got authorization code")
 	case err := <-errChan:
 		return fmt.Errorf("authorization error: %w", err)
-	case err := <-serverErrorChan:
-		return fmt.Errorf("server error: %w", err)
 	case <-ctx.Done():
 		return fmt.Errorf("context canceled: %w", ctx.Err())
 	case <-time.After(5 * time.Minute):
@@ -194,24 +187,60 @@ func RunInitialAuthFlow(ctx context.Context) error {
 	tokenExpiry = time.Now().Add(time.Duration(authResp.ExpiresIn) * time.Second)
 	tokenMutex.Unlock()
 	
-	// Emit authentication status event
+	// Shut down the server in a background goroutine
+	// Don't wait for it to complete, as it can sometimes hang
+	shutdownDone := make(chan struct{})
 	go func() {
-		// Get user profile for the event if possible
-		profile, err := fetchCurrentUser()
-		payload := map[string]interface{}{
-			"isAuthenticated": true,
-		}
+		defer close(shutdownDone)
 		
-		if err == nil && profile != nil {
-			payload["userProfile"] = profile
-		}
+		// Lock the OS thread for signal handling isolation
+		runtime.LockOSThread()
+		defer runtime.UnlockOSThread()
 		
-		bus := eventbus.GetGlobalBus()
-		bus.Emit(eventbus.Event{
-			Type:    "spotify_auth_status_changed",
-			Payload: payload,
-		})
+		log.Println("Shutting down auth server...")
+		
+		// Disable keep-alives to prevent new connections
+		server.SetKeepAlivesEnabled(false)
+		
+		// Create context with a reasonable timeout
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		
+		// Attempt graceful shutdown
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			log.Printf("Graceful shutdown failed: %v - forcing close", err)
+			// Force close if graceful shutdown fails
+			server.Close()
+		} else {
+			log.Println("Server gracefully shut down")
+		}
 	}()
+	
+	// Wait a short time for server shutdown to complete
+	select {
+	case <-shutdownDone:
+		log.Println("Server shutdown completed")
+	case <-time.After(500 * time.Millisecond):
+		log.Println("Continuing without waiting for full server shutdown")
+	}
+	
+	// Get user profile for the event if possible
+	profile, err := fetchCurrentUser()
+	payload := map[string]interface{}{
+		"isAuthenticated": true,
+	}
+	
+	if err == nil && profile != nil {
+		payload["userProfile"] = profile
+	}
+	
+	// Emit authentication status event using EmitSafe for FFI boundary safety
+	bus := eventbus.GetGlobalBus()
+	bus.EmitSafe(eventbus.Event{
+		Type:    "spotify_auth_status_changed",
+		Payload: payload,
+	})
+	log.Println("Emitted auth success event safely with EmitSafe")
 	
 	log.Println("Authentication completed successfully")
 	return nil
@@ -219,28 +248,34 @@ func RunInitialAuthFlow(ctx context.Context) error {
 
 // ClearSpotifyCredentials clears stored Spotify tokens and resets in-memory state.
 func ClearSpotifyCredentials(ctx context.Context) error {
+	// Since this function is called directly through FFI, we need to be
+	// especially careful about signal handling
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	
 	log.Println("Attempting to clear Spotify credentials...")
 	err := creds.ClearSpotifyToken()
 	if err != nil {
 		log.Printf("ERROR: Failed to clear credentials from storage: %v", err)
 		return fmt.Errorf("failed to clear stored credentials %v", err)
 	}
-	// Also clear in-memory tokens
+	
+	// Clear in-memory tokens
 	tokenMutex.Lock()
 	accessToken = ""
 	tokenExpiry = time.Time{}
 	tokenMutex.Unlock()
 	
-	// Emit authentication status event synchronously instead of using a goroutine
-	// to avoid potential signal handling issues when called through FFI
+	// Emit authentication status event using EmitSafe
 	bus := eventbus.GetGlobalBus()
-	bus.Emit(eventbus.Event{
+	bus.EmitSafe(eventbus.Event{
 		Type: "spotify_auth_status_changed",
 		Payload: map[string]interface{}{
 			"isAuthenticated": false,
 			"userProfile":     nil,
 		},
 	})
+	log.Println("Emitted auth status change: logged out safely with EmitSafe")
 	
 	log.Println("Cleared Spotify credentials from storage and memory.")
 	return nil
@@ -248,6 +283,10 @@ func ClearSpotifyCredentials(ctx context.Context) error {
 
 // GetValidToken retrieves a valid Spotify access token, refreshing if necessary.
 func GetValidToken(ctx context.Context) (string, error) {
+	// Since this function is called through FFI, use thread locking for signal safety
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	
 	tokenMutex.RLock()
 	if accessToken != "" && time.Now().Before(tokenExpiry) {
 		acToken := accessToken
@@ -298,16 +337,15 @@ func GetValidToken(ctx context.Context) (string, error) {
 		}
 	}
 
-	// Emit authentication status event
-	go func() {
-		bus := eventbus.GetGlobalBus()
-		bus.Emit(eventbus.Event{
-			Type: "spotify_auth_status_changed",
-			Payload: map[string]interface{}{
-				"isAuthenticated": true,
-			},
-		})
-	}()
+	// Emit authentication status event using EmitSafe for FFI boundary safety
+	bus := eventbus.GetGlobalBus()
+	bus.EmitSafe(eventbus.Event{
+		Type: "spotify_auth_status_changed",
+		Payload: map[string]interface{}{
+			"isAuthenticated": true,
+		},
+	})
+	log.Println("Emitted auth status change: refreshed token with EmitSafe")
 	
 	return accessToken, nil
 }
