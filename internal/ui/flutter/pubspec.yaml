@@ -59,6 +59,7 @@ dependencies:
   spotify_sdk: ^2.3.1      # For Spotify playback control
   spotify: ^0.12.0         # Dart wrapper for Spotify Web API
   crypto: ^3.0.3          # For SHA-256 hashing in PKCE
+  oauth2: ^2.0.2          # For OAuth2 authentication flows
 
 dev_dependencies:
   flutter_test:

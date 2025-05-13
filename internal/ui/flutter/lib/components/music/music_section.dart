@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'dart:async'; // Timer import
 
 import '../../models.dart';
-import '../../services/spotify_service.dart';
+import './spotify_service.dart';
 import '../../theme.dart';
 import 'suggestions/suggestion_display.dart';
 import 'tracks/track_card.dart';
@@ -52,44 +52,19 @@ class _MusicSectionState extends State<MusicSection> {
         });
       }
       
-      // Additional validation - if we're supposedly authenticated, try to get the user profile
-      bool validAuth = isAuthenticated;
-      if (isAuthenticated) {
-        try {
-          // Try to get user profile as a validation check
-          final userProfile = await _spotifyService.getCurrentUser();
-          if (userProfile != null && userProfile.containsKey('error')) {
-            debugPrint('User profile returned error, treating as not authenticated');
-            validAuth = false;
-          }
-        } catch (e) {
-          debugPrint('Error getting user profile: $e, treating as not authenticated');
-          validAuth = false;
-        }
-      }
+      // Simplified validation - we trust the service's isAuthenticated value
+      debugPrint('Auth status: $isAuthenticated');
       
-      debugPrint('Final auth status after validation: $validAuth');
-      setState(() {
-        _isAuthenticated = validAuth;
-      });
+      // Notify parent about authentication status
+      if (widget.onAuthStatusChanged != null) {
+        widget.onAuthStatusChanged!(isAuthenticated, null);
+      }
       
       // Get user profile if authenticated
-      Map<String, dynamic>? userProfile;
-      if (validAuth) {
-        try {
-          userProfile = await _spotifyService.getCurrentUser();
-          
-          // Automatically load library and suggestions when authenticated
-          _loadLibrary();
-          _loadSuggestion();
-        } catch (e) {
-          debugPrint('Error fetching user profile: $e');
-        }
-      }
-      
-      // Notify parent about authentication status and user profile
-      if (widget.onAuthStatusChanged != null) {
-        widget.onAuthStatusChanged!(validAuth, userProfile);
+      if (isAuthenticated) {
+        // Automatically load library and suggestions when authenticated
+        _loadLibrary();
+        _loadSuggestion();
       }
     } catch (e) {
       debugPrint('Error checking authentication: $e');
@@ -105,12 +80,20 @@ class _MusicSectionState extends State<MusicSection> {
     });
 
     try {
-      // Use getRecommendations instead of getSavedTracks because it returns the user's liked tracks
-      final tracks = await _spotifyService.getRecommendations();
+      // Get liked tracks from the user's library
+      final tracks = await _spotifyService.getLikedTracks();
       
       setState(() {
-        // We know this returns a List<Map<String, dynamic>>
-        _library = List<Map<String, dynamic>>.from(tracks);
+        // Update the library with SimpleTrack objects
+        _library = tracks.map((track) => {
+          'id': track.id,
+          'name': track.name,
+          'artist': track.artist,
+          'album': track.album,
+          'imageUrl': track.albumArtUrl,
+          'uri': track.uri,
+          'previewUrl': track.previewUrl,
+        }).toList();
         _isLoadingLibrary = false;
         _totalTracks = _library.length;
       });
@@ -132,21 +115,21 @@ class _MusicSectionState extends State<MusicSection> {
     });
 
     try {
-      // Use getRecommendations for suggestions - the function returns a list but we'll just use the first item
+      // Use getRecommendations for suggestions
       final recommendations = await _spotifyService.getRecommendations();
       
-      // Convert Map<String, dynamic> to MediaItem
+      // Convert SimpleTrack to MediaItem
       if (recommendations.isNotEmpty) {
         final suggestion = recommendations.first;
         setState(() {
           _suggestion = MediaItem(
-            id: suggestion['id'] ?? '',
-            title: suggestion['name'] ?? 'Unknown Track',
-            overview: suggestion['artist'] ?? 'Unknown Artist',
-            posterPath: suggestion['imageUrl'] ?? '',
+            id: suggestion.id,
+            title: suggestion.name,
+            overview: suggestion.artist,
+            posterPath: suggestion.albumArtUrl,
             mediaType: 'music',
-            uri: suggestion['uri'] ?? '',
-            previewUrl: suggestion['previewUrl'] ?? '',
+            uri: suggestion.uri,
+            previewUrl: suggestion.previewUrl,
           );
           _isLoadingSuggestion = false;
         });
@@ -175,25 +158,19 @@ class _MusicSectionState extends State<MusicSection> {
       debugPrint('Spotify auth initiated successfully');
       
       if (success) {
-        Map<String, dynamic>? userProfile;
-        try {
-          userProfile = await _spotifyService.getCurrentUser();
-          
-          setState(() {
-            _isAuthenticated = true;
-          });
-          
-          // Notify parent about authentication status and user profile
-          if (widget.onAuthStatusChanged != null) {
-            widget.onAuthStatusChanged!(true, userProfile);
-          }
-          
-          // Load library and suggestions
-          _loadLibrary();
-          _loadSuggestion();
-        } catch (e) {
-          debugPrint('Error getting user profile after auth: $e');
+        // Get user profile through the event stream instead of direct call
+        setState(() {
+          _isAuthenticated = true;
+        });
+        
+        // Notify parent about authentication status
+        if (widget.onAuthStatusChanged != null) {
+          widget.onAuthStatusChanged!(true, null);
         }
+        
+        // Load library and suggestions
+        _loadLibrary();
+        _loadSuggestion();
       }
     } catch (e) {
       debugPrint('Error authenticating with Spotify: $e');

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../services/spotify_service.dart';
+import './spotify_service.dart';
 import '../../theme.dart';
 
 /// A widget that displays a WebView for Spotify authentication

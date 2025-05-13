@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../../models.dart';
-import '../../services/spotify_service.dart';
+import './spotify_service.dart';
 import '../../services/event_bus.dart';
 
 /// A widget that displays the currently playing track and provides playback controls
@@ -146,7 +146,7 @@ class _SpotifyPlayerState extends State<SpotifyPlayer> {
     _spotifyService.onTrackChange.listen((event) {
       if (mounted) {
         setState(() {
-          _currentTrack = event;
+          _currentTrack = event.item; // Extract the MediaItem from the TrackChangeEvent
           _isPlaying = true;
           _position = 0;
           _startProgressTimer();
