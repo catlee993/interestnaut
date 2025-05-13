@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -68,6 +69,10 @@ class SpotifyService {
   dynamic _musicBindings;
   final bool _fetchUserProfile = true; // Whether to fetch user profile after auth
   String? _tempCodeVerifier;
+  String? _refreshTokenString;
+  String? _accessTokenInMemory;
+  String? _refreshTokenInMemory;
+  DateTime? _tokenExpiryInMemory;
 
   // Event streams for player updates
   final StreamController<dynamic> _trackChangeController = StreamController<dynamic>.broadcast();
@@ -89,11 +94,13 @@ class SpotifyService {
     // Determine if we can use the Spotify SDK (iOS/Android)
     _useSdk = Platform.isAndroid || Platform.isIOS;
 
+    // Initialize secure storage and ensure it works (either natively or with fallback)
+    final secureStorageInitialized = await secure_storage.SecureStorage.initialize();
+    debugPrint('Secure storage initialized: $secureStorageInitialized');
+    
     // Check if we have a valid token in secure storage
-    final hasToken = await secure_storage.SecureStorage.hasValidSpotifyToken();
+    final hasToken = await _loadTokens();
     if (hasToken) {
-      _accessToken = await secure_storage.SecureStorage.getSpotifyAccessToken();
-      _tokenExpiry = await secure_storage.SecureStorage.getSpotifyTokenExpiry();
       _isAuthenticated = true;
 
       // Initialize Spotify API with existing token
@@ -279,17 +286,25 @@ class SpotifyService {
         final verifier = result['codeVerifier'] as String;
         debugPrint('Got code verifier from FFI: ${verifier.substring(0, 10)}...');
         
-        // Store it in memory first as failsafe
+        // Store in memory immediately for backup
         _tempCodeVerifier = verifier;
         
         // Try to store it in secure storage
         try {
-          const secureStorage = FlutterSecureStorage();
-          await secureStorage.write(key: 'spotify_code_verifier', value: verifier);
-          debugPrint('Stored code verifier securely');
-        } catch (e) {
-          // If secure storage fails, that's okay - we'll use the in-memory version
-          debugPrint('Failed to store in secure storage, using in-memory backup: $e');
+          // First try our enhanced SecureStorage
+          await secure_storage.SecureStorage.saveSpotifyCodeVerifier(verifier);
+          debugPrint('Stored code verifier in enhanced secure storage');
+        } catch (e1) {
+          debugPrint('Error storing in enhanced secure storage: $e1');
+          // Fall back to direct secure storage
+          try {
+            const secureStorage = FlutterSecureStorage();
+            await secureStorage.write(key: 'spotify_code_verifier', value: verifier);
+            debugPrint('Stored code verifier securely');
+          } catch (e2) {
+            // If secure storage fails, that's okay - we'll use the in-memory version
+            debugPrint('Failed to store in secure storage, using in-memory backup: $e2');
+          }
         }
       } else {
         debugPrint('Warning: No code verifier received from FFI');
@@ -343,15 +358,29 @@ class SpotifyService {
       return false;
     }
     
-    // First try to get verifier from memory, then from secure storage
-    String? verifier = _tempCodeVerifier;
-    if (verifier == null) {
-      try {
+    // First try to get verifier from secure storage
+    String? verifier;
+    try {
+      // Try our enhanced SecureStorage first
+      verifier = await secure_storage.SecureStorage.getSpotifyCodeVerifier();
+      if (verifier != null) {
+        debugPrint('Retrieved code verifier from enhanced secure storage');
+      } else {
+        // Fall back to direct secure storage
         const secureStorage = FlutterSecureStorage();
         verifier = await secureStorage.read(key: 'spotify_code_verifier');
-      } catch (e) {
-        debugPrint('Error retrieving code verifier from secure storage: $e');
+        if (verifier != null) {
+          debugPrint('Retrieved code verifier from secure storage');
+        }
       }
+    } catch (e) {
+      debugPrint('Error retrieving code verifier from secure storage: $e');
+    }
+    
+    // If not found in secure storage, use memory backup
+    if (verifier == null || verifier.isEmpty) {
+      verifier = _tempCodeVerifier;
+      debugPrint('Using in-memory code verifier backup: ${verifier != null ? 'found' : 'not found'}');
     }
     
     if (verifier == null || verifier.isEmpty) {
@@ -372,7 +401,7 @@ class SpotifyService {
     final tokenData = await _exchangeCodeForToken(code, verifier);
 
     // Save tokens to secure storage
-    if (tokenData.containsKey('access_token')) {
+    if (tokenData != null) {
       await _saveTokens(
         tokenData['access_token'],
         tokenData['refresh_token'] ?? '',
@@ -407,8 +436,10 @@ class SpotifyService {
   }
   
   /// Exchange the authorization code for an access token using PKCE
-  Future<Map<String, dynamic>> _exchangeCodeForToken(String code, String codeVerifier) async {
+  Future<Map<String, dynamic>?> _exchangeCodeForToken(String code, String codeVerifier) async {
     try {
+      debugPrint('Exchanging code for token with PKCE...');
+      // Exchange the authorization code for tokens using PKCE
       final response = await http.post(
         Uri.parse('https://accounts.spotify.com/api/token'),
         headers: {'Content-Type': 'application/x-www-form-urlencoded'},
@@ -422,15 +453,54 @@ class SpotifyService {
       );
       
       if (response.statusCode == 200) {
-        debugPrint('Token exchange successful');
-        return json.decode(response.body);
+        final data = jsonDecode(response.body);
+        
+        // Store tokens
+        final accessToken = data['access_token'] as String;
+        final refreshToken = data['refresh_token'] as String;
+        final expiresIn = data['expires_in'] as int;
+        
+        // Calculate expiry time
+        final expiry = DateTime.now().add(Duration(seconds: expiresIn - 60)); // Subtract 60s for buffer
+        
+        // Always store in memory first
+        _accessTokenInMemory = accessToken;
+        _refreshTokenInMemory = refreshToken;
+        _tokenExpiryInMemory = expiry;
+        
+        // Set instance variables immediately to ensure they're available even if storage fails
+        _isAuthenticated = true;
+        _accessToken = accessToken;
+        _tokenExpiry = expiry;
+        
+        // Try to save to secure storage but don't let failures prevent authentication
+        try {
+          await _saveTokens(accessToken, refreshToken, expiry);
+        } catch (e) {
+          debugPrint('Warning: Failed to save tokens to secure storage, but continuing with in-memory tokens: $e');
+          // We already have them in memory, so continue with authentication flow
+        }
+        
+        // Initialize API
+        _initializeApi();
+        
+        // Schedule token refresh
+        _scheduleTokenRefresh();
+        
+        // Emit auth event
+        _emitAuthEvent(true);
+        
+        // Fetch user profile
+        _fetchAndEmitUserProfile();
+        
+        return data;
       } else {
-        debugPrint('Token exchange failed: ${response.statusCode} - ${response.body}');
-        return {'error': 'Failed to exchange code for token: ${response.statusCode}'};
+        debugPrint('Token exchange failed with status ${response.statusCode}: ${response.body}');
+        return null;
       }
     } catch (e) {
       debugPrint('Error exchanging code for token: $e');
-      return {'error': 'Error exchanging code for token: $e'};
+      return null;
     }
   }
 
@@ -442,28 +512,42 @@ class SpotifyService {
   /// Initialize the Spotify API with the current access token
   void _initializeApi() {
     if (_accessToken != null) {
-      _spotifyApi = s.SpotifyApi(
-        s.SpotifyApiCredentials(clientId, '', accessToken: _accessToken),
-      );
+      debugPrint('Initializing Spotify API with access token');
+      try {
+        // For Spotify API, we don't need to provide a client secret when using authorization code with PKCE
+        final credentials = s.SpotifyApiCredentials(
+          clientId, 
+          '', // Client secret is not needed for PKCE flow
+          accessToken: _accessToken,
+          // Don't pass scopes here as they're already encoded in the token
+        );
+        
+        _spotifyApi = s.SpotifyApi(credentials);
+        debugPrint('Spotify API initialized successfully');
+      } catch (e) {
+        debugPrint('Error initializing Spotify API: $e');
+      }
+    } else {
+      debugPrint('Warning: Cannot initialize Spotify API - no access token available');
     }
   }
 
   /// Schedule a token refresh before the current token expires
   void _scheduleTokenRefresh() {
-    // Cancel any existing timer
-    _refreshTimer?.cancel();
+    if (_refreshTimer?.isActive ?? false) {
+      _refreshTimer?.cancel();
+    }
     
-    // If we have a token expiry date, schedule a refresh
     if (_tokenExpiry != null) {
-      final now = DateTime.now();
-      final timeUntilExpiry = _tokenExpiry!.difference(now);
+      final DateTime now = DateTime.now();
+      final Duration timeUntilExpiry = _tokenExpiry!.difference(now);
       
-      // Refresh 5 minutes before expiry
-      final refreshTime = Duration(
+      // Schedule refresh 5 minutes before expiry
+      final Duration refreshTime = Duration(
         milliseconds: max(0, timeUntilExpiry.inMilliseconds - (5 * 60 * 1000)),
       );
       
-      _refreshTimer = Timer(refreshTime, _refreshToken);
+      _refreshTimer = Timer(refreshTime, () => _refreshToken());
     }
   }
 
@@ -474,21 +558,49 @@ class SpotifyService {
 
   /// Fetch the user's profile details
   Future<void> _fetchUserDetails() async {
-    if (!_isAuthenticated || _accessToken == null) return;
-    
+    debugPrint('Fetching user details...');
     try {
-      // First try the Spotify API wrapper
-      if (_spotifyApi != null) {
-        final profile = await _spotifyApi!.me.get();
-        _eventBus.fire(UserProfileEvent(
-          profile.id ?? '',
-          profile.displayName ?? '',
-          profile.images?.isNotEmpty == true ? profile.images!.first.url ?? '' : '',
-        ));
-        return;
+      // Make sure we have a valid access token
+      if (_accessToken == null) {
+        try {
+          // First try to load from our enhanced storage
+          final tokenData = await secure_storage.SecureStorage.getSpotifyTokens();
+          if (tokenData != null && tokenData['accessToken'] != null) {
+            _accessToken = tokenData['accessToken'];
+            debugPrint('Loaded access token from enhanced storage');
+          } else {
+            // Fall back to direct secure storage
+            const storage = FlutterSecureStorage();
+            _accessToken = await storage.read(key: 'spotify_access_token');
+            debugPrint('Loaded access token from direct secure storage');
+          }
+          
+          // If we still don't have a token, check memory backup
+          if (_accessToken == null && _accessTokenInMemory != null) {
+            _accessToken = _accessTokenInMemory;
+            debugPrint('Using in-memory access token');
+          }
+        } catch (e) {
+          debugPrint('Error loading access token: $e');
+          // Check memory backup
+          if (_accessTokenInMemory != null) {
+            _accessToken = _accessTokenInMemory;
+            debugPrint('Using in-memory access token after error');
+          }
+        }
+        
+        // If still null, we don't have authentication
+        if (_accessToken == null) {
+          debugPrint('Cannot get user: not authenticated or no access token');
+          return;
+        }
+        
+        // Re-initialize API since we just loaded the token
+        _initializeApi();
       }
       
-      // Fall back to direct API call
+      // Make direct API call instead of using the Spotify SDK wrapper
+      // This is more reliable and gives us better error handling
       final response = await http.get(
         Uri.parse('https://api.spotify.com/v1/me'),
         headers: {
@@ -508,34 +620,140 @@ class SpotifyService {
           data['display_name'] as String? ?? '',
           imageUrl,
         ));
+        
+        // Also try to fetch the user's playlists since we know the token is working
+        _fetchUserPlaylists();
+      } else if (response.statusCode == 401) {
+        // Token expired, try to refresh
+        debugPrint('Access token expired, attempting to refresh...');
+        await _refreshToken();
+      } else {
+        debugPrint('Error fetching user profile: ${response.statusCode} - ${response.body}');
       }
     } catch (e) {
       debugPrint('Error fetching user profile: $e');
     }
   }
 
+  /// Fetch user playlists to ensure we have access to the user's library
+  Future<void> _fetchUserPlaylists() async {
+    try {
+      if (_accessToken == null) return;
+      
+      final response = await http.get(
+        Uri.parse('https://api.spotify.com/v1/me/playlists?limit=5'),
+        headers: {
+          'Authorization': 'Bearer $_accessToken',
+        },
+      );
+      
+      if (response.statusCode == 200) {
+        debugPrint('Successfully retrieved user playlists - API connection is working');
+      } else {
+        debugPrint('Error fetching playlists: ${response.statusCode} - ${response.body}');
+      }
+    } catch (e) {
+      debugPrint('Error fetching playlists: $e');
+    }
+  }
+
   /// Save access token, refresh token, and expiry to secure storage
   Future<void> _saveTokens(String accessToken, String refreshToken, DateTime expiry) async {
-    try {
-      const storage = FlutterSecureStorage();
-      await storage.write(key: 'spotify_access_token', value: accessToken);
-      if (refreshToken.isNotEmpty) {
-        await storage.write(key: 'spotify_refresh_token', value: refreshToken);
-      }
-      await storage.write(
-        key: 'spotify_token_expiry',
-        value: expiry.millisecondsSinceEpoch.toString(),
-      );
-    } catch (e) {
-      debugPrint('Error saving tokens: $e');
+    debugPrint('Saving tokens to secure storage...');
+    
+    // Always store tokens in memory as a fallback
+    _accessTokenInMemory = accessToken;
+    if (refreshToken.isNotEmpty) {
+      _refreshTokenInMemory = refreshToken;
     }
+    _tokenExpiryInMemory = expiry;
+    
+    // Try to save in secure storage
+    try {
+      // First try our enhanced secure storage
+      await secure_storage.SecureStorage.saveSpotifyTokens(
+        accessToken: accessToken,
+        refreshToken: refreshToken.isNotEmpty ? refreshToken : null,
+        expiryMillis: expiry.millisecondsSinceEpoch,
+      );
+      debugPrint('Tokens saved successfully in enhanced secure storage');
+    } catch (e1) {
+      debugPrint('Error saving to enhanced secure storage: $e1');
+      // Fall back to direct secure storage
+      try {
+        const storage = FlutterSecureStorage();
+        await storage.write(key: 'spotify_access_token', value: accessToken);
+        if (refreshToken.isNotEmpty) {
+          await storage.write(key: 'spotify_refresh_token', value: refreshToken);
+        }
+        await storage.write(
+          key: 'spotify_token_expiry',
+          value: expiry.millisecondsSinceEpoch.toString(),
+        );
+        debugPrint('Tokens saved successfully in direct secure storage');
+      } catch (e2) {
+        debugPrint('Error saving to direct secure storage, using memory backup: $e2');
+        // Continue with memory backup only (already set above)
+      }
+    }
+    
+    // Set instance variables for immediate use
+    _accessToken = accessToken;
+    _tokenExpiry = expiry;
+    _isAuthenticated = true;
+  }
+
+  /// Load tokens from secure storage or memory backup
+  Future<bool> _loadTokens() async {
+    try {
+      // First try our enhanced secure storage
+      final tokenData = await secure_storage.SecureStorage.getSpotifyTokens();
+      if (tokenData != null && 
+          tokenData['accessToken'] != null && 
+          tokenData['expiryMillis'] != null) {
+        _accessToken = tokenData['accessToken'];
+        _tokenExpiry = DateTime.fromMillisecondsSinceEpoch(tokenData['expiryMillis']);
+        debugPrint('Tokens loaded from enhanced secure storage');
+        return true;
+      }
+      
+      // Fall back to direct secure storage
+      const storage = FlutterSecureStorage();
+      final accessToken = await storage.read(key: 'spotify_access_token');
+      final expiryString = await storage.read(key: 'spotify_token_expiry');
+      
+      if (accessToken != null && expiryString != null) {
+        _accessToken = accessToken;
+        _tokenExpiry = DateTime.fromMillisecondsSinceEpoch(int.parse(expiryString));
+        debugPrint('Tokens loaded from direct secure storage');
+        return true;
+      }
+    } catch (e) {
+      debugPrint('Error loading tokens from secure storage: $e');
+    }
+    
+    // Fall back to memory if all else fails
+    if (_accessTokenInMemory != null && _tokenExpiryInMemory != null) {
+      _accessToken = _accessTokenInMemory;
+      _tokenExpiry = _tokenExpiryInMemory;
+      debugPrint('Tokens loaded from memory backup');
+      return true;
+    }
+    
+    return false;
   }
 
   /// Refresh the access token using the refresh token
   Future<void> _refreshToken() async {
     try {
-      const storage = FlutterSecureStorage();
-      final refreshToken = await storage.read(key: 'spotify_refresh_token');
+      // Try to get refresh token from secure storage
+      String? refreshToken;
+      try {
+        const storage = FlutterSecureStorage();
+        refreshToken = await storage.read(key: 'spotify_refresh_token');
+      } catch (e) {
+        debugPrint('Error retrieving refresh token from secure storage: $e');
+      }
       
       if (refreshToken == null) {
         _isAuthenticated = false;
@@ -851,5 +1069,52 @@ class SpotifyService {
       debugPrint('Error pausing playback: $e');
       return false;
     }
+  }
+
+  /// Attempt to initialize the Spotify SDK (iOS/Android only)
+  /// and handle authentication
+  Future<bool> _initializeSpotifySdk() async {
+    bool connected = false;
+    try {
+      connected = await SpotifySdk.connectToSpotifyRemote(
+        clientId: clientId,
+        redirectUrl: redirectUri,
+      );
+      
+      if (connected) {
+        final token = await SpotifySdk.getAccessToken(
+          clientId: clientId,
+          redirectUrl: redirectUri,
+          scope: scope,
+        );
+        
+        if (token != null && token.isNotEmpty) {
+          _accessToken = token;
+          _tokenExpiry = DateTime.now().add(const Duration(hours: 1));
+          _isAuthenticated = true;
+          
+          // Save the token to secure storage
+          await _saveTokens(
+            token,
+            '', // SDK doesn't provide refresh token
+            _tokenExpiry!,
+          );
+          
+          // Initialize the API client
+          _initializeApi();
+          
+          // Fetch user details
+          _fetchUserDetails();
+          
+          // Emit auth event
+          _emitAuthEvent(true);
+          
+          return true;
+        }
+      }
+    } catch (e) {
+      debugPrint('Error initializing Spotify SDK: $e');
+    }
+    return connected;
   }
 }

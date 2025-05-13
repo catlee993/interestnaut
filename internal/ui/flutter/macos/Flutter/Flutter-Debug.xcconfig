@@ -1,2 +1,7 @@
-#include? "Pods/Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"
 #include "ephemeral/Flutter-Generated.xcconfig"
+#include "Warnings.xcconfig"
+
+// Add these keys to enable keychain access without proper code signing
+CODE_SIGNING_ALLOWED=NO
+CODE_SIGNING_REQUIRED=NO
+#include? "Pods/Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"

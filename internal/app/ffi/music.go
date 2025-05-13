@@ -304,7 +304,9 @@ func Music_InitiateSpotifyAuth() *C.char {
 	authStatus["browserOpened"] = true
 
 	// Add the code verifier so Flutter can use it for token exchange
-	authStatus["codeVerifier"] = spotify.GetCodeVerifier()
+	codeVerifier := spotify.GetCodeVerifier()
+	log.Printf("DEBUG: Code verifier in Music_InitiateSpotifyAuth: '%s'", codeVerifier)
+	authStatus["codeVerifier"] = codeVerifier
 
 	jsonBytes, _ := json.Marshal(authStatus)
 	result = C.CString(string(jsonBytes))

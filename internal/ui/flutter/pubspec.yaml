@@ -50,6 +50,7 @@ dependencies:
   
   # New dependencies for cross-platform auth and WebView
   flutter_secure_storage: ^9.0.0
+  shared_preferences: ^2.2.0  # Added for development mode fallback
   webview_flutter: ^4.4.2
   webview_flutter_android: ^3.12.1
   webview_flutter_wkwebview: ^3.9.4
