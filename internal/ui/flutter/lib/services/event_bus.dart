@@ -180,16 +180,26 @@ class EventBus {
         }
       });
     } else {
-      debugPrint('Maximum reconnect attempts reached, giving up');
-      // After max attempts, wait longer before trying again
-      _reconnectTimer = Timer(Duration(seconds: 30), () {
-        _reconnectTimer = null;
-        _reconnectAttempts = 0; // Reset counter for fresh attempts
-        if (!_shutdown) {
-          debugPrint('Retrying event bus connection after cooldown');
-          initialize();
-        }
-      });
+      debugPrint('Maximum reconnect attempts reached, entering fail-safe mode');
+      // After max attempts, still keep the event bus technically "alive" but in a failed state
+      // This prevents the app from crashing on actions that depend on the event bus
+      _socket = null;
+      
+      // Set up a dummy broadcast controller that won't crash the app
+      // when events are attempted to be sent
+      if (!_controller.isClosed) {
+        // Don't close the real controller as that would break existing listeners
+        // Instead just create a "fake" connection state that allows the app to continue
+        _port = -1;
+        _reconnectTimer = Timer(Duration(seconds: 30), () {
+          _reconnectTimer = null;
+          _reconnectAttempts = 0; // Reset counter for fresh attempts
+          if (!_shutdown) {
+            debugPrint('Retrying event bus connection after cooldown');
+            initialize();
+          }
+        });
+      }
     }
   }
   
