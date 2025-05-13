@@ -215,14 +215,17 @@ class _InterestnautAppState extends State<InterestnautApp> {
       await EventBus.initialize();
       
       // Listen for authentication status changes
-      EventBus().authEvents.listen((authStatus) {
-        debugPrint('Received auth status event: $authStatus');
-        if (authStatus.containsKey('isAuthenticated')) {
+      EventBus().authEvents.listen((event) {
+        debugPrint('Received auth event: $event');
+        final payload = event;
+
+        // Handle auth status changes
+        if (payload.containsKey('isAuthenticated')) {
           setState(() {
-            _isAuthenticated = authStatus['isAuthenticated'] == true;
-            
-            if (_isAuthenticated && authStatus.containsKey('userProfile')) {
-              _userProfile = authStatus['userProfile'] as Map<String, dynamic>?;
+            _isAuthenticated = payload['isAuthenticated'] == true;
+            // If userProfile is present, update it
+            if (payload.containsKey('userProfile')) {
+              _userProfile = payload['userProfile'] as Map<String, dynamic>?;
             } else if (!_isAuthenticated) {
               _userProfile = null;
             }
@@ -230,7 +233,24 @@ class _InterestnautAppState extends State<InterestnautApp> {
         }
       });
       
-      debugPrint('Event bus initialized and auth events subscription active');
+      // Listen for user profile updates
+      EventBus().profileEvents.listen((event) {
+        debugPrint('Received profile event: $event');
+        
+        // Handle user profile updates
+        if (event.containsKey('userProfile')) {
+          setState(() {
+            _userProfile = event['userProfile'] as Map<String, dynamic>?;
+            // Ensure we mark as authenticated when we get a profile
+            if (_userProfile != null && !_userProfile!.isEmpty) {
+              _isAuthenticated = true;
+            }
+          });
+          debugPrint('Updated user profile: $_userProfile');
+        }
+      });
+      
+      debugPrint('Event bus initialized and all event subscriptions active');
     } catch (e) {
       debugPrint('Failed to initialize event bus: $e');
     }

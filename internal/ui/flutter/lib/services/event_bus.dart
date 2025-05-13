@@ -206,6 +206,16 @@ class EventBus {
             return payload;
           });
   
+  /// Get only user profile events
+  Stream<Map<String, dynamic>> get profileEvents => 
+      events.where((event) => 
+          event['type'] == 'user_profile_updated')
+          .map((event) {
+            final payload = event['payload'] as Map<String, dynamic>? ?? {};
+            debugPrint('Profile event payload: $payload');
+            return payload;
+          });
+  
   /// Check if the event bus is connected
   bool get isConnected => _socket != null;
   

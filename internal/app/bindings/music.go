@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"interestnaut/internal/app/directives"
-	"interestnaut/internal/app/eventbus"
 	"interestnaut/internal/app/gemini"
 	"interestnaut/internal/app/llm"
 	"interestnaut/internal/app/openai"
@@ -392,17 +391,6 @@ func (m *Music) InitiateSpotifyAuth() error {
 		defer func() {
 			if r := recover(); r != nil {
 				log.Printf("RECOVERED from panic in Spotify auth: %v", r)
-				
-				// Notify UI of auth failure via event bus
-				if eb := eventbus.GetGlobalBus(); eb != nil {
-					eb.EmitSafe(eventbus.Event{
-						Type: "spotify_auth_status_changed",
-						Payload: map[string]interface{}{
-							"isAuthenticated": false,
-							"error": fmt.Sprintf("Authentication process crashed: %v", r),
-						},
-					})
-				}
 			}
 		}()
 
@@ -410,17 +398,6 @@ func (m *Music) InitiateSpotifyAuth() error {
 		err := spotify.RunInitialAuthFlow(context.Background())
 		if err != nil {
 			log.Printf("ERROR: Failed to run Spotify auth flow: %v", err)
-			
-			// Notify UI of auth failure via event bus
-			if eb := eventbus.GetGlobalBus(); eb != nil {
-				eb.EmitSafe(eventbus.Event{
-					Type: "spotify_auth_status_changed",
-					Payload: map[string]interface{}{
-						"isAuthenticated": false,
-						"error": err.Error(),
-					},
-				})
-			}
 			return
 		}
 
@@ -432,45 +409,10 @@ func (m *Music) InitiateSpotifyAuth() error {
 		_, tokenErr := m.GetValidToken()
 		if tokenErr != nil {
 			log.Printf("Error getting token after auth: %v", tokenErr)
-			
-			// Notify UI of token verification failure via event bus
-			if eb := eventbus.GetGlobalBus(); eb != nil {
-				eb.EmitSafe(eventbus.Event{
-					Type: "spotify_auth_status_changed",
-					Payload: map[string]interface{}{
-						"isAuthenticated": false,
-						"error": fmt.Sprintf("Auth succeeded but token verification failed: %v", tokenErr),
-					},
-				})
-			}
 			return
 		}
 
-		// Get the user profile for the event payload
-		userProfile, _ := m.GetCurrentUser()
-
-		// Emit auth success event to notify Flutter UI
-		if eb := eventbus.GetGlobalBus(); eb != nil {
-			// Create payload - include user profile if available
-			payload := map[string]interface{}{
-				"isAuthenticated": true,
-			}
-
-			// Add user profile if available
-			if userProfile != nil {
-				payload["userProfile"] = userProfile
-			}
-
-			// Emit the event - use EmitSafe for FFI boundary safety
-			eb.EmitSafe(eventbus.Event{
-				Type:    "spotify_auth_status_changed",
-				Payload: payload,
-			})
-
-			log.Println("Emitted auth success event to Flutter UI")
-		} else {
-			log.Println("Warning: Event bus unavailable, UI may not update")
-		}
+		log.Println("Spotify authentication successful")
 	}()
 
 	// Return immediately, the auth process continues in the background

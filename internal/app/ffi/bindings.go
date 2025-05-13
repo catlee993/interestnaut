@@ -8,7 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"interestnaut/internal/app/bindings"
-	"interestnaut/internal/app/bridge"
+	"interestnaut/internal/app/eventbus"
 	"interestnaut/internal/app/session"
 	"log"
 	"os"
@@ -40,82 +40,67 @@ var (
 // init function for the FFI package. This will run when the dylib is loaded.
 func init() {
 	log.Println("FFI package init() called - dylib loaded.")
-
-	// Initialize the dedicated FFI thread bridge
-	bridge.InitializeFFIBridge()
-
-	// We can't fully initialize here if we need CentralManager passed from a main context.
+	eventbus.StartEventServer()
 }
 
 //export InitializeFFIBridge
 func InitializeFFIBridge() *C.char {
-	var result *C.char
+	log.Println("InitializeFFIBridge called from Dart")
 
-	bridge.ExecuteOnFFIThread(func() {
-		log.Println("InitializeFFIBridge called from Dart")
-
-		// Initialize the bridge in the dedicated bridge package
-		bridge.InitializeFFIBridge()
-
-		// Return success message
-		result = C.CString("{\"status\": \"FFI bridge initialized successfully\"}")
-	})
-
-	return result
+	// Return success message
+	return C.CString("{\"status\": \"FFI bridge initialized successfully\"}")
 }
 
 // Initialize initializes all bindings for FFI use
 func Initialize(cm session.CentralManager) {
-	bridge.ExecuteOnFFIThread(func() {
-		if ffiInitialized {
-			log.Println("FFI bindings already initialized, skipping.")
-			return
-		}
-		log.Println("FFI bridge Initialize() CALLED")
+	if ffiInitialized {
+		log.Println("FFI bindings already initialized, skipping.")
+		return
+	}
+	log.Println("FFI bridge Initialize() CALLED")
 
-		centralManager = cm
-		if centralManager == nil {
-			log.Println("CRITICAL: CentralManager is nil in Initialize()")
-			// Handle this error appropriately, maybe panic or return an error
-			// For now, just log and continue to see other errors
-		}
+	centralManager = cm
+	if centralManager == nil {
+		log.Println("CRITICAL: CentralManager is nil in Initialize()")
+		// Handle this error appropriately, maybe panic or return an error
+		// For now, just log and continue to see other errors
+	}
 
-		authBindings = &bindings.Auth{}
-		var err error
+	authBindings = &bindings.Auth{}
+	var err error
 
-		bookBindings, err = bindings.NewBooks(context.Background(), cm)
-		if err != nil {
-			log.Printf("ERROR initializing book bindings: %v", err)
-		}
+	bookBindings, err = bindings.NewBooks(context.Background(), cm)
+	if err != nil {
+		log.Printf("ERROR initializing book bindings: %v", err)
+	}
 
-		gameBindings, err = bindings.NewGames(context.Background(), cm)
-		if err != nil {
-			log.Printf("ERROR initializing game bindings: %v", err)
-		}
+	gameBindings, err = bindings.NewGames(context.Background(), cm)
+	if err != nil {
+		log.Printf("ERROR initializing game bindings: %v", err)
+	}
 
-		movieBindings, err = bindings.NewMovieBinder(context.Background(), cm)
-		if err != nil {
-			log.Printf("ERROR initializing movie bindings: %v", err)
-		}
+	movieBindings, err = bindings.NewMovieBinder(context.Background(), cm)
+	if err != nil {
+		log.Printf("ERROR initializing movie bindings: %v", err)
+	}
 
-		log.Println("Attempting to initialize musicBindings...")
-		musicBindings = bindings.NewMusicBinder(context.Background(), cm, "3bb48a30577342869a9ffcb176dee7d2")
-		if musicBindings == nil {
-			log.Println("CRITICAL: musicBindings is NIL after NewMusicBinder call!")
-		} else {
-			log.Println("SUCCESS: musicBindings initialized.")
-		}
+	log.Println("Attempting to initialize musicBindings...")
+	musicBindings = bindings.NewMusicBinder(context.Background(), cm, "3bb48a30577342869a9ffcb176dee7d2")
+	if musicBindings == nil {
+		log.Println("CRITICAL: musicBindings is NIL after NewMusicBinder call!")
+	} else {
+		log.Println("SUCCESS: musicBindings initialized.")
+	}
 
-		settingsBindings = &bindings.Settings{ContentManager: cm}
-		tvBindings, err = bindings.NewTVShowBinder(context.Background(), cm)
-		if err != nil {
-			log.Printf("ERROR initializing TV bindings: %v", err)
-		}
+	settingsBindings = &bindings.Settings{ContentManager: cm}
+	tvBindings, err = bindings.NewTVShowBinder(context.Background(), cm)
+	if err != nil {
+		log.Printf("ERROR initializing TV bindings: %v", err)
+	}
 
-		log.Println("FFI bindings initialization process complete.")
-		ffiInitialized = true
-		startExitWatcher()
-	})
+	log.Println("FFI bindings initialization process complete.")
+	ffiInitialized = true
+	startExitWatcher()
 }
 
 // Start a goroutine to watch for exit signals
@@ -134,26 +119,24 @@ func startExitWatcher() {
 
 //export SignalShutdown
 func SignalShutdown() {
-	bridge.ExecuteOnFFIThread(func() {
-		log.Println("Shutdown signal received from Flutter")
-		close(exitChan)
+	log.Println("Shutdown signal received from Flutter")
+	close(exitChan)
 
-		// Wait for exit watcher to complete (with timeout)
-		waitChan := make(chan struct{})
-		go func() {
-			exitWaitGroup.Wait()
-			close(waitChan)
-		}()
+	// Wait for exit watcher to complete (with timeout)
+	waitChan := make(chan struct{})
+	go func() {
+		exitWaitGroup.Wait()
+		close(waitChan)
+	}()
 
-		select {
-		case <-waitChan:
-			// Normal exit
-		case <-time.After(3 * time.Second):
-			// Forced exit after timeout
-			log.Println("Exit timeout, forcing termination")
-			os.Exit(0)
-		}
-	})
+	select {
+	case <-waitChan:
+		// Normal exit
+	case <-time.After(3 * time.Second):
+		// Forced exit after timeout
+		log.Println("Exit timeout, forcing termination")
+		os.Exit(0)
+	}
 }
 
 // Helper function to handle C string return values
@@ -186,4 +169,15 @@ func FreeString(s *C.char) {
 	if s != nil {
 		C.free(unsafe.Pointer(s))
 	}
+}
+
+// FFI glue for Flutter event bus contract
+//export EventBus_Init
+func EventBus_Init() C.int64_t {
+	return C.int64_t(eventbus.StartEventServer())
+}
+
+//export EventBus_Shutdown
+func EventBus_Shutdown() {
+	// No-op for now, but symbol required for FFI contract
 }
