@@ -362,59 +362,17 @@ func (m *Music) RefreshLLMClients() {
 
 // InitiateSpotifyAuth explicitly starts the Spotify authentication flow
 func (m *Music) InitiateSpotifyAuth() error {
-	// Use mutex to prevent duplicate auth attempts
-	m.mu.Lock()
-	// Only lock during the check and goroutine creation, not during the entire auth flow
-	defer m.mu.Unlock()
+	log.Println("Explicitly initiating Spotify authentication flow (browser only)")
 
-	log.Println("Explicitly initiating Spotify authentication flow")
-
-	// Create a semaphore channel to control concurrent auth attempts
-	authSemaphore := make(chan struct{}, 1)
-
-	// Check if semaphore can be acquired (meaning no auth is in progress)
-	select {
-	case authSemaphore <- struct{}{}: // Successfully acquired semaphore
-		// Continue with auth flow
-	default:
-		// Another auth is already in progress
-		log.Println("Spotify authentication already in progress, ignoring duplicate request")
-		return nil
+	// Open the browser with the auth URL but don't set up a server or handle callback
+	err := spotify.OpenSpotifyAuthBrowser(context.Background())
+	if err != nil {
+		log.Printf("ERROR: Failed to open Spotify auth browser: %v", err)
+		return err
 	}
 
-	// Move the authentication to a goroutine
-	go func() {
-		// Release semaphore when done to allow future auth attempts
-		defer func() { <-authSemaphore }()
+	log.Println("Browser opened with Spotify auth URL - Flutter will handle the callback")
 
-		// Additional safety to catch any panics
-		defer func() {
-			if r := recover(); r != nil {
-				log.Printf("RECOVERED from panic in Spotify auth: %v", r)
-			}
-		}()
-
-		// Run the auth flow
-		err := spotify.RunInitialAuthFlow(context.Background())
-		if err != nil {
-			log.Printf("ERROR: Failed to run Spotify auth flow: %v", err)
-			return
-		}
-
-		// Update the Spotify client after authentication
-		spotifyClient := spotify.NewClient()
-		m.setSpotifyClient(spotifyClient)
-
-		// Verify token to ensure the authentication worked
-		_, tokenErr := m.GetValidToken()
-		if tokenErr != nil {
-			log.Printf("Error getting token after auth: %v", tokenErr)
-			return
-		}
-
-		log.Println("Spotify authentication successful")
-	}()
-
-	// Return immediately, the auth process continues in the background
+	// No need to return anything, the code verifier is stored in the spotify package
 	return nil
 }

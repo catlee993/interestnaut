@@ -226,6 +226,20 @@ class EventBus {
             return payload;
           });
   
+  /// Get events of a specific type
+  Stream<T> on<T>() {
+    return events
+        .where((event) => event is T)
+        .cast<T>();
+  }
+
+  /// Fire an event to all listeners
+  void fire(dynamic event) {
+    if (!_controller.isClosed) {
+      _controller.add({'type': 'custom_event', 'payload': event});
+    }
+  }
+  
   /// Check if the event bus is connected
   bool get isConnected => _socket != null;
   

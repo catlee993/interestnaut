@@ -17,5 +17,11 @@
 	<true/>
 	<key>com.apple.security.files.user-selected.executable</key>
 	<true/>
+	<!-- Add permission for web-based authentication -->
+	<key>com.apple.security.authentication.web</key>
+	<true/>
+	<!-- Add application data protection key -->
+	<key>com.apple.security.application-data</key>
+	<true/>
 </dict>
 </plist>

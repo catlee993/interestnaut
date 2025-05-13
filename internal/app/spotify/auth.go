@@ -427,3 +427,47 @@ func emitUserProfileUpdated() {
 		})
 	}
 }
+
+// OpenSpotifyAuthBrowser generates the auth URL with PKCE and opens the browser
+// but doesn't wait for or handle the callback - that will be done by Flutter
+func OpenSpotifyAuthBrowser(ctx context.Context) error {
+	log.Println("Opening browser for Spotify authentication (Flutter will handle callback)...")
+
+	// Generate PKCE code verifier
+	var err error
+	codeVerifier, err = generateCodeVerifier()
+	if err != nil {
+		return fmt.Errorf("failed to generate code verifier: %w", err)
+	}
+
+	// Compute the corresponding code challenge
+	codeChallenge, err := computeCodeChallenge(codeVerifier)
+	if err != nil {
+		return fmt.Errorf("failed to compute code challenge: %w", err)
+	}
+
+	// Build auth URL with PKCE
+	signinURL := fmt.Sprintf("%s?client_id=%s&response_type=code&redirect_uri=%s&scope=%s&code_challenge=%s&code_challenge_method=S256",
+		authURL,
+		url.QueryEscape(ClientID),
+		url.QueryEscape(redirectURI),
+		url.QueryEscape(scope),
+		url.QueryEscape(codeChallenge),
+	)
+
+	// Open the browser to the auth URL
+	err = openBrowser(signinURL)
+	if err != nil {
+		return fmt.Errorf("failed to open browser: %w", err)
+	}
+
+	log.Printf("Browser opened with Spotify auth URL, code verifier: %s...", codeVerifier[:10])
+	return nil
+}
+
+// GetCodeVerifier returns the current code verifier for PKCE
+func GetCodeVerifier() string {
+	tokenMutex.RLock()
+	defer tokenMutex.RUnlock()
+	return codeVerifier
+}

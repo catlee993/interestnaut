@@ -70,3 +70,61 @@ class FFIBindingBase {
 class GoFFILibrary {
   static ffi.DynamicLibrary get dylib => FFIInitializer.dylib;
 }
+
+/// Spotify music-related FFI functions
+class MusicFFI extends FFIBindingBase {
+  MusicFFI() {
+    FFIBindingBase.checkInitialized();
+  }
+  
+  /// Get the PKCE code verifier for Spotify authentication
+  Future<String> getSpotifyCodeVerifier() async {
+    try {
+      if (!FFIInitializer.isInitialized) return '';
+      
+      final function = FFIInitializer.dylib.lookupFunction<
+        ffi.Pointer<ffi.Char> Function(),
+        ffi.Pointer<ffi.Char> Function()
+      >('Music_GetSpotifyCodeVerifier');
+      
+      final result = function();
+      final codeVerifier = result.cast<Utf8>().toDartString();
+      // Free the memory after use
+      FFIBindingBase.freeString(result);
+      
+      return Future.value(codeVerifier);
+    } catch (e) {
+      debugPrint('Error getting Spotify code verifier: $e');
+      return '';
+    }
+  }
+  
+  /// Initiate the Spotify authentication flow
+  Future<Map<String, dynamic>> initiateSpotifyAuth() async {
+    try {
+      if (!FFIInitializer.isInitialized) {
+        return {'error': 'FFI not initialized'};
+      }
+      
+      final function = FFIInitializer.dylib.lookupFunction<
+        ffi.Pointer<ffi.Char> Function(),
+        ffi.Pointer<ffi.Char> Function()
+      >('Music_InitiateSpotifyAuth');
+      
+      final result = function();
+      final jsonString = result.cast<Utf8>().toDartString();
+      // Free the memory after use
+      FFIBindingBase.freeString(result);
+      
+      try {
+        return Map<String, dynamic>.from(jsonDecode(jsonString));
+      } catch (e) {
+        debugPrint('Error decoding Spotify auth response: $e');
+        return {'error': 'Invalid response format: $jsonString'};
+      }
+    } catch (e) {
+      debugPrint('Error initiating Spotify auth: $e');
+      return {'error': e.toString()};
+    }
+  }
+}

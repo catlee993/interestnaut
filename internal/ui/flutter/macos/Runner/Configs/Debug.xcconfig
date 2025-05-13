@@ -1,2 +1,3 @@
 #include "../../Flutter/Flutter-Debug.xcconfig"
+#include "../../Flutter/MinimumDeployment.xcconfig"
 #include "Warnings.xcconfig"

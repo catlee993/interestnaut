@@ -11,6 +11,7 @@ import (
 	"interestnaut/internal/app/bindings"
 	"interestnaut/internal/app/eventbus"
 	"interestnaut/internal/app/session"
+	"interestnaut/internal/app/spotify"
 	"log"
 	"os"
 	"unsafe"
@@ -280,16 +281,31 @@ func Music_InitiateSpotifyAuth() *C.char {
 		return result
 	}
 
+	// Call the simplified version that just opens the browser
 	err := musicBindings.InitiateSpotifyAuth()
 	if err != nil {
 		log.Printf("Music_InitiateSpotifyAuth failed: %v", err)
+		errorJson, _ := json.Marshal(map[string]interface{}{
+			"error": err.Error(),
+		})
+		result = C.CString(string(errorJson))
+		return result
 	}
 
 	if pid := os.Getpid(); pid > 0 {
-		log.Printf("Spotify auth initiated. PID is: %d", pid)
+		log.Printf("Spotify auth browser opened. PID is: %d", pid)
 	}
 
+	// Return the auth status and indicate that the browser was opened
+	// This is critical for Flutter to know if it should handle the callback
 	authStatus := musicBindings.GetAuthStatus()
+
+	// Add a browserOpened flag to let Flutter know the browser was opened
+	authStatus["browserOpened"] = true
+
+	// Add the code verifier so Flutter can use it for token exchange
+	authStatus["codeVerifier"] = spotify.GetCodeVerifier()
+
 	jsonBytes, _ := json.Marshal(authStatus)
 	result = C.CString(string(jsonBytes))
 

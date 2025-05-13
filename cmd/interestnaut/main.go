@@ -132,15 +132,15 @@ func onStartup(ctx context.Context,
 	log.Println("RAWG credential change handlers registered")
 
 	// Check if we have a valid authorization code
-	_, err := creds.GetSpotifyToken()
-	if err != nil {
-		log.Println("No valid authorization code found, starting authentication flow...")
-		if iErr := spotify.RunInitialAuthFlow(ctx); iErr != nil {
-			log.Printf("Authentication failed: %v", iErr)
-		} else {
-			log.Println("Authentication successful")
-		}
-	} else {
-		log.Println("Using existing authorization code")
-	}
+	//_, err := creds.GetSpotifyToken()
+	//if err != nil {
+	//	log.Println("No valid authorization code found, starting authentication flow...")
+	//	if iErr := spotify.RunInitialAuthFlow(ctx); iErr != nil {
+	//		log.Printf("Authentication failed: %v", iErr)
+	//	} else {
+	//		log.Println("Authentication successful")
+	//	}
+	//} else {
+	//	log.Println("Using existing authorization code")
+	//}
 }
