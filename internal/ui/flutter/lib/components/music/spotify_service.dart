@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math';
+import 'dart:math' as math;
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -9,9 +9,11 @@ import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 import 'package:uni_links/uni_links.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../models.dart';
 import '../../services/secure_storage.dart' as secure_storage;
 import 'spotify_client.dart';
+import 'package:path_provider/path_provider.dart';
 
 // Event classes for state management
 class AuthStatusEvent {
@@ -67,6 +69,7 @@ class SpotifyService {
   
   // Token management
   String? _accessToken;
+  String? _refreshToken;
   DateTime _tokenExpiry = DateTime.now();
   Timer? _refreshTimer;
   bool _authenticating = false;
@@ -110,64 +113,201 @@ class SpotifyService {
   /// Initialize the Spotify service
   /// This should be called during app startup
   Future<void> initialize() async {
-    if (_isAuthenticated) return;
-
-    // Load tokens from storage
+    debugPrint('Initializing Spotify service...');
+    
+    // Set initial state to not authenticated
+    _isAuthenticated = false;
+    
+    // Load tokens from storage first
     final hasToken = await _loadTokens();
     
     if (hasToken) {
-      _isAuthenticated = true;
-
-      // Initialize Spotify API wrapper with existing token
+      debugPrint('Found existing tokens, verifying with API...');
+      // Initialize Spotify API wrapper with loaded token
       _initializeApi();
-
-      // Schedule a token refresh if needed
-      _setupTokenRefresh(_tokenExpiry);
       
-      // Emit authentication event
-      _emitAuthEvent(true);
-
-      // Fetch user details to make sure token is valid
-      _fetchUserDetails();
+      // Verify token by attempting to fetch user profile
+      final userProfile = await _verifyTokenWithUserProfile();
       
-      // Also fetch playlists to ensure we have library access
-      _fetchUserPlaylists();
+      if (userProfile != null) {
+        // Token is valid, set authenticated state
+        debugPrint('Token verification successful, user is authenticated');
+        _isAuthenticated = true;
+        _emitAuthEvent(true);
+        
+        // Schedule token refresh
+        _setupTokenRefresh();
+      } else {
+        // Token is invalid, clear it
+        debugPrint('Token verification failed, clearing tokens');
+        await _clearTokens();
+        _emitAuthEvent(false);
+      }
     } else {
+      debugPrint('No tokens found, user is not authenticated');
       _emitAuthEvent(false);
     }
     
-    // Set up URI handling for auth callbacks
+    // Set up URI handling for auth callbacks on mobile
     if (Platform.isIOS || Platform.isAndroid) {
-      // Mobile platforms use uni_links
       uriLinkStream.listen((Uri? uri) {
-        if (uri != null && uri.toString().startsWith(redirectUri)) {
+        if (uri != null && uri.toString().contains('/callback')) {
           _handleAuthCallback(uri);
         }
       }, onError: (err) {
         debugPrint('URI link error: $err');
       });
+    }
+  }
+
+  /// Verify token validity by fetching user profile
+  /// Returns user profile if successful, null if token is invalid
+  Future<Map<String, dynamic>?> _verifyTokenWithUserProfile() async {
+    if (_accessToken == null) return null;
+    
+    try {
+      // Make direct API call to verify token
+      final response = await http.get(
+        Uri.parse('https://api.spotify.com/v1/me'),
+        headers: {'Authorization': 'Bearer $_accessToken'},
+      );
       
-      // Check for initial link
-      try {
-        final initialLink = await getInitialLink();
-        if (initialLink != null) {
-          final uri = Uri.parse(initialLink);
-          if (uri.toString().startsWith(redirectUri)) {
-            _handleAuthCallback(uri);
-          }
+      if (response.statusCode == 200) {
+        // Token is valid, parse user profile
+        final data = jsonDecode(response.body);
+        
+        // Extract user info
+        final List<dynamic>? images = data['images'] as List<dynamic>?;
+        final String imageUrl = images != null && images.isNotEmpty 
+            ? (images.first['url'] as String? ?? '') 
+            : '';
+        
+        // Emit user profile event
+        _userProfileController.add(UserProfileEvent(
+          data['id'] as String? ?? '',
+          data['display_name'] as String? ?? '',
+          imageUrl,
+        ));
+        
+        // Also fetch playlists since we know token works
+        _fetchUserPlaylists();
+        
+        return data;
+      } else if (response.statusCode == 401) {
+        // Token is expired, try to refresh
+        final refreshed = await _refreshAccessToken();
+        if (refreshed) {
+          // Try again with new token
+          return _verifyTokenWithUserProfile();
         }
-      } catch (e) {
-        debugPrint('Error getting initial link: $e');
       }
-    } else {
-      // Desktop platforms use a local callback server
-      _setUpCallbackServer();
+    } catch (e) {
+      debugPrint('Error verifying token: $e');
     }
     
-    // Initialize platform-specific bindings
-    await _initializeBindings();
+    return null;
+  }
 
-    _isAuthenticated = true;
+  /// Logout from Spotify
+  Future<void> logout() async {
+    try {
+      // Try to pause any playback first
+      try {
+        await _spotifyClient.pausePlayback();
+      } catch (e) {
+        // Ignore errors if not playing
+        debugPrint('Note: Could not pause playback during logout: $e');
+      }
+      
+      // Clear tokens and state
+      await _clearTokens();
+      
+    } catch (e) {
+      debugPrint('Error during logout: $e');
+    }
+  }
+
+  /// Manually get a new access token
+  Future<bool> refreshToken() async {
+    return await _refreshAccessToken();
+  }
+
+  /// Clear all tokens from storage and memory
+  Future<void> _clearTokens() async {
+    try {
+      // Clear from secure storage using the proper methods
+      try {
+        // Use the correct method name: clearSpotifyCredentials
+        await secure_storage.SecureStorage.clearSpotifyCredentials();
+        debugPrint('Tokens cleared from secure storage');
+      } catch (e) {
+        debugPrint('Error clearing tokens from secure storage: $e');
+      }
+      
+      // Also clear from SharedPreferences
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.remove('spotify_access_token');
+        await prefs.remove('spotify_refresh_token');
+        await prefs.remove('spotify_token_expiry');
+        debugPrint('Tokens cleared from SharedPreferences');
+      } catch (e) {
+        debugPrint('Error clearing tokens from SharedPreferences: $e');
+      }
+      
+      // Clear memory
+      _accessToken = null;
+      _refreshToken = null;
+      _accessTokenInMemory = null;
+      _isAuthenticated = false;
+      
+      // Notify listeners about auth state change
+      _emitAuthEvent(false);
+      
+      debugPrint('All tokens cleared from storage and memory');
+    } catch (e) {
+      debugPrint('Error clearing tokens: $e');
+    }
+  }
+
+  /// Get the current playback state
+  Future<Map<String, dynamic>?> getPlaybackState() async {
+    if (!_isAuthenticated || _accessToken == null) {
+      debugPrint('Cannot get playback state: not authenticated');
+      return null;
+    }
+    
+    try {
+      // Make direct API call
+      final response = await http.get(
+        Uri.parse('https://api.spotify.com/v1/me/player'),
+        headers: {
+          'Authorization': 'Bearer $_accessToken',
+        },
+      );
+      
+      if (response.statusCode == 200) {
+        // Success - parse and return the playback state
+        return jsonDecode(response.body);
+      } else if (response.statusCode == 204) {
+        // No active device - this is a normal state
+        return {'is_playing': false, 'no_active_device': true};
+      } else if (response.statusCode == 401) {
+        // Token expired, try to refresh
+        final refreshed = await _refreshAccessToken();
+        if (!refreshed) {
+          _isAuthenticated = false;
+          _emitAuthEvent(false);
+        }
+        return null;
+      } else {
+        debugPrint('Error getting playback state: ${response.statusCode}');
+        return null;
+      }
+    } catch (e) {
+      debugPrint('Error getting playback state: $e');
+      return null;
+    }
   }
 
   /// Initialize platform-specific bindings
@@ -311,7 +451,7 @@ class SpotifyService {
   /// Generate a random code verifier for PKCE
   String _generateCodeVerifier() {
     const charset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
-    final random = Random.secure();
+    final random = math.Random.secure();
     return List.generate(128, (_) => charset[random.nextInt(charset.length)]).join();
   }
   
@@ -359,7 +499,7 @@ class SpotifyService {
       final codeChallenge = _generateCodeChallenge(_codeVerifier);
       
       // Use the dynamic redirect URI with the port we found
-      final dynamicRedirectUri = '$callbackServerUri:$_callbackPort/callback';
+      final dynamicRedirectUri = _dynamicRedirectUri;
       debugPrint('Using dynamic redirect URI: $dynamicRedirectUri');
       
       // Build the authorization URL with the dynamic redirect URI
@@ -499,7 +639,11 @@ class SpotifyService {
   Future<bool> _exchangeCodeForToken(String code, [String? dynamicRedirectUri]) async {
     try {
       debugPrint('Exchanging code for token with PKCE...');
-      // Exchange the authorization code for tokens using PKCE
+      
+      // Use dynamic redirect URI if provided, otherwise use the default
+      final redirectUriToUse = dynamicRedirectUri ?? _dynamicRedirectUri;
+      
+      // Prepare the token request
       final response = await http.post(
         Uri.parse(tokenEndpoint),
         headers: {
@@ -509,62 +653,54 @@ class SpotifyService {
           'client_id': clientId,
           'grant_type': 'authorization_code',
           'code': code,
-          'redirect_uri': dynamicRedirectUri ?? '$callbackServerUri:$_callbackPort/callback',
+          'redirect_uri': redirectUriToUse,
           'code_verifier': _codeVerifier,
         },
       );
       
+      // Check response
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        
         final accessToken = data['access_token'] as String;
-        final refreshToken = data['refresh_token'] as String?;
-        final expiresIn = data['expires_in'] as int? ?? 3600;
+        final refreshToken = data['refresh_token'] as String;
+        final expiresIn = data['expires_in'] as int;
         
-        // Calculate expiry time
-        final expiry = DateTime.now().add(Duration(seconds: expiresIn - 60)); // Subtract 60s for buffer
+        // Calculate token expiry time
+        final expiry = DateTime.now().add(Duration(seconds: expiresIn));
         
         // Save tokens
-        await _saveTokens(
-          accessToken,
-          refreshToken ?? '',
-          expiry,
-        );
+        await _saveTokens(accessToken, refreshToken, expiry);
         
-        // Set as authenticated
-        _isAuthenticated = true;
+        debugPrint('Tokens saved to secure storage');
         
-        // Emit auth event
-        _emitAuthEvent(true);
-
         // Initialize the API
         _initializeApi();
         
-        // Set up auto refresh
-        _setupTokenRefresh(expiry);
+        // Emit auth event
+        _isAuthenticated = true;
+        _emitAuthEvent(true);
         
-        // Save tokens to the platform-specific secure storage as backup
-        await secure_storage.SecureStorage.saveSpotifyTokens(
-          accessToken: accessToken,
-          refreshToken: refreshToken ?? '',
-          expiryMillis: expiry.millisecondsSinceEpoch,
-        );
+        // Schedule token refresh
+        _setupTokenRefresh();
         
-        // Also save to in-memory backup
-        _accessTokenInMemory = accessToken;
+        debugPrint('Authentication successful, token expires at $_tokenExpiry');
         
-        debugPrint('Authentication successful, token expires at $expiry');
-        
-        // Fetch user profile
-        _fetchAndEmitUserProfile();
+        // Fetch user details
+        _fetchUserDetails();
         
         return true;
       } else {
-        debugPrint('Token exchange failed with status ${response.statusCode}: ${response.body}');
+        debugPrint('Token exchange failed: ${response.statusCode} - ${response.body}');
+        
+        _isAuthenticated = false;
+        _emitAuthEvent(false);
         return false;
       }
     } catch (e) {
       debugPrint('Error exchanging code for token: $e');
+      
+      _isAuthenticated = false;
+      _emitAuthEvent(false);
       return false;
     }
   }
@@ -573,12 +709,13 @@ class SpotifyService {
   Future<bool> _refreshAccessToken() async {
     debugPrint('Refreshing access token...');
     
-    if (_accessToken == null) {
-      debugPrint('No access token available');
+    if (_refreshToken == null) {
+      debugPrint('Cannot refresh token: No refresh token available');
       return false;
     }
     
     try {
+      // Prepare the refresh token request
       final response = await http.post(
         Uri.parse(tokenEndpoint),
         headers: {
@@ -587,83 +724,201 @@ class SpotifyService {
         body: {
           'client_id': clientId,
           'grant_type': 'refresh_token',
-          'refresh_token': _accessToken!,
+          'refresh_token': _refreshToken!,
         },
       );
       
+      // Check response
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        
         final accessToken = data['access_token'] as String;
-        final refreshToken = data['refresh_token'] as String?;
-        final expiresIn = data['expires_in'] as int? ?? 3600;
+        final expiresIn = data['expires_in'] as int;
         
-        // Calculate expiry time
-        final expiry = DateTime.now().add(Duration(seconds: expiresIn - 60)); // Subtract 60s for buffer
+        // Note: Spotify may not always return a new refresh token
+        // If it does, we should update our stored refresh token
+        String refreshTokenToSave = _refreshToken!;
+        if (data['refresh_token'] != null) {
+          refreshTokenToSave = data['refresh_token'] as String;
+        }
+        
+        // Calculate token expiry time
+        final expiry = DateTime.now().add(Duration(seconds: expiresIn));
         
         // Save tokens
-        await _saveTokens(
-          accessToken,
-          refreshToken ?? '',
-          expiry,
-        );
+        await _saveTokens(accessToken, refreshTokenToSave, expiry);
         
-        // Update in-memory backup
-        _accessTokenInMemory = accessToken;
+        debugPrint('Token refreshed successfully');
         
-        // Set up next refresh
-        _setupTokenRefresh(expiry);
-        
-        // Initialize API with new token
+        // Re-initialize the API with the new token
         _initializeApi();
         
-        debugPrint('Token refreshed successfully, expires at $expiry');
+        // Update authenticated state
+        _isAuthenticated = true;
+        _emitAuthEvent(true);
+        
+        // Schedule next refresh
+        _setupTokenRefresh();
+        
         return true;
       } else {
-        debugPrint('Token refresh failed: ${response.statusCode} ${response.body}');
+        debugPrint('Token refresh failed: ${response.statusCode} - ${response.body}');
         
-        // Token refresh failed, may need to reauthenticate
-        _emitAuthEvent(false);
+        // Clear tokens if refresh fails with 400 (likely invalid refresh token)
+        if (response.statusCode == 400) {
+          await _clearTokens();
+        }
+        
         return false;
       }
     } catch (e) {
       debugPrint('Error refreshing token: $e');
-      
-      // Token refresh failed, may need to reauthenticate
-      _emitAuthEvent(false);
       return false;
     }
   }
 
-  /// Save tokens to internal state
-  Future<void> _saveTokens(String accessToken, String refreshToken, DateTime expiry) async {
+  /// Save tokens to internal state and storage
+  Future<void> _saveTokens(String accessToken, String? refreshToken, DateTime expiry) async {
     // Update instance variables
     _accessToken = accessToken;
+    _refreshToken = refreshToken;
     _tokenExpiry = expiry;
+    _accessTokenInMemory = accessToken;
+    _isAuthenticated = true;
     
-    // Try to save to secure storage
     try {
+      // Save tokens using the available SecureStorage method
       await secure_storage.SecureStorage.saveSpotifyTokens(
         accessToken: accessToken,
         refreshToken: refreshToken,
         expiryMillis: expiry.millisecondsSinceEpoch,
       );
+      
       debugPrint('Tokens saved to secure storage');
     } catch (e) {
       debugPrint('Error saving tokens to secure storage: $e');
+      
+      // Use SharedPreferences as fallback in dev mode
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('spotify_access_token', accessToken);
+        if (refreshToken != null) {
+          await prefs.setString('spotify_refresh_token', refreshToken);
+        }
+        await prefs.setInt('spotify_token_expiry', expiry.millisecondsSinceEpoch);
+        
+        debugPrint('Tokens saved to SharedPreferences as fallback');
+      } catch (prefError) {
+        debugPrint('Error saving tokens to SharedPreferences: $prefError');
+      }
     }
+  }
+
+  /// Load tokens from secure storage, SharedPreferences, or memory
+  Future<bool> _loadTokens() async {
+    // Try loading from secure storage first
+    bool loaded = await _loadTokensFromSecureStorage();
+    if (loaded) return true;
+    
+    // Try loading from SharedPreferences
+    loaded = await _loadTokensFromSharedPreferences();
+    if (loaded) return true;
+    
+    // Finally, check memory backup
+    if (_accessTokenInMemory != null) {
+      _accessToken = _accessTokenInMemory;
+      debugPrint('Tokens loaded from memory backup');
+      return true;
+    }
+    
+    debugPrint('No tokens found in any storage');
+    return false;
+  }
+
+  /// Load tokens from secure storage
+  Future<bool> _loadTokensFromSecureStorage() async {
+    try {
+      debugPrint('Trying to load tokens from secure storage');
+      
+      // First try using the getSpotifyTokens method
+      final tokenData = await secure_storage.SecureStorage.getSpotifyTokens();
+      if (tokenData != null && tokenData['accessToken'] != null) {
+        _accessToken = tokenData['accessToken'] as String?;
+        _refreshToken = tokenData['refreshToken'] as String?;
+        final expiryMillis = tokenData['expiryMillis'] as int?;
+        
+        if (expiryMillis != null) {
+          _tokenExpiry = DateTime.fromMillisecondsSinceEpoch(expiryMillis);
+          debugPrint('Token expiry: $_tokenExpiry');
+        } else {
+          _tokenExpiry = DateTime.now().add(const Duration(hours: 1));
+          debugPrint('No expiry in token data, defaulting to 1 hour from now');
+        }
+        
+        // Also save to in-memory backup
+        _accessTokenInMemory = _accessToken;
+        
+        debugPrint('Tokens loaded from secure storage (combined method)');
+        return true;
+      }
+      
+      // If combined method fails, try individual token methods as fallback
+      debugPrint('Combined token retrieval failed, trying individual methods');
+      
+      // Since there are no individual getters like getSpotifyAccessToken in SecureStorage,
+      // we need to use the _read method directly - but that's protected, so we'll use
+      // SharedPreferences as a fallback instead
+      return false;
+    } catch (e) {
+      debugPrint('Error loading tokens from secure storage: $e');
+    }
+    return false;
+  }
+
+  /// Load tokens from SharedPreferences
+  Future<bool> _loadTokensFromSharedPreferences() async {
+    try {
+      debugPrint('Trying to load tokens from SharedPreferences');
+      
+      final prefs = await SharedPreferences.getInstance();
+      final accessToken = prefs.getString('spotify_access_token');
+      final refreshToken = prefs.getString('spotify_refresh_token');
+      final expiryMillis = prefs.getInt('spotify_token_expiry');
+      
+      if (accessToken != null && accessToken.isNotEmpty) {
+        debugPrint('Found valid access token in SharedPreferences');
+        _accessToken = accessToken;
+        _refreshToken = refreshToken;
+        
+        if (expiryMillis != null) {
+          _tokenExpiry = DateTime.fromMillisecondsSinceEpoch(expiryMillis);
+          debugPrint('Token expiry from SharedPreferences: $_tokenExpiry');
+        } else {
+          _tokenExpiry = DateTime.now().add(const Duration(hours: 1));
+          debugPrint('No expiry in SharedPreferences, defaulting to 1 hour from now');
+        }
+        
+        // Also save to in-memory backup
+        _accessTokenInMemory = accessToken;
+        
+        return true;
+      }
+    } catch (e) {
+      debugPrint('Error loading tokens from SharedPreferences: $e');
+    }
+    return false;
   }
 
   /// Initialize the Spotify API with the current access token
   void _initializeApi() {
     if (_accessToken != null) {
       try {
-        debugPrint('Initializing Spotify API with token: ${_accessToken!.substring(0, 5)}...');
+        debugPrint('Initializing Spotify API with token: ${_accessToken!.substring(0, math.min(5, _accessToken!.length))}...');
         
         // Pass the credentials to the client
         _spotifyClient.setCredentials(
           accessToken: _accessToken!,
           expiry: _tokenExpiry,
+          refreshToken: _refreshToken,
         );
         
         debugPrint('Spotify API initialized successfully');
@@ -671,13 +926,8 @@ class SpotifyService {
         debugPrint('Error initializing Spotify API: $e');
       }
     } else {
-      debugPrint('Cannot initialize Spotify API: No access token available');
+      debugPrint('Cannot initialize API: No access token available');
     }
-  }
-
-  /// Fetch user profile and emit event
-  Future<void> _fetchAndEmitUserProfile() async {
-    await _fetchUserDetails();
   }
 
   /// Fetch the user's profile details
@@ -687,21 +937,14 @@ class SpotifyService {
       // Make sure we have a valid access token
       if (_accessToken == null) {
         try {
-          // First try to load from our enhanced storage
+          // Try to load tokens from the storage
           final tokenData = await secure_storage.SecureStorage.getSpotifyTokens();
           if (tokenData != null && tokenData['accessToken'] != null) {
             _accessToken = tokenData['accessToken'] as String?;
-            final expiryMillis = tokenData['expiryMillis'] as int?;
-            if (expiryMillis != null) {
-              _tokenExpiry = DateTime.fromMillisecondsSinceEpoch(expiryMillis);
-            }
-            
-            debugPrint('Tokens loaded from enhanced secure storage');
+            debugPrint('Loaded access token from secure storage');
           } else {
-            // Fall back to direct secure storage
-            const storage = FlutterSecureStorage();
-            _accessToken = await storage.read(key: 'spotify_access_token');
-            debugPrint('Loaded access token from direct secure storage');
+            // If no tokens in secure storage, we don't have auth
+            debugPrint('No token found in secure storage');
           }
           
           // If we still don't have a token, check memory backup
@@ -711,11 +954,6 @@ class SpotifyService {
           }
         } catch (e) {
           debugPrint('Error loading access token: $e');
-          // Check memory backup
-          if (_accessTokenInMemory != null) {
-            _accessToken = _accessTokenInMemory;
-            debugPrint('Using in-memory access token after error');
-          }
         }
         
         // If still null, we don't have authentication
@@ -783,132 +1021,6 @@ class SpotifyService {
       }
     } catch (e) {
       debugPrint('Error fetching playlists: $e');
-    }
-  }
-
-  /// Load tokens from secure storage or memory backup
-  Future<bool> _loadTokens() async {
-    try {
-      debugPrint('Loading tokens from secure storage');
-      
-      // Load from secure storage
-      final tokenData = await secure_storage.SecureStorage.getSpotifyTokens();
-      if (tokenData != null && tokenData['accessToken'] != null) {
-        _accessToken = tokenData['accessToken'] as String?;
-        final expiryMillis = tokenData['expiryMillis'] as int?;
-        if (expiryMillis != null) {
-          _tokenExpiry = DateTime.fromMillisecondsSinceEpoch(expiryMillis);
-        }
-        
-        debugPrint('Tokens loaded from enhanced secure storage');
-        return true;
-      }
-    } catch (e) {
-      debugPrint('Error loading tokens from secure storage: $e');
-    }
-    
-    // Fall back to memory if all else fails
-    if (_accessTokenInMemory != null) {
-      _accessToken = _accessTokenInMemory;
-      debugPrint('Tokens loaded from memory backup');
-      return true;
-    }
-    
-    return false;
-  }
-
-  /// Logout from Spotify
-  Future<void> logout() async {
-    try {
-      // Clear tokens from secure storage
-      const storage = FlutterSecureStorage();
-      await storage.delete(key: 'spotify_access_token');
-      await storage.delete(key: 'spotify_refresh_token');
-      await storage.delete(key: 'spotify_token_expiry');
-      await storage.delete(key: 'spotify_code_verifier');
-      
-      // Reset state
-      _accessToken = null;
-      _tokenExpiry = DateTime.now();
-      _isAuthenticated = false;
-      
-      // Cancel any scheduled refreshes
-      _refreshTimer?.cancel();
-      
-      // Emit event
-      _emitAuthEvent(false);
-    } catch (e) {
-      debugPrint('Error during logout: $e');
-    }
-  }
-
-  /// Get recommendations based on seed tracks, artists, or genres
-  Future<List<SimpleTrack>> getRecommendations({
-    List<String> seedTracks = const [],
-    List<String> seedArtists = const [],
-    List<String> seedGenres = const [],
-    int limit = 10,
-  }) async {
-    if (!_isAuthenticated) {
-      debugPrint('Cannot get recommendations: not authenticated');
-      return [];
-    }
-    
-    try {
-      return await _spotifyClient.getRecommendations(
-        seedTracks: seedTracks,
-        seedArtists: seedArtists,
-        seedGenres: seedGenres,
-        limit: limit,
-      );
-    } catch (e) {
-      debugPrint('Error getting recommendations: $e');
-      return [];
-    }
-  }
-
-  /// Search for tracks, albums, artists, or playlists on Spotify
-  Future<List<SimpleTrack>> searchTracks(String query, {int limit = 20}) async {
-    if (!_isAuthenticated) {
-      debugPrint('Cannot search tracks: not authenticated');
-      return [];
-    }
-    
-    try {
-      return await _spotifyClient.searchTracks(query, limit: limit);
-    } catch (e) {
-      debugPrint('Error searching tracks: $e');
-      return [];
-    }
-  }
-
-  /// Get user's saved/liked tracks
-  Future<List<SimpleTrack>> getLikedTracks({int limit = 20, int offset = 0}) async {
-    if (!_isAuthenticated) {
-      debugPrint('Cannot get liked tracks: not authenticated');
-      return [];
-    }
-    
-    try {
-      return await _spotifyClient.getLikedTracks(limit: limit, offset: offset);
-    } catch (e) {
-      debugPrint('Error getting liked tracks: $e');
-      return [];
-    }
-  }
-
-  /// Get user's playlists
-  Future<List<Map<String, dynamic>>> getUserPlaylists({int limit = 20, int offset = 0}) async {
-    if (!_isAuthenticated) {
-      debugPrint('Cannot get user playlists: not authenticated');
-      return [];
-    }
-    
-    try {
-      return await _spotifyClient.getUserPlaylists(limit: limit, offset: offset);
-    } catch (e) {
-      debugPrint('Error getting user playlists: $e');
-      return [];
     }
   }
 
@@ -989,31 +1101,40 @@ class SpotifyService {
     }
   }
 
-  /// Get the current playback state
-  Future<Map<String, dynamic>?> getPlaybackState() async {
-    if (!_isAuthenticated) {
-      debugPrint('Cannot get playback state: not authenticated');
-      return null;
-    }
-    
-    try {
-      return await _spotifyClient.getPlaybackState();
-    } catch (e) {
-      debugPrint('Error getting playback state: $e');
-      return null;
-    }
-  }
-
   /// Fetch the current user's profile from Spotify API
   /// Returns null if user is not authenticated or if there was an error
   Future<Map<String, dynamic>?> getCurrentUser() async {
-    if (!_isAuthenticated) {
-      debugPrint('Cannot get user: not authenticated or no access token');
+    if (!_isAuthenticated || _accessToken == null) {
+      debugPrint('Cannot get user: not authenticated');
       return null;
     }
     
     try {
-      return await _spotifyClient.getCurrentUserProfile();
+      // Make direct API call
+      final response = await http.get(
+        Uri.parse('https://api.spotify.com/v1/me'),
+        headers: {
+          'Authorization': 'Bearer $_accessToken',
+        },
+      );
+      
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      } else if (response.statusCode == 401) {
+        // Token expired, try to refresh
+        final refreshed = await _refreshAccessToken();
+        if (refreshed) {
+          // Try again with new token
+          return getCurrentUser();
+        } else {
+          _isAuthenticated = false;
+          _emitAuthEvent(false);
+          return null;
+        }
+      } else {
+        debugPrint('Error getting user profile: ${response.statusCode}');
+        return null;
+      }
     } catch (e) {
       debugPrint('Error getting user profile: $e');
       return {'error': 'Error getting user profile: $e'};
@@ -1026,26 +1147,28 @@ class SpotifyService {
   }
 
   /// Schedule a token refresh before the current token expires
-  void _setupTokenRefresh(DateTime expiry) {
+  void _setupTokenRefresh() {
     // Cancel any existing refresh timer
     _refreshTimer?.cancel();
     
-    // Calculate when to refresh (5 minutes before expiry)
+    // Calculate when to refresh the token (5 minutes before expiry)
     final now = DateTime.now();
-    final refreshTime = expiry.subtract(const Duration(minutes: 5));
+    final refreshTime = _tokenExpiry.subtract(const Duration(minutes: 5));
     
     // If the token is already expired or will expire in less than 5 minutes,
     // refresh immediately
-    if (now.isAfter(refreshTime)) {
-      // Call directly without using Timer
+    if (refreshTime.isBefore(now)) {
+      debugPrint('Token already expired or about to expire, refreshing now...');
       _refreshAccessToken();
       return;
     }
     
-    // Schedule the refresh
+    // Calculate the delay until refresh time
     final refreshDelay = refreshTime.difference(now);
+    
+    // Schedule the refresh
     _refreshTimer = Timer(refreshDelay, () {
-      // Use a closure to avoid the null safety issue
+      debugPrint('Refresh timer fired, refreshing token...');
       _refreshAccessToken();
     });
     
@@ -1063,7 +1186,7 @@ class SpotifyService {
           if (uri.toString().contains('/callback') && uri.queryParameters.containsKey('code')) {
             final code = uri.queryParameters['code'];
             if (code != null) {
-              debugPrint('Extracted code from URI: ${code.substring(0, min(10, code.length))}...');
+              debugPrint('Extracted code from URI: ${code.substring(0, math.min(10, code.length))}...');
               
               // Complete the callback completer if it exists and hasn't been completed yet
               if (_callbackCompleter != null && !_callbackCompleter!.isCompleted) {
@@ -1078,6 +1201,79 @@ class SpotifyService {
       debugPrint('Listening for auth links');
     } catch (e) {
       debugPrint('Error setting up URI link listener: $e');
+    }
+  }
+
+  /// Get the dynamic redirect URI based on current port
+  String get _dynamicRedirectUri => '$callbackServerUri:$_callbackPort/callback';
+
+  /// Get recommendations based on seed tracks, artists, or genres
+  Future<List<SimpleTrack>> getRecommendations({
+    List<String> seedTracks = const [],
+    List<String> seedArtists = const [],
+    List<String> seedGenres = const [],
+    int limit = 10,
+  }) async {
+    if (!_isAuthenticated) {
+      debugPrint('Cannot get recommendations: not authenticated');
+      return [];
+    }
+    
+    try {
+      return await _spotifyClient.getRecommendations(
+        seedTracks: seedTracks,
+        seedArtists: seedArtists,
+        seedGenres: seedGenres,
+        limit: limit,
+      );
+    } catch (e) {
+      debugPrint('Error getting recommendations: $e');
+      return [];
+    }
+  }
+
+  /// Search for tracks, albums, artists, or playlists on Spotify
+  Future<List<SimpleTrack>> searchTracks(String query, {int limit = 20}) async {
+    if (!_isAuthenticated) {
+      debugPrint('Cannot search tracks: not authenticated');
+      return [];
+    }
+    
+    try {
+      return await _spotifyClient.searchTracks(query, limit: limit);
+    } catch (e) {
+      debugPrint('Error searching tracks: $e');
+      return [];
+    }
+  }
+
+  /// Get user's saved/liked tracks
+  Future<List<SimpleTrack>> getLikedTracks({int limit = 20, int offset = 0}) async {
+    if (!_isAuthenticated) {
+      debugPrint('Cannot get liked tracks: not authenticated');
+      return [];
+    }
+    
+    try {
+      return await _spotifyClient.getLikedTracks(limit: limit, offset: offset);
+    } catch (e) {
+      debugPrint('Error getting liked tracks: $e');
+      return [];
+    }
+  }
+
+  /// Get user's playlists
+  Future<List<Map<String, dynamic>>> getUserPlaylists({int limit = 20, int offset = 0}) async {
+    if (!_isAuthenticated) {
+      debugPrint('Cannot get user playlists: not authenticated');
+      return [];
+    }
+    
+    try {
+      return await _spotifyClient.getUserPlaylists(limit: limit, offset: offset);
+    } catch (e) {
+      debugPrint('Error getting user playlists: $e');
+      return [];
     }
   }
 }
