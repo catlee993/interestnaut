@@ -87,20 +87,47 @@ class _HeaderClippingWidget extends StatelessWidget {
   
   @override
   Widget build(BuildContext context) {
-    return ShaderMask(
-      shaderCallback: (Rect rect) {
-        return const LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            Colors.transparent,  // Transparent at the top (behind header)
-            Colors.white,        // Fully visible below the header
-          ],
-          stops: [0.0, 0.05],    // Quick transition just below the header
-        ).createShader(rect);
-      },
-      blendMode: BlendMode.dstIn,
-      child: child,
+    return ClipPath(
+      clipper: _HeaderBoundaryClipper(headerHeight: headerHeight),
+      child: ShaderMask(
+        shaderCallback: (Rect rect) {
+          return const LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Colors.transparent,  // Transparent at the top (behind header)
+              Colors.white,        // Fully visible below the header
+            ],
+            // Make the transition more pronounced to ensure text disappears quickly
+            stops: [0.0, 0.02],    // Even quicker transition just below the header
+          ).createShader(rect);
+        },
+        blendMode: BlendMode.dstIn,
+        child: child,
+      ),
     );
   }
+}
+
+/// Custom clipper that completely clips content above the header boundary
+class _HeaderBoundaryClipper extends CustomClipper<Path> {
+  final double headerHeight;
+  
+  _HeaderBoundaryClipper({required this.headerHeight});
+  
+  @override
+  Path getClip(Size size) {
+    final path = Path();
+    // Make clipping trigger much earlier (60px below header)
+    path.moveTo(0, headerHeight + 60);
+    // Create a rectangle that covers everything below the header (with extra buffer)
+    path.lineTo(0, size.height);
+    path.lineTo(size.width, size.height);
+    path.lineTo(size.width, headerHeight + 60);
+    path.close();
+    return path;
+  }
+  
+  @override
+  bool shouldReclip(CustomClipper<Path> oldClipper) => false;
 }

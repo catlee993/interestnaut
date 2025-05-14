@@ -222,7 +222,15 @@ class _MediaHeaderState extends State<MediaHeader> {
         filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
         child: Container(
           decoration: BoxDecoration(
-            color: const Color.fromRGBO(18, 18, 18, 0.9),
+            color: const Color.fromRGBO(18, 18, 18, 0.85),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.3),
+                spreadRadius: 0,
+                blurRadius: 4,
+                offset: const Offset(0, 2),
+              ),
+            ],
           ),
           child: Column(
             children: [
@@ -382,24 +390,30 @@ class _MediaHeaderState extends State<MediaHeader> {
                   children: [
                     const SizedBox(width: 40), // Fixed left margin
                     Expanded(
-                      child: custom.SearchBar(
-                        placeholder: activeMedia == 'music'
-                            ? 'Search tracks...'
-                            : activeMedia == 'movies'
-                                ? 'Search movies...'
-                                : activeMedia == 'tv'
-                                    ? 'Search TV shows...'
-                                    : activeMedia == 'books'
-                                        ? 'Search books...'
-                                        : 'Search games...',
-                        onSearch: widget.onSearch,
-                        onClear: widget.onClearSearch,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w300,
-                          letterSpacing: 1.0,
-                          fontFamily: 'Inter',
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF191919), // Fully opaque search bar background
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: custom.SearchBar(
+                          placeholder: activeMedia == 'music'
+                              ? 'Search tracks...'
+                              : activeMedia == 'movies'
+                                  ? 'Search movies...'
+                                  : activeMedia == 'tv'
+                                      ? 'Search TV shows...'
+                                      : activeMedia == 'books'
+                                          ? 'Search books...'
+                                          : 'Search games...',
+                          onSearch: widget.onSearch,
+                          onClear: widget.onClearSearch,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w300,
+                            letterSpacing: 1.0,
+                            fontFamily: 'Inter',
+                          ),
                         ),
                       ),
                     ),

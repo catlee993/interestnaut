@@ -87,6 +87,10 @@ class _MusicSectionState extends State<MusicSection> {
   @override
   void initState() {
     super.initState();
+    
+    // Reset suggestion state on init to avoid any loading indicators
+    _resetSuggestionState();
+    
     _setupListeners();
     _checkAuthentication();
   }
@@ -235,10 +239,9 @@ class _MusicSectionState extends State<MusicSection> {
   // Load a suggestion based on library
   Future<void> _loadSuggestion() async {
     setState(() {
-      _isLoadingSuggestion = true;
+      _isLoadingSuggestion = false; // Prevent loading indicator from showing
       _suggestionError = null;
     });
-
     try {
       final recommendations = await _spotifyService.getRecommendations();
       
@@ -248,20 +251,17 @@ class _MusicSectionState extends State<MusicSection> {
         
         setState(() {
           _suggestion = track;
-          _isLoadingSuggestion = false;
         });
       } else {
         setState(() {
           _suggestion = null;
           _suggestionError = 'No suggestions available';
-          _isLoadingSuggestion = false;
         });
       }
     } catch (e) {
       setState(() {
         _suggestion = null;
         _suggestionError = e.toString();
-        _isLoadingSuggestion = false;
       });
     }
   }
@@ -455,28 +455,47 @@ class _MusicSectionState extends State<MusicSection> {
     }
   }
 
+  // Reset all state variables related to suggestions
+  void _resetSuggestionState() {
+    setState(() {
+      _isLoadingSuggestion = false;
+      _suggestionError = null;
+      _suggestion = null;
+    });
+  }
+
   // Build the main music section UI
   @override
   Widget build(BuildContext context) {
     return Stack(
       children: [
+        // Position the web player absolutely to avoid any visual elements
+        Positioned(
+          left: -1000, // Position it far off-screen
+          top: -1000,
+          child: SizedBox(
+            width: 1,
+            height: 1,
+            child: Opacity(
+              opacity: 0, // Make fully transparent
+              child: SpotifyWebPlayer(
+                key: _webPlayerKey,
+                spotifyService: _spotifyService,
+                visible: false,
+              ),
+            ),
+          ),
+        ),
+        
         // Main content area with scrolling - needs to start behind the header
         // but hide text elements when they cross the header boundary
         ScrollContentWrapper(
-          headerHeight: 106, // Default header height
+          headerHeight: 106, // Original value
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Add the web player (hidden but active)
-              SizedBox(
-                width: 1,
-                height: 1,
-                child: SpotifyWebPlayer(
-                  key: _webPlayerKey,
-                  spotifyService: _spotifyService,
-                  visible: false,
-                ),
-              ),
+              // Add extra padding at the top to ensure "Suggested for You" is below header
+              const SizedBox(height: 40),
 
               // Content area
               !_isAuthenticated
@@ -506,22 +525,24 @@ class _MusicSectionState extends State<MusicSection> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // 1. SUGGESTION SECTION AT THE TOP
-        Center(
-          child: const Text(
-            'Suggested for You',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ),
-        const SizedBox(height: 16),
-        _isLoadingSuggestion
-            ? const Center(
-                child: CircularProgressIndicator(),
-              )
-            : _suggestionError != null
-                ? Center(
+        Padding(
+          padding: const EdgeInsets.only(bottom: 20.0),
+          child: Column(
+            children: [
+              Center(
+                child: const Text(
+                  'Suggested for You',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              if (_isLoadingSuggestion)
+                const SizedBox.shrink()
+              else if (_suggestionError != null)
+                Center(
                   child: Padding(
                     padding: const EdgeInsets.symmetric(vertical: 24),
                     child: Text(
@@ -531,28 +552,32 @@ class _MusicSectionState extends State<MusicSection> {
                     ),
                   ),
                 )
-                : _suggestion == null
-                    ? Center(
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 24),
-                          child: Text(
-                            'No suggestions available',
-                            style: const TextStyle(color: Colors.white54),
-                            textAlign: TextAlign.center,
-                          ),
-                        ),
-                      )
-                    : SuggestionDisplay(
-                        suggestedTrack: TrackAdapter.toMediaItem(_suggestion!),
-                        onRequestSuggestion: _loadSuggestion,
-                        onSkipSuggestion: _loadSuggestion,
-                        onSuggestionFeedback: (feedback) => _provideFeedback(feedback),
-                        onAddToLibrary: () => _saveTrack(_suggestion!.id),
-                        onPlay: (mediaItem) => _handleTrackCardAction(mediaItem),
-                        isPlaybackPaused: _isPlaybackPaused,
-                        nowPlayingTrack: _nowPlayingTrack != null ? TrackAdapter.toMediaItem(_nowPlayingTrack!) : null,
-                        onPlayPause: () => _togglePlayback(),
-                      ),
+              else if (_suggestion == null)
+                Center(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 24),
+                    child: Text(
+                      'No suggestions available',
+                      style: const TextStyle(color: Colors.white54),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                )
+              else
+                SuggestionDisplay(
+                  suggestedTrack: TrackAdapter.toMediaItem(_suggestion!),
+                  onRequestSuggestion: _loadSuggestion,
+                  onSkipSuggestion: _loadSuggestion,
+                  onSuggestionFeedback: (feedback) => _provideFeedback(feedback),
+                  onAddToLibrary: () => _saveTrack(_suggestion!.id),
+                  onPlay: (mediaItem) => _handleTrackCardAction(mediaItem),
+                  isPlaybackPaused: _isPlaybackPaused,
+                  nowPlayingTrack: _nowPlayingTrack != null ? TrackAdapter.toMediaItem(_nowPlayingTrack!) : null,
+                  onPlayPause: () => _togglePlayback(),
+                ),
+            ],
+          ),
+        ),
 
         // 2. LIBRARY SECTION (LIKED SONGS) AT THE BOTTOM
         const SizedBox(height: 24),
