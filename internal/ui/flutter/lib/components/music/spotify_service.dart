@@ -6,8 +6,10 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:flutter_web_auth/flutter_web_auth.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:uni_links/uni_links.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../models.dart';
@@ -1255,18 +1257,57 @@ class SpotifyService {
     }
   }
 
-  /// Get user's saved/liked tracks
-  Future<List<SimpleTrack>> getLikedTracks({int limit = 20, int offset = 0}) async {
+  /// Get user's saved/liked tracks with pagination
+  Future<Map<String, dynamic>> getLikedTracks({int limit = 50, int offset = 0}) async {
     if (!_isAuthenticated) {
       debugPrint('Cannot get liked tracks: not authenticated');
-      return [];
+      return {'items': <SimpleTrack>[], 'total': 0};
     }
     
     try {
-      return await _spotifyClient.getLikedTracks(limit: limit, offset: offset);
+      debugPrint('Fetching liked tracks from Spotify (limit: $limit, offset: $offset)');
+      
+      // Use http package directly instead of _spotifyClient.get
+      final response = await http.get(
+        Uri.parse('https://api.spotify.com/v1/me/tracks?limit=$limit&offset=$offset'),
+        headers: {
+          'Authorization': 'Bearer $_accessToken',
+        },
+      );
+      
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final items = data['items'] as List<dynamic>;
+        final total = data['total'] as int; // Get the total count of liked tracks
+        
+        debugPrint('Successfully retrieved ${items.length} liked tracks (total: $total)');
+        
+        final List<SimpleTrack> tracks = items.map<SimpleTrack>((item) => 
+          SimpleTrack.fromJson(item as Map<String, dynamic>)
+        ).toList();
+        
+        return {
+          'items': tracks,
+          'total': total,
+        };
+      } else if (response.statusCode == 401) {
+        // Token expired, try to refresh
+        final refreshed = await _refreshAccessToken();
+        if (refreshed) {
+          // Try again with new token
+          return getLikedTracks(limit: limit, offset: offset);
+        } else {
+          _isAuthenticated = false;
+          _emitAuthEvent(false);
+          return {'items': <SimpleTrack>[], 'total': 0};
+        }
+      } else {
+        debugPrint('Failed to get liked tracks: ${response.statusCode} - ${response.body}');
+        return {'items': <SimpleTrack>[], 'total': 0};
+      }
     } catch (e) {
       debugPrint('Error getting liked tracks: $e');
-      return [];
+      return {'items': <SimpleTrack>[], 'total': 0};
     }
   }
 

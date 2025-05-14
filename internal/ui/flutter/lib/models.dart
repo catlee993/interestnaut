@@ -4,7 +4,7 @@ class SimpleTrack {
   final String artist;
   final String album;
   final String albumArtUrl;
-  final String previewUrl;
+  final String? previewUrl;
   final String uri;
 
   SimpleTrack({
@@ -13,9 +13,35 @@ class SimpleTrack {
     required this.artist,
     required this.album,
     required this.albumArtUrl,
-    required this.previewUrl,
+    this.previewUrl,
     required this.uri,
   });
+
+  factory SimpleTrack.fromJson(Map<String, dynamic> json) {
+    final track = json['track'] as Map<String, dynamic>;
+    final album = track['album'] as Map<String, dynamic>;
+    final images = album['images'] as List<dynamic>;
+    final artists = track['artists'] as List<dynamic>;
+
+    String imageUrl = '';
+    if (images.isNotEmpty) {
+      imageUrl = images[0]['url'] as String? ?? '';
+    }
+
+    final artistNames = artists
+        .map((a) => a['name'] as String)
+        .join(', ');
+
+    return SimpleTrack(
+      id: track['id'] as String,
+      name: track['name'] as String,
+      artist: artistNames,
+      album: album['name'] as String,
+      albumArtUrl: imageUrl,
+      uri: track['uri'] as String,
+      previewUrl: track['preview_url'] as String?,
+    );
+  }
 }
 
 class Track {
@@ -111,7 +137,7 @@ class MediaItem {
       releaseDate: map['release_date'],
     );
   }
-  
+
   /// Create a MediaItem from a JSON string
   factory MediaItem.fromJson(Map<String, dynamic> json) {
     return MediaItem.fromMap(json);
@@ -138,7 +164,7 @@ class MediaItem {
       if (releaseDate != null) 'release_date': releaseDate,
     };
   }
-  
+
   /// Create a copy with some fields replaced
   MediaItem copyWith({
     dynamic id,

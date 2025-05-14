@@ -25,8 +25,8 @@ class _MusicSectionState extends State<MusicSection> {
   String? _suggestionError;
   int _totalTracks = 0;
   bool _isAuthenticated = false;
-  int _currentPage = 1;
-  final int _itemsPerPage = 6; // Display 6 items per page (3 rows of 2)
+  int _currentPage = 0; // Start at page 0 instead of 1
+  final int _itemsPerPage = 20; // Show 20 items per page
   bool _isPlaybackPaused = true;
   MediaItem? _nowPlayingTrack;
   Timer? _playbackStateTimer;
@@ -176,12 +176,28 @@ class _MusicSectionState extends State<MusicSection> {
     });
 
     try {
-      // Get liked tracks from the user's library
-      final tracks = await _spotifyService.getLikedTracks();
+      // Calculate offset based on current page
+      final int offset = _currentPage * _itemsPerPage;
+      
+      debugPrint('Loading page $_currentPage (offset: $offset, limit: $_itemsPerPage)');
+      
+      // Get liked tracks from the user's library with pagination
+      final response = await _spotifyService.getLikedTracks(
+        limit: _itemsPerPage,
+        offset: offset
+      );
+      
+      // Cast safely using generics
+      final items = response['items'];
+      final List<SimpleTrack> trackList = (items is List<SimpleTrack>)
+          ? items
+          : (items as List).cast<SimpleTrack>();
+      
+      final int totalTracks = response['total'] as int;
       
       setState(() {
-        // Update the library with SimpleTrack objects
-        _library = tracks.map((track) => {
+        // Convert SimpleTrack objects to Map format
+        _library = trackList.map<Map<String, dynamic>>((SimpleTrack track) => {
           'id': track.id,
           'name': track.name,
           'artist': track.artist,
@@ -190,8 +206,14 @@ class _MusicSectionState extends State<MusicSection> {
           'uri': track.uri,
           'previewUrl': track.previewUrl,
         }).toList();
+        
         _isLoadingLibrary = false;
-        _totalTracks = _library.length;
+        _totalTracks = totalTracks;
+        
+        // Debug pagination info
+        debugPrint('Library loaded with ${_library.length} tracks for page $_currentPage');
+        debugPrint('Total tracks in library: $totalTracks');
+        debugPrint('Total pages: ${(totalTracks / _itemsPerPage).ceil()}');
       });
     } catch (e) {
       debugPrint('Error loading library: $e');
@@ -349,14 +371,8 @@ class _MusicSectionState extends State<MusicSection> {
       return const Text('Your library is empty. Search for tracks to add them to your library.');
     }
     
-    // Calculate the start and end indices for the current page
-    final int startIndex = (_currentPage - 1) * _itemsPerPage;
-    final int endIndex = startIndex + _itemsPerPage > _library.length 
-        ? _library.length 
-        : startIndex + _itemsPerPage;
-    
-    // Get the tracks for the current page
-    final currentPageTracks = _library.sublist(startIndex, endIndex);
+    // We don't need to calculate indices or use sublist anymore since our data is already paginated from the API
+    // We can directly use the _library which contains the current page's data
     
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -366,14 +382,14 @@ class _MusicSectionState extends State<MusicSection> {
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2,
-            childAspectRatio: 1.0,
-            crossAxisSpacing: 16.0,
+            crossAxisCount: 3,  // Changed from 4 to 3 columns
+            childAspectRatio: 0.8,  // Keeping the same aspect ratio
+            crossAxisSpacing: 12.0,
             mainAxisSpacing: 16.0,
           ),
-          itemCount: currentPageTracks.length,
+          itemCount: _library.length,
           itemBuilder: (context, index) {
-            final track = currentPageTracks[index];
+            final track = _library[index];
             final isPlaying = !_isPlaybackPaused && 
                 _nowPlayingTrack?.id == track['id'];
             
@@ -404,6 +420,14 @@ class _MusicSectionState extends State<MusicSection> {
 
   // Previous and Next page buttons for the library section
   Widget _buildPaginationControls() {
+    // Calculate total pages
+    final int totalPages = (_totalTracks / _itemsPerPage).ceil();
+    
+    // Debug pagination values
+    debugPrint('_currentPage: $_currentPage, totalPages: $totalPages');
+    debugPrint('_totalTracks: $_totalTracks, _itemsPerPage: $_itemsPerPage');
+    debugPrint('Current library size: ${_library.length}');
+    
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
@@ -413,6 +437,7 @@ class _MusicSectionState extends State<MusicSection> {
                   setState(() {
                     _currentPage--;
                   });
+                  _loadLibrary(); // Reload library with new page
                 }
               : null,
           style: ElevatedButton.styleFrom(
@@ -423,16 +448,17 @@ class _MusicSectionState extends State<MusicSection> {
         ),
         const SizedBox(width: 20),
         Text(
-          'Page ${_currentPage + 1} of ${(_totalTracks / _itemsPerPage).ceil()}',
+          'Page ${_currentPage + 1} of $totalPages',
           style: const TextStyle(fontSize: 14),
         ),
         const SizedBox(width: 20),
         ElevatedButton(
-          onPressed: (_currentPage + 1) * _itemsPerPage < _totalTracks
+          onPressed: _currentPage < totalPages - 1
               ? () {
                   setState(() {
                     _currentPage++;
                   });
+                  _loadLibrary(); // Reload library with new page
                 }
               : null,
           style: ElevatedButton.styleFrom(
