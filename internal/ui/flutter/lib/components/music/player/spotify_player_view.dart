@@ -1,9 +1,9 @@
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import '../../models.dart';
-import './spotify_service.dart';
-import '../../services/event_bus.dart';
+import '../../../models.dart';
+import '../spotify_service.dart';
+import '../../../services/event_bus.dart';
 
 /// A widget that displays the currently playing track and provides playback controls
 /// Based on the previous React implementation in NowPlayingBar.tsx
@@ -15,15 +15,47 @@ class SpotifyPlayer extends StatefulWidget {
 }
 
 /// The state class for the SeekBar component
-class _SeekBarState extends State<_SeekBar> {
+class _SeekBarState extends State<_SeekBar> with TickerProviderStateMixin {
   double _dragValue = 0.0;
   bool _dragging = false;
+  
+  // Add a controller for smoother animations
+  late AnimationController _progressController;
+  late Animation<double> _progressAnimation;
   
   @override
   void initState() {
     super.initState();
     // Initialize with current progress when created
     _dragValue = widget.position.toDouble();
+    
+    // Set up animation controller for smooth progress updates
+    _progressController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 200), // Short animation for smoother updates
+    );
+    
+    _progressAnimation = Tween<double>(
+      begin: _dragValue,
+      end: _dragValue,
+    ).animate(CurvedAnimation(
+      parent: _progressController,
+      curve: Curves.easeInOut,
+    ));
+    
+    _progressController.addListener(() {
+      if (!_dragging) {
+        setState(() {
+          // Animation is handled by the controller
+        });
+      }
+    });
+  }
+  
+  @override
+  void dispose() {
+    _progressController.dispose();
+    super.dispose();
   }
   
   @override
@@ -32,6 +64,16 @@ class _SeekBarState extends State<_SeekBar> {
     
     // Update drag value with current position if not dragging
     if (!_dragging && oldWidget.position != widget.position) {
+      // Update animation for smooth transitions
+      _progressAnimation = Tween<double>(
+        begin: _progressAnimation.value,
+        end: widget.position.toDouble(),
+      ).animate(CurvedAnimation(
+        parent: _progressController,
+        curve: Curves.easeInOut,
+      ));
+      
+      _progressController.forward(from: 0.0);
       _dragValue = widget.position.toDouble();
     }
   }
@@ -40,6 +82,9 @@ class _SeekBarState extends State<_SeekBar> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    
+    // Use the animated value for display if not dragging
+    final displayValue = _dragging ? _dragValue : _progressAnimation.value;
     
     return Column(
       children: [
@@ -56,7 +101,7 @@ class _SeekBarState extends State<_SeekBar> {
           child: Slider(
             min: 0.0,
             max: widget.duration.toDouble(),
-            value: math.min(_dragValue, widget.duration.toDouble()),
+            value: math.min(displayValue, widget.duration.toDouble()),
             onChanged: (value) {
               setState(() {
                 _dragging = true;
@@ -67,6 +112,14 @@ class _SeekBarState extends State<_SeekBar> {
               widget.onSeeked(value.toInt());
               setState(() {
                 _dragging = false;
+                // Update animation after seeking
+                _progressAnimation = Tween<double>(
+                  begin: value,
+                  end: value,
+                ).animate(CurvedAnimation(
+                  parent: _progressController, 
+                  curve: Curves.easeInOut
+                ));
               });
             },
           ),
@@ -77,7 +130,7 @@ class _SeekBarState extends State<_SeekBar> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                _formatDuration(_dragging ? _dragValue.toInt() : widget.position),
+                _formatDuration(_dragging ? _dragValue.toInt() : displayValue.toInt()),
                 style: Theme.of(context).textTheme.bodySmall,
               ),
               Text(
@@ -117,49 +170,61 @@ class _SeekBar extends StatefulWidget {
 }
 
 class _SpotifyPlayerState extends State<SpotifyPlayer> {
-  MediaItem? _currentTrack;
+  Track? _currentTrack;
   bool _isPlaying = false;
   Timer? _positionTimer;
   Timer? _pollingTimer;
   int _position = 0;
-  final int _duration = 30000; // Default duration in milliseconds
+  int _duration = 0; // Use the actual track duration instead of a fixed limit
   final SpotifyService _spotifyService = SpotifyService();
-  StreamSubscription? _eventSubscription;
+  late StreamSubscription<Track> _trackSubscription;
+  late StreamSubscription<SpotifyPlaybackState> _playbackStateSubscription;
 
   @override
   void initState() {
     super.initState();
     _setupEventListeners();
-    _startPolling();
+    // No need to poll anymore as we're using event-based updates
   }
   
   @override
   void dispose() {
     _positionTimer?.cancel();
-    _eventSubscription?.cancel();
+    _trackSubscription.cancel();
+    _playbackStateSubscription.cancel();
     _pollingTimer?.cancel();
     super.dispose();
   }
 
   void _setupEventListeners() {
-    // Listen for track change events from SpotifyService
-    _spotifyService.onTrackChange.listen((event) {
+    // Listen for track change events
+    _trackSubscription = SpotifyEvents.onTrackChange.listen((track) {
       if (mounted) {
         setState(() {
-          _currentTrack = event.item; // Extract the MediaItem from the TrackChangeEvent
+          _currentTrack = track;
           _isPlaying = true;
           _position = 0;
+          // Calculate duration based on preview URL if available
+          _duration = 30000; // Default to 30s if no duration info
           _startProgressTimer();
         });
       }
     });
 
-    // Listen for playback state change events from SpotifyService
-    _spotifyService.onPlaybackStateChange.listen((isPlaying) {
+    // Listen for playback state change events
+    _playbackStateSubscription = SpotifyEvents.onPlaybackStateChange.listen((state) {
       if (mounted) {
         setState(() {
-          _isPlaying = isPlaying;
-          if (isPlaying) {
+          _isPlaying = state.isPlaying;
+          if (state.progressMs != null) {
+            _position = state.progressMs!;
+          }
+          
+          if (state.item != null) {
+            _currentTrack = state.item;
+          }
+          
+          if (_isPlaying) {
             _startProgressTimer();
           } else {
             _positionTimer?.cancel();
@@ -167,125 +232,20 @@ class _SpotifyPlayerState extends State<SpotifyPlayer> {
         });
       }
     });
-    
-    // Listen for unified event bus events
-    final eventBus = EventBus();
-    _eventSubscription = eventBus.on<Map<String, dynamic>>().listen((event) {
-      if (mounted) {
-        // Handle Spotify playback state events from Go backend
-        if (event['type'] == 'spotify_playback_state') {
-          final bool isPlaying = event['is_playing'] ?? false;
-          setState(() {
-            _isPlaying = isPlaying;
-            if (isPlaying) {
-              _startProgressTimer();
-            } else {
-              _positionTimer?.cancel();
-            }
-          });
-          
-          // If we have track info, update the current track
-          if (event['track'] != null) {
-            final trackData = event['track'] as Map<String, dynamic>;
-            setState(() {
-              _currentTrack = MediaItem(
-                id: trackData['id'] ?? '',
-                title: trackData['name'] ?? 'Unknown Track',
-                overview: trackData['artist'] ?? 'Unknown Artist',
-                posterPath: trackData['albumArtUrl'] ?? '',
-                uri: trackData['uri'] ?? '',
-                previewUrl: trackData['previewUrl'] ?? '',
-                mediaType: 'music',
-              );
-              _position = 0;
-            });
-          }
-        }
-      }
-    });
   }
   
-  // Periodically poll Spotify to keep playback state in sync
-  void _startPolling() {
-    _pollingTimer = Timer.periodic(const Duration(seconds: 3), (_) {
-      _syncPlaybackState();
-    });
-  }
-  
-  Future<void> _syncPlaybackState() async {
-    if (!_spotifyService.isAuthenticated) return;
-    
-    try {
-      // Use the Spotify API to get current playback state
-      final playbackState = await _spotifyService.getPlaybackState();
-      if (playbackState != null && mounted) {
-        final bool isPlaying = playbackState['is_playing'] ?? false;
-        
-        setState(() {
-          _isPlaying = isPlaying;
-          if (isPlaying) {
-            _position = playbackState['progress_ms'] ?? 0;
-            _startProgressTimer();
-          } else {
-            _positionTimer?.cancel();
-          }
-          
-          // Update track if present and different from current
-          if (playbackState['item'] != null) {
-            final track = playbackState['item'] as Map<String, dynamic>;
-            final trackId = track['id'] as String?;
-            
-            if (trackId != null && (_currentTrack == null || trackId != _currentTrack!.id)) {
-              _currentTrack = MediaItem(
-                id: trackId,
-                title: track['name'] ?? 'Unknown Track',
-                overview: _getArtistNames(track['artists']),
-                posterPath: _getAlbumArtUrl(track['album']) ?? '',
-                uri: track['uri'] ?? '',
-                previewUrl: track['preview_url'] ?? '',
-                mediaType: 'music',
-              );
-            }
-          }
-        });
-      }
-    } catch (e) {
-      // Silently handle errors - just means we'll try again next poll
-      debugPrint('Error syncing playback state: $e');
-    }
-  }
-  
-  String _getArtistNames(List<dynamic>? artists) {
-    if (artists == null || artists.isEmpty) return 'Unknown Artist';
-    return artists.map((a) => a['name']).join(', ');
-  }
-  
-  String? _getAlbumArtUrl(Map<String, dynamic>? album) {
-    if (album == null || !album.containsKey('images') || album['images'] == null) {
-      return null;
-    }
-    
-    final images = album['images'] as List<dynamic>;
-    if (images.isNotEmpty) {
-      return images.first['url'] as String?;
-    }
-    return null;
-  }
-
-  void _playTrack(MediaItem track) {
-    if (track.uri != null) {
-      _spotifyService.playTrack(track.uri!);
+  void _playTrack(Track track) {
+    if (track.uri.isNotEmpty) {
+      _spotifyService.playTrack(track.uri);
     }
   }
   
   void _togglePlayPause() {
-    if (_currentTrack == null) return;
-    
     if (_isPlaying) {
       _spotifyService.pausePlayback();
       _positionTimer?.cancel();
     } else {
-      if (_currentTrack!.uri != null) {
+      if (_currentTrack != null && _currentTrack!.uri.isNotEmpty) {
         _playTrack(_currentTrack!);
       }
     }
@@ -293,13 +253,15 @@ class _SpotifyPlayerState extends State<SpotifyPlayer> {
   
   void _startProgressTimer() {
     _positionTimer?.cancel();
-    _positionTimer = Timer.periodic(const Duration(milliseconds: 1000), (_) {
+    _positionTimer = Timer.periodic(const Duration(milliseconds: 1000), (timer) {
       if (mounted && _isPlaying) {
         setState(() {
-          _position += 1000;
-          // Loop back if we reach the end (for preview playback)
-          if (_position >= _duration) {
+          if (_position < _duration) {
+            _position += 1000;
+          } else {
+            // Track finished, reset position
             _position = 0;
+            timer.cancel();
           }
         });
       }
@@ -310,7 +272,12 @@ class _SpotifyPlayerState extends State<SpotifyPlayer> {
     setState(() {
       _position = position;
     });
-    // TODO: Implement seeking via Spotify API when available
+    
+    // Call Spotify API to seek if authenticated
+    if (_currentTrack != null) {
+      // Use device ID if available
+      _spotifyService.seekTo(position);
+    }
   }
 
   @override
@@ -351,11 +318,11 @@ class _SpotifyPlayerState extends State<SpotifyPlayer> {
               child: Row(
                 children: [
                   // Album art
-                  if (_currentTrack!.posterPath.isNotEmpty)
+                  if (_currentTrack!.albumArtUrl.isNotEmpty)
                     ClipRRect(
                       borderRadius: BorderRadius.circular(4),
                       child: Image.network(
-                        _currentTrack!.posterPath,
+                        _currentTrack!.albumArtUrl,
                         width: 48,
                         height: 48,
                         fit: BoxFit.cover,
@@ -381,26 +348,38 @@ class _SpotifyPlayerState extends State<SpotifyPlayer> {
                   Expanded(
                     child: Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text(
-                            _currentTrack!.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.titleSmall,
+                      // Use a fixed-height container to prevent overflow
+                      child: SizedBox(
+                        height: 33, // Reduce by 1px to prevent overflow
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(
+                                _currentTrack!.name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.titleSmall,
+                              ),
+                              // Very small SizedBox instead of dynamic spacing
+                              const SizedBox(height: 1),
+                              // Make the overview text even smaller
+                              Text(
+                                _currentTrack!.artist,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  fontSize: 10, // Smaller font for artist text
+                                  height: 1.0, // Tighter line height
+                                  color: theme.textTheme.bodySmall?.color?.withAlpha(180),
+                                ),
+                              ),
+                            ],
                           ),
-                          const SizedBox(height: 2),
-                          Text(
-                            _currentTrack!.overview,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: theme.textTheme.bodySmall?.color?.withAlpha(180),
-                            ),
-                          ),
-                        ],
+                        ),
                       ),
                     ),
                   ),
@@ -422,4 +401,34 @@ class _SpotifyPlayerState extends State<SpotifyPlayer> {
       ),
     );
   }
+}
+
+// Create a custom event bus for Spotify events
+class SpotifyEvents {
+  static final StreamController<String> _deviceReadyController = StreamController<String>.broadcast();
+  static final StreamController<Track> _trackChangeController = StreamController<Track>.broadcast();
+  static final StreamController<SpotifyPlaybackState> _playbackStateChangeController = StreamController<SpotifyPlaybackState>.broadcast();
+
+  // Stream getters
+  static Stream<String> get onDeviceReady => _deviceReadyController.stream;
+  static Stream<Track> get onTrackChange => _trackChangeController.stream;
+  static Stream<SpotifyPlaybackState> get onPlaybackStateChange => _playbackStateChangeController.stream;
+
+  // Event emitters
+  static void emitDeviceReady(String deviceId) => _deviceReadyController.add(deviceId);
+  static void emitTrackChange(Track track) => _trackChangeController.add(track);
+  static void emitPlaybackStateChange(SpotifyPlaybackState state) => _playbackStateChangeController.add(state);
+}
+
+// Simple playback state model
+class SpotifyPlaybackState {
+  final bool isPlaying;
+  final int? progressMs;
+  final Track? item;
+
+  SpotifyPlaybackState({
+    required this.isPlaying,
+    this.progressMs,
+    this.item,
+  });
 }

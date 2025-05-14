@@ -15,6 +15,7 @@ class LibrarySection extends StatelessWidget {
   final Future<void> Function(Track) onRemove;
   final VoidCallback onNextPage;
   final VoidCallback onPrevPage;
+  final bool showHeader;
 
   const LibrarySection({
     Key? key,
@@ -29,6 +30,7 @@ class LibrarySection extends StatelessWidget {
     required this.onRemove,
     required this.onNextPage,
     required this.onPrevPage,
+    this.showHeader = false,
   }) : super(key: key);
 
   @override
@@ -38,11 +40,18 @@ class LibrarySection extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text('Your Library', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white)),
-          const SizedBox(height: 16),
+          if (showHeader) ...[
+            Center(
+              child: const Text(
+                'Your Library', 
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white)
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
           if (savedTracks.isEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 32),
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 32),
               child: Text(
                 'No saved tracks yet. Search for tracks to add them to your library.',
                 style: TextStyle(color: Colors.white54),
@@ -69,24 +78,24 @@ class LibrarySection extends StatelessWidget {
                 OutlinedButton(
                   onPressed: currentPage == 1 ? null : onPrevPage,
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: Color(0xFFA855F7),
-                    side: BorderSide(color: Color(0xFFA855F7)),
+                    foregroundColor: const Color(0xFFA855F7),
+                    side: const BorderSide(color: Color(0xFFA855F7)),
                   ),
-                  child: Text('Previous'),
+                  child: const Text('Previous'),
                 ),
                 const SizedBox(width: 16),
                 Text(
                   'Page $currentPage of ${((totalTracks + itemsPerPage - 1) / itemsPerPage).floor()}',
-                  style: TextStyle(color: Colors.white70),
+                  style: const TextStyle(color: Colors.white70),
                 ),
                 const SizedBox(width: 16),
                 OutlinedButton(
                   onPressed: currentPage * itemsPerPage >= totalTracks ? null : onNextPage,
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: Color(0xFFA855F7),
-                    side: BorderSide(color: Color(0xFFA855F7)),
+                    foregroundColor: const Color(0xFFA855F7),
+                    side: const BorderSide(color: Color(0xFFA855F7)),
                   ),
-                  child: Text('Next'),
+                  child: const Text('Next'),
                 ),
               ],
             ),
@@ -95,4 +104,4 @@ class LibrarySection extends StatelessWidget {
       ),
     );
   }
-} 
+}

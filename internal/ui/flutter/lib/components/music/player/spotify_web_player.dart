@@ -5,9 +5,10 @@ import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import '../../models.dart';
-import './spotify_service.dart';
-import '../../services/event_bus.dart';
+import '../../../models.dart';
+import '../spotify_service.dart';
+import '../../../services/event_bus.dart';
+import 'spotify_player_view.dart'; // Import to access SpotifyEvents
 
 /// A WebView-based Spotify player that uses the Spotify Web Playback SDK
 /// to create a device ID for playback and provide event-driven updates
@@ -28,10 +29,9 @@ class SpotifyWebPlayer extends StatefulWidget {
 class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
   final WebViewController _controller = WebViewController();
   String? _deviceId;
-  MediaItem? _currentTrack;
+  Track? _currentTrack;
   bool _isPlaying = false;
   bool _isReady = false;
-  final _eventBus = EventBus();
   Timer? _reconnectTimer;
   String _htmlContent = '';
   
@@ -160,10 +160,7 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
       widget.spotifyService.setActiveDeviceId(deviceId);
       
       // Emit an event for other components to know we're ready
-      _eventBus.fire({
-        'type': 'spotify_device_ready',
-        'deviceId': deviceId,
-      });
+      SpotifyEvents.emitDeviceReady(deviceId);
     }
   }
   
@@ -175,48 +172,50 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
     final duration = data['duration'] as int? ?? 30000;
     
     if (track != null) {
-      final artists = track['artists'] as List<dynamic>?;
-      final artistNames = (artists ?? [])
-          .map((a) => a['name'] as String?)
-          .where((n) => n != null)
-          .join(', ');
+      final artists = track['artists'] as List<dynamic>? ?? [];
+      final artistsList = artists.map((a) => 
+        Artist(name: a['name'] as String? ?? '')
+      ).toList();
+      
+      final album = track['album'] as Map<String, dynamic>? ?? {};
+      final albumImages = album['images'] as List<dynamic>? ?? [];
+      
+      final albumObj = Album(
+        name: album['name'] as String? ?? '',
+        images: albumImages.map((img) => 
+          ImageData(
+            url: img['url'] as String? ?? '',
+            height: img['height'] as int? ?? 0,
+            width: img['width'] as int? ?? 0
+          )
+        ).toList()
+      );
+      
+      final trackObj = Track(
+        id: track['id'] as String? ?? '',
+        name: track['name'] as String? ?? '',
+        artists: artistsList,
+        album: albumObj,
+        previewUrl: track['preview_url'] as String? ?? '',
+        uri: track['uri'] as String? ?? ''
+      );
       
       setState(() {
-        _currentTrack = MediaItem(
-          id: track['id'] ?? '',
-          title: track['name'] ?? 'Unknown Track',
-          overview: artistNames.isNotEmpty ? artistNames : 'Unknown Artist',
-          posterPath: track['album']?['images']?[0]?['url'] ?? '',
-          uri: track['uri'] ?? '',
-          mediaType: 'music',
-        );
-        _isPlaying = !isPaused;
+        _currentTrack = trackObj;
       });
       
-      // Fire an event for the player view to update
-      _eventBus.fire({
-        'type': 'spotify_playback_state',
-        'is_playing': !isPaused,
-        'position': position,
-        'duration': duration,
-        'track': {
-          'id': track['id'] ?? '',
-          'name': track['name'] ?? 'Unknown Track',
-          'artist': artistNames.isNotEmpty ? artistNames : 'Unknown Artist',
-          'albumArtUrl': track['album']?['images']?[0]?['url'] ?? '',
-          'uri': track['uri'] ?? '',
-        },
-      });
-    } else {
-      setState(() {
-        _isPlaying = !isPaused;
-      });
+      // Create playback state object
+      final playbackState = SpotifyPlaybackState(
+        isPlaying: !isPaused,
+        progressMs: position,
+        item: trackObj
+      );
       
-      // Fire a playback state event without track info
-      _eventBus.fire({
-        'type': 'spotify_playback_state',
-        'is_playing': !isPaused,
-      });
+      // Emit track change event
+      SpotifyEvents.emitTrackChange(trackObj);
+      
+      // Emit playback state change event
+      SpotifyEvents.emitPlaybackStateChange(playbackState);
     }
   }
   
@@ -230,11 +229,6 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
     // Try to reconnect after a delay
     _reconnectTimer?.cancel();
     _reconnectTimer = Timer(const Duration(seconds: 5), _onWebViewLoaded);
-    
-    // Notify the app
-    _eventBus.fire({
-      'type': 'spotify_device_disconnected',
-    });
   }
   
   // Method to play a track

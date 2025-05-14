@@ -60,22 +60,40 @@ class Track {
     required this.previewUrl,
     required this.uri,
   });
+
+  String get artist => artists.map((a) => a.name).join(', ');
+
+  String get albumArtUrl => album.images.isNotEmpty ? album.images.first.url : '';
 }
 
 class Artist {
   final String name;
-  Artist({required this.name});
+
+  Artist({
+    required this.name,
+  });
 }
 
 class Album {
   final String name;
   final List<ImageData> images;
-  Album({required this.name, required this.images});
+
+  Album({
+    required this.name,
+    required this.images,
+  });
 }
 
 class ImageData {
   final String url;
-  ImageData({required this.url});
+  final int height;
+  final int width;
+
+  ImageData({
+    required this.url,
+    required this.height,
+    required this.width,
+  });
 }
 
 /// MediaItem represents a generic media item (music, movie, book, etc.)

@@ -1,13 +1,46 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
-import 'dart:async'; // Timer import
 
 import '../../models.dart';
-import './spotify_service.dart';
-import '../../theme.dart';
+import 'library/library_section.dart';
+import 'player/spotify_player_view.dart';
+import 'player/spotify_web_player.dart';
+import 'spotify_service.dart';
 import 'suggestions/suggestion_display.dart';
-import 'tracks/track_card.dart';
-import 'spotify_player_view.dart';
-import 'spotify_web_player.dart'; // Add import for web player
+
+// A helper class to adapt Track to MediaItem for compatibility
+class TrackAdapter {
+  static MediaItem toMediaItem(Track track) {
+    return MediaItem(
+      id: track.id,
+      title: track.name,
+      mediaType: 'music',
+      overview: '',
+      posterPath: track.albumArtUrl,
+      uri: track.uri,
+      previewUrl: track.previewUrl,
+    );
+  }
+  
+  // Convert MediaItem to Track if possible
+  static Track? fromMediaItem(MediaItem? mediaItem) {
+    if (mediaItem == null) return null;
+    
+    return Track(
+      id: mediaItem.id.toString(),
+      name: mediaItem.title,
+      artists: [Artist(name: mediaItem.title.split(' - ').length > 1 ? mediaItem.title.split(' - ')[1] : '')],
+      album: Album(
+        name: '',
+        images: mediaItem.posterPath.isNotEmpty 
+          ? [ImageData(url: mediaItem.posterPath, height: 300, width: 300)] 
+          : [],
+      ),
+      uri: mediaItem.uri ?? '',
+      previewUrl: mediaItem.previewUrl ?? '',
+    );
+  }
+}
 
 class MusicSection extends StatefulWidget {
   const MusicSection({
@@ -19,38 +52,85 @@ class MusicSection extends StatefulWidget {
 }
 
 class _MusicSectionState extends State<MusicSection> {
-  List<Map<String, dynamic>> _library = [];
-  bool _isLoadingLibrary = false;
-  bool _isLoadingSuggestion = false;
-  MediaItem? _suggestion;
-  String? _suggestionError;
-  int _totalTracks = 0;
+  // State variables
   bool _isAuthenticated = false;
-  int _currentPage = 0; // Start at page 0 instead of 1
-  final int _itemsPerPage = 20; // Show 20 items per page
-  bool _isPlaybackPaused = true;
-  MediaItem? _nowPlayingTrack;
+  bool _isLoading = true;
+  String? _errorMessage;
+  GlobalKey<SpotifyWebPlayerState> _webPlayerKey = GlobalKey();
   String? _activeDeviceId;
-  
-  // Create a GlobalKey to access the SpotifyWebPlayer instance
-  final GlobalKey<SpotifyWebPlayerState> _webPlayerKey = GlobalKey();
-  
-  // Replace Timer with StreamSubscription - no more polling!
+
+  // Suggestion state
+  Track? _suggestion;
+  String? _suggestionError;
+  bool _isLoadingSuggestion = false;
+
+  // Playback state
+  Track? _nowPlayingTrack;
+  bool _isPlaybackPaused = true;
+
+  // Library state
+  List<Track> _likedTracks = [];
+  bool _isLoadingLibrary = false;
+  int _currentLibraryPage = 1;
+  int _totalLibraryTracks = 0;
+  final int _tracksPerPage = 10; // Show 10 tracks per page (2x5 grid)
+
+  // Keep services and other components
+  final SpotifyService _spotifyService = SpotifyService();
+
   StreamSubscription? _authSubscription;
   StreamSubscription? _deviceIdSubscription;
   StreamSubscription? _playbackStateSubscription;
   StreamSubscription? _trackChangeSubscription;
-  
-  // Keep services and other components
-  final SpotifyService _spotifyService = SpotifyService();
 
   @override
   void initState() {
     super.initState();
-    _initSpotifyListeners();
+    _setupListeners();
     _checkAuthentication();
   }
-  
+
+  void _setupListeners() {
+    // Listen for track changes
+    _trackChangeSubscription = _spotifyService.onTrackChange.listen((event) {
+      // The event is a TrackChangeEvent with a MediaItem
+      if (event.item != null) {
+        final track = TrackAdapter.fromMediaItem(event.item);
+        if (track != null) {
+          setState(() {
+            _nowPlayingTrack = track;
+          });
+        }
+      }
+    });
+    
+    // Listen for auth state changes
+    _authSubscription = _spotifyService.onAuthStatusChange.listen((event) {
+      setState(() {
+        _isAuthenticated = event.isAuthenticated;
+      });
+
+      if (_isAuthenticated) {
+        _loadLibrary();
+        _loadSuggestion();
+      }
+    });
+
+    // Listen for device ID changes
+    _deviceIdSubscription = _spotifyService.onDeviceIdChange.listen((deviceId) {
+      setState(() {
+        _activeDeviceId = deviceId;
+      });
+    });
+
+    // Listen for playback state changes
+    _playbackStateSubscription = _spotifyService.onPlaybackStateChange.listen((isPlaying) {
+      setState(() {
+        _isPlaybackPaused = !isPlaying;
+      });
+    });
+  }
+
   @override
   void dispose() {
     _authSubscription?.cancel();
@@ -59,97 +139,73 @@ class _MusicSectionState extends State<MusicSection> {
     _trackChangeSubscription?.cancel();
     super.dispose();
   }
-  
-  // Initialize Spotify listeners to replace polling
-  void _initSpotifyListeners() {
-    // Listen for auth state changes
-    _authSubscription = _spotifyService.onAuthStatusChange.listen((event) {
-      setState(() {
-        _isAuthenticated = event.isAuthenticated;
-      });
-      
-      if (_isAuthenticated) {
-        _loadLibrary();
-        _loadSuggestion();
-      }
-    });
-    
-    // Listen for device ID changes
-    _deviceIdSubscription = _spotifyService.onDeviceIdChange.listen((deviceId) {
-      setState(() {
-        _activeDeviceId = deviceId;
-      });
-    });
-    
-    // Listen for playback state changes
-    _playbackStateSubscription = _spotifyService.onPlaybackStateChange.listen((isPlaying) {
-      setState(() {
-        _isPlaybackPaused = !isPlaying;
-      });
-    });
-    
-    // Listen for track changes
-    _trackChangeSubscription = _spotifyService.onTrackChange.listen((event) {
-      setState(() {
-        _nowPlayingTrack = event.item;
-      });
-    });
-  }
-  
+
   // Check if user is already authenticated
   Future<void> _checkAuthentication() async {
     final isAuthenticated = await _spotifyService.checkAuthentication();
     setState(() {
       _isAuthenticated = isAuthenticated;
     });
-    
+
     if (_isAuthenticated) {
       _loadLibrary();
       _loadSuggestion();
     }
   }
 
-  // Load saved tracks from library
+  // Fetch user's liked tracks from Spotify
   Future<void> _loadLibrary() async {
-    if (!_isAuthenticated) return;
-    
     setState(() {
       _isLoadingLibrary = true;
     });
 
     try {
-      // Calculate offset based on current page
-      final int offset = _currentPage * _itemsPerPage;
-      
-      // Get liked tracks from the user's library with pagination
       final response = await _spotifyService.getLikedTracks(
-        limit: _itemsPerPage,
-        offset: offset
+        limit: _tracksPerPage,
+        offset: (_currentLibraryPage - 1) * _tracksPerPage,
       );
+
+      final List<Track> tracks = [];
       
-      // Cast safely using generics
-      final items = response['items'];
-      final List<SimpleTrack> trackList = (items is List<SimpleTrack>)
-          ? items
-          : (items as List).cast<SimpleTrack>();
-      
-      final int totalTracks = response['total'] as int;
-      
-      setState(() {
-        // Convert SimpleTrack objects to Map format
-        _library = trackList.map<Map<String, dynamic>>((SimpleTrack track) => {
-          'id': track.id,
-          'name': track.name,
-          'artist': track.artist,
-          'album': track.album,
-          'imageUrl': track.albumArtUrl,
-          'uri': track.uri,
-          'previewUrl': track.previewUrl,
-        }).toList();
+      if (response is Map<String, dynamic> && response.containsKey('items')) {
+        final items = response['items'];
+        final total = response['total'] as int?;
         
-        _isLoadingLibrary = false;
-        _totalTracks = totalTracks;
-      });
+        if (items is List) {
+          for (int i = 0; i < items.length; i++) {
+            final item = items[i];
+            if (item is SimpleTrack) {
+              // Direct conversion from SimpleTrack to Track
+              tracks.add(_convertSimpleTrackToTrack(item));
+            }
+          }
+        }
+        
+        setState(() {
+          _likedTracks = tracks;
+          _totalLibraryTracks = total ?? 0;
+          _isLoadingLibrary = false;
+        });
+      } else if (response is List) {
+        for (int i = 0; i < response.length; i++) {
+          final item = response[i];
+          if (item is SimpleTrack) {
+            tracks.add(_convertSimpleTrackToTrack(item));
+          }
+        }
+        
+        setState(() {
+          _likedTracks = tracks;
+          _totalLibraryTracks = tracks.length;
+          _isLoadingLibrary = false;
+        });
+      } else {
+        setState(() {
+          _likedTracks = [];
+          _totalLibraryTracks = 0;
+          _isLoadingLibrary = false;
+        });
+      }
     } catch (e) {
       debugPrint('Error loading library: $e');
       setState(() {
@@ -158,32 +214,39 @@ class _MusicSectionState extends State<MusicSection> {
     }
   }
 
+  // Convert SimpleTrack to Track
+  Track _convertSimpleTrackToTrack(SimpleTrack simpleTrack) {
+    return Track(
+      id: simpleTrack.id,
+      name: simpleTrack.name,
+      artists: [Artist(name: simpleTrack.artist)],
+      album: Album(
+        name: simpleTrack.album,
+        images: simpleTrack.albumArtUrl.isNotEmpty 
+          ? [ImageData(url: simpleTrack.albumArtUrl, height: 300, width: 300)] 
+          : [],
+      ),
+      uri: simpleTrack.uri,
+      previewUrl: simpleTrack.previewUrl ?? '',
+    );
+  }
+
   // Load a suggestion based on library
   Future<void> _loadSuggestion() async {
-    if (!_isAuthenticated) return;
-    
     setState(() {
       _isLoadingSuggestion = true;
       _suggestionError = null;
     });
 
     try {
-      // Use getRecommendations for suggestions
       final recommendations = await _spotifyService.getRecommendations();
       
-      // Convert SimpleTrack to MediaItem
       if (recommendations.isNotEmpty) {
-        final suggestion = recommendations.first;
+        final simpleTrack = recommendations.first;
+        final track = _convertSimpleTrackToTrack(simpleTrack);
+        
         setState(() {
-          _suggestion = MediaItem(
-            id: suggestion.id,
-            title: suggestion.name,
-            overview: suggestion.artist,
-            posterPath: suggestion.albumArtUrl,
-            mediaType: 'music',
-            uri: suggestion.uri,
-            previewUrl: suggestion.previewUrl,
-          );
+          _suggestion = track;
           _isLoadingSuggestion = false;
         });
       } else {
@@ -195,13 +258,43 @@ class _MusicSectionState extends State<MusicSection> {
       }
     } catch (e) {
       setState(() {
-        _suggestionError = 'Error loading suggestion: $e';
+        _suggestion = null;
+        _suggestionError = e.toString();
         _isLoadingSuggestion = false;
       });
     }
   }
+  
+  // Load next page of tracks
+  void _loadNextPage() {
+    setState(() {
+      _currentLibraryPage++;
+    });
+    _loadLibrary();
+  }
 
-  // Play a track with the new device ID approach
+  // Load previous page of tracks
+  void _loadPreviousPage() {
+    if (_currentLibraryPage > 1) {
+      setState(() {
+        _currentLibraryPage--;
+      });
+      _loadLibrary();
+    }
+  }
+
+  // Remove a track from library
+  Future<void> _removeTrack(Track track) async {
+    try {
+      await _spotifyService.removeTrack(track.id.toString());
+      // Reload the current page to update the list
+      _loadLibrary();
+    } catch (e) {
+      debugPrint('Error removing track: $e');
+    }
+  }
+
+  // Play a track on the active device
   Future<void> _playTrack(String trackUri) async {
     if (_activeDeviceId == null) {
       debugPrint('No active Spotify device available. Using web player.');
@@ -211,204 +304,208 @@ class _MusicSectionState extends State<MusicSection> {
       // Use the stored device ID
       await _spotifyService.playTrack(trackUri, deviceId: _activeDeviceId);
     }
-  }
-  
-  // Pause playback
-  Future<void> _pausePlayback() async {
-    if (_activeDeviceId == null) {
-      debugPrint('No active Spotify device available. Using web player.');
-      // Try to pause via the web player directly
-      _webPlayerKey.currentState?.pausePlayback();
-    } else {
-      // Use the stored device ID
-      await _spotifyService.pausePlayback(deviceId: _activeDeviceId);
+    
+    // Set paused state immediately for responsive UI
+    setState(() {
+      _isPlaybackPaused = false;
+    });
+    
+    // If track is not set by event listener, find and set it for immediate UI update
+    if (_nowPlayingTrack == null || _nowPlayingTrack!.uri != trackUri) {
+      // Find the track in either liked tracks or current suggestion
+      Track? track;
+      
+      // First check if it's the current suggestion
+      if (_suggestion != null && _suggestion!.uri == trackUri) {
+        track = _suggestion;
+      } else {
+        // Search in liked tracks
+        for (final t in _likedTracks) {
+          if (t.uri == trackUri) {
+            track = t;
+            break;
+          }
+        }
+      }
+      
+      // If we found the track, update it and emit the track change event
+      if (track != null) {
+        setState(() {
+          _nowPlayingTrack = track;
+        });
+      }
     }
+  }
+
+  // Save a track to library
+  Future<void> _saveTrack(String trackId) async {
+    if (trackId.isEmpty) {
+      return;
+    }
+
+    // Store context state before async gap
+    final scaffoldMessengerState = ScaffoldMessenger.of(context);
+    final contextMounted = context.mounted;
+
+    try {
+      final success = await _spotifyService.saveTrack(trackId);
+
+      if (success) {
+        // Load library again to refresh saved tracks
+        await _loadLibrary();
+
+        if (contextMounted) {
+          scaffoldMessengerState.showSnackBar(
+            const SnackBar(
+              content: Text('Track added to your library'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Error saving track: $e');
+      if (contextMounted) {
+        scaffoldMessengerState.showSnackBar(
+          SnackBar(
+            content: Text('Failed to add track: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    }
+  }
+
+  // Save a track from the library section
+  Future<void> _saveFromLibrary(Track track) async {
+    if (track.id.isEmpty) return;
+    await _saveTrack(track.id.toString());
   }
 
   // Build the main music section UI
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return Stack(
       children: [
-        // Add the web player (hidden but active)
-        SizedBox(
-          width: 1,
-          height: 1,
-          child: SpotifyWebPlayer(
-            key: _webPlayerKey,
-            spotifyService: _spotifyService,
-            visible: false,
-          ),
+        // Main content area with scrolling
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Add the web player (hidden but active)
+            SizedBox(
+              width: 1,
+              height: 1,
+              child: SpotifyWebPlayer(
+                key: _webPlayerKey,
+                spotifyService: _spotifyService,
+                visible: false,
+              ),
+            ),
+
+            // Content area
+            Expanded(
+              child: !_isAuthenticated
+                  ? _buildAuthPrompt()
+                  : SingleChildScrollView(
+                      // Add bottom padding to accommodate the player
+                      padding: const EdgeInsets.only(bottom: 80),
+                      child: _buildAuthenticatedView(),
+                    ),
+            ),
+          ],
         ),
-        
-        // Rest of your build method
-        if (!_isAuthenticated) _buildAuthPrompt() else _buildAuthenticatedView(),
+
+        // Player positioned at the bottom
+        if (_isAuthenticated && _nowPlayingTrack != null)
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: Material(
+              elevation: 8,
+              child: Container(
+                color: Theme.of(context).canvasColor,
+                child: const SpotifyPlayer(
+                  key: ValueKey('spotify_player'),
+                ),
+              ),
+            ),
+          ),
       ],
     );
   }
 
   // Build the UI for authenticated users
   Widget _buildAuthenticatedView() {
-    return SingleChildScrollView(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // 1. SUGGESTION SECTION AT THE TOP
-          const Text(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // 1. SUGGESTION SECTION AT THE TOP
+        Center(
+          child: const Text(
             'Suggested for You',
             style: TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.bold,
             ),
           ),
-          const SizedBox(height: 16),
-          _isLoadingSuggestion
-              ? const Center(
-                  child: CircularProgressIndicator(),
-                )
-              : _suggestionError != null
-                  ? Text('Error: $_suggestionError')
-                  : _suggestion == null
-                      ? const Text('No suggestions available')
-                      : SuggestionDisplay(
-                          suggestedTrack: _suggestion,
-                          onRequestSuggestion: _loadSuggestion,
-                          onSkipSuggestion: _loadSuggestion,
-                          onSuggestionFeedback: (feedback) => _provideFeedback(feedback),
-                          onAddToLibrary: () => _saveTrack(_suggestion!.id.toString()),
-                          onPlay: (track) => _playTrack(track.uri ?? ''),
-                          isPlaybackPaused: _isPlaybackPaused,
-                          nowPlayingTrack: _nowPlayingTrack,
-                          onPlayPause: () => _togglePlayback(),
-                        ),
-          
-          // 2. PLAYER CONTROLS
-          const SizedBox(height: 24),
-          const SpotifyPlayer(
-            key: ValueKey('spotify_player'),
-          ),
-          
-          // 3. LIBRARY SECTION (LIKED SONGS) AT THE BOTTOM
-          const SizedBox(height: 24),
-          const Text(
+        ),
+        const SizedBox(height: 16),
+        _isLoadingSuggestion
+            ? const Center(
+                child: CircularProgressIndicator(),
+              )
+            : _suggestionError != null
+                ? Text('Error: $_suggestionError')
+                : _suggestion == null
+                    ? const Text('No suggestions available')
+                    : SuggestionDisplay(
+                        suggestedTrack: TrackAdapter.toMediaItem(_suggestion!),
+                        onRequestSuggestion: _loadSuggestion,
+                        onSkipSuggestion: _loadSuggestion,
+                        onSuggestionFeedback: (feedback) => _provideFeedback(feedback),
+                        onAddToLibrary: () => _saveTrack(_suggestion!.id),
+                        onPlay: (mediaItem) => _playTrack(mediaItem.uri ?? ''),
+                        isPlaybackPaused: _isPlaybackPaused,
+                        nowPlayingTrack: _nowPlayingTrack != null ? TrackAdapter.toMediaItem(_nowPlayingTrack!) : null,
+                        onPlayPause: () => _togglePlayback(),
+                      ),
+
+        // 2. LIBRARY SECTION (LIKED SONGS) AT THE BOTTOM
+        const SizedBox(height: 24),
+        Center(
+          child: const Text(
             'Your Library',
             style: TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.bold,
             ),
           ),
-          const SizedBox(height: 16),
-          
-          // Library content in a grid
-          _buildLibrarySection(),
-        ],
-      ),
-    );
-  }
-  
-  // Build the library section with pagination
-  Widget _buildLibrarySection() {
-    if (_isLoadingLibrary) {
-      return const Center(child: CircularProgressIndicator());
-    }
-    
-    if (_library.isEmpty) {
-      return const Text('Your library is empty. Search for tracks to add them to your library.');
-    }
-    
-    // We don't need to calculate indices or use sublist anymore since our data is already paginated from the API
-    // We can directly use the _library which contains the current page's data
-    
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Grid of tracks
-        GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 3,  // Changed from 4 to 3 columns
-            childAspectRatio: 0.8,  // Keeping the same aspect ratio
-            crossAxisSpacing: 12.0,
-            mainAxisSpacing: 16.0,
-          ),
-          itemCount: _library.length,
-          itemBuilder: (context, index) {
-            final track = _library[index];
-            final isPlaying = !_isPlaybackPaused && 
-                _nowPlayingTrack?.id == track['id'];
-            
-            return TrackCard(
-              track: MediaItem(
-                id: track['id'] ?? '',
-                title: track['name'] ?? 'Unknown Track',
-                overview: track['artist'] ?? 'Unknown Artist',
-                posterPath: track['imageUrl'] ?? '',
-                mediaType: 'music',
-                uri: track['uri'],
-                previewUrl: track['previewUrl'],
-              ),
-              isSaved: true,
-              isPlaying: isPlaying,
-              onPlay: (_) => _playTrack(track['uri'] ?? ''),
-              onRemove: (_) => _removeTrack(track['id'] ?? ''),
-            );
-          },
         ),
-        
-        // Pagination controls
         const SizedBox(height: 16),
-        _buildPaginationControls(),
+
+        // Library content in a grid
+        _buildLibrarySection(),
       ],
     );
   }
 
-  // Previous and Next page buttons for the library section
-  Widget _buildPaginationControls() {
-    // Calculate total pages
-    final int totalPages = (_totalTracks / _itemsPerPage).ceil();
-    
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        ElevatedButton(
-          onPressed: _currentPage > 0
-              ? () {
-                  setState(() {
-                    _currentPage--;
-                  });
-                  _loadLibrary(); // Reload library with new page
-                }
-              : null,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: AppTheme.primaryColor,
-            disabledBackgroundColor: AppTheme.primaryColor.withOpacity(0.3),
-          ),
-          child: const Text('Previous'),
-        ),
-        const SizedBox(width: 20),
-        Text(
-          'Page ${_currentPage + 1} of $totalPages',
-          style: const TextStyle(fontSize: 14),
-        ),
-        const SizedBox(width: 20),
-        ElevatedButton(
-          onPressed: _currentPage < totalPages - 1
-              ? () {
-                  setState(() {
-                    _currentPage++;
-                  });
-                  _loadLibrary(); // Reload library with new page
-                }
-              : null,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: AppTheme.primaryColor,
-            disabledBackgroundColor: AppTheme.primaryColor.withOpacity(0.3),
-          ),
-          child: const Text('Next'),
-        ),
-      ],
+  // Build the library section with user's saved tracks
+  Widget _buildLibrarySection() {
+    return LibrarySection(
+      savedTracks: _likedTracks,
+      currentPage: _currentLibraryPage,
+      totalTracks: _totalLibraryTracks,
+      itemsPerPage: _tracksPerPage,
+      nowPlayingTrack: _nowPlayingTrack,
+      isPlaybackPaused: _isPlaybackPaused,
+      onPlay: (track) => _playTrack(track.uri),
+      onSave: _saveFromLibrary,
+      onRemove: _removeTrack,
+      onNextPage: _loadNextPage,
+      onPrevPage: _loadPreviousPage,
+      showHeader: false, // Don't show the header in the LibrarySection component
     );
   }
 
@@ -449,12 +546,12 @@ class _MusicSectionState extends State<MusicSection> {
       ),
     );
   }
-  
+
   // Toggle play/pause
   Future<void> _togglePlayback() async {
     try {
       if (_isPlaybackPaused) {
-        await _spotifyService.playTrack(_nowPlayingTrack!.uri!);
+        await _spotifyService.playTrack(_nowPlayingTrack!.id);
       } else {
         await _spotifyService.pausePlayback();
       }
@@ -471,88 +568,15 @@ class _MusicSectionState extends State<MusicSection> {
     }
   }
 
-  // Save a track to library
-  Future<void> _saveTrack(String trackId) async {
-    if (trackId.isEmpty) {
-      return;
-    }
-
-    // Store context state before async gap
-    final scaffoldMessengerState = ScaffoldMessenger.of(context);
-    final contextMounted = context.mounted;
-
-    try {
-      final success = await _spotifyService.saveTrack(trackId);
-      
-      if (success) {
-        // Load library again to refresh saved tracks
-        await _loadLibrary();
-        if (contextMounted && mounted) {
-          scaffoldMessengerState.showSnackBar(
-            const SnackBar(content: Text('Track saved to your library')),
-          );
-        }
-      } else {
-        if (contextMounted && mounted) {
-          scaffoldMessengerState.showSnackBar(
-            const SnackBar(content: Text('Failed to save track')),
-          );
-        }
-      }
-    } catch (e) {
-      if (contextMounted && mounted) {
-        scaffoldMessengerState.showSnackBar(
-          SnackBar(content: Text('Error saving track: $e')),
-        );
-      }
-    }
-  }
-
-  // Remove a track from library
-  Future<void> _removeTrack(String trackId) async {
-    if (trackId.isEmpty) {
-      return;
-    }
-
-    // Store context state before async gap
-    final scaffoldMessengerState = ScaffoldMessenger.of(context);
-    final contextMounted = context.mounted;
-    
-    try {
-      final success = await _spotifyService.removeTrack(trackId);
-      if (success) {
-        // Load library again to refresh saved tracks
-        await _loadLibrary();
-        if (contextMounted && mounted) {
-          scaffoldMessengerState.showSnackBar(
-            const SnackBar(content: Text('Track removed from your library')),
-          );
-        }
-      } else {
-        if (contextMounted && mounted) {
-          scaffoldMessengerState.showSnackBar(
-            const SnackBar(content: Text('Failed to remove track')),
-          );
-        }
-      }
-    } catch (e) {
-      if (contextMounted && mounted) {
-        scaffoldMessengerState.showSnackBar(
-          SnackBar(content: Text('Error removing track: $e')),
-        );
-      }
-    }
-  }
-
   // Provide feedback for a suggestion
   Future<void> _provideFeedback(String feedback) async {
     if (_suggestion == null) return;
-    
+
     try {
       // Extract info from the suggestion
-      final String title = _suggestion!.title;
-      final String artist = _suggestion!.overview; // Artist name is stored in overview
-      
+      final String title = _suggestion!.name;
+      final String artist = _suggestion!.artists.first.name;
+
       // Show feedback message
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -560,7 +584,7 @@ class _MusicSectionState extends State<MusicSection> {
           duration: const Duration(seconds: 2),
         ),
       );
-      
+
       // Load a new suggestion
       _loadSuggestion();
     } catch (e) {

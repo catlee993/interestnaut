@@ -1185,6 +1185,33 @@ class SpotifyService {
     }
   }
 
+  /// Seek to a position in the currently playing track
+  Future<bool> seekTo(int positionMs, {String? deviceId}) async {
+    if (_accessToken == null) return false;
+    
+    try {
+      final activeDevice = deviceId ?? getActiveDeviceId();
+      if (activeDevice == null) {
+        debugPrint('Cannot seek: No active device');
+        return false;
+      }
+      
+      final uri = Uri.parse('https://api.spotify.com/v1/me/player/seek?position_ms=$positionMs&device_id=$activeDevice');
+      final response = await http.put(
+        uri,
+        headers: {
+          'Authorization': 'Bearer $_accessToken',
+          'Content-Type': 'application/json',
+        },
+      );
+      
+      return response.statusCode >= 200 && response.statusCode < 300;
+    } catch (e) {
+      debugPrint('Error seeking to position: $e');
+      return false;
+    }
+  }
+
   /// Set the active Spotify device ID (used for playback)
   void setActiveDeviceId(String deviceId) {
     _activeDeviceId = deviceId;

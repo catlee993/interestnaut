@@ -80,7 +80,7 @@ Future<void> main() async {
     try {
       window_package.setWindowTitle('Interestnaut');
       Size maxSize = const Size(1920, 1080);
-      Size initialSize = const Size(1200, 800);
+      Size initialSize = const Size(1024, 800);
       window_package.setWindowMaxSize(maxSize);
       window_package.setWindowMinSize(const Size(400, 300));
       window_package.setWindowFrame(
