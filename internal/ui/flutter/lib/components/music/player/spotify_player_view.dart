@@ -32,24 +32,41 @@ class _SeekBarState extends State<_SeekBar> with TickerProviderStateMixin {
     // Set up animation controller for smooth progress updates
     _progressController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 200), // Short animation for smoother updates
+      duration: const Duration(milliseconds: 1000), // 1 second for animation
     );
     
+    _updateProgressAnimation();
+  }
+  
+  void _updateProgressAnimation() {
     _progressAnimation = Tween<double>(
       begin: _dragValue,
-      end: _dragValue,
+      end: widget.position.toDouble(),
     ).animate(CurvedAnimation(
       parent: _progressController,
-      curve: Curves.easeInOut,
+      curve: Curves.linear,
     ));
     
+    _progressController.forward(from: 0.0);
+    
     _progressController.addListener(() {
-      if (!_dragging) {
+      if (!_dragging && mounted) {
         setState(() {
-          // Animation is handled by the controller
+          // Use the animated value for smoother updates
+          _dragValue = _progressAnimation.value;
         });
       }
     });
+  }
+  
+  @override
+  void didUpdateWidget(_SeekBar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    
+    // When position changes from outside (e.g. timer updates)
+    if (oldWidget.position != widget.position && !_dragging) {
+      _updateProgressAnimation();
+    }
   }
   
   @override
@@ -59,110 +76,75 @@ class _SeekBarState extends State<_SeekBar> with TickerProviderStateMixin {
   }
   
   @override
-  void didUpdateWidget(_SeekBar oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    
-    // Update drag value with current position if not dragging
-    if (!_dragging && oldWidget.position != widget.position) {
-      // Update animation for smooth transitions
-      _progressAnimation = Tween<double>(
-        begin: _progressAnimation.value,
-        end: widget.position.toDouble(),
-      ).animate(CurvedAnimation(
-        parent: _progressController,
-        curve: Curves.easeInOut,
-      ));
-      
-      _progressController.forward(from: 0.0);
-      _dragValue = widget.position.toDouble();
-    }
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    
-    // Use the animated value for display if not dragging
-    final displayValue = _dragging ? _dragValue : _progressAnimation.value;
-    
-    return Column(
-      children: [
-        SliderTheme(
-          data: SliderThemeData(
-            trackHeight: 4,
-            thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-            overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
-            activeTrackColor: colorScheme.primary,
-            inactiveTrackColor: colorScheme.primary.withAlpha(40),
-            thumbColor: colorScheme.primary,
-            overlayColor: colorScheme.primary.withAlpha(30),
-          ),
-          child: Slider(
-            min: 0.0,
-            max: widget.duration.toDouble(),
-            value: math.min(displayValue, widget.duration.toDouble()),
-            onChanged: (value) {
-              setState(() {
-                _dragging = true;
-                _dragValue = value;
-              });
-            },
-            onChangeEnd: (value) {
-              widget.onSeeked(value.toInt());
-              setState(() {
-                _dragging = false;
-                // Update animation after seeking
-                _progressAnimation = Tween<double>(
-                  begin: value,
-                  end: value,
-                ).animate(CurvedAnimation(
-                  parent: _progressController, 
-                  curve: Curves.easeInOut
-                ));
-              });
-            },
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                _formatDuration(_dragging ? _dragValue.toInt() : displayValue.toInt()),
-                style: Theme.of(context).textTheme.bodySmall,
+    return SliderTheme(
+      data: const SliderThemeData(
+        trackHeight: 4.0,
+        thumbShape: RoundSliderThumbShape(enabledThumbRadius: 6.0),
+        overlayShape: RoundSliderOverlayShape(overlayRadius: 14.0),
+        activeTrackColor: Color(0xFFA855F7),
+        inactiveTrackColor: Color(0x33FFFFFF),
+        thumbColor: Color(0xFFA855F7),
+        overlayColor: Color(0x1FA855F7),
+      ),
+      child: Row(
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(left: 8.0, right: 4.0),
+            child: Text(
+              widget.formatTime(widget.position),
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 12,
               ),
-              Text(
-                _formatDuration(widget.duration),
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ],
+            ),
           ),
-        ),
-      ],
+          Expanded(
+            child: Slider(
+              min: 0.0,
+              max: widget.duration.toDouble(),
+              value: math.min(_dragValue, widget.duration.toDouble()),
+              onChanged: (value) {
+                setState(() {
+                  _dragging = true;
+                  _dragValue = value;
+                });
+              },
+              onChangeEnd: (value) {
+                setState(() {
+                  _dragging = false;
+                });
+                widget.onSeeked(value.round());
+              },
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(left: 4.0, right: 8.0),
+            child: Text(
+              widget.formatTime(widget.duration),
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 12,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
-  }
-  
-  // Format a duration in milliseconds to MM:SS format
-  String _formatDuration(int milliseconds) {
-    final seconds = (milliseconds / 1000).floor();
-    final minutes = (seconds / 60).floor();
-    final remainingSeconds = seconds % 60;
-    return '$minutes:${remainingSeconds.toString().padLeft(2, '0')}';
   }
 }
 
-/// A custom seek bar widget for the Spotify player
 class _SeekBar extends StatefulWidget {
   final int position;
   final int duration;
   final Function(int) onSeeked;
+  final Function(int) formatTime;
   
   const _SeekBar({
     required this.position,
     required this.duration,
     required this.onSeeked,
+    required this.formatTime,
   });
   
   @override
@@ -175,7 +157,7 @@ class _SpotifyPlayerState extends State<SpotifyPlayer> {
   Timer? _positionTimer;
   Timer? _pollingTimer;
   int _position = 0;
-  int _duration = 0; // Use the actual track duration instead of a fixed limit
+  int _duration = 0;
   final SpotifyService _spotifyService = SpotifyService();
   late StreamSubscription<Track> _trackSubscription;
   late StreamSubscription<SpotifyPlaybackState> _playbackStateSubscription;
@@ -184,7 +166,8 @@ class _SpotifyPlayerState extends State<SpotifyPlayer> {
   void initState() {
     super.initState();
     _setupEventListeners();
-    // No need to poll anymore as we're using event-based updates
+    // Start polling for playback state to get track duration
+    _startPlaybackPolling();
   }
   
   @override
@@ -204,8 +187,10 @@ class _SpotifyPlayerState extends State<SpotifyPlayer> {
           _currentTrack = track;
           _isPlaying = true;
           _position = 0;
-          // Calculate duration based on preview URL if available
-          _duration = 30000; // Default to 30s if no duration info
+          
+          // Initiate polling for full track data when track changes
+          _getFullTrackDuration();
+          
           _startProgressTimer();
         });
       }
@@ -232,6 +217,37 @@ class _SpotifyPlayerState extends State<SpotifyPlayer> {
         });
       }
     });
+  }
+  
+  // Poll Spotify API for playback state to get full track data
+  void _startPlaybackPolling() {
+    _pollingTimer?.cancel();
+    _pollingTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      _getFullTrackDuration();
+    });
+  }
+  
+  // Get full track duration from Spotify API
+  void _getFullTrackDuration() async {
+    if (_currentTrack == null) return;
+    
+    final playbackState = await _spotifyService.getPlaybackState();
+    if (playbackState != null && mounted) {
+      // Get duration from current track
+      if (playbackState.containsKey('item') && 
+          playbackState['item'] != null && 
+          playbackState['item'].containsKey('duration_ms')) {
+        
+        setState(() {
+          _duration = playbackState['item']['duration_ms'] as int;
+          
+          // Also update position for accuracy
+          if (playbackState.containsKey('progress_ms')) {
+            _position = playbackState['progress_ms'] as int;
+          }
+        });
+      }
+    }
   }
   
   void _playTrack(Track track) {
@@ -279,6 +295,14 @@ class _SpotifyPlayerState extends State<SpotifyPlayer> {
       _spotifyService.seekTo(position);
     }
   }
+  
+  // Format time for duration display
+  String formatTime(int ms) {
+    final seconds = (ms / 1000).floor();
+    final minutes = (seconds / 60).floor();
+    final remainingSeconds = seconds % 60;
+    return '$minutes:${remainingSeconds.toString().padLeft(2, '0')}';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -293,7 +317,7 @@ class _SpotifyPlayerState extends State<SpotifyPlayer> {
     return Container(
       height: 80,
       decoration: BoxDecoration(
-        color: colorScheme.surface,
+        color: colorScheme.surface.withOpacity(0.8), // 80% opacity as requested
         boxShadow: [
           BoxShadow(
             color: Colors.black.withAlpha(40),
@@ -301,103 +325,111 @@ class _SpotifyPlayerState extends State<SpotifyPlayer> {
             offset: const Offset(0, -2),
           ),
         ],
-      ),
-      child: Column(
-        children: [
-          // Progress bar
-          _SeekBar(
-            position: _position,
-            duration: _duration,
-            onSeeked: _seekTo,
+        border: Border(
+          top: BorderSide(
+            color: Colors.white.withOpacity(0.1),
+            width: 1,
           ),
-          
-          // Player controls and track info
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Row(
-                children: [
-                  // Album art
-                  if (_currentTrack!.albumArtUrl.isNotEmpty)
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(4),
-                      child: Image.network(
-                        _currentTrack!.albumArtUrl,
-                        width: 48,
-                        height: 48,
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) {
-                          return Container(
-                            width: 48,
-                            height: 48,
-                            color: colorScheme.primary.withAlpha(50),
-                            child: const Icon(Icons.music_note),
-                          );
-                        },
-                      ),
-                    )
-                  else
-                    Container(
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            // Album art
+            if (_currentTrack!.albumArtUrl.isNotEmpty)
+              ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: Image.network(
+                  _currentTrack!.albumArtUrl,
+                  width: 48,
+                  height: 48,
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) {
+                    return Container(
                       width: 48,
                       height: 48,
                       color: colorScheme.primary.withAlpha(50),
                       child: const Icon(Icons.music_note),
-                    ),
-                  
-                  // Track info
-                  Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      // Use a fixed-height container to prevent overflow
-                      child: SizedBox(
-                        height: 33, // Reduce by 1px to prevent overflow
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                _currentTrack!.name,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: theme.textTheme.titleSmall,
-                              ),
-                              // Very small SizedBox instead of dynamic spacing
-                              const SizedBox(height: 1),
-                              // Make the overview text even smaller
-                              Text(
-                                _currentTrack!.artist,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  fontSize: 10, // Smaller font for artist text
-                                  height: 1.0, // Tighter line height
-                                  color: theme.textTheme.bodySmall?.color?.withAlpha(180),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
+                    );
+                  },
+                ),
+              )
+            else
+              Container(
+                width: 48,
+                height: 48,
+                color: colorScheme.primary.withAlpha(50),
+                child: const Icon(Icons.music_note),
+              ),
+            
+            // Track info
+            SizedBox(
+              width: 180,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      _currentTrack!.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                        color: theme.textTheme.titleSmall?.color,
                       ),
                     ),
-                  ),
-                  
-                  // Play/pause button
-                  IconButton(
-                    onPressed: _togglePlayPause,
-                    icon: Icon(
-                      _isPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled,
-                      size: 36,
-                      color: colorScheme.primary,
+                    const SizedBox(height: 4),
+                    Text(
+                      '${_currentTrack!.artist} - ${_currentTrack!.album.name}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: theme.textTheme.bodySmall?.color?.withOpacity(0.7),
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
-          ),
-        ],
+            
+            // Scrubber bar (now in the same row as other elements)
+            Expanded(
+              child: _SeekBar(
+                position: _position,
+                duration: _duration > 0 ? _duration : 30000, // Use actual duration if available
+                onSeeked: _seekTo,
+                formatTime: formatTime,
+              ),
+            ),
+            
+            // Play/pause button
+            Container(
+              width: 40,
+              height: 40,
+              decoration: const BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.transparent,
+              ),
+              child: IconButton(
+                onPressed: _togglePlayPause,
+                padding: EdgeInsets.zero,
+                icon: Icon(
+                  _isPlaying ? Icons.pause : Icons.play_arrow,
+                  size: 24,
+                  color: colorScheme.primary,
+                ),
+                hoverColor: Colors.white.withOpacity(0.1),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

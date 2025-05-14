@@ -73,7 +73,7 @@ class _MusicSectionState extends State<MusicSection> {
   bool _isLoadingLibrary = false;
   int _currentLibraryPage = 1;
   int _totalLibraryTracks = 0;
-  final int _tracksPerPage = 10; // Show 10 tracks per page (2x5 grid)
+  final int _tracksPerPage = 20; // Show 20 tracks per page (4x5 grid)
 
   // Keep services and other components
   final SpotifyService _spotifyService = SpotifyService();
@@ -457,9 +457,27 @@ class _MusicSectionState extends State<MusicSection> {
                 child: CircularProgressIndicator(),
               )
             : _suggestionError != null
-                ? Text('Error: $_suggestionError')
+                ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 24),
+                    child: Text(
+                      'Error: $_suggestionError',
+                      style: const TextStyle(color: Colors.white54),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                )
                 : _suggestion == null
-                    ? const Text('No suggestions available')
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 24),
+                          child: Text(
+                            'No suggestions available',
+                            style: const TextStyle(color: Colors.white54),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                      )
                     : SuggestionDisplay(
                         suggestedTrack: TrackAdapter.toMediaItem(_suggestion!),
                         onRequestSuggestion: _loadSuggestion,

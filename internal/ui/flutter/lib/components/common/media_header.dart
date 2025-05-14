@@ -161,7 +161,7 @@ class _MediaHeaderState extends State<MediaHeader> {
         position.dx + button.size.width,
         position.dy,
       ),
-      color: const Color.fromRGBO(18, 18, 18, 0.95),
+      color: const Color.fromRGBO(18, 18, 18, 0.8),
       items: [
         _buildMenuItem('music'),
         _buildMenuItem('movies'),
@@ -218,7 +218,7 @@ class _MediaHeaderState extends State<MediaHeader> {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: const Color.fromRGBO(18, 18, 18, 0.95),
+      color: const Color.fromRGBO(18, 18, 18, 0.8),
       elevation: 0,
       child: Container(
         child: Column(
