@@ -16,7 +16,7 @@ class _IsolatePayload<T> {
 class AuthFFI {
   // Eagerly initialize all function pointers in constructor to avoid race conditions
   final ffi.Pointer<ffi.Char> Function() _getAuthConfigPtr;
-  final ffi.Pointer<ffi.Char> Function() _authenticatePtr;
+  final ffi.Pointer<ffi.Char> Function(int) _authenticatePtr;
   final ffi.Pointer<ffi.Char> Function() _getUserProfilePtr;
   final ffi.Pointer<ffi.Char> Function() _logoutPtr;
   final ffi.Pointer<ffi.Char> Function() _getOpenAITokenPtr;
@@ -42,8 +42,8 @@ class AuthFFI {
         ffi.Pointer<ffi.Char> Function(),
         ffi.Pointer<ffi.Char> Function()>('Music_GetAuthStatus'),
     _authenticatePtr = FFIInitializer.dylib.lookupFunction<
-        ffi.Pointer<ffi.Char> Function(),
-        ffi.Pointer<ffi.Char> Function()>('Music_InitiateSpotifyAuth'),
+        ffi.Pointer<ffi.Char> Function(ffi.Int32),
+        ffi.Pointer<ffi.Char> Function(int)>('Music_InitiateSpotifyAuth'),
     _getUserProfilePtr = FFIInitializer.dylib.lookupFunction<
         ffi.Pointer<ffi.Char> Function(),
         ffi.Pointer<ffi.Char> Function()>('Music_GetCurrentUser'),
@@ -129,13 +129,14 @@ class AuthFFI {
   /// Authenticate with a specific provider
   Future<Map<String, dynamic>> authenticate({
     String code = '',
-    String provider = 'spotify'
+    String provider = 'spotify',
+    int port = 0
   }) async {
     _checkInitialized();
     
     try {
       // For Spotify, we use Music_InitiateSpotifyAuth
-      final resultPtr = _authenticatePtr();
+      final resultPtr = _authenticatePtr(port);
       final resultStr = _fromCString(resultPtr);
       if (resultStr == null) {
         return {'error': 'Failed to initiate authentication'};

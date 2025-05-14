@@ -23,11 +23,11 @@ import (
 
 // Constants remain mostly unchanged
 const (
-	ClientID    = "3bb48a30577342869a9ffcb176dee7d2"
-	authURL     = "https://accounts.spotify.com/authorize"
-	redirectURI = "http://localhost:8080/callback"
-	scope       = "user-read-private user-read-email user-library-read user-library-modify user-read-playback-state user-modify-playback-state streaming"
-	tokenURL    = "https://accounts.spotify.com/api/token"
+	ClientID     = "3bb48a30577342869a9ffcb176dee7d2"
+	authURL      = "https://accounts.spotify.com/authorize"
+	scope        = "user-read-private user-read-email user-library-read user-library-modify user-read-playback-state user-modify-playback-state streaming"
+	tokenURL     = "https://accounts.spotify.com/api/token"
+	authCallback = "http://localhost:%d/callback"
 )
 
 var (
@@ -37,7 +37,23 @@ var (
 
 	// codeVerifier for PKCE (global so it can be referenced during token exchange)
 	codeVerifier string
+
+	// dynamicPort stores the port used during OpenSpotifyAuthBrowser
+	dynamicPort int
+
+	// registeredPorts contains all the ports that have been registered in the Spotify Dashboard
+	registeredPorts = []int{8080, 6789, 7575, 8821, 9432, 5723}
 )
+
+// IsRegisteredPort checks if the given port is registered in the Spotify Dashboard
+func IsRegisteredPort(port int) bool {
+	for _, p := range registeredPorts {
+		if p == port {
+			return true
+		}
+	}
+	return false
+}
 
 // generateCodeVerifier returns a cryptographically random string for PKCE
 func generateCodeVerifier() (string, error) {
@@ -83,7 +99,7 @@ func RunInitialAuthFlow(ctx context.Context) error {
 	signinURL := fmt.Sprintf("%s?client_id=%s&response_type=code&redirect_uri=%s&scope=%s&code_challenge=%s&code_challenge_method=S256",
 		authURL,
 		url.QueryEscape(ClientID),
-		url.QueryEscape(redirectURI),
+		url.QueryEscape("http://localhost:8080/callback"),
 		url.QueryEscape(scope),
 		url.QueryEscape(codeChallenge),
 	)
@@ -171,7 +187,7 @@ func RunInitialAuthFlow(ctx context.Context) error {
 	}
 
 	// Exchange the code for a token
-	authResp, err := exchangeCodeForToken(ctx, ClientID, code)
+	authResp, err := exchangeCodeForToken(ctx, ClientID, code, "http://localhost:8080/callback")
 	if err != nil {
 		return fmt.Errorf("failed to exchange code for token: %w", err)
 	}
@@ -311,7 +327,18 @@ func GetValidToken(ctx context.Context) (string, error) {
 }
 
 // exchangeCodeForToken exchanges an authorization code for access and refresh tokens using PKCE.
-func exchangeCodeForToken(ctx context.Context, clientID, code string) (*AuthResponse, error) {
+func exchangeCodeForToken(ctx context.Context, clientID, code, redirectURI string) (*AuthResponse, error) {
+	// If redirectURI is empty and we have a dynamic port, construct the URI
+	if redirectURI == "" && dynamicPort > 0 {
+		redirectURI = fmt.Sprintf("http://localhost:%d/callback", dynamicPort)
+		log.Printf("Using dynamic redirect URI with port %d for token exchange", dynamicPort)
+	}
+
+	// Make sure we have a valid redirect URI
+	if redirectURI == "" {
+		return nil, fmt.Errorf("no redirect URI provided and no dynamic port available")
+	}
+
 	values := url.Values{}
 	values.Set("grant_type", "authorization_code")
 	values.Set("code", code)
@@ -430,8 +457,9 @@ func emitUserProfileUpdated() {
 
 // OpenSpotifyAuthBrowser generates the auth URL with PKCE and opens the browser
 // but doesn't wait for or handle the callback - that will be done by Flutter
-func OpenSpotifyAuthBrowser(ctx context.Context) error {
-	log.Println("Opening browser for Spotify authentication (Flutter will handle callback)...")
+// It now accepts a port parameter to use in the redirect URI
+func OpenSpotifyAuthBrowser(ctx context.Context, port int) error {
+	log.Printf("Opening browser for Spotify authentication with port %d", port)
 
 	// Generate PKCE code verifier
 	var err error
@@ -446,11 +474,14 @@ func OpenSpotifyAuthBrowser(ctx context.Context) error {
 		return fmt.Errorf("failed to compute code challenge: %w", err)
 	}
 
+	// Build dynamic redirect URI with specified port
+	dynamicRedirectURI := fmt.Sprintf(authCallback, port)
+
 	// Build auth URL with PKCE
 	signinURL := fmt.Sprintf("%s?client_id=%s&response_type=code&redirect_uri=%s&scope=%s&code_challenge=%s&code_challenge_method=S256",
 		authURL,
 		url.QueryEscape(ClientID),
-		url.QueryEscape(redirectURI),
+		url.QueryEscape(dynamicRedirectURI),
 		url.QueryEscape(scope),
 		url.QueryEscape(codeChallenge),
 	)
@@ -462,6 +493,7 @@ func OpenSpotifyAuthBrowser(ctx context.Context) error {
 	}
 
 	log.Printf("Browser opened with Spotify auth URL, code verifier: %s...", codeVerifier[:10])
+	dynamicPort = port
 	return nil
 }
 

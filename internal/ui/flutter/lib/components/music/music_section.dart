@@ -6,6 +6,7 @@ import './spotify_service.dart';
 import '../../theme.dart';
 import 'suggestions/suggestion_display.dart';
 import 'tracks/track_card.dart';
+import 'spotify_player_view.dart';
 
 class MusicSection extends StatefulWidget {
   final Function(bool isAuthenticated, Map<String, dynamic>? userProfile)? onAuthStatusChanged;
@@ -27,6 +28,11 @@ class _MusicSectionState extends State<MusicSection> {
   String? _suggestionError;
   int _totalTracks = 0;
   bool _isAuthenticated = false;
+  int _currentPage = 1;
+  final int _itemsPerPage = 6; // Display 6 items per page (3 rows of 2)
+  bool _isPlaybackPaused = true;
+  MediaItem? _nowPlayingTrack;
+  Timer? _playbackStateTimer;
   
   // Use the direct Spotify service instead of MusicFFI
   final SpotifyService _spotifyService = SpotifyService();
@@ -35,6 +41,58 @@ class _MusicSectionState extends State<MusicSection> {
   void initState() {
     super.initState();
     _initializeSpotify();
+    _startPlaybackStatePolling();
+  }
+
+  @override
+  void dispose() {
+    _playbackStateTimer?.cancel();
+    super.dispose();
+  }
+
+  void _startPlaybackStatePolling() {
+    _playbackStateTimer = Timer.periodic(const Duration(seconds: 1), (_) async {
+      try {
+        final playbackState = await _spotifyService.getPlaybackState();
+        
+        if (mounted && playbackState != null) {
+          setState(() {
+            _isPlaybackPaused = !(playbackState['is_playing'] ?? false);
+            
+            // Check if there's a current track playing
+            final trackData = playbackState['item'] as Map<String, dynamic>?;
+            if (trackData != null) {
+              // Extract artist names from the artists array
+              final List<dynamic> artists = trackData['artists'] ?? [];
+              final String artistNames = artists.isNotEmpty 
+                  ? artists.map((a) => a['name']).join(', ')
+                  : 'Unknown Artist';
+                  
+              // Get album art URL
+              String albumArtUrl = '';
+              if (trackData['album'] != null) {
+                final List<dynamic> images = trackData['album']['images'] ?? [];
+                if (images.isNotEmpty) {
+                  albumArtUrl = images[0]['url'] ?? '';
+                }
+              }
+              
+              _nowPlayingTrack = MediaItem(
+                id: trackData['id'] ?? '',
+                title: trackData['name'] ?? 'Unknown Track',
+                overview: artistNames,
+                posterPath: albumArtUrl,
+                mediaType: 'music',
+                uri: trackData['uri'] ?? '',
+                previewUrl: trackData['preview_url'] ?? '',
+              );
+            }
+          });
+        }
+      } catch (e) {
+        debugPrint('Error polling playback state: $e');
+      }
+    });
   }
 
   Future<void> _initializeSpotify() async {
@@ -191,85 +249,165 @@ class _MusicSectionState extends State<MusicSection> {
 
   // Build the UI for authenticated users
   Widget _buildAuthenticatedView() {
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 1. SUGGESTION SECTION AT THE TOP
+          const Text(
+            'Suggested for You',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 16),
+          _isLoadingSuggestion
+              ? const Center(
+                  child: CircularProgressIndicator(),
+                )
+              : _suggestionError != null
+                  ? Text('Error: $_suggestionError')
+                  : _suggestion == null
+                      ? const Text('No suggestions available')
+                      : SuggestionDisplay(
+                          suggestedTrack: _suggestion,
+                          onRequestSuggestion: _loadSuggestion,
+                          onSkipSuggestion: _loadSuggestion,
+                          onSuggestionFeedback: (feedback) => _provideFeedback(feedback),
+                          onAddToLibrary: () => _saveTrack(_suggestion!.id.toString()),
+                          onPlay: (track) => _playTrack(track.uri ?? ''),
+                          isPlaybackPaused: _isPlaybackPaused,
+                          nowPlayingTrack: _nowPlayingTrack,
+                          onPlayPause: () => _togglePlayback(),
+                        ),
+          
+          // 2. PLAYER CONTROLS
+          const SizedBox(height: 24),
+          const SpotifyPlayer(
+            key: ValueKey('spotify_player'),
+          ),
+          
+          // 3. LIBRARY SECTION (LIKED SONGS) AT THE BOTTOM
+          const SizedBox(height: 24),
+          const Text(
+            'Your Library',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 16),
+          
+          // Library content in a grid
+          _buildLibrarySection(),
+        ],
+      ),
+    );
+  }
+  
+  // Build the library section with pagination
+  Widget _buildLibrarySection() {
+    if (_isLoadingLibrary) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    
+    if (_library.isEmpty) {
+      return const Text('Your library is empty. Search for tracks to add them to your library.');
+    }
+    
+    // Calculate the start and end indices for the current page
+    final int startIndex = (_currentPage - 1) * _itemsPerPage;
+    final int endIndex = startIndex + _itemsPerPage > _library.length 
+        ? _library.length 
+        : startIndex + _itemsPerPage;
+    
+    // Get the tracks for the current page
+    final currentPageTracks = _library.sublist(startIndex, endIndex);
+    
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Your Library',
-          style: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
+        // Grid of tracks
+        GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 2,
+            childAspectRatio: 1.0,
+            crossAxisSpacing: 16.0,
+            mainAxisSpacing: 16.0,
           ),
+          itemCount: currentPageTracks.length,
+          itemBuilder: (context, index) {
+            final track = currentPageTracks[index];
+            final isPlaying = !_isPlaybackPaused && 
+                _nowPlayingTrack?.id == track['id'];
+            
+            return TrackCard(
+              track: MediaItem(
+                id: track['id'] ?? '',
+                title: track['name'] ?? 'Unknown Track',
+                overview: track['artist'] ?? 'Unknown Artist',
+                posterPath: track['imageUrl'] ?? '',
+                mediaType: 'music',
+                uri: track['uri'],
+                previewUrl: track['previewUrl'],
+              ),
+              isSaved: true,
+              isPlaying: isPlaying,
+              onPlay: (_) => _playTrack(track['uri'] ?? ''),
+              onRemove: (_) => _removeTrack(track['id'] ?? ''),
+            );
+          },
         ),
+        
+        // Pagination controls
         const SizedBox(height: 16),
-        
-        // Library content
-        _isLoadingLibrary
-            ? const Center(child: CircularProgressIndicator())
-            : _library.isEmpty
-                ? const Text('Your library is empty')
-                : SizedBox(
-                    height: 220,
-                    child: ListView.builder(
-                      scrollDirection: Axis.horizontal,
-                      itemCount: _library.length,
-                      itemBuilder: (context, index) {
-                        final track = _library[index];
-                        return Padding(
-                          padding: const EdgeInsets.only(right: 16.0),
-                          child: TrackCard(
-                            track: MediaItem(
-                              id: track['id'] ?? '',
-                              title: track['name'] ?? 'Unknown Track',
-                              overview: track['artist'] ?? 'Unknown Artist',
-                              posterPath: track['imageUrl'] ?? '',
-                              mediaType: 'music',
-                            ),
-                            isSaved: true,
-                            isPlaying: false,
-                            onPlay: (_) => _playTrack(track['uri'] ?? ''),
-                            onRemove: (_) => _removeTrack(track['id'] ?? ''),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-        
-        const SizedBox(height: 32),
-        
-        // Suggestion section
-        const Text(
-          'Based on your likes',
-          style: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
+        _buildPaginationControls(),
+      ],
+    );
+  }
+
+  // Previous and Next page buttons for the library section
+  Widget _buildPaginationControls() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        ElevatedButton(
+          onPressed: _currentPage > 0
+              ? () {
+                  setState(() {
+                    _currentPage--;
+                  });
+                }
+              : null,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppTheme.primaryColor,
+            disabledBackgroundColor: AppTheme.primaryColor.withOpacity(0.3),
           ),
+          child: const Text('Previous'),
         ),
-        const SizedBox(height: 16),
-        _isLoadingSuggestion
-            ? const Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const CircularProgressIndicator(),
-                    const SizedBox(height: 16),
-                    const Text('Getting suggestions...'),
-                  ],
-                ),
-              )
-            : _suggestionError != null
-                ? const Text('Error: ')
-                : _suggestion == null
-                    ? const Text('No suggestions available')
-                    : SuggestionDisplay(
-                        suggestedTrack: _suggestion,
-                        onRequestSuggestion: _loadSuggestion,
-                        onSkipSuggestion: _loadSuggestion,
-                        onSuggestionFeedback: (feedback) => _provideFeedback(feedback),
-                        onAddToLibrary: () => _saveTrack(_suggestion!.id.toString()),
-                        onPlay: (track) => _playTrack(track.uri ?? ''),
-                        isPlaybackPaused: true,
-                      ),
+        const SizedBox(width: 20),
+        Text(
+          'Page ${_currentPage + 1} of ${(_totalTracks / _itemsPerPage).ceil()}',
+          style: const TextStyle(fontSize: 14),
+        ),
+        const SizedBox(width: 20),
+        ElevatedButton(
+          onPressed: (_currentPage + 1) * _itemsPerPage < _totalTracks
+              ? () {
+                  setState(() {
+                    _currentPage++;
+                  });
+                }
+              : null,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppTheme.primaryColor,
+            disabledBackgroundColor: AppTheme.primaryColor.withOpacity(0.3),
+          ),
+          child: const Text('Next'),
+        ),
       ],
     );
   }
@@ -293,6 +431,27 @@ class _MusicSectionState extends State<MusicSection> {
       ),
     );
   }
+  
+  // Toggle play/pause
+  Future<void> _togglePlayback() async {
+    try {
+      if (_isPlaybackPaused) {
+        await _spotifyService.playTrack(_nowPlayingTrack!.uri!);
+      } else {
+        await _spotifyService.pausePlayback();
+      }
+    } catch (e) {
+      debugPrint('Error toggling playback: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error controlling playback: $e'),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    }
+  }
 
   // Play a track
   Future<void> _playTrack(String uri) async {
@@ -312,7 +471,7 @@ class _MusicSectionState extends State<MusicSection> {
         if (mounted) {
           scaffoldMessenger.showSnackBar(
             const SnackBar(
-              content: Text('Playing track: '),
+              content: Text('Playing track'),
               duration: Duration(seconds: 2),
             ),
           );
@@ -341,55 +500,74 @@ class _MusicSectionState extends State<MusicSection> {
 
   // Save a track to library
   Future<void> _saveTrack(String trackId) async {
+    if (trackId.isEmpty) {
+      return;
+    }
+
+    // Store context state before async gap
+    final scaffoldMessengerState = ScaffoldMessenger.of(context);
+    final contextMounted = context.mounted;
+
     try {
-      // We don't have a direct saveTrack method, 
-      // so we'll need to handle this differently
-      // For now, we'll just show a message and refresh the library
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Track saved to your library'),
-          duration: Duration(seconds: 2),
-        ),
-      );
+      final success = await _spotifyService.saveTrack(trackId);
       
-      // Refresh the library
-      _loadLibrary();
-      // Load new suggestion
-      _loadSuggestion();
+      if (success) {
+        // Load library again to refresh saved tracks
+        await _loadLibrary();
+        if (contextMounted && mounted) {
+          scaffoldMessengerState.showSnackBar(
+            const SnackBar(content: Text('Track saved to your library')),
+          );
+        }
+      } else {
+        if (contextMounted && mounted) {
+          scaffoldMessengerState.showSnackBar(
+            const SnackBar(content: Text('Failed to save track')),
+          );
+        }
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error saving track: $e'),
-          duration: const Duration(seconds: 5),
-        ),
-      );
+      if (contextMounted && mounted) {
+        scaffoldMessengerState.showSnackBar(
+          SnackBar(content: Text('Error saving track: $e')),
+        );
+      }
     }
   }
 
   // Remove a track from library
   Future<void> _removeTrack(String trackId) async {
+    if (trackId.isEmpty) {
+      return;
+    }
+
+    // Store context state before async gap
+    final scaffoldMessengerState = ScaffoldMessenger.of(context);
+    final contextMounted = context.mounted;
+    
     try {
-      // We don't have a direct removeTrack method,
-      // so we'll just show a message and refresh the library
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Track removed from your library'),
-          duration: Duration(seconds: 2),
-        ),
-      );
-      
-      // Remove from local state
-      setState(() {
-        _library.removeWhere((track) => track['id'] == trackId);
-        _totalTracks--;
-      });
+      final success = await _spotifyService.removeTrack(trackId);
+      if (success) {
+        // Load library again to refresh saved tracks
+        await _loadLibrary();
+        if (contextMounted && mounted) {
+          scaffoldMessengerState.showSnackBar(
+            const SnackBar(content: Text('Track removed from your library')),
+          );
+        }
+      } else {
+        if (contextMounted && mounted) {
+          scaffoldMessengerState.showSnackBar(
+            const SnackBar(content: Text('Failed to remove track')),
+          );
+        }
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error removing track: $e'),
-          duration: const Duration(seconds: 5),
-        ),
-      );
+      if (contextMounted && mounted) {
+        scaffoldMessengerState.showSnackBar(
+          SnackBar(content: Text('Error removing track: $e')),
+        );
+      }
     }
   }
 

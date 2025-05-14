@@ -32,7 +32,7 @@ type Music struct {
 func NewMusicBinder(ctx context.Context, cm session.CentralManager, clientID string) *Music {
 	sac := &spotify.AuthConfig{
 		ClientID:    clientID,
-		RedirectURI: "http://localhost:8080/callback",
+		RedirectURI: "http://localhost:8080/callback", // This will be the default, but can be overridden
 	}
 
 	// Create a map of LLM clients for both providers
@@ -361,11 +361,17 @@ func (m *Music) RefreshLLMClients() {
 }
 
 // InitiateSpotifyAuth explicitly starts the Spotify authentication flow
-func (m *Music) InitiateSpotifyAuth() error {
-	log.Println("Explicitly initiating Spotify authentication flow (browser only)")
+// It now accepts a port number to use for the callback server
+func (m *Music) InitiateSpotifyAuth(port int) error {
+	log.Printf("Explicitly initiating Spotify authentication flow with port %d", port)
+
+	// Validate that the port is one of the registered ports
+	if !spotify.IsRegisteredPort(port) {
+		return fmt.Errorf("port %d is not registered in the Spotify Developer Dashboard", port)
+	}
 
 	// Open the browser with the auth URL but don't set up a server or handle callback
-	err := spotify.OpenSpotifyAuthBrowser(context.Background())
+	err := spotify.OpenSpotifyAuthBrowser(context.Background(), port)
 	if err != nil {
 		log.Printf("ERROR: Failed to open Spotify auth browser: %v", err)
 		return err

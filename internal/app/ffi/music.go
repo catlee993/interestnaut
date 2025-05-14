@@ -273,7 +273,7 @@ func Music_SearchTracks(queryC *C.char, limitC C.int) *C.char {
 }
 
 //export Music_InitiateSpotifyAuth
-func Music_InitiateSpotifyAuth() *C.char {
+func Music_InitiateSpotifyAuth(port C.int) *C.char {
 	var result *C.char
 
 	if !ensureMusicBindingsInitialized() {
@@ -281,8 +281,8 @@ func Music_InitiateSpotifyAuth() *C.char {
 		return result
 	}
 
-	// Call the simplified version that just opens the browser
-	err := musicBindings.InitiateSpotifyAuth()
+	// Call the simplified version that just opens the browser, passing the port
+	err := musicBindings.InitiateSpotifyAuth(int(port))
 	if err != nil {
 		log.Printf("Music_InitiateSpotifyAuth failed: %v", err)
 		errorJson, _ := json.Marshal(map[string]interface{}{
@@ -293,7 +293,7 @@ func Music_InitiateSpotifyAuth() *C.char {
 	}
 
 	if pid := os.Getpid(); pid > 0 {
-		log.Printf("Spotify auth browser opened. PID is: %d", pid)
+		log.Printf("Spotify auth browser opened with port %d. PID is: %d", int(port), pid)
 	}
 
 	// Return the auth status and indicate that the browser was opened
@@ -302,6 +302,9 @@ func Music_InitiateSpotifyAuth() *C.char {
 
 	// Add a browserOpened flag to let Flutter know the browser was opened
 	authStatus["browserOpened"] = true
+	
+	// Add port number to response so Flutter knows what port was used
+	authStatus["port"] = int(port)
 
 	// Add the code verifier so Flutter can use it for token exchange
 	codeVerifier := spotify.GetCodeVerifier()
