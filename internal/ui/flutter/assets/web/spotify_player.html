@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Spotify Web Player</title>
+  <script src="https://sdk.scdn.co/spotify-player.js"></script>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: Arial, sans-serif;
+      background-color: #1DB954;
+      color: white;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+    }
+    #player-status {
+      text-align: center;
+      padding: 20px;
+    }
+  </style>
+</head>
+<body>
+  <div id="player-status">Connecting to Spotify...</div>
+
+  <script>
+    window.onSpotifyWebPlaybackSDKReady = () => {
+      let token = '';
+      let player = null;
+      let deviceId = '';
+      
+      // Function to send messages to Flutter
+      function sendToFlutter(data) {
+        // Use the SpotifyEvents channel name we defined in the Dart code
+        if (window.SpotifyEvents && window.SpotifyEvents.postMessage) {
+          window.SpotifyEvents.postMessage(JSON.stringify(data));
+        } else {
+          console.error('SpotifyEvents channel not available');
+        }
+      }
+      
+      // Function to receive messages from Flutter
+      window.addEventListener('message', (event) => {
+        const data = event.data;
+        
+        if (data.type === 'token') {
+          // Got token from Flutter
+          token = data.token;
+          initializePlayer(token);
+        }
+        else if (data.type === 'playTrack') {
+          // Play a track
+          if (player && deviceId) {
+            player.connect().then(success => {
+              if (success) {
+                fetch(`https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`, {
+                  method: 'PUT',
+                  body: JSON.stringify({
+                    uris: [data.uri]
+                  }),
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                  }
+                });
+              }
+            });
+          }
+        }
+        else if (data.type === 'pause') {
+          // Pause playback
+          if (player) {
+            player.pause();
+          }
+        }
+      });
+      
+      function initializePlayer(token) {
+        if (player) {
+          player.disconnect();
+        }
+        
+        player = new Spotify.Player({
+          name: 'Interestnaut Web Player',
+          getOAuthToken: cb => { cb(token); },
+          volume: 0.5
+        });
+        
+        // Ready
+        player.addListener('ready', ({ device_id }) => {
+          console.log('Ready with Device ID', device_id);
+          deviceId = device_id;
+          document.getElementById('player-status').innerText = 'Player connected and ready';
+          
+          // Send device ID back to Flutter
+          sendToFlutter({
+            type: 'deviceReady',
+            deviceId: device_id
+          });
+        });
+        
+        // Not Ready
+        player.addListener('not_ready', ({ device_id }) => {
+          console.log('Device ID has gone offline', device_id);
+          document.getElementById('player-status').innerText = 'Player connection lost';
+          
+          // Inform Flutter
+          sendToFlutter({
+            type: 'deviceDisconnected'
+          });
+        });
+        
+        // Player state changed
+        player.addListener('player_state_changed', (state => {
+          console.log('Player state changed', state);
+          
+          // Send state to Flutter
+          if (state) {
+            sendToFlutter({
+              type: 'playerStateChanged',
+              track: state.track_window.current_track,
+              paused: state.paused,
+              position: state.position,
+              duration: state.duration
+            });
+          }
+        }));
+        
+        // Error
+        player.addListener('initialization_error', ({ message }) => {
+          console.error('Failed to initialize', message);
+          document.getElementById('player-status').innerText = 'Failed to initialize player';
+          sendToFlutter({
+            type: 'error',
+            message: `Initialization error: ${message}`
+          });
+        });
+        
+        player.addListener('authentication_error', ({ message }) => {
+          console.error('Failed to authenticate', message);
+          document.getElementById('player-status').innerText = 'Authentication failed';
+          sendToFlutter({
+            type: 'error',
+            message: `Authentication error: ${message}`
+          });
+        });
+        
+        player.addListener('account_error', ({ message }) => {
+          console.error('Premium account required', message);
+          document.getElementById('player-status').innerText = 'Premium account required';
+          sendToFlutter({
+            type: 'error',
+            message: `Account error: ${message}`
+          });
+        });
+        
+        // Connect to the player
+        player.connect().then(success => {
+          if (success) {
+            console.log('The Web Playback SDK successfully connected to Spotify!');
+          } else {
+            console.log('The Web Playback SDK failed to connect to Spotify');
+            document.getElementById('player-status').innerText = 'Failed to connect to Spotify';
+            sendToFlutter({
+              type: 'error',
+              message: 'Failed to connect to Spotify'
+            });
+          }
+        });
+      }
+    };
+  </script>
+</body>
+</html>

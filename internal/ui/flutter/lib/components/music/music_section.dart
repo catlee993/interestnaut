@@ -7,6 +7,7 @@ import '../../theme.dart';
 import 'suggestions/suggestion_display.dart';
 import 'tracks/track_card.dart';
 import 'spotify_player_view.dart';
+import 'spotify_web_player.dart'; // Add import for web player
 
 class MusicSection extends StatefulWidget {
   const MusicSection({
@@ -29,142 +30,83 @@ class _MusicSectionState extends State<MusicSection> {
   final int _itemsPerPage = 20; // Show 20 items per page
   bool _isPlaybackPaused = true;
   MediaItem? _nowPlayingTrack;
-  Timer? _playbackStateTimer;
+  String? _activeDeviceId;
   
-  // Use the direct Spotify service instead of MusicFFI
+  // Create a GlobalKey to access the SpotifyWebPlayer instance
+  final GlobalKey<SpotifyWebPlayerState> _webPlayerKey = GlobalKey();
+  
+  // Replace Timer with StreamSubscription - no more polling!
+  StreamSubscription? _authSubscription;
+  StreamSubscription? _deviceIdSubscription;
+  StreamSubscription? _playbackStateSubscription;
+  StreamSubscription? _trackChangeSubscription;
+  
+  // Keep services and other components
   final SpotifyService _spotifyService = SpotifyService();
 
   @override
   void initState() {
     super.initState();
-    _initializeSpotify();
-    _startPlaybackStatePolling();
-  }
-
-  @override
-  void dispose() {
-    _playbackStateTimer?.cancel();
-    super.dispose();
-  }
-
-  void _startPlaybackStatePolling() {
-    _playbackStateTimer = Timer.periodic(const Duration(seconds: 1), (_) async {
-      // Only poll for playback state if authenticated
-      if (!_isAuthenticated) {
-        return;
-      }
-      
-      try {
-        final playbackState = await _spotifyService.getPlaybackState();
-        
-        if (mounted && playbackState != null) {
-          setState(() {
-            _isPlaybackPaused = !(playbackState['is_playing'] ?? false);
-            
-            // Check if there's a current track playing
-            final trackData = playbackState['item'] as Map<String, dynamic>?;
-            if (trackData != null) {
-              // Extract artist names from the artists array
-              final List<dynamic> artists = trackData['artists'] ?? [];
-              final String artistNames = artists.isNotEmpty 
-                  ? artists.map((a) => a['name']).join(', ')
-                  : 'Unknown Artist';
-                  
-              // Get album art URL
-              String albumArtUrl = '';
-              if (trackData['album'] != null) {
-                final List<dynamic> images = trackData['album']['images'] ?? [];
-                if (images.isNotEmpty) {
-                  albumArtUrl = images[0]['url'] ?? '';
-                }
-              }
-              
-              _nowPlayingTrack = MediaItem(
-                id: trackData['id'] ?? '',
-                title: trackData['name'] ?? 'Unknown Track',
-                overview: artistNames,
-                posterPath: albumArtUrl,
-                mediaType: 'music',
-                uri: trackData['uri'] ?? '',
-                previewUrl: trackData['preview_url'] ?? '',
-              );
-            }
-          });
-        }
-      } catch (e) {
-        debugPrint('Error polling playback state: $e');
-      }
-    });
-  }
-
-  Future<void> _initializeSpotify() async {
-    await _spotifyService.initialize();
+    _initSpotifyListeners();
     _checkAuthentication();
   }
-
-  Future<void> _checkAuthentication() async {
-    // Check if authenticated with Spotify
-    final isAuthenticated = await _spotifyService.checkAuthentication();
-    
-    if (mounted) {
-      setState(() {
-        _isAuthenticated = isAuthenticated;
-      });
-    }
-    
-    // Only start loading library and listening for auth events 
-    // if we're authenticated
-    if (isAuthenticated) {
-      _loadLibrary();
-      _loadSuggestion();
-      // Listen for authentication status changes
-      _listenToAuthEvents();
-    } else {
-      // Clear any existing data since we're not authenticated
-      if (mounted) {
-        setState(() {
-          _library = [];
-          _nowPlayingTrack = null;
-          _suggestion = null;
-        });
-      }
-    }
+  
+  @override
+  void dispose() {
+    _authSubscription?.cancel();
+    _deviceIdSubscription?.cancel();
+    _playbackStateSubscription?.cancel();
+    _trackChangeSubscription?.cancel();
+    super.dispose();
   }
   
-  /// Set up event listeners for authentication status changes
-  void _listenToAuthEvents() {
-    _spotifyService.onAuthStatusChange.listen((event) {
-      if (mounted) {
-        setState(() {
-          _isAuthenticated = event.isAuthenticated;
-        });
-        
-        if (event.isAuthenticated) {
-          // Fetch user's library and suggestion when authenticated
-          // This ensures data loads when auth happens from either component
-          _loadLibrary();
-          _loadSuggestion();
-        } else {
-          // Clear user data if logged out
-          setState(() {
-            _library = [];
-            _nowPlayingTrack = null;
-            _suggestion = null;
-          });
-        }
+  // Initialize Spotify listeners to replace polling
+  void _initSpotifyListeners() {
+    // Listen for auth state changes
+    _authSubscription = _spotifyService.onAuthStatusChange.listen((event) {
+      setState(() {
+        _isAuthenticated = event.isAuthenticated;
+      });
+      
+      if (_isAuthenticated) {
+        _loadLibrary();
+        _loadSuggestion();
       }
     });
     
-    _spotifyService.onTrackChange.listen((event) {
-      if (mounted) {
-        // Update the now playing track
-        setState(() {
-          final media = event.item;
-          _nowPlayingTrack = media;
-          _isPlaybackPaused = false;
-        });
-      }
+    // Listen for device ID changes
+    _deviceIdSubscription = _spotifyService.onDeviceIdChange.listen((deviceId) {
+      setState(() {
+        _activeDeviceId = deviceId;
+      });
     });
+    
+    // Listen for playback state changes
+    _playbackStateSubscription = _spotifyService.onPlaybackStateChange.listen((isPlaying) {
+      setState(() {
+        _isPlaybackPaused = !isPlaying;
+      });
+    });
+    
+    // Listen for track changes
+    _trackChangeSubscription = _spotifyService.onTrackChange.listen((event) {
+      setState(() {
+        _nowPlayingTrack = event.item;
+      });
+    });
+  }
+  
+  // Check if user is already authenticated
+  Future<void> _checkAuthentication() async {
+    final isAuthenticated = await _spotifyService.checkAuthentication();
+    setState(() {
+      _isAuthenticated = isAuthenticated;
+    });
+    
+    if (_isAuthenticated) {
+      _loadLibrary();
+      _loadSuggestion();
+    }
   }
 
   // Load saved tracks from library
@@ -259,39 +201,50 @@ class _MusicSectionState extends State<MusicSection> {
     }
   }
 
-  // Authenticate with Spotify
-  Future<void> _authenticate(BuildContext context) async {
-    // This method is no longer directly used, since auth happens in main.dart
-    // But we keep it for reference or future use
-    try {
-      // Explicitly initiate Spotify authentication flow
-      final success = await _spotifyService.authenticate(context);
-      debugPrint('Spotify auth initiated successfully');
-      
-      if (success) {
-        // Get user profile through the event stream instead of direct call
-        setState(() {
-          _isAuthenticated = true;
-        });
-        
-        // Load library and suggestions
-        _loadLibrary();
-        _loadSuggestion();
-      }
-    } catch (e) {
-      debugPrint('Error authenticating with Spotify: $e');
+  // Play a track with the new device ID approach
+  Future<void> _playTrack(String trackUri) async {
+    if (_activeDeviceId == null) {
+      debugPrint('No active Spotify device available. Using web player.');
+      // Try to play via the web player directly
+      _webPlayerKey.currentState?.playTrack(trackUri);
+    } else {
+      // Use the stored device ID
+      await _spotifyService.playTrack(trackUri, deviceId: _activeDeviceId);
+    }
+  }
+  
+  // Pause playback
+  Future<void> _pausePlayback() async {
+    if (_activeDeviceId == null) {
+      debugPrint('No active Spotify device available. Using web player.');
+      // Try to pause via the web player directly
+      _webPlayerKey.currentState?.pausePlayback();
+    } else {
+      // Use the stored device ID
+      await _spotifyService.pausePlayback(deviceId: _activeDeviceId);
     }
   }
 
   // Build the main music section UI
   @override
   Widget build(BuildContext context) {
-    return Container(
-      color: AppTheme.backgroundColor,
-      padding: const EdgeInsets.all(16.0),
-      child: _isAuthenticated
-          ? _buildAuthenticatedView()
-          : _buildLoginPrompt(context),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Add the web player (hidden but active)
+        SizedBox(
+          width: 1,
+          height: 1,
+          child: SpotifyWebPlayer(
+            key: _webPlayerKey,
+            spotifyService: _spotifyService,
+            visible: false,
+          ),
+        ),
+        
+        // Rest of your build method
+        if (!_isAuthenticated) _buildAuthPrompt() else _buildAuthenticatedView(),
+      ],
     );
   }
 
@@ -460,18 +413,36 @@ class _MusicSectionState extends State<MusicSection> {
   }
 
   // Build login prompt for unauthenticated users
-  Widget _buildLoginPrompt(BuildContext context) {
+  Widget _buildAuthPrompt() {
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           const Text(
-            'Connect to Spotify to access your music',
-            style: TextStyle(fontSize: 18),
+            'Connect to Spotify',
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+            ),
           ),
           const SizedBox(height: 16),
+          const Text(
+            'To view and play music, connect your Spotify account.',
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 24),
           ElevatedButton(
-            onPressed: () => _authenticate(context),
+            onPressed: () async {
+              // Use the authenticate method from SpotifyService
+              final success = await _spotifyService.authenticate(context);
+              if (success) {
+                setState(() {
+                  _isAuthenticated = true;
+                });
+                _loadLibrary();
+                _loadSuggestion();
+              }
+            },
             child: const Text('Connect to Spotify'),
           ),
         ],
@@ -494,51 +465,6 @@ class _MusicSectionState extends State<MusicSection> {
           SnackBar(
             content: Text('Error controlling playback: $e'),
             duration: const Duration(seconds: 3),
-          ),
-        );
-      }
-    }
-  }
-
-  // Play a track
-  Future<void> _playTrack(String uri) async {
-    if (uri.isEmpty) {
-      debugPrint('Cannot play track: URI is empty');
-      return;
-    }
-    
-    try {
-      // Store the scaffold messenger before async operation
-      final scaffoldMessenger = ScaffoldMessenger.of(context);
-      
-      // Play the track using the Spotify service
-      final success = await _spotifyService.playTrack(uri);
-      
-      if (success) {
-        if (mounted) {
-          scaffoldMessenger.showSnackBar(
-            const SnackBar(
-              content: Text('Playing track'),
-              duration: Duration(seconds: 2),
-            ),
-          );
-        }
-      } else {
-        if (mounted) {
-          scaffoldMessenger.showSnackBar(
-            const SnackBar(
-              content: Text('Failed to play track - No active device found'),
-              duration: Duration(seconds: 3),
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error playing track: $e'),
-            duration: const Duration(seconds: 5),
           ),
         );
       }

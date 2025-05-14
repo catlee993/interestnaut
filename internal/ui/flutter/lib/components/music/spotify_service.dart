@@ -65,12 +65,14 @@ class SpotifyService {
   final _userProfileController = StreamController<UserProfileEvent>.broadcast();
   final _trackChangeController = StreamController<TrackChangeEvent>.broadcast();
   final _playbackStateController = StreamController<bool>.broadcast();
+  final _deviceIdController = StreamController<String>.broadcast();
   
   // Public streams that UI components can listen to
   Stream<AuthStatusEvent> get onAuthStatusChange => _authStatusController.stream;
   Stream<UserProfileEvent> get onUserProfileChange => _userProfileController.stream;
   Stream<TrackChangeEvent> get onTrackChange => _trackChangeController.stream;
   Stream<bool> get onPlaybackStateChange => _playbackStateController.stream;
+  Stream<String> get onDeviceIdChange => _deviceIdController.stream;
   
   // Authentication state
   bool _isAuthenticated = false;
@@ -109,6 +111,9 @@ class SpotifyService {
   
   // Spotify Web API client
   final SpotifyClient _spotifyClient = SpotifyClient();
+  
+  // Current device ID for playback
+  String? _activeDeviceId;
   
   /// Initialize the Spotify service
   /// This should be called during app startup
@@ -1087,8 +1092,45 @@ class SpotifyService {
     }
     
     try {
-      // Use Web API
-      return await _spotifyClient.playTrack(trackUri, deviceId: deviceId);
+      // Use device ID if provided, otherwise use active device
+      final targetDeviceId = deviceId ?? _activeDeviceId;
+      
+      if (targetDeviceId == null) {
+        debugPrint('Cannot play track: No active Spotify device available');
+        return false;
+      }
+      
+      // Make direct API call 
+      final response = await http.put(
+        Uri.parse('https://api.spotify.com/v1/me/player/play?device_id=$targetDeviceId'),
+        headers: {
+          'Authorization': 'Bearer $_accessToken',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({
+          'uris': [trackUri],
+        }),
+      );
+      
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        debugPrint('Successfully started playback on device: $targetDeviceId');
+        // No need to emit an event, the player will send state changes
+        return true;
+      } else if (response.statusCode == 401) {
+        // Token expired, try to refresh
+        final refreshed = await _refreshAccessToken();
+        if (refreshed) {
+          // Try again with new token
+          return playTrack(trackUri, deviceId: targetDeviceId);
+        } else {
+          _isAuthenticated = false;
+          _emitAuthEvent(false);
+          return false;
+        }
+      } else {
+        debugPrint('Failed to play track: ${response.statusCode} - ${response.body}');
+        return false;
+      }
     } catch (e) {
       debugPrint('Error playing track: $e');
       return false;
@@ -1103,12 +1145,74 @@ class SpotifyService {
     }
     
     try {
-      // Use Web API
-      return await _spotifyClient.pausePlayback(deviceId: deviceId);
+      // Use device ID if provided, otherwise use active device
+      final targetDeviceId = deviceId ?? _activeDeviceId;
+      
+      if (targetDeviceId == null) {
+        debugPrint('Cannot pause playback: No active Spotify device available');
+        return false;
+      }
+      
+      // Make direct API call
+      final response = await http.put(
+        Uri.parse('https://api.spotify.com/v1/me/player/pause?device_id=$targetDeviceId'),
+        headers: {
+          'Authorization': 'Bearer $_accessToken',
+        },
+      );
+      
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        debugPrint('Successfully paused playback on device: $targetDeviceId');
+        return true;
+      } else if (response.statusCode == 401) {
+        // Token expired, try to refresh
+        final refreshed = await _refreshAccessToken();
+        if (refreshed) {
+          // Try again with new token
+          return pausePlayback(deviceId: targetDeviceId);
+        } else {
+          _isAuthenticated = false;
+          _emitAuthEvent(false);
+          return false;
+        }
+      } else {
+        debugPrint('Failed to pause playback: ${response.statusCode} - ${response.body}');
+        return false;
+      }
     } catch (e) {
       debugPrint('Error pausing playback: $e');
       return false;
     }
+  }
+
+  /// Set the active Spotify device ID (used for playback)
+  void setActiveDeviceId(String deviceId) {
+    _activeDeviceId = deviceId;
+    debugPrint('Active Spotify device set: $deviceId');
+    _deviceIdController.add(deviceId);
+  }
+
+  /// Get the active device ID if available
+  String? getActiveDeviceId() {
+    return _activeDeviceId;
+  }
+
+  /// Get the access token for WebView player
+  Future<String?> getAccessToken() async {
+    if (!_isAuthenticated) {
+      return null;
+    }
+
+    // Check if token needs refresh
+    final now = DateTime.now();
+    if (_tokenExpiry.isBefore(now)) {
+      final refreshed = await _refreshAccessToken();
+      if (!refreshed) {
+        return null;
+      }
+    }
+
+    return _accessToken;
   }
 
   /// Fetch the current user's profile from Spotify API
