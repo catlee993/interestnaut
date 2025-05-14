@@ -179,8 +179,6 @@ class _MusicSectionState extends State<MusicSection> {
       // Calculate offset based on current page
       final int offset = _currentPage * _itemsPerPage;
       
-      debugPrint('Loading page $_currentPage (offset: $offset, limit: $_itemsPerPage)');
-      
       // Get liked tracks from the user's library with pagination
       final response = await _spotifyService.getLikedTracks(
         limit: _itemsPerPage,
@@ -209,11 +207,6 @@ class _MusicSectionState extends State<MusicSection> {
         
         _isLoadingLibrary = false;
         _totalTracks = totalTracks;
-        
-        // Debug pagination info
-        debugPrint('Library loaded with ${_library.length} tracks for page $_currentPage');
-        debugPrint('Total tracks in library: $totalTracks');
-        debugPrint('Total pages: ${(totalTracks / _itemsPerPage).ceil()}');
       });
     } catch (e) {
       debugPrint('Error loading library: $e');
@@ -422,11 +415,6 @@ class _MusicSectionState extends State<MusicSection> {
   Widget _buildPaginationControls() {
     // Calculate total pages
     final int totalPages = (_totalTracks / _itemsPerPage).ceil();
-    
-    // Debug pagination values
-    debugPrint('_currentPage: $_currentPage, totalPages: $totalPages');
-    debugPrint('_totalTracks: $_totalTracks, _itemsPerPage: $_itemsPerPage');
-    debugPrint('Current library size: ${_library.length}');
     
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
