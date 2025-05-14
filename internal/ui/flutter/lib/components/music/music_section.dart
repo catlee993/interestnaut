@@ -139,7 +139,12 @@ class _MusicSectionState extends State<MusicSection> {
           _isAuthenticated = event.isAuthenticated;
         });
         
-        if (!event.isAuthenticated) {
+        if (event.isAuthenticated) {
+          // Fetch user's library and suggestion when authenticated
+          // This ensures data loads when auth happens from either component
+          _loadLibrary();
+          _loadSuggestion();
+        } else {
           // Clear user data if logged out
           setState(() {
             _library = [];
@@ -151,7 +156,7 @@ class _MusicSectionState extends State<MusicSection> {
     });
     
     _spotifyService.onTrackChange.listen((event) {
-      if (mounted && event.item != null) {
+      if (mounted) {
         // Update the now playing track
         setState(() {
           final media = event.item;

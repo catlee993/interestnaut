@@ -123,7 +123,7 @@ class _SpotifyPlayerState extends State<SpotifyPlayer> {
   Timer? _pollingTimer;
   int _position = 0;
   final int _duration = 30000; // Default duration in milliseconds
-  final SpotifyService _spotifyService = SpotifyService.instance;
+  final SpotifyService _spotifyService = SpotifyService();
   StreamSubscription? _eventSubscription;
 
   @override

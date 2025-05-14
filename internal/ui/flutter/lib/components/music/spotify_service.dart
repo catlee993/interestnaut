@@ -29,18 +29,13 @@ class UserProfileEvent {
 }
 
 class TrackChangeEvent {
-  final MediaItem item;
+  final MediaItem? item;
   TrackChangeEvent(this.item);
 }
 
-/// A cross-platform Spotify service that handles authentication and playback
-///
-/// This service provides three layers of functionality:
-/// 1. Native auth & playback through spotify_sdk where available (iOS, Android)
-/// 2. WebView-based auth with WebAPI playback for desktop platforms
-/// 3. Fallback to Go backend when available
+// Singleton implementation for SpotifyService
 class SpotifyService {
-  // Singleton pattern
+  // Singleton instance
   static final SpotifyService _instance = SpotifyService._internal(
     clientId: '3bb48a30577342869a9ffcb176dee7d2',
     redirectUri: 'interestnaut://spotify-callback',
@@ -48,9 +43,21 @@ class SpotifyService {
     tokenEndpoint: 'https://accounts.spotify.com/api/token',
     callbackServerUri: 'http://localhost',
   );
-  static SpotifyService get instance => _instance;
-  factory SpotifyService() => _instance;
-
+  
+  // Factory constructor to return the same instance
+  factory SpotifyService() {
+    return _instance;
+  }
+  
+  // Private constructor
+  SpotifyService._internal({
+    required this.clientId,
+    required this.redirectUri,
+    required this.authEndpoint,
+    required this.tokenEndpoint,
+    required this.callbackServerUri,
+  });
+  
   // Stream controllers for events
   final _authStatusController = StreamController<AuthStatusEvent>.broadcast();
   final _userProfileController = StreamController<UserProfileEvent>.broadcast();
@@ -100,15 +107,6 @@ class SpotifyService {
   
   // Spotify Web API client
   final SpotifyClient _spotifyClient = SpotifyClient();
-  
-  /// Internal constructor for the singleton pattern
-  SpotifyService._internal({
-    required this.clientId,
-    required this.redirectUri,
-    required this.authEndpoint,
-    required this.tokenEndpoint,
-    required this.callbackServerUri,
-  });
   
   /// Initialize the Spotify service
   /// This should be called during app startup
