@@ -75,13 +75,16 @@ class LibrarySection extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                OutlinedButton(
-                  onPressed: currentPage == 1 ? null : onPrevPage,
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: const Color(0xFFA855F7),
-                    side: const BorderSide(color: Color(0xFFA855F7)),
+                SizedBox(
+                  width: 100, // Fixed width for both buttons
+                  child: OutlinedButton(
+                    onPressed: currentPage == 1 ? null : onPrevPage,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFFA855F7),
+                      side: const BorderSide(color: Color(0xFFA855F7)),
+                    ),
+                    child: const Text('Previous'),
                   ),
-                  child: const Text('Previous'),
                 ),
                 const SizedBox(width: 16),
                 Text(
@@ -89,13 +92,16 @@ class LibrarySection extends StatelessWidget {
                   style: const TextStyle(color: Colors.white70),
                 ),
                 const SizedBox(width: 16),
-                OutlinedButton(
-                  onPressed: currentPage * itemsPerPage >= totalTracks ? null : onNextPage,
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: const Color(0xFFA855F7),
-                    side: const BorderSide(color: Color(0xFFA855F7)),
+                SizedBox(
+                  width: 100, // Same fixed width as Previous button
+                  child: OutlinedButton(
+                    onPressed: currentPage * itemsPerPage >= totalTracks ? null : onNextPage,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFFA855F7),
+                      side: const BorderSide(color: Color(0xFFA855F7)),
+                    ),
+                    child: const Text('Next'),
                   ),
-                  child: const Text('Next'),
                 ),
               ],
             ),

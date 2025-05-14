@@ -383,6 +383,77 @@ class _MusicSectionState extends State<MusicSection> {
     await _saveTrack(track.id.toString());
   }
 
+  // Handle play/pause action from track cards
+  Future<void> _handleTrackCardAction(dynamic trackData) async {
+    Map<String, dynamic> trackInfo;
+    
+    if (trackData is Track) {
+      trackInfo = {
+        'uri': trackData.uri,
+        'id': trackData.id,
+      };
+    } else if (trackData is MediaItem) {
+      trackInfo = {
+        'uri': trackData.uri ?? '',
+        'id': trackData.id,
+      };
+    } else {
+      trackInfo = {
+        'uri': trackData.uri ?? '',
+        'id': trackData.id ?? '',
+      };
+    }
+    
+    String trackUri = trackInfo['uri'] as String;
+    
+    // Check if this is the currently playing track
+    if (_nowPlayingTrack != null && _nowPlayingTrack!.uri == trackUri) {
+      // Toggle pause/play instead of restarting the track
+      if (_isPlaybackPaused) {
+        // Resume by playing the current track (no resumePlayback method available)
+        await _spotifyService.playTrack(trackUri, deviceId: _activeDeviceId);
+        setState(() {
+          _isPlaybackPaused = false;
+        });
+      } else {
+        await _spotifyService.pausePlayback();
+        setState(() {
+          _isPlaybackPaused = true;
+        });
+      }
+    } else {
+      // New track, play it
+      await _playTrack(trackUri);
+    }
+  }
+
+  // Toggle play/pause for the current track
+  Future<void> _togglePlayback() async {
+    try {
+      if (_isPlaybackPaused) {
+        // If we have a track, use its URI to resume playback
+        if (_nowPlayingTrack != null) {
+          await _spotifyService.playTrack(_nowPlayingTrack!.uri, deviceId: _activeDeviceId);
+        }
+      } else {
+        await _spotifyService.pausePlayback();
+      }
+      setState(() {
+        _isPlaybackPaused = !_isPlaybackPaused;
+      });
+    } catch (e) {
+      debugPrint('Error toggling playback: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error controlling playback: $e'),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    }
+  }
+
   // Build the main music section UI
   @override
   Widget build(BuildContext context) {
@@ -484,7 +555,7 @@ class _MusicSectionState extends State<MusicSection> {
                         onSkipSuggestion: _loadSuggestion,
                         onSuggestionFeedback: (feedback) => _provideFeedback(feedback),
                         onAddToLibrary: () => _saveTrack(_suggestion!.id),
-                        onPlay: (mediaItem) => _playTrack(mediaItem.uri ?? ''),
+                        onPlay: (mediaItem) => _handleTrackCardAction(mediaItem),
                         isPlaybackPaused: _isPlaybackPaused,
                         nowPlayingTrack: _nowPlayingTrack != null ? TrackAdapter.toMediaItem(_nowPlayingTrack!) : null,
                         onPlayPause: () => _togglePlayback(),
@@ -518,7 +589,7 @@ class _MusicSectionState extends State<MusicSection> {
       itemsPerPage: _tracksPerPage,
       nowPlayingTrack: _nowPlayingTrack,
       isPlaybackPaused: _isPlaybackPaused,
-      onPlay: (track) => _playTrack(track.uri),
+      onPlay: (track) => _handleTrackCardAction(track),
       onSave: _saveFromLibrary,
       onRemove: _removeTrack,
       onNextPage: _loadNextPage,
@@ -563,27 +634,6 @@ class _MusicSectionState extends State<MusicSection> {
         ],
       ),
     );
-  }
-
-  // Toggle play/pause
-  Future<void> _togglePlayback() async {
-    try {
-      if (_isPlaybackPaused) {
-        await _spotifyService.playTrack(_nowPlayingTrack!.id);
-      } else {
-        await _spotifyService.pausePlayback();
-      }
-    } catch (e) {
-      debugPrint('Error toggling playback: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error controlling playback: $e'),
-            duration: const Duration(seconds: 3),
-          ),
-        );
-      }
-    }
   }
 
   // Provide feedback for a suggestion

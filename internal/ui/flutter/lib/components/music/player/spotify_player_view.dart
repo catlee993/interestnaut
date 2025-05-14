@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import '../../../models.dart';
 import '../spotify_service.dart';
@@ -32,7 +33,7 @@ class _SeekBarState extends State<_SeekBar> with TickerProviderStateMixin {
     // Set up animation controller for smooth progress updates
     _progressController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1000), // 1 second for animation
+      duration: const Duration(milliseconds: 200), // More immediate animation (reduced from 1000ms)
     );
     
     _updateProgressAnimation();
@@ -44,7 +45,7 @@ class _SeekBarState extends State<_SeekBar> with TickerProviderStateMixin {
       end: widget.position.toDouble(),
     ).animate(CurvedAnimation(
       parent: _progressController,
-      curve: Curves.linear,
+      curve: Curves.easeOut, // More immediate feel with easeOut instead of linear
     ));
     
     _progressController.forward(from: 0.0);
@@ -314,121 +315,119 @@ class _SpotifyPlayerState extends State<SpotifyPlayer> {
       return const SizedBox.shrink();
     }
     
-    return Container(
-      height: 80,
-      decoration: BoxDecoration(
-        color: colorScheme.surface.withOpacity(0.8), // 80% opacity as requested
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withAlpha(40),
-            blurRadius: 6,
-            offset: const Offset(0, -2),
+    return ClipRect(
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+        child: Container(
+          height: 80,
+          decoration: BoxDecoration(
+            color: const Color.fromRGBO(18, 18, 18, 0.45),
+            border: Border(
+              top: BorderSide(
+                color: Colors.white.withOpacity(0.1),
+                width: 1,
+              ),
+            ),
           ),
-        ],
-        border: Border(
-          top: BorderSide(
-            color: Colors.white.withOpacity(0.1),
-            width: 1,
-          ),
-        ),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            // Album art
-            if (_currentTrack!.albumArtUrl.isNotEmpty)
-              ClipRRect(
-                borderRadius: BorderRadius.circular(4),
-                child: Image.network(
-                  _currentTrack!.albumArtUrl,
-                  width: 48,
-                  height: 48,
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) {
-                    return Container(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                // Album art
+                if (_currentTrack!.albumArtUrl.isNotEmpty)
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: Image.network(
+                      _currentTrack!.albumArtUrl,
                       width: 48,
                       height: 48,
-                      color: colorScheme.primary.withAlpha(50),
-                      child: const Icon(Icons.music_note),
-                    );
-                  },
-                ),
-              )
-            else
-              Container(
-                width: 48,
-                height: 48,
-                color: colorScheme.primary.withAlpha(50),
-                child: const Icon(Icons.music_note),
-              ),
-            
-            // Track info
-            SizedBox(
-              width: 180,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      _currentTrack!.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
-                        color: theme.textTheme.titleSmall?.color,
-                      ),
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) {
+                        return Container(
+                          width: 48,
+                          height: 48,
+                          color: colorScheme.primary.withAlpha(50),
+                          child: const Icon(Icons.music_note),
+                        );
+                      },
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '${_currentTrack!.artist} - ${_currentTrack!.album.name}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: theme.textTheme.bodySmall?.color?.withOpacity(0.7),
-                      ),
+                  )
+                else
+                  Container(
+                    width: 48,
+                    height: 48,
+                    color: colorScheme.primary.withAlpha(50),
+                    child: const Icon(Icons.music_note),
+                  ),
+                
+                // Track info
+                SizedBox(
+                  width: 180,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          _currentTrack!.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                            color: theme.textTheme.titleSmall?.color,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '${_currentTrack!.artist} - ${_currentTrack!.album.name}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: theme.textTheme.bodySmall?.color?.withOpacity(0.7),
+                          ),
+                        ),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
-              ),
-            ),
-            
-            // Scrubber bar (now in the same row as other elements)
-            Expanded(
-              child: _SeekBar(
-                position: _position,
-                duration: _duration > 0 ? _duration : 30000, // Use actual duration if available
-                onSeeked: _seekTo,
-                formatTime: formatTime,
-              ),
-            ),
-            
-            // Play/pause button
-            Container(
-              width: 40,
-              height: 40,
-              decoration: const BoxDecoration(
-                shape: BoxShape.circle,
-                color: Colors.transparent,
-              ),
-              child: IconButton(
-                onPressed: _togglePlayPause,
-                padding: EdgeInsets.zero,
-                icon: Icon(
-                  _isPlaying ? Icons.pause : Icons.play_arrow,
-                  size: 24,
-                  color: colorScheme.primary,
+                
+                // Scrubber bar (now in the same row as other elements)
+                Expanded(
+                  child: _SeekBar(
+                    position: _position,
+                    duration: _duration > 0 ? _duration : 30000, // Use actual duration if available
+                    onSeeked: _seekTo,
+                    formatTime: formatTime,
+                  ),
                 ),
-                hoverColor: Colors.white.withOpacity(0.1),
-              ),
+                
+                // Play/pause button
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: const BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.transparent,
+                  ),
+                  child: IconButton(
+                    onPressed: _togglePlayPause,
+                    padding: EdgeInsets.zero,
+                    icon: Icon(
+                      _isPlaying ? Icons.pause : Icons.play_arrow,
+                      size: 24,
+                      color: colorScheme.primary,
+                    ),
+                    hoverColor: Colors.white.withOpacity(0.1),
+                  ),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
