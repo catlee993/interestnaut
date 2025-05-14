@@ -13,8 +13,6 @@ import 'services/ffi_init.dart';
 import 'components/music/spotify_service.dart';
 import 'services/secure_storage.dart';
 import 'components/common/media_header.dart';
-import 'components/music/spotify_user_control.dart';
-import 'components/music/spotify_connect_button.dart';
 import 'components/music/music_section.dart';
 
 /// Entry point for the Flutter app
@@ -150,75 +148,8 @@ class InterestnautApp extends StatefulWidget {
 }
 
 class _InterestnautAppState extends State<InterestnautApp> {
-  bool _isAuthenticated = false;
-  Map<String, dynamic>? _userProfile;
-  final SpotifyService _spotifyService = SpotifyService();
   String _currentMediaType = 'music'; // Default media type
   
-  @override
-  void initState() {
-    super.initState();
-    _ensureInitialized();
-  }
-
-  // Ensure FFI is properly initialized
-  Future<void> _ensureInitialized() async {
-    try {
-      // Initialize Spotify service
-      await _spotifyService.initialize();
-      
-      // Check if user is authenticated with Spotify
-      final isAuthenticated = _spotifyService.isAuthenticated;
-      
-      if (isAuthenticated) {
-        try {
-          // Get user profile information
-          final userProfile = await _spotifyService.getCurrentUser();
-          
-          if (userProfile != null) {
-            setState(() {
-              _isAuthenticated = true;
-              _userProfile = userProfile;
-            });
-          }
-        } catch (e) {
-          debugPrint('Error getting user profile: $e');
-        }
-      }
-    } catch (e) {
-      debugPrint('Error initializing services: $e');
-    }
-  }
-
-  void _handleClearAuth() async {
-    try {
-      // There's no logout method, so use SecureStorage to clear tokens
-      await SecureStorage.clearSpotifyCredentials();
-      setState(() {
-        _isAuthenticated = false;
-        _userProfile = null;
-      });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Spotify credentials cleared'),
-            duration: Duration(seconds: 2),
-          ),
-        );
-      }
-    } catch (e) {
-      debugPrint('Error clearing auth: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error clearing credentials: $e'),
-            duration: const Duration(seconds: 2),
-          ),
-        );
-      }
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     // Main app UI
@@ -232,9 +163,6 @@ class _InterestnautAppState extends State<InterestnautApp> {
             onMediaChange: (media) {
               setState(() {
                 _currentMediaType = media;
-                
-                // Update the content based on the selected media type
-                _buildCurrentContent();
               });
             },
             onSearch: (query) {
@@ -243,61 +171,6 @@ class _InterestnautAppState extends State<InterestnautApp> {
             onClearSearch: () {
               // TODO: Implement clear search per media type
             },
-            // Only show Spotify controls in music section
-            additionalControl: _currentMediaType == 'music' 
-                ? (_isAuthenticated 
-                  ? SpotifyUserControl(
-                      user: _userProfile,
-                      onClearAuth: _handleClearAuth,
-                    )
-                  : SpotifyConnectButton(
-                      onConnect: () async {
-                        try {
-                          // authenticate requires BuildContext
-                          final success = await _spotifyService.authenticate(context);
-                          
-                          if (success) {
-                            final profile = await _spotifyService.getCurrentUser();
-                            setState(() {
-                              _isAuthenticated = true;
-                              _userProfile = profile;
-                            });
-                            
-                            if (mounted) {
-                              final scaffoldMessenger = ScaffoldMessenger.of(context);
-                              scaffoldMessenger.showSnackBar(
-                                const SnackBar(
-                                  content: Text('Connected to Spotify'),
-                                  duration: Duration(seconds: 2),
-                                ),
-                              );
-                            }
-                          } else {
-                            if (mounted) {
-                              final scaffoldMessenger = ScaffoldMessenger.of(context);
-                              scaffoldMessenger.showSnackBar(
-                                const SnackBar(
-                                  content: Text('Failed to connect to Spotify'),
-                                  duration: Duration(seconds: 5),
-                                ),
-                              );
-                            }
-                          }
-                        } catch (e) {
-                          debugPrint('Error initiating Spotify auth: $e');
-                          if (mounted) {
-                            final scaffoldMessenger = ScaffoldMessenger.of(context);
-                            scaffoldMessenger.showSnackBar(
-                              SnackBar(
-                                content: Text('Failed to connect to Spotify: $e'),
-                                duration: const Duration(seconds: 5),
-                              ),
-                            );
-                          }
-                        }
-                      },
-                    ))
-                : null,
           ),
           
           // Main content area
@@ -315,24 +188,7 @@ class _InterestnautAppState extends State<InterestnautApp> {
   Widget _buildCurrentContent() {
     switch (_currentMediaType) {
       case 'music':
-        return MusicSection(
-          onAuthStatusChanged: (isAuthenticated, userProfile) {
-            if (mounted) {
-              setState(() {
-                _isAuthenticated = isAuthenticated;
-                if (userProfile != null) {
-                  _userProfile = userProfile;
-                } else if (isAuthenticated) {
-                  // Provide a minimal profile if authenticated but no profile data
-                  _userProfile = {
-                    'display_name': 'Spotify User',
-                    'images': []
-                  };
-                }
-              });
-            }
-          },
-        );
+        return const MusicSection();
       case 'movies':
         return const Center(child: Text('Movies Section', style: TextStyle(color: Colors.white)));
       case 'tv':

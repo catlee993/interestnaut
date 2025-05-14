@@ -3,6 +3,9 @@ import 'dart:ui';
 import 'search_bar.dart' as custom;
 import 'settings_drawer.dart';
 import '../../theme.dart';
+import '../music/spotify_service.dart';
+import '../music/spotify_connect_button.dart';
+import '../music/spotify_user_control.dart';
 
 class MediaHeader extends StatefulWidget {
   final Widget? additionalControl;
@@ -28,12 +31,97 @@ class _MediaHeaderState extends State<MediaHeader> {
   late String activeMedia;
   late GlobalKey _menuKey;
   bool _showSettingsDrawer = false;
+  
+  // Add Spotify-related state
+  final SpotifyService _spotifyService = SpotifyService();
+  bool _isAuthenticated = false;
+  Map<String, dynamic>? _userProfile;
 
   @override
   void initState() {
     super.initState();
     activeMedia = widget.currentMedia;
     _menuKey = GlobalKey();
+    
+    // Initialize Spotify service
+    _initializeSpotify();
+    
+    // Listen for auth status changes
+    _spotifyService.onAuthStatusChange.listen((event) {
+      if (mounted) {
+        setState(() {
+          _isAuthenticated = event.isAuthenticated;
+        });
+        
+        // Fetch user profile if authenticated
+        if (event.isAuthenticated) {
+          _spotifyService.getCurrentUser().then((profile) {
+            if (mounted && profile != null) {
+              setState(() {
+                _userProfile = profile;
+              });
+            }
+          });
+        } else {
+          setState(() {
+            _userProfile = null;
+          });
+        }
+      }
+    });
+    
+    // Listen for user profile updates
+    _spotifyService.onUserProfileChange.listen((event) {
+      if (mounted) {
+        setState(() {
+          _userProfile = {
+            'id': event.id,
+            'display_name': event.displayName,
+            'images': [{'url': event.imageUrl}]
+          };
+        });
+      }
+    });
+  }
+  
+  Future<void> _initializeSpotify() async {
+    await _spotifyService.initialize();
+    
+    // Check initial authentication state
+    final isAuthenticated = await _spotifyService.checkAuthentication();
+    
+    if (mounted) {
+      setState(() {
+        _isAuthenticated = isAuthenticated;
+      });
+      
+      // If authenticated, fetch user profile
+      if (isAuthenticated) {
+        final profile = await _spotifyService.getCurrentUser();
+        if (profile != null) {
+          setState(() {
+            _userProfile = profile;
+          });
+        }
+      }
+    }
+  }
+  
+  void _handleClearAuth() async {
+    try {
+      await _spotifyService.logout();
+      // Auth state will be updated via the event listener
+    } catch (e) {
+      debugPrint('Error clearing auth: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error clearing credentials: $e'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    }
   }
 
   void _handleMediaChange(String media) {
@@ -232,7 +320,35 @@ class _MediaHeaderState extends State<MediaHeader> {
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.end,
                         children: [
-                          if (widget.additionalControl != null) 
+                          // Show Spotify-specific controls when in music section
+                          if (activeMedia == 'music')
+                            Flexible(
+                              child: _isAuthenticated 
+                                ? SpotifyUserControl(
+                                    user: _userProfile,
+                                    onClearAuth: _handleClearAuth,
+                                  )
+                                : SpotifyConnectButton(
+                                    onConnect: () async {
+                                      try {
+                                        await _spotifyService.authenticate(context);
+                                        // No need to manually update state - we're listening to the event stream
+                                      } catch (e) {
+                                        debugPrint('Error initiating Spotify auth: $e');
+                                        if (mounted) {
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            SnackBar(
+                                              content: Text('Failed to connect to Spotify: $e'),
+                                              duration: const Duration(seconds: 5),
+                                            ),
+                                          );
+                                        }
+                                      }
+                                    },
+                                  ),
+                            ),
+                          // Keep any non-Spotify additional controls that might be provided
+                          if (widget.additionalControl != null && activeMedia != 'music')
                             Flexible(
                               child: widget.additionalControl!,
                             ),

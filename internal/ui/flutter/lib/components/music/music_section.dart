@@ -9,11 +9,8 @@ import 'tracks/track_card.dart';
 import 'spotify_player_view.dart';
 
 class MusicSection extends StatefulWidget {
-  final Function(bool isAuthenticated, Map<String, dynamic>? userProfile)? onAuthStatusChanged;
-  
   const MusicSection({
     super.key,
-    this.onAuthStatusChanged,
   });
 
   @override
@@ -132,12 +129,6 @@ class _MusicSectionState extends State<MusicSection> {
         });
       }
     }
-    
-    // Notify parent about authentication status
-    final userProfile = isAuthenticated ? await _spotifyService.getCurrentUser() : null;
-    if (widget.onAuthStatusChanged != null) {
-      widget.onAuthStatusChanged!(isAuthenticated, userProfile);
-    }
   }
   
   /// Set up event listeners for authentication status changes
@@ -154,13 +145,6 @@ class _MusicSectionState extends State<MusicSection> {
             _library = [];
             _nowPlayingTrack = null;
             _suggestion = null;
-          });
-        }
-        
-        // Also notify parent
-        if (widget.onAuthStatusChanged != null) {
-          _spotifyService.getCurrentUser().then((userProfile) {
-            widget.onAuthStatusChanged!(event.isAuthenticated, userProfile);
           });
         }
       }
@@ -269,11 +253,6 @@ class _MusicSectionState extends State<MusicSection> {
         setState(() {
           _isAuthenticated = true;
         });
-        
-        // Notify parent about authentication status
-        if (widget.onAuthStatusChanged != null) {
-          widget.onAuthStatusChanged!(true, null);
-        }
         
         // Load library and suggestions
         _loadLibrary();
