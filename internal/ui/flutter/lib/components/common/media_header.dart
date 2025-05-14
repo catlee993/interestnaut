@@ -219,10 +219,10 @@ class _MediaHeaderState extends State<MediaHeader> {
   Widget build(BuildContext context) {
     return ClipRect(
       child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+        filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
         child: Container(
           decoration: BoxDecoration(
-            color: const Color.fromRGBO(18, 18, 18, 0.5),
+            color: const Color.fromRGBO(18, 18, 18, 0.9),
           ),
           child: Column(
             children: [

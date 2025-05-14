@@ -317,11 +317,11 @@ class _SpotifyPlayerState extends State<SpotifyPlayer> {
     
     return ClipRect(
       child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+        filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
         child: Container(
           height: 80,
           decoration: BoxDecoration(
-            color: const Color.fromRGBO(18, 18, 18, 0.45),
+            color: const Color.fromRGBO(28, 28, 28, 0.9),
             border: Border(
               top: BorderSide(
                 color: Colors.white.withOpacity(0.1),

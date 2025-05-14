@@ -155,29 +155,31 @@ class _InterestnautAppState extends State<InterestnautApp> {
     // Main app UI
     return Scaffold(
       backgroundColor: AppTheme.backgroundColor,
-      body: Column(
+      body: Stack(
         children: [
-          // Header - Always show the header regardless of media type
-          MediaHeader(
-            currentMedia: _currentMediaType,
-            onMediaChange: (media) {
-              setState(() {
-                _currentMediaType = media;
-              });
-            },
-            onSearch: (query) {
-              // TODO: Implement search per media type
-            },
-            onClearSearch: () {
-              // TODO: Implement clear search per media type
-            },
+          // Main content area
+          Positioned.fill(
+            child: _buildCurrentContent(),
           ),
           
-          // Main content area
-          Expanded(
-            child: Container(
-              color: AppTheme.backgroundColor,
-              child: _buildCurrentContent(),
+          // Header - Always show the header at the top
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: MediaHeader(
+              currentMedia: _currentMediaType,
+              onMediaChange: (media) {
+                setState(() {
+                  _currentMediaType = media;
+                });
+              },
+              onSearch: (query) {
+                // TODO: Implement search per media type
+              },
+              onClearSearch: () {
+                // TODO: Implement clear search per media type
+              },
             ),
           ),
         ],

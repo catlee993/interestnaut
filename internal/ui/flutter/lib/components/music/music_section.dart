@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-
+import '../common/media_grid.dart';
+import '../common/scroll_content_wrapper.dart';
 import '../../models.dart';
 import 'library/library_section.dart';
 import 'player/spotify_player_view.dart';
@@ -459,32 +460,30 @@ class _MusicSectionState extends State<MusicSection> {
   Widget build(BuildContext context) {
     return Stack(
       children: [
-        // Main content area with scrolling
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Add the web player (hidden but active)
-            SizedBox(
-              width: 1,
-              height: 1,
-              child: SpotifyWebPlayer(
-                key: _webPlayerKey,
-                spotifyService: _spotifyService,
-                visible: false,
+        // Main content area with scrolling - needs to start behind the header
+        // but hide text elements when they cross the header boundary
+        ScrollContentWrapper(
+          headerHeight: 106, // Default header height
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Add the web player (hidden but active)
+              SizedBox(
+                width: 1,
+                height: 1,
+                child: SpotifyWebPlayer(
+                  key: _webPlayerKey,
+                  spotifyService: _spotifyService,
+                  visible: false,
+                ),
               ),
-            ),
 
-            // Content area
-            Expanded(
-              child: !_isAuthenticated
-                  ? _buildAuthPrompt()
-                  : SingleChildScrollView(
-                      // Add bottom padding to accommodate the player
-                      padding: const EdgeInsets.only(bottom: 80),
-                      child: _buildAuthenticatedView(),
-                    ),
-            ),
-          ],
+              // Content area
+              !_isAuthenticated
+                ? _buildAuthPrompt()
+                : _buildAuthenticatedView(),
+            ],
+          ),
         ),
 
         // Player positioned at the bottom
@@ -493,14 +492,8 @@ class _MusicSectionState extends State<MusicSection> {
             left: 0,
             right: 0,
             bottom: 0,
-            child: Material(
-              elevation: 8,
-              child: Container(
-                color: Theme.of(context).canvasColor,
-                child: const SpotifyPlayer(
-                  key: ValueKey('spotify_player'),
-                ),
-              ),
+            child: const SpotifyPlayer(
+              key: ValueKey('spotify_player'),
             ),
           ),
       ],
