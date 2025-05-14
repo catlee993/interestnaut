@@ -52,6 +52,11 @@ class _MusicSectionState extends State<MusicSection> {
 
   void _startPlaybackStatePolling() {
     _playbackStateTimer = Timer.periodic(const Duration(seconds: 1), (_) async {
+      // Only poll for playback state if authenticated
+      if (!_isAuthenticated) {
+        return;
+      }
+      
       try {
         final playbackState = await _spotifyService.getPlaybackState();
         
@@ -101,32 +106,76 @@ class _MusicSectionState extends State<MusicSection> {
   }
 
   Future<void> _checkAuthentication() async {
-    try {
-      final isAuthenticated = _spotifyService.isAuthenticated;
-      
+    // Check if authenticated with Spotify
+    final isAuthenticated = await _spotifyService.checkAuthentication();
+    
+    if (mounted) {
+      setState(() {
+        _isAuthenticated = isAuthenticated;
+      });
+    }
+    
+    // Only start loading library and listening for auth events 
+    // if we're authenticated
+    if (isAuthenticated) {
+      _loadLibrary();
+      _loadSuggestion();
+      // Listen for authentication status changes
+      _listenToAuthEvents();
+    } else {
+      // Clear any existing data since we're not authenticated
       if (mounted) {
         setState(() {
-          _isAuthenticated = isAuthenticated;
+          _library = [];
+          _nowPlayingTrack = null;
+          _suggestion = null;
         });
       }
-      
-      // Simplified validation - we trust the service's isAuthenticated value
-      debugPrint('Auth status: $isAuthenticated');
-      
-      // Notify parent about authentication status
-      if (widget.onAuthStatusChanged != null) {
-        widget.onAuthStatusChanged!(isAuthenticated, null);
-      }
-      
-      // Get user profile if authenticated
-      if (isAuthenticated) {
-        // Automatically load library and suggestions when authenticated
-        _loadLibrary();
-        _loadSuggestion();
-      }
-    } catch (e) {
-      debugPrint('Error checking authentication: $e');
     }
+    
+    // Notify parent about authentication status
+    final userProfile = isAuthenticated ? await _spotifyService.getCurrentUser() : null;
+    if (widget.onAuthStatusChanged != null) {
+      widget.onAuthStatusChanged!(isAuthenticated, userProfile);
+    }
+  }
+  
+  /// Set up event listeners for authentication status changes
+  void _listenToAuthEvents() {
+    _spotifyService.onAuthStatusChange.listen((event) {
+      if (mounted) {
+        setState(() {
+          _isAuthenticated = event.isAuthenticated;
+        });
+        
+        if (!event.isAuthenticated) {
+          // Clear user data if logged out
+          setState(() {
+            _library = [];
+            _nowPlayingTrack = null;
+            _suggestion = null;
+          });
+        }
+        
+        // Also notify parent
+        if (widget.onAuthStatusChanged != null) {
+          _spotifyService.getCurrentUser().then((userProfile) {
+            widget.onAuthStatusChanged!(event.isAuthenticated, userProfile);
+          });
+        }
+      }
+    });
+    
+    _spotifyService.onTrackChange.listen((event) {
+      if (mounted && event.item != null) {
+        // Update the now playing track
+        setState(() {
+          final media = event.item;
+          _nowPlayingTrack = media;
+          _isPlaybackPaused = false;
+        });
+      }
+    });
   }
 
   // Load saved tracks from library

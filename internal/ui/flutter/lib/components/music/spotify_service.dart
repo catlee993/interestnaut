@@ -931,7 +931,8 @@ class SpotifyService {
   }
 
   /// Fetch the user's profile details
-  Future<void> _fetchUserDetails() async {
+  /// Returns a Map with the user profile data if successful, null otherwise
+  Future<Map<String, dynamic>?> _fetchUserDetails() async {
     debugPrint('Fetching user details...');
     try {
       // Make sure we have a valid access token
@@ -959,7 +960,7 @@ class SpotifyService {
         // If still null, we don't have authentication
         if (_accessToken == null) {
           debugPrint('Cannot get user: not authenticated or no access token');
-          return;
+          return null;
         }
         
         // Re-initialize API since we just loaded the token
@@ -976,7 +977,7 @@ class SpotifyService {
       );
       
       if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
         final List<dynamic>? images = data['images'] as List<dynamic>?;
         final String imageUrl = images != null && images.isNotEmpty 
             ? (images.first['url'] as String? ?? '') 
@@ -990,15 +991,24 @@ class SpotifyService {
         
         // Also try to fetch the user's playlists since we know the token is working
         _fetchUserPlaylists();
+        
+        return data;
       } else if (response.statusCode == 401) {
         // Token expired, try to refresh
         debugPrint('Access token expired, attempting to refresh...');
-        await _refreshAccessToken();
+        final refreshed = await _refreshAccessToken();
+        if (refreshed) {
+          // Try again with the new token
+          return _fetchUserDetails();
+        }
+        return null;
       } else {
         debugPrint('Error fetching user profile: ${response.statusCode} - ${response.body}');
+        return null;
       }
     } catch (e) {
       debugPrint('Error fetching user profile: $e');
+      return null;
     }
   }
 
@@ -1274,6 +1284,33 @@ class SpotifyService {
     } catch (e) {
       debugPrint('Error getting user playlists: $e');
       return [];
+    }
+  }
+
+  /// Check if the user is authenticated
+  /// This loads tokens if they exist and verifies them if necessary
+  Future<bool> checkAuthentication() async {
+    if (_isAuthenticated && _accessToken != null) {
+      return true;
+    }
+    
+    // Try to load tokens if we don't have them
+    await _loadTokens();
+    
+    // If we still don't have tokens, we're not authenticated
+    if (_accessToken == null) {
+      return false;
+    }
+    
+    // We have tokens, but we need to verify they're valid
+    // We'll do a simple verification by attempting to get the user profile
+    try {
+      final userProfile = await _fetchUserDetails();
+      _isAuthenticated = userProfile != null;
+      return _isAuthenticated;
+    } catch (e) {
+      debugPrint('Error verifying authentication: $e');
+      return false;
     }
   }
 }
