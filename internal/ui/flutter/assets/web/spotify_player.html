@@ -6,27 +6,110 @@
   <title>Spotify Web Player</title>
   <script src="https://sdk.scdn.co/spotify-player.js"></script>
   <style>
-    body {
+    html, body {
       margin: 0;
       padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: #000;
+      color: #fff;
       font-family: Arial, sans-serif;
-      background-color: #1DB954;
-      color: white;
+    }
+    
+    #player-status {
       display: flex;
       justify-content: center;
       align-items: center;
-      height: 100vh;
-    }
-    #player-status {
+      height: 100%;
       text-align: center;
       padding: 20px;
+    }
+    /* Critical fix for Chrome WebView audio playback issue */
+    iframe {
+      display: block !important; 
+      position: fixed;
+      height: 10px;
+      width: 10px;
+      top: 0;
+      left: 0;
+      z-index: 999;
     }
   </style>
 </head>
 <body>
   <div id="player-status">Connecting to Spotify...</div>
+  <!-- Hidden button for triggering audio context -->
+  <button id="audio-enable" style="position: absolute; opacity: 0.01; top: 5px; left: 5px; width: 50px; height: 50px;">Enable Audio</button>
+  <!-- Add an audio element for enabling audio context -->
+  <audio id="audio-starter" preload="auto" style="display:none">
+    <source src="data:audio/mp3;base64,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" type="audio/mp3">
+  </audio>
 
   <script>
+    // Global audio context
+    let audioContext = null;
+    
+    // Initialize audio context with user gesture
+    function initAudioContext() {
+      try {
+        // Create audio context if it doesn't exist
+        if (!audioContext) {
+          audioContext = new (window.AudioContext || window.webkitAudioContext)();
+          console.log('Audio context created:', audioContext.state);
+        }
+        
+        // Resume it if suspended
+        if (audioContext.state === 'suspended') {
+          audioContext.resume().then(() => {
+            console.log('Audio context resumed:', audioContext.state);
+          });
+        }
+        
+        // Play a silent audio file to fully enable audio
+        const audioStarter = document.getElementById('audio-starter');
+        audioStarter.play().then(() => {
+          console.log('Silent audio played successfully');
+        }).catch(err => {
+          console.error('Silent audio play failed:', err);
+        });
+        
+        return true;
+      } catch(e) {
+        console.error('Error initializing audio context:', e);
+        return false;
+      }
+    }
+    
+    // Fix iframe display styles as soon as DOM is ready
+    document.addEventListener('DOMContentLoaded', () => {
+      console.log('DOM loaded, setting up audio and fixing iframes');
+      
+      // Set up audio button click handler
+      const audioButton = document.getElementById('audio-enable');
+      audioButton.addEventListener('click', function() {
+        console.log('Audio button clicked - initializing audio context');
+        initAudioContext();
+      });
+      
+      // Auto-click the button after a short delay
+      setTimeout(() => {
+        audioButton.click();
+        console.log('Auto-clicked audio button');
+      }, 500);
+      
+      // Run the check periodically to catch dynamically injected iframes
+      setInterval(() => {
+        const iframes = document.querySelectorAll('iframe');
+        iframes.forEach(iframe => {
+          if (iframe.style.display === 'none') {
+            iframe.style.display = 'block';
+            console.log('Fixed iframe display style');
+          }
+        });
+      }, 500);
+    });
+    
     window.onSpotifyWebPlaybackSDKReady = () => {
       let token = '';
       let player = null;
@@ -49,12 +132,32 @@
         if (data.type === 'token') {
           // Got token from Flutter
           token = data.token;
+          console.log('Received token from Flutter, initializing player');
+          
+          // Initialize audio first
+          initAudioContext();
+          
+          // Initialize the player after audio context is ready
+          setTimeout(() => {
+            initializePlayer(token);
+          }, 500);
         }
         else if (data.type === 'playTrack') {
           // Play a track
           if (player && deviceId) {
+            console.log('Playing track:', data.uri);
+            
+            // Ensure audio is enabled
+            initAudioContext();
+            
             player.connect().then(success => {
               if (success) {
+                // Fix iframes again before playing
+                const spotifyIframes = document.querySelectorAll('iframe');
+                spotifyIframes.forEach(iframe => {
+                  iframe.style.display = 'block';
+                });
+                
                 fetch(`https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`, {
                   method: 'PUT',
                   body: JSON.stringify({
@@ -64,6 +167,22 @@
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${token}`
                   }
+                }).then(response => {
+                  if (!response.ok) {
+                    console.error('Play track API error:', response.status);
+                    return response.text().then(text => {
+                      console.error('API response:', text);
+                      sendToFlutter({
+                        type: 'error',
+                        message: `Play track API error: ${response.status} ${text}`
+                      });
+                    });
+                  } else {
+                    console.log('Track playback started via API');
+                  }
+                })
+                .catch(error => {
+                  console.error('Play track request error:', error);
                 });
               }
             });
@@ -82,19 +201,24 @@
           player.disconnect();
         }
         
+        // Ensure audio context is enabled
+        initAudioContext();
+        
+        // Create a new player with the latest token
         player = new Spotify.Player({
           name: 'Interestnaut Web Player',
           getOAuthToken: cb => { cb(token); },
-          volume: 0.5
+          volume: 1.0,
+          enableMediaSession: true
         });
         
         // Ready
         player.addListener('ready', ({ device_id }) => {
           console.log('Ready with Device ID', device_id);
           deviceId = device_id;
-          document.getElementById('player-status').innerText = 'Player connected and ready';
+          document.getElementById('player-status').innerText = 'Connected to Spotify';
           
-          // Send device ID back to Flutter
+          // Notify Flutter about the device ID
           sendToFlutter({
             type: 'deviceReady',
             deviceId: device_id
@@ -104,29 +228,44 @@
         // Not Ready
         player.addListener('not_ready', ({ device_id }) => {
           console.log('Device ID has gone offline', device_id);
-          document.getElementById('player-status').innerText = 'Player connection lost';
+          document.getElementById('player-status').innerText = 'Disconnected from Spotify';
           
-          // Inform Flutter
           sendToFlutter({
             type: 'deviceDisconnected'
           });
         });
         
-        // Player state changed
-        player.addListener('player_state_changed', (state => {
-          console.log('Player state changed', state);
-          
-          // Send state to Flutter
-          if (state) {
-            sendToFlutter({
-              type: 'playerStateChanged',
-              track: state.track_window.current_track,
-              paused: state.paused,
-              position: state.position,
-              duration: state.duration
-            });
+        // Player State Changed
+        player.addListener('player_state_changed', state => {
+          if (!state) {
+            console.log('No player state available');
+            return;
           }
-        }));
+          
+          console.log('Player State:', state);
+          
+          const current_track = state.track_window.current_track;
+          const paused = state.paused;
+          
+          document.getElementById('player-status').innerText = paused ? 
+            `Paused: ${current_track.name}` : 
+            `Playing: ${current_track.name}`;
+          
+          sendToFlutter({
+            type: 'playerStateChanged',
+            track: {
+              id: current_track.id,
+              uri: current_track.uri,
+              name: current_track.name,
+              artists: current_track.artists,
+              album: current_track.album,
+              duration_ms: current_track.duration_ms
+            },
+            paused: paused,
+            position: state.position,
+            duration: current_track.duration_ms
+          });
+        });
         
         // Error
         player.addListener('initialization_error', ({ message }) => {
@@ -160,6 +299,14 @@
         player.connect().then(success => {
           if (success) {
             console.log('The Web Playback SDK successfully connected to Spotify!');
+            // Force the iframe style fix again after connecting
+            setTimeout(() => {
+              const spotifyIframes = document.querySelectorAll('iframe');
+              spotifyIframes.forEach(iframe => {
+                iframe.style.display = 'block';
+                console.log('Fixed iframe style after connection');
+              });
+            }, 500);
           } else {
             console.log('The Web Playback SDK failed to connect to Spotify');
             document.getElementById('player-status').innerText = 'Failed to connect to Spotify';
@@ -169,11 +316,6 @@
             });
           }
         });
-      }
-      
-      // Initialize player with token
-      if (token) {
-        initializePlayer(token);
       }
     };
   </script>

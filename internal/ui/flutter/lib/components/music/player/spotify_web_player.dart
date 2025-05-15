@@ -24,18 +24,19 @@ class SpotifyWebPlayer extends StatefulWidget {
 }
 
 class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
-  final WebViewController _controller = WebViewController();
+  late WebViewController _controller;
   String? _deviceId;
   Track? _currentTrack;
   final bool _isPlaying = false;
   bool _isReady = false;
   Timer? _reconnectTimer;
   String _htmlContent = '';
-  int _retryCount = 0;
+  final int _retryCount = 0;
   
   @override
   void initState() {
     super.initState();
+    _controller = WebViewController();
     _loadHtmlFromAssets();
   }
   
@@ -49,38 +50,11 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
   Future<void> _loadHtmlFromAssets() async {
     try {
       // Load from the correct assets/web directory path
-      final htmlContent = await rootBundle.loadString('assets/web/spotify_player.html');
-      setState(() {
-        _htmlContent = htmlContent;
-      });
+      const String htmlPath = 'assets/web/spotify_player.html';
+      _htmlContent = await rootBundle.loadString(htmlPath);
       _initWebView();
-    } catch (e) {
+    } catch(e) {
       debugPrint('Error loading Spotify player HTML: $e');
-      // Instead of a complex fallback, just show a simple error message
-      setState(() {
-        _htmlContent = '''
-        <!DOCTYPE html>
-        <html>
-        <body style="background-color: #1DB954; color: white; font-family: Arial; text-align: center; padding: 20px;">
-          <h2>Error Loading Spotify Player</h2>
-          <p>Could not load the Spotify player component.</p>
-        </body>
-        </html>
-        ''';
-      });
-      _initWebView();
-      
-      // Show error in UI context
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Failed to load Spotify player component'),
-              duration: Duration(seconds: 3),
-            ),
-          );
-        }
-      });
     }
   }
   
@@ -88,10 +62,6 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
     // Configure the WebView controller with only essential settings
     _controller
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..addJavaScriptChannel(
-        'SpotifyEvents',
-        onMessageReceived: _handleJavaScriptMessage,
-      )
       ..setNavigationDelegate(
         NavigationDelegate(
           onWebResourceError: (error) {
@@ -99,29 +69,28 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
           },
           onPageFinished: (_) => _onWebViewLoaded(),
         ),
-      )
-      ..setBackgroundColor(Colors.transparent);
+      );
     
-    // Add a simple audio context initialization script to help with autoplay
-    const audioEnableScript = """
-    <script>
-    // Simple script to help with audio permissions on various platforms
-    document.addEventListener('DOMContentLoaded', () => {
-      try {
-        // Create a silent audio context to enable audio
-        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        console.log('Audio context created successfully');
-      } catch(e) {
-        console.error('Failed to create audio context:', e);
-      }
-    });
-    </script>
-    """;
+    // Add JavaScript channel with try-catch for platform compatibility
+    try {
+      _controller.addJavaScriptChannel(
+        'SpotifyEvents',
+        onMessageReceived: _handleJavaScriptMessage,
+      );
+    } catch (e) {
+      debugPrint('Error adding JavaScript channel: $e');
+      // Channel might already exist, which is fine
+    }
     
-    // Add the script inline to the HTML before the closing head tag
-    _htmlContent = _htmlContent.replaceFirst('</head>', '$audioEnableScript</head>');
+    // Try to set background color but handle platform limitations
+    try {
+      _controller.setBackgroundColor(Colors.transparent);
+    } catch (e) {
+      debugPrint('Could not set WebView background color: $e');
+      // This is ok - we'll continue without setting the background color
+    }
     
-    // Load the HTML with audio enabling script
+    // Load the HTML directly without modifications
     _controller.loadHtmlString(_htmlContent);
   }
   
@@ -146,8 +115,10 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
   
   void _handleJavaScriptMessage(JavaScriptMessage message) {
     try {
-      final data = jsonDecode(message.message);
+      final data = jsonDecode(message.message) as Map<String, dynamic>;
       final type = data['type'] as String?;
+      
+      debugPrint('Spotify Web Player message: $type');
       
       switch (type) {
         case 'deviceReady':
@@ -161,6 +132,8 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
           break;
         case 'error':
           debugPrint('Spotify Web Player error: ${data['message']}');
+          // Notify other components about the error through events
+          SpotifyEvents.emitError(data['message'] as String? ?? 'Unknown error');
           break;
       }
     } catch (e) {
@@ -255,39 +228,19 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
   
   // Method to play a track
   void playTrack(String uri) {
-    // Simple retry mechanism to handle not-ready state
-    if (!_isReady) {
-      debugPrint('Attempting to play track but player not ready. Retrying in 2 seconds...');
-      // Add a limited retry (max 3 times) to avoid infinite loops
-      if (_retryCount < 3) {
-        _retryCount++;
-        Timer(const Duration(seconds: 2), () {
-          if (mounted) {
-            playTrack(uri);
-          }
-        });
-      } else {
-        _retryCount = 0;
-        debugPrint('Failed to play after 3 retry attempts');
-      }
+    if (!_isReady || _deviceId == null) {
+      debugPrint('Cannot play track: Player not ready or no device ID');
       return;
     }
     
-    // Reset retry counter when we successfully reach ready state
-    _retryCount = 0;
+    debugPrint('Playing track via web player: $uri');
     
-    if (_deviceId != null) {
-      debugPrint('Playing track via web player: $uri');
-      
-      // Simple approach - just send the message to play
-      final message = jsonEncode({
-        'type': 'playTrack',
-        'uri': uri,
-      });
-      _controller.runJavaScript("window.postMessage($message, '*');");
-    } else {
-      debugPrint('Cannot play track: No device ID available');
-    }
+    // Simple approach - just send the message to play
+    final message = jsonEncode({
+      'type': 'playTrack',
+      'uri': uri,
+    });
+    _controller.runJavaScript("window.postMessage($message, '*');");
   }
   
   // Method to pause playback
@@ -298,6 +251,11 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
       });
       _controller.runJavaScript("window.postMessage($message, '*');");
     }
+  }
+  
+  // Check if the player is ready to play tracks
+  bool isPlayerReady() {
+    return _isReady && _deviceId != null;
   }
   
   @override

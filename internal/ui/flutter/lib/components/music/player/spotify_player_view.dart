@@ -438,16 +438,19 @@ class SpotifyEvents {
   static final StreamController<String> _deviceReadyController = StreamController<String>.broadcast();
   static final StreamController<Track> _trackChangeController = StreamController<Track>.broadcast();
   static final StreamController<SpotifyPlaybackState> _playbackStateChangeController = StreamController<SpotifyPlaybackState>.broadcast();
+  static final StreamController<String> _errorController = StreamController<String>.broadcast();
 
   // Stream getters
   static Stream<String> get onDeviceReady => _deviceReadyController.stream;
   static Stream<Track> get onTrackChange => _trackChangeController.stream;
   static Stream<SpotifyPlaybackState> get onPlaybackStateChange => _playbackStateChangeController.stream;
+  static Stream<String> get onError => _errorController.stream;
 
   // Event emitters
   static void emitDeviceReady(String deviceId) => _deviceReadyController.add(deviceId);
   static void emitTrackChange(Track track) => _trackChangeController.add(track);
   static void emitPlaybackStateChange(SpotifyPlaybackState state) => _playbackStateChangeController.add(state);
+  static void emitError(String errorMessage) => _errorController.add(errorMessage);
 }
 
 // Simple playback state model

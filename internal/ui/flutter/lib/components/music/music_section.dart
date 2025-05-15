@@ -58,6 +58,7 @@ class _MusicSectionState extends State<MusicSection> {
   String? _errorMessage;
   final GlobalKey<SpotifyWebPlayerState> _webPlayerKey = GlobalKey();
   String? _activeDeviceId;
+  String? _pendingTrackUri;
 
   // Suggestion state
   Track? _suggestion;
@@ -129,6 +130,12 @@ class _MusicSectionState extends State<MusicSection> {
       // Now that the device is ready, load a suggestion and enable playback
       if (_isAuthenticated && _suggestion == null) {
         _loadSuggestion();
+      }
+      
+      // Play any pending track
+      if (_pendingTrackUri != null) {
+        _playTrack(_pendingTrackUri!);
+        _pendingTrackUri = null;
       }
     });
 
@@ -302,13 +309,20 @@ class _MusicSectionState extends State<MusicSection> {
   Future<void> _playTrack(String trackUri) async {
     if (_activeDeviceId == null) {
       debugPrint('No active Spotify device available. Using web player.');
-      // Even though we check for device readiness via events, add an additional safety check here
       final webPlayerState = _webPlayerKey.currentState;
       if (webPlayerState != null) {
-        webPlayerState.playTrack(trackUri);
-        debugPrint('Sent playTrack command to web player');
+        // Store as a pending track if device isn't ready yet
+        if (!webPlayerState.isPlayerReady()) {
+          debugPrint('Web player not ready. Storing as pending track: $trackUri');
+          _pendingTrackUri = trackUri;
+        } else {
+          webPlayerState.playTrack(trackUri);
+          debugPrint('Sent playTrack command to web player');
+        }
       } else {
         debugPrint('Web player state is null, cannot play track');
+        // Store the track to play when the player becomes available
+        _pendingTrackUri = trackUri;
       }
     } else {
       // Use the stored device ID
