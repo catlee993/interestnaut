@@ -3,6 +3,7 @@ import '../../../theme.dart';
 import '../../../models.dart';
 import '../../common/icons.dart';
 import '../../common/reason_card.dart';
+import '../player/spotify_player_view.dart'; // Import SpotifyEvents from the correct location
 
 class SuggestionDisplay extends StatefulWidget {
   final MediaItem? suggestedTrack;
@@ -19,6 +20,7 @@ class SuggestionDisplay extends StatefulWidget {
   final VoidCallback? onPlayPause;
   final MediaItem? nowPlayingTrack;
   final bool isPlaybackPaused;
+  final bool isPlayerReady;
 
   const SuggestionDisplay({
     Key? key,
@@ -36,6 +38,7 @@ class SuggestionDisplay extends StatefulWidget {
     this.onPlayPause,
     this.nowPlayingTrack,
     this.isPlaybackPaused = true,
+    this.isPlayerReady = false,
   }) : super(key: key);
 
   @override
@@ -266,14 +269,18 @@ class _SuggestionDisplayState extends State<SuggestionDisplay> {
               // Play button
               _buildPlayButton(
                 onPressed: () {
-                  if (isCurrentlyPlaying && widget.onPlayPause != null) {
-                    widget.onPlayPause!();
+                  // If this is the currently playing track, toggle play/pause
+                  if (widget.nowPlayingTrack?.id == track.id) {
+                    if (widget.onPlayPause != null) {
+                      widget.onPlayPause!();
+                    }
                   } else {
+                    // If it's a different track, play it
                     widget.onPlay(track);
                   }
                 },
                 isPlaying: isCurrentlyPlaying,
-                disabled: widget.isProcessingLibrary,
+                disabled: !SpotifyEvents.isPlayerReady || widget.isProcessingLibrary,
               ),
               const SizedBox(width: 10),
               

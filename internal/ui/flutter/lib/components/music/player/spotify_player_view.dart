@@ -158,9 +158,11 @@ class _SpotifyPlayerState extends State<SpotifyPlayer> {
   Timer? _pollingTimer;
   int _position = 0;
   int _duration = 0;
+  bool _isPlayerReady = false; // Local state to track readiness for UI purposes
   final SpotifyService _spotifyService = SpotifyService();
   late StreamSubscription<Track> _trackSubscription;
   late StreamSubscription<SpotifyPlaybackState> _playbackStateSubscription;
+  late StreamSubscription<bool> _playerReadySubscription;
 
   @override
   void initState() {
@@ -175,17 +177,29 @@ class _SpotifyPlayerState extends State<SpotifyPlayer> {
     _positionTimer?.cancel();
     _trackSubscription.cancel();
     _playbackStateSubscription.cancel();
+    _playerReadySubscription.cancel();
     _pollingTimer?.cancel();
     super.dispose();
   }
 
   void _setupEventListeners() {
+    // Listen for player ready events
+    _playerReadySubscription = SpotifyEvents.onPlayerReady.listen((isReady) {
+      debugPrint('SpotifyPlayer received player ready event: $isReady');
+      if (mounted) {
+        setState(() {
+          _isPlayerReady = isReady;
+        });
+      }
+    });
+    
     // Listen for track change events
     _trackSubscription = SpotifyEvents.onTrackChange.listen((track) {
       debugPrint('SpotifyPlayer received track change event: ${track.name}');
       if (mounted) {
         setState(() {
           _currentTrack = track;
+          // When changing tracks, optimistically set playing to true for better UI response
           _isPlaying = true;
           _position = 0;
           
@@ -253,19 +267,71 @@ class _SpotifyPlayerState extends State<SpotifyPlayer> {
   }
   
   void _playTrack(Track track) {
+    if (!SpotifyEvents.isPlayerReady) {
+      debugPrint('Cannot play track: Spotify player not ready');
+      // Show a brief message to the user
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Waiting for Spotify player to be ready...'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+      return;
+    }
+    
     if (track.uri.isNotEmpty) {
       _spotifyService.playTrack(track.uri);
+      // Optimistically update state for better UI responsiveness
+      setState(() {
+        _isPlaying = true;
+        _startProgressTimer();
+      });
     }
   }
   
   void _togglePlayPause() {
+    debugPrint('SpotifyPlayer: Toggle play/pause called, player ready: ${SpotifyEvents.isPlayerReady}, is playing: $_isPlaying');
+    
+    // Always use the instance variable for readiness check
+    if (!SpotifyEvents.isPlayerReady) {
+      debugPrint('Cannot toggle playback: Spotify player not ready');
+      // Show a brief message to the user
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Waiting for Spotify player to be ready...'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+      return;
+    }
+    
     if (_isPlaying) {
       _spotifyService.pausePlayback();
-      _positionTimer?.cancel();
+      // Optimistically update state for better UI responsiveness
+      setState(() {
+        _isPlaying = false;
+        _positionTimer?.cancel();
+      });
     } else {
       if (_currentTrack != null && _currentTrack!.uri.isNotEmpty) {
         _playTrack(_currentTrack!);
       }
+    }
+  }
+  
+  void _seekTo(int position) {
+    setState(() {
+      _position = position;
+    });
+    
+    // Call Spotify API to seek if authenticated
+    if (_currentTrack != null) {
+      // Use device ID if available
+      _spotifyService.seekTo(position);
     }
   }
   
@@ -284,18 +350,6 @@ class _SpotifyPlayerState extends State<SpotifyPlayer> {
         });
       }
     });
-  }
-  
-  void _seekTo(int position) {
-    setState(() {
-      _position = position;
-    });
-    
-    // Call Spotify API to seek if authenticated
-    if (_currentTrack != null) {
-      // Use device ID if available
-      _spotifyService.seekTo(position);
-    }
   }
   
   // Format time for duration display
@@ -441,18 +495,49 @@ class SpotifyEvents {
   static final StreamController<Track> _trackChangeController = StreamController<Track>.broadcast();
   static final StreamController<SpotifyPlaybackState> _playbackStateChangeController = StreamController<SpotifyPlaybackState>.broadcast();
   static final StreamController<String> _errorController = StreamController<String>.broadcast();
+  static final StreamController<bool> _playerReadyController = StreamController<bool>.broadcast();
+  
+  // Global state for player readiness - single source of truth
+  static bool _isPlayerReady = false;
+  
+  // Static getter for player readiness
+  static bool get isPlayerReady => _isPlayerReady;
 
   // Stream getters
   static Stream<String> get onDeviceReady => _deviceReadyController.stream;
   static Stream<Track> get onTrackChange => _trackChangeController.stream;
   static Stream<SpotifyPlaybackState> get onPlaybackStateChange => _playbackStateChangeController.stream;
   static Stream<String> get onError => _errorController.stream;
+  static Stream<bool> get onPlayerReady => _playerReadyController.stream;
 
   // Event emitters
-  static void emitDeviceReady(String deviceId) => _deviceReadyController.add(deviceId);
-  static void emitTrackChange(Track track) => _trackChangeController.add(track);
-  static void emitPlaybackStateChange(SpotifyPlaybackState state) => _playbackStateChangeController.add(state);
-  static void emitError(String errorMessage) => _errorController.add(errorMessage);
+  static void emitDeviceReady(String deviceId) {
+    debugPrint('SpotifyEvents: Device ready with ID: $deviceId');
+    _deviceReadyController.add(deviceId);
+    // When device is ready, also emit player ready event
+    emitPlayerReady(true);
+  }
+  
+  static void emitTrackChange(Track track) {
+    debugPrint('SpotifyEvents: Track changed to: ${track.name}');
+    _trackChangeController.add(track);
+  }
+  
+  static void emitPlaybackStateChange(SpotifyPlaybackState state) {
+    debugPrint('SpotifyEvents: Playback state changed to playing=${state.isPlaying}');
+    _playbackStateChangeController.add(state);
+  }
+  
+  static void emitError(String errorMessage) {
+    debugPrint('SpotifyEvents: Error: $errorMessage');
+    _errorController.add(errorMessage);
+  }
+  
+  static void emitPlayerReady(bool isReady) {
+    debugPrint('SpotifyEvents: Player ready state changed to: $isReady');
+    _isPlayerReady = isReady; // Update the global state
+    _playerReadyController.add(isReady);
+  }
 }
 
 // Simple playback state model

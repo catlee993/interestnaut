@@ -60,6 +60,7 @@ class _MusicSectionState extends State<MusicSection> {
   final GlobalKey<SpotifyWebPlayerState> _webPlayerKey = GlobalKey();
   String? _activeDeviceId;
   String? _pendingTrackUri;
+  bool _isPlayerReady = false;
 
   // Suggestion state
   Track? _suggestion;
@@ -85,6 +86,8 @@ class _MusicSectionState extends State<MusicSection> {
   StreamSubscription? _playbackStateSubscription;
   StreamSubscription? _trackChangeSubscription;
   StreamSubscription? _spotifyEventsTrackSubscription;
+  StreamSubscription? _spotifyEventsPlaybackSubscription;
+  StreamSubscription? _playerReadySubscription;
 
   @override
   void initState() {
@@ -98,6 +101,21 @@ class _MusicSectionState extends State<MusicSection> {
   }
 
   void _setupListeners() {
+    // Listen for Spotify player ready event
+    _playerReadySubscription = SpotifyEvents.onPlayerReady.listen((isReady) {
+      debugPrint('MusicSection received player ready event: $isReady');
+      setState(() {
+        _isPlayerReady = isReady;
+        
+        // If we have a pending track and the player is now ready, play it
+        if (_isPlayerReady && _pendingTrackUri != null) {
+          debugPrint('Playing pending track now that player is ready: $_pendingTrackUri');
+          _playTrack(_pendingTrackUri!);
+          _pendingTrackUri = null;
+        }
+      });
+    });
+    
     // Listen for track changes
     _trackChangeSubscription = _spotifyService.onTrackChange.listen((event) {
       // The event is a TrackChangeEvent with a MediaItem
@@ -145,7 +163,15 @@ class _MusicSectionState extends State<MusicSection> {
       }
     });
 
-    // Listen for playback state changes
+    // Listen for playback state changes via SpotifyEvents
+    _spotifyEventsPlaybackSubscription = SpotifyEvents.onPlaybackStateChange.listen((state) {
+      debugPrint('MusicSection received SpotifyEvents playback state change: playing=${state.isPlaying}');
+      setState(() {
+        _isPlaybackPaused = !state.isPlaying;
+      });
+    });
+    
+    // Also listen for playback state changes via service for backward compatibility
     _playbackStateSubscription = _spotifyService.onPlaybackStateChange.listen((isPlaying) {
       setState(() {
         _isPlaybackPaused = !isPlaying;
@@ -160,6 +186,8 @@ class _MusicSectionState extends State<MusicSection> {
     _playbackStateSubscription?.cancel();
     _trackChangeSubscription?.cancel();
     _spotifyEventsTrackSubscription?.cancel();
+    _spotifyEventsPlaybackSubscription?.cancel();
+    _playerReadySubscription?.cancel();
     super.dispose();
   }
 
@@ -318,19 +346,42 @@ class _MusicSectionState extends State<MusicSection> {
 
   // Play a track with the given URI
   Future<void> _playTrack(String trackUri) async {
-    if (_activeDeviceId == null) {
-      debugPrint('No active Spotify device available. Using web player.');
-      // Use the web player directly
-      _webPlayerKey.currentState?.playTrack(trackUri);
-    } else {
-      // Use the stored device ID
-      await _spotifyService.playTrack(trackUri, deviceId: _activeDeviceId);
+    try {
+      // Use the centralized player ready state from SpotifyEvents
+      if (SpotifyEvents.isPlayerReady) {
+        // Use web player directly for immediate UI response
+        _webPlayerKey.currentState?.playTrack(trackUri);
+        
+        // Set state optimistically for better UI responsiveness
+        setState(() {
+          _isPlaybackPaused = false;
+        });
+      } else {
+        // No valid playback method available, store as pending
+        _pendingTrackUri = trackUri;
+        debugPrint('Storing track URI as pending: $trackUri');
+        
+        // Show a message to inform the user
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Waiting for Spotify player to be ready...'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Error playing track: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error playing track: $e'),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
     }
-    
-    // Set current track playing state
-    setState(() {
-      _isPlaybackPaused = false;
-    });
   }
 
   // Save a track to library
@@ -381,16 +432,54 @@ class _MusicSectionState extends State<MusicSection> {
 
   // Handle play/pause action from track cards
   Future<void> _handleTrackCardAction(dynamic trackData) async {
-    await _playTrack(trackData.uri);
+    // Check if this is the currently playing track
+    if (_nowPlayingTrack != null && trackData.uri == _nowPlayingTrack!.uri) {
+      // If it's the same track, toggle playback instead of restarting it
+      await _togglePlayback();
+    } else {
+      // If it's a different track, play it
+      await _playTrack(trackData.uri);
+    }
   }
 
   // Toggle play/pause for the current track
   Future<void> _togglePlayback() async {
     try {
+      if (_nowPlayingTrack == null) {
+        debugPrint('Cannot toggle playback: No track is currently playing');
+        return;
+      }
+      
+      // Use the centralized player ready state from SpotifyEvents
+      if (!SpotifyEvents.isPlayerReady) {
+        debugPrint('Cannot toggle playback: Player not ready yet');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Waiting for Spotify player to be ready...'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+        return;
+      }
+      
       if (_isPlaybackPaused) {
-        await _spotifyService.playTrack(_nowPlayingTrack!.uri);
+        // Start playback via web player directly for immediate UI response
+        _webPlayerKey.currentState?.playTrack(_nowPlayingTrack!.uri);
+        
+        // Set state optimistically for UI responsiveness
+        setState(() {
+          _isPlaybackPaused = false;
+        });
       } else {
-        await _spotifyService.pausePlayback();
+        // Pause playback via web player directly for immediate UI response
+        _webPlayerKey.currentState?.pausePlayback();
+        
+        // Set state optimistically for UI responsiveness
+        setState(() {
+          _isPlaybackPaused = true;
+        });
       }
     } catch (e) {
       debugPrint('Error toggling playback: $e');
@@ -492,7 +581,7 @@ class _MusicSectionState extends State<MusicSection> {
                     decoration: BoxDecoration(
                       color: Theme.of(context).canvasColor.withOpacity(0.7),
                     ),
-                    child: SpotifyPlayer(
+                    child: const SpotifyPlayer(
                       key: ValueKey('spotify_player'),
                     ),
                   ),
@@ -562,6 +651,7 @@ class _MusicSectionState extends State<MusicSection> {
                   isPlaybackPaused: _isPlaybackPaused,
                   nowPlayingTrack: _nowPlayingTrack != null ? TrackAdapter.toMediaItem(_nowPlayingTrack!) : null,
                   onPlayPause: () => _togglePlayback(),
+                  isPlayerReady: _isPlayerReady,
                 ),
             ],
           ),

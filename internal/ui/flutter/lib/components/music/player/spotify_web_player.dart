@@ -33,6 +33,9 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
   String _htmlContent = '';
   final int _retryCount = 0;
   bool _isInitialized = false;
+  String? _pendingTrackUri;
+  bool _deviceLoadFailed = false;
+  int _connectRetryCount = 0;
   
   @override
   void initState() {
@@ -122,7 +125,7 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
       final data = jsonDecode(message.message) as Map<String, dynamic>;
       
       if (data['type'] == 'deviceReady') {
-        _handleDeviceReady(data);
+        _handleDeviceReady(data['deviceId'] as String? ?? '');
       } else if (data['type'] == 'playerStateChanged') {
         _handlePlayerStateChanged(data);
       } else if (data['type'] == 'deviceDisconnected') {
@@ -142,21 +145,31 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
     }
   }
   
-  void _handleDeviceReady(Map<String, dynamic> data) {
-    final deviceId = data['deviceId'] as String?;
-    if (deviceId != null) {
-      setState(() {
-        _deviceId = deviceId;
-        _isReady = true;
-      });
-      
-      debugPrint('Spotify Web Player ready with device ID: $deviceId');
-      
-      // Notify the SpotifyService about the device ID
-      widget.spotifyService.setActiveDeviceId(deviceId);
-      
-      // Only emit event after notifying the service
-      SpotifyEvents.emitDeviceReady(deviceId);
+  void _handleDeviceReady(String deviceId) {
+    if (_deviceId == deviceId) {
+      // Skip if we've already processed this device ID
+      debugPrint('Skipping duplicate device ready event for ID: $deviceId');
+      return;
+    }
+    
+    debugPrint('Spotify device ready: $deviceId');
+    setState(() {
+      _isReady = true;
+      _deviceId = deviceId;
+      _deviceLoadFailed = false;
+      _connectRetryCount = 0;
+    });
+    
+    // Notify the SpotifyService about the device ID
+    widget.spotifyService.setActiveDeviceId(deviceId);
+    
+    // Emit global event for device ready - this triggers player ready as well
+    SpotifyEvents.emitDeviceReady(deviceId);
+    
+    // If there's a pending track, play it now
+    if (_pendingTrackUri != null) {
+      playTrack(_pendingTrackUri!);
+      _pendingTrackUri = null;
     }
   }
   
@@ -229,30 +242,54 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
     _reconnectTimer = Timer(const Duration(seconds: 5), _onWebViewLoaded);
   }
   
-  // Method to play a track
+  // Method to play a track with a given Spotify URI
   void playTrack(String uri) {
-    if (!_isReady || _deviceId == null) {
-      debugPrint('Cannot play track: Player not ready or no device ID');
+    if (!_isReady) {
+      debugPrint('Cannot play track: WebPlayer not ready yet');
+      _pendingTrackUri = uri;
       return;
     }
     
     debugPrint('Playing track via web player: $uri');
-    
     final message = jsonEncode({
       'type': 'playTrack',
       'uri': uri,
     });
     
     _controller.runJavaScript("window.postMessage($message, '*');");
+    
+    // Immediately emit a playback state change event to provide feedback before the 
+    // actual event comes back from the player. This improves responsiveness.
+    if (_currentTrack != null) {
+      SpotifyEvents.emitPlaybackStateChange(SpotifyPlaybackState(
+        isPlaying: true,
+        progressMs: 0,
+        item: _currentTrack,
+      ));
+    }
   }
   
   // Method to pause playback
   void pausePlayback() {
-    if (_isReady) {
-      final message = jsonEncode({
-        'type': 'pause',
-      });
-      _controller.runJavaScript("window.postMessage($message, '*');");
+    if (!_isReady) {
+      debugPrint('Cannot pause playback: WebPlayer not ready yet');
+      return;
+    }
+    
+    debugPrint('Pausing playback via web player');
+    final message = jsonEncode({
+      'type': 'pause',
+    });
+    _controller.runJavaScript("window.postMessage($message, '*');");
+    
+    // Immediately emit a playback state change event to provide feedback before the 
+    // actual event comes back from the player. This improves responsiveness.
+    if (_currentTrack != null) {
+      SpotifyEvents.emitPlaybackStateChange(SpotifyPlaybackState(
+        isPlaying: false,
+        progressMs: null,
+        item: _currentTrack,
+      ));
     }
   }
   
