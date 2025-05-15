@@ -61,7 +61,7 @@ class _ScrollContentWrapperState extends State<ScrollContentWrapper> {
             top: 0,
             left: 0,
             right: 0,
-            height: widget.headerHeight + 60, // Extra buffer for transition
+            height: widget.headerHeight - 20, // Extra buffer for transition
             child: IgnorePointer(
               child: Container(
                 decoration: BoxDecoration(

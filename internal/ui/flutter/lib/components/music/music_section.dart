@@ -577,7 +577,7 @@ class _MusicSectionState extends State<MusicSection> {
               child: !_isAuthenticated
                   ? _buildAuthPrompt()
                   : ScrollContentWrapper(
-                      headerHeight: 106, // Original value
+                      headerHeight: 150, // Original value
                       child: _buildAuthenticatedView(),
                     ),
             ),
