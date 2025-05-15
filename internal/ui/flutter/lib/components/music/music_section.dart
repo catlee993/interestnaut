@@ -241,7 +241,7 @@ class _MusicSectionState extends State<MusicSection> {
           _isLoadingLibrary = false;
         });
       } else if (response is List) {
-        for (int i = 0; i < response.length; i++) {
+        for (int i = 0; i <response.length; i++) {
           final item = response[i];
           if (item is SimpleTrack) {
             tracks.add(_convertSimpleTrackToTrack(item));
@@ -430,15 +430,36 @@ class _MusicSectionState extends State<MusicSection> {
     await _saveTrack(track.id.toString());
   }
 
-  // Handle play/pause action from track cards
-  Future<void> _handleTrackCardAction(dynamic trackData) async {
-    // Check if this is the currently playing track
-    if (_nowPlayingTrack != null && trackData.uri == _nowPlayingTrack!.uri) {
-      // If it's the same track, toggle playback instead of restarting it
-      await _togglePlayback();
+  // Handle track card play/pause
+  Future<void> _handleTrackCardAction(MediaItem trackItem) async {
+    // Get the track URI and ID directly
+    String? trackUri;
+    String? trackId;
+    
+    if (trackItem is Track) {
+      trackUri = trackItem.uri;
+      trackId = trackItem.id;
     } else {
-      // If it's a different track, play it
-      await _playTrack(trackData.uri);
+      // Try to get URI and ID directly from MediaItem
+      trackUri = trackItem.uri;
+      trackId = trackItem.id;
+    }
+    
+    if (trackUri == null || trackUri.isEmpty) {
+      debugPrint('Cannot handle track action: No valid URI found');
+      return;
+    }
+    
+    // Check if this is the currently playing track
+    final isCurrentlyPlaying = _nowPlayingTrack != null && 
+      trackId != null && trackId == _nowPlayingTrack!.id;
+    
+    if (isCurrentlyPlaying) {
+      // If this is the active track, just toggle play/pause without restarting
+      _togglePlayback();
+    } else {
+      // If not the active track, start playing it from the beginning
+      _playTrack(trackUri);
     }
   }
 
@@ -465,8 +486,8 @@ class _MusicSectionState extends State<MusicSection> {
       }
       
       if (_isPlaybackPaused) {
-        // Start playback via web player directly for immediate UI response
-        _webPlayerKey.currentState?.playTrack(_nowPlayingTrack!.uri);
+        // Resume playback instead of restarting the track
+        _webPlayerKey.currentState?.resumePlayback();
         
         // Set state optimistically for UI responsiveness
         setState(() {
@@ -685,7 +706,12 @@ class _MusicSectionState extends State<MusicSection> {
       itemsPerPage: _tracksPerPage,
       nowPlayingTrack: _nowPlayingTrack,
       isPlaybackPaused: _isPlaybackPaused,
-      onPlay: (track) => _handleTrackCardAction(track),
+      onPlay: (track) async {
+        // Convert Track to MediaItem before passing to _handleTrackCardAction
+        final mediaItem = TrackAdapter.toMediaItem(track);
+        await _handleTrackCardAction(mediaItem);
+              return; // Explicit return for Future<void>
+      },
       onSave: _saveFromLibrary,
       onRemove: _removeTrack,
       onNextPage: _loadNextPage,

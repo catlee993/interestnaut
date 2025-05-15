@@ -250,6 +250,12 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
       return;
     }
     
+    // Check if this is the current track that's paused - if so, just resume
+    if (_currentTrack != null && _currentTrack!.uri == uri) {
+      resumePlayback();
+      return;
+    }
+    
     debugPrint('Playing track via web player: $uri');
     final message = jsonEncode({
       'type': 'playTrack',
@@ -264,6 +270,29 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
       SpotifyEvents.emitPlaybackStateChange(SpotifyPlaybackState(
         isPlaying: true,
         progressMs: 0,
+        item: _currentTrack,
+      ));
+    }
+  }
+  
+  // Method to resume playback at current position
+  void resumePlayback() {
+    if (!_isReady) {
+      debugPrint('Cannot resume playback: WebPlayer not ready yet');
+      return;
+    }
+    
+    debugPrint('Resuming playback via web player');
+    final message = jsonEncode({
+      'type': 'resume',
+    });
+    _controller.runJavaScript("window.postMessage($message, '*');");
+    
+    // Immediately emit a playback state change event to provide feedback
+    if (_currentTrack != null) {
+      SpotifyEvents.emitPlaybackStateChange(SpotifyPlaybackState(
+        isPlaying: true,
+        progressMs: null, // Keep the current progress
         item: _currentTrack,
       ));
     }

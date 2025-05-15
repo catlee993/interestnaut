@@ -1180,6 +1180,61 @@ class SpotifyService {
     }
   }
 
+  /// Resume playback on an active Spotify device
+  Future<bool> resumePlayback({String? deviceId}) async {
+    if (!_isAuthenticated) {
+      debugPrint('Cannot resume playback: not authenticated');
+      return false;
+    }
+    
+    try {
+      // Use device ID if provided, otherwise use active device
+      final targetDeviceId = deviceId ?? _activeDeviceId;
+      
+      if (targetDeviceId == null) {
+        debugPrint('Cannot resume playback: No active Spotify device available');
+        return false;
+      }
+      
+      // Get current playback state to check if there's something to resume
+      final playbackState = await getPlaybackState();
+      if (playbackState == null) {
+        debugPrint('No current playback state to resume');
+        return false;
+      }
+      
+      // Resume playback on the active device
+      final response = await http.put(
+        Uri.parse('https://api.spotify.com/v1/me/player/play?device_id=$targetDeviceId'),
+        headers: {
+          'Authorization': 'Bearer $_accessToken',
+        },
+      );
+      
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        debugPrint('Successfully resumed playback on device: $targetDeviceId');
+        return true;
+      } else if (response.statusCode == 401) {
+        // Token expired, try to refresh
+        final refreshed = await _refreshAccessToken();
+        if (refreshed) {
+          // Try again with new token
+          return resumePlayback(deviceId: targetDeviceId);
+        } else {
+          _isAuthenticated = false;
+          _emitAuthEvent(false);
+          return false;
+        }
+      } else {
+        debugPrint('Failed to resume playback: ${response.statusCode} - ${response.body}');
+        return false;
+      }
+    } catch (e) {
+      debugPrint('Error resuming playback: $e');
+      return false;
+    }
+  }
+
   /// Seek to a position in the currently playing track
   Future<bool> seekTo(int positionMs, {String? deviceId}) async {
     if (_accessToken == null) return false;

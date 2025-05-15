@@ -2,8 +2,12 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'dart:async';
+import 'dart:convert';
 import '../../../models.dart';
 import '../spotify_service.dart';
+import 'spotify_web_player.dart';
 
 /// A widget that displays the currently playing track and provides playback controls
 /// Based on the previous React implementation in NowPlayingBar.tsx
@@ -160,16 +164,17 @@ class _SpotifyPlayerState extends State<SpotifyPlayer> {
   int _duration = 0;
   bool _isPlayerReady = false; // Local state to track readiness for UI purposes
   final SpotifyService _spotifyService = SpotifyService();
+  late StreamSubscription<String> _deviceReadySubscription;
   late StreamSubscription<Track> _trackSubscription;
   late StreamSubscription<SpotifyPlaybackState> _playbackStateSubscription;
   late StreamSubscription<bool> _playerReadySubscription;
+  String? _deviceId;
 
   @override
   void initState() {
     super.initState();
-    _setupEventListeners();
-    // Start polling for playback state to get track duration
-    _startPlaybackPolling();
+    _setupEventHandlers();
+    _setupTimers();
   }
   
   @override
@@ -179,18 +184,18 @@ class _SpotifyPlayerState extends State<SpotifyPlayer> {
     _playbackStateSubscription.cancel();
     _playerReadySubscription.cancel();
     _pollingTimer?.cancel();
+    _deviceReadySubscription.cancel();
     super.dispose();
   }
 
-  void _setupEventListeners() {
-    // Listen for player ready events
-    _playerReadySubscription = SpotifyEvents.onPlayerReady.listen((isReady) {
-      debugPrint('SpotifyPlayer received player ready event: $isReady');
-      if (mounted) {
-        setState(() {
-          _isPlayerReady = isReady;
-        });
-      }
+  void _setupEventHandlers() {
+    // Listen for device ready events
+    _deviceReadySubscription = SpotifyEvents.onDeviceReady.listen((deviceId) {
+      debugPrint('SpotifyPlayer received device ready event: $deviceId');
+      setState(() {
+        _isPlayerReady = true;
+        _deviceId = deviceId; // Store the device ID for API calls
+      });
     });
     
     // Listen for track change events
@@ -233,17 +238,27 @@ class _SpotifyPlayerState extends State<SpotifyPlayer> {
         });
       }
     });
+    
+    // Listen for player ready events
+    _playerReadySubscription = SpotifyEvents.onPlayerReady.listen((isReady) {
+      debugPrint('SpotifyPlayer received player ready event: $isReady');
+      if (mounted) {
+        setState(() {
+          _isPlayerReady = isReady;
+        });
+      }
+    });
   }
   
-  // Poll Spotify API for playback state to get full track data
-  void _startPlaybackPolling() {
+  void _setupTimers() {
+    // Start polling for playback state to get track duration
     _pollingTimer?.cancel();
     _pollingTimer = Timer.periodic(const Duration(seconds: 5), (_) {
       _getFullTrackDuration();
     });
   }
   
-  // Get full track duration from Spotify API
+  // Poll Spotify API for playback state to get full track data
   void _getFullTrackDuration() async {
     if (_currentTrack == null) return;
     
@@ -310,15 +325,16 @@ class _SpotifyPlayerState extends State<SpotifyPlayer> {
     }
     
     if (_isPlaying) {
-      _spotifyService.pausePlayback();
-      // Optimistically update state for better UI responsiveness
-      setState(() {
-        _isPlaying = false;
-        _positionTimer?.cancel();
+      _spotifyService.pausePlayback(deviceId: _deviceId).catchError((e) {
+        debugPrint('Error pausing playback: $e');
       });
     } else {
-      if (_currentTrack != null && _currentTrack!.uri.isNotEmpty) {
-        _playTrack(_currentTrack!);
+      // Use resumePlayback when unpausing to avoid restarting the track
+      if (_currentTrack != null) {
+        debugPrint('Resuming current track: ${_currentTrack!.name}');
+        _spotifyService.resumePlayback(deviceId: _deviceId).catchError((e) {
+          debugPrint('Error resuming playback: $e');
+        });
       }
     }
   }

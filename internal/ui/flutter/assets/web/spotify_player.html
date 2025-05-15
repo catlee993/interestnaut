@@ -211,6 +211,12 @@
           if (player) {
             player.pause();
           }
+        } else if (data.type === 'resume') {
+          // Resume playback at current position
+          if (player) {
+            console.log('Resuming playback via Web Player SDK');
+            player.togglePlay();
+          }
         }
       }
       
