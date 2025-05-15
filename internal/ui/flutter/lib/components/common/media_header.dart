@@ -128,7 +128,6 @@ class _MediaHeaderState extends State<MediaHeader> {
       activeMedia = media;
     });
     widget.onMediaChange?.call(media);
-    Navigator.of(context).pop();
   }
 
   String _getMediaDisplayName(String mediaType) {
