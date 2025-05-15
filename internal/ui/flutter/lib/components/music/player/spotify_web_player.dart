@@ -32,6 +32,7 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
   Timer? _reconnectTimer;
   String _htmlContent = '';
   final int _retryCount = 0;
+  bool _isInitialized = false;
   
   @override
   void initState() {
@@ -53,6 +54,9 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
       const String htmlPath = 'assets/web/spotify_player.html';
       _htmlContent = await rootBundle.loadString(htmlPath);
       _initWebView();
+      setState(() {
+        _isInitialized = true;
+      });
     } catch(e) {
       debugPrint('Error loading Spotify player HTML: $e');
     }
@@ -116,28 +120,25 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
   void _handleJavaScriptMessage(JavaScriptMessage message) {
     try {
       final data = jsonDecode(message.message) as Map<String, dynamic>;
-      final type = data['type'] as String?;
       
-      debugPrint('Spotify Web Player message: $type');
-      
-      switch (type) {
-        case 'deviceReady':
-          _handleDeviceReady(data);
-          break;
-        case 'playerStateChanged':
-          _handlePlayerStateChanged(data);
-          break;
-        case 'deviceDisconnected':
-          _handleDeviceDisconnected();
-          break;
-        case 'error':
-          debugPrint('Spotify Web Player error: ${data['message']}');
-          // Notify other components about the error through events
-          SpotifyEvents.emitError(data['message'] as String? ?? 'Unknown error');
-          break;
+      if (data['type'] == 'deviceReady') {
+        _handleDeviceReady(data);
+      } else if (data['type'] == 'playerStateChanged') {
+        _handlePlayerStateChanged(data);
+      } else if (data['type'] == 'deviceDisconnected') {
+        _handleDeviceDisconnected();
+      } else if (data['type'] == 'error') {
+        debugPrint('Spotify Web Player error: ${data['message']}');
+        // If the error is related to playback, we should try to recover
+        if (data['message'].toString().contains('playback')) {
+          // Try to reconnect the player after a short delay
+          if (_reconnectTimer == null || !_reconnectTimer!.isActive) {
+            _reconnectTimer = Timer(const Duration(seconds: 2), _onWebViewLoaded);
+          }
+        }
       }
     } catch (e) {
-      debugPrint('Error handling JavaScript message: $e');
+      debugPrint('Error processing JavaScript message: $e');
     }
   }
   
@@ -154,7 +155,7 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
       // Notify the SpotifyService about the device ID
       widget.spotifyService.setActiveDeviceId(deviceId);
       
-      // Emit an event for other components to know we're ready
+      // Only emit event after notifying the service
       SpotifyEvents.emitDeviceReady(deviceId);
     }
   }
@@ -235,11 +236,11 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
     
     debugPrint('Playing track via web player: $uri');
     
-    // Simple approach - just send the message to play
     final message = jsonEncode({
       'type': 'playTrack',
       'uri': uri,
     });
+    
     _controller.runJavaScript("window.postMessage($message, '*');");
   }
   

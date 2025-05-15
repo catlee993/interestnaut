@@ -129,6 +129,26 @@
       window.addEventListener('message', (event) => {
         const data = event.data;
         
+        try {
+          if (typeof data === 'string') {
+            const jsonData = JSON.parse(data);
+            handleMessage(jsonData);
+          } else {
+            handleMessage(data);
+          }
+        } catch (e) {
+          console.error('Error processing message:', e);
+          sendToFlutter({
+            type: 'error',
+            message: 'Error processing message: ' + e.message
+          });
+        }
+      });
+      
+      // Handle incoming messages from Flutter
+      function handleMessage(data) {
+        console.log('Message from Flutter:', data);
+        
         if (data.type === 'token') {
           // Got token from Flutter
           token = data.token;
@@ -141,8 +161,7 @@
           setTimeout(() => {
             initializePlayer(token);
           }, 500);
-        }
-        else if (data.type === 'playTrack') {
+        } else if (data.type === 'playTrack') {
           // Play a track
           if (player && deviceId) {
             console.log('Playing track:', data.uri);
@@ -187,14 +206,13 @@
               }
             });
           }
-        }
-        else if (data.type === 'pause') {
+        } else if (data.type === 'pause') {
           // Pause playback
           if (player) {
             player.pause();
           }
         }
-      });
+      }
       
       function initializePlayer(token) {
         if (player) {

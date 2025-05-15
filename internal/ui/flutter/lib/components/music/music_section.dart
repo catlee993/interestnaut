@@ -117,20 +117,16 @@ class _MusicSectionState extends State<MusicSection> {
 
       if (_isAuthenticated) {
         _loadLibrary();
+        _loadSuggestion(); // Ensure we load a suggestion on authentication
       }
     });
     
     // Listen for device ID changes - this is crucial for proper playback
-    _deviceIdSubscription = SpotifyEvents.onDeviceReady.listen((deviceId) {
+    _deviceIdSubscription = _spotifyService.onDeviceIdChange.listen((deviceId) {
       debugPrint('Spotify device ready: $deviceId');
       setState(() {
         _activeDeviceId = deviceId;
       });
-      
-      // Now that the device is ready, load a suggestion and enable playback
-      if (_isAuthenticated && _suggestion == null) {
-        _loadSuggestion();
-      }
       
       // Play any pending track
       if (_pendingTrackUri != null) {
@@ -156,15 +152,19 @@ class _MusicSectionState extends State<MusicSection> {
     super.dispose();
   }
 
-  // Check if user is already authenticated
+  // Check if user is authenticated on init and when the auth state changes
   Future<void> _checkAuthentication() async {
     final isAuthenticated = await _spotifyService.checkAuthentication();
-    setState(() {
-      _isAuthenticated = isAuthenticated;
-    });
+    
+    if (mounted) {
+      setState(() {
+        _isAuthenticated = isAuthenticated;
+      });
+    }
 
     if (_isAuthenticated) {
       _loadLibrary();
+      _loadSuggestion(); // Ensure we load a suggestion on authentication
     }
   }
 
@@ -305,61 +305,21 @@ class _MusicSectionState extends State<MusicSection> {
     }
   }
 
-  // Play a track on the active device
+  // Play a track with the given URI
   Future<void> _playTrack(String trackUri) async {
     if (_activeDeviceId == null) {
       debugPrint('No active Spotify device available. Using web player.');
-      final webPlayerState = _webPlayerKey.currentState;
-      if (webPlayerState != null) {
-        // Store as a pending track if device isn't ready yet
-        if (!webPlayerState.isPlayerReady()) {
-          debugPrint('Web player not ready. Storing as pending track: $trackUri');
-          _pendingTrackUri = trackUri;
-        } else {
-          webPlayerState.playTrack(trackUri);
-          debugPrint('Sent playTrack command to web player');
-        }
-      } else {
-        debugPrint('Web player state is null, cannot play track');
-        // Store the track to play when the player becomes available
-        _pendingTrackUri = trackUri;
-      }
+      // Use the web player directly
+      _webPlayerKey.currentState?.playTrack(trackUri);
     } else {
       // Use the stored device ID
-      debugPrint('Playing track on device: $_activeDeviceId');
       await _spotifyService.playTrack(trackUri, deviceId: _activeDeviceId);
     }
     
-    // Set paused state immediately for responsive UI
+    // Set current track playing state
     setState(() {
       _isPlaybackPaused = false;
     });
-    
-    // If track is not set by event listener, find and set it for immediate UI update
-    if (_nowPlayingTrack == null || _nowPlayingTrack!.uri != trackUri) {
-      // Find the track in either liked tracks or current suggestion
-      Track? track;
-      
-      // First check if it's the current suggestion
-      if (_suggestion != null && _suggestion!.uri == trackUri) {
-        track = _suggestion;
-      } else {
-        // Search in liked tracks
-        for (final t in _likedTracks) {
-          if (t.uri == trackUri) {
-            track = t;
-            break;
-          }
-        }
-      }
-      
-      // If found, update the UI
-      if (track != null) {
-        setState(() {
-          _nowPlayingTrack = track;
-        });
-      }
-    }
   }
 
   // Save a track to library
@@ -410,62 +370,17 @@ class _MusicSectionState extends State<MusicSection> {
 
   // Handle play/pause action from track cards
   Future<void> _handleTrackCardAction(dynamic trackData) async {
-    Map<String, dynamic> trackInfo;
-    
-    if (trackData is Track) {
-      trackInfo = {
-        'uri': trackData.uri,
-        'id': trackData.id,
-      };
-    } else if (trackData is MediaItem) {
-      trackInfo = {
-        'uri': trackData.uri ?? '',
-        'id': trackData.id,
-      };
-    } else {
-      trackInfo = {
-        'uri': trackData.uri ?? '',
-        'id': trackData.id ?? '',
-      };
-    }
-    
-    String trackUri = trackInfo['uri'] as String;
-    
-    // Check if this is the currently playing track
-    if (_nowPlayingTrack != null && _nowPlayingTrack!.uri == trackUri) {
-      // Toggle pause/play instead of restarting the track
-      if (_isPlaybackPaused) {
-        // Resume by playing the current track (no resumePlayback method available)
-        await _spotifyService.playTrack(trackUri, deviceId: _activeDeviceId);
-        setState(() {
-          _isPlaybackPaused = false;
-        });
-      } else {
-        await _spotifyService.pausePlayback();
-        setState(() {
-          _isPlaybackPaused = true;
-        });
-      }
-    } else {
-      // New track, play it
-      await _playTrack(trackUri);
-    }
+    await _playTrack(trackData.uri);
   }
 
   // Toggle play/pause for the current track
   Future<void> _togglePlayback() async {
     try {
       if (_isPlaybackPaused) {
-        // If we have a track, use its URI to resume playback
-        if (_nowPlayingTrack != null) {
-          await _spotifyService.playTrack(_nowPlayingTrack!.uri, deviceId: _activeDeviceId);
-        }
+        await _spotifyService.playTrack(_nowPlayingTrack!.uri);
       } else {
         await _spotifyService.pausePlayback();
       }
-      setState(() {
-        _isPlaybackPaused = !_isPlaybackPaused;
-      });
     } catch (e) {
       debugPrint('Error toggling playback: $e');
       if (mounted) {
@@ -488,56 +403,82 @@ class _MusicSectionState extends State<MusicSection> {
     });
   }
 
+  // Provide feedback for a suggestion
+  Future<void> _provideFeedback(String feedback) async {
+    if (_suggestion == null) return;
+
+    try {
+      // Extract info from the suggestion
+      final String title = _suggestion!.name;
+      final String artist = _suggestion!.artists.first.name;
+
+      // Show feedback message
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('$feedback: $title by $artist'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+
+      // Load a new suggestion
+      _loadSuggestion();
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error providing feedback: $e'),
+          duration: const Duration(seconds: 5),
+        ),
+      );
+    }
+  }
+
   // Build the main music section UI
   @override
   Widget build(BuildContext context) {
     return Stack(
       children: [
-        // Position the web player where it won't interfere with UI
-        // but will still be initialized properly
-        Positioned(
-          left: -1000, // Position it off-screen
-          top: -1000,
-          child: SizedBox(
-            width: 1,
-            height: 1,
-            child: Opacity(
-              opacity: 0, // Make fully transparent
+        // Main content area with scrolling
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Add the web player (hidden but active)
+            SizedBox(
+              width: 1,
+              height: 1,
               child: SpotifyWebPlayer(
                 key: _webPlayerKey,
                 spotifyService: _spotifyService,
                 visible: false,
               ),
             ),
-          ),
-        ),
-        
-        // Main content area with scrolling - needs to start behind the header
-        // but hide text elements when they cross the header boundary
-        ScrollContentWrapper(
-          headerHeight: 106, // Original value
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Add extra padding at the top to ensure "Suggested for You" is below header
-              const SizedBox(height: 40),
 
-              // Content area
-              !_isAuthenticated
-                ? _buildAuthPrompt()
-                : _buildAuthenticatedView(),
-            ],
-          ),
+            // Content area
+            Expanded(
+              child: !_isAuthenticated
+                  ? _buildAuthPrompt()
+                  : SingleChildScrollView(
+                      // Add bottom padding to accommodate the player
+                      padding: const EdgeInsets.only(bottom: 80),
+                      child: _buildAuthenticatedView(),
+                    ),
+            ),
+          ],
         ),
 
         // Player positioned at the bottom
         if (_isAuthenticated && _nowPlayingTrack != null)
-          const Positioned(
+          Positioned(
             left: 0,
             right: 0,
             bottom: 0,
-            child: SpotifyPlayer(
-              key: ValueKey('spotify_player'),
+            child: Material(
+              elevation: 8,
+              child: Container(
+                color: Theme.of(context).canvasColor,
+                child: const SpotifyPlayer(
+                  key: ValueKey('spotify_player'),
+                ),
+              ),
             ),
           ),
       ],
@@ -676,34 +617,5 @@ class _MusicSectionState extends State<MusicSection> {
         ],
       ),
     );
-  }
-
-  // Provide feedback for a suggestion
-  Future<void> _provideFeedback(String feedback) async {
-    if (_suggestion == null) return;
-
-    try {
-      // Extract info from the suggestion
-      final String title = _suggestion!.name;
-      final String artist = _suggestion!.artists.first.name;
-
-      // Show feedback message
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('$feedback: $title by $artist'),
-          duration: const Duration(seconds: 2),
-        ),
-      );
-
-      // Load a new suggestion
-      _loadSuggestion();
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error providing feedback: $e'),
-          duration: const Duration(seconds: 5),
-        ),
-      );
-    }
   }
 }
