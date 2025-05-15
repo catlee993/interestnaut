@@ -24,18 +24,18 @@ Future<void> main() async {
   const eventBusChannel = MethodChannel('com.interestnaut.eventbus');
   
   // Set up server event streams
-  try {
-    final serverPort = await eventBusChannel.invokeMethod<int>('initializeEventBus');
-    if (serverPort != null) {
-      debugPrint('Connected to event bus on port $serverPort');
-      debugPrint('Event bus initialized and all event subscriptions active');
-    } else {
-      debugPrint('Failed to initialize event bus: No port returned');
-    }
-  } catch (e) {
-    debugPrint('Error initializing event bus: $e');
-    // Continue without event bus
-  }
+  // try {
+  //   final serverPort = await eventBusChannel.invokeMethod<int>('initializeEventBus');
+  //   if (serverPort != null) {
+  //     debugPrint('Connected to event bus on port $serverPort');
+  //     debugPrint('Event bus initialized and all event subscriptions active');
+  //   } else {
+  //     debugPrint('Failed to initialize event bus: No port returned');
+  //   }
+  // } catch (e) {
+  //   debugPrint('Error initializing event bus: $e');
+  //   // Continue without event bus
+  // }
   
   bool ffiAvailable = false;
   
@@ -219,7 +219,7 @@ class _InterestnautAppState extends State<InterestnautApp> {
                     left: 0,
                     right: 0,
                     child: Container(
-                      padding: EdgeInsets.only(
+                      padding: const EdgeInsets.only(
                         top: 60.0,
                         left: 8.0,
                         right: 8.0,
