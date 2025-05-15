@@ -409,80 +409,17 @@ class _MusicSearchHandlerState extends State<_MusicSearchHandler> {
     }
   }
 
-  Widget _buildSearchResultsOnly() {
-    if (_isLoading) {
-      return const Padding(
-        padding: EdgeInsets.all(24.0),
-        child: Center(
-          child: CircularProgressIndicator(
-            valueColor: AlwaysStoppedAnimation(Colors.white70),
-          ),
-        ),
-      );
-    }
-
-    if (_error != null) {
-      return Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                _error!,
-                style: const TextStyle(color: Colors.white),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: () => _performSearch(widget.searchQuery),
-                child: const Text('Retry'),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    // Display search results in a MediaGrid with 5 columns directly
-    // without using the SearchSection component that adds another search bar
-    return Padding(
-      padding: const EdgeInsets.all(16.0),
-      child: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Padding(
-              padding: const EdgeInsets.only(left: 16.0, bottom: 16.0),
-              child: Text(
-                'Search Results: ${_searchResults.length} tracks',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-            MediaGrid(
-              columns: 5,  // Use 5 columns as requested
-              children: _searchResults
-                  .map((track) => TrackCard(
-                        track: track,
-                        isSaved: false,
-                        onPlay: (t) => _handlePlay(t),
-                        onSave: (t) => _handleSave(t),
-                        onRemove: (t) => _handleRemove(t),
-                      ))
-                  .toList(),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
-    return _buildSearchResultsOnly();
+    return SearchSection(
+      searchResults: _searchResults,
+      isLoading: _isLoading,
+      error: _error,
+      onSearch: _performSearch,
+      onPlay: _handlePlay,
+      onSave: _handleSave,
+      onRemove: _handleRemove,
+      onRetry: () => _performSearch(widget.searchQuery),
+    );
   }
 }

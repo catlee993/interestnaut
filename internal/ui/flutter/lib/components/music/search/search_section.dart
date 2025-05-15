@@ -1,140 +1,98 @@
 import 'package:flutter/material.dart';
 import '../../../models.dart';
 import '../tracks/track_card.dart';
-import '../../common/search_bar.dart' as custom;
 import '../../common/media_grid.dart';
-import 'dart:async';
 
-class SearchSection extends StatefulWidget {
+class SearchSection extends StatelessWidget {
   final List<SimpleTrack> searchResults;
+  final bool isLoading;
+  final String? error;
   final Future<void> Function(String) onSearch;
   final Future<void> Function(SimpleTrack) onPlay;
   final Future<void> Function(SimpleTrack) onSave;
   final Future<void> Function(SimpleTrack) onRemove;
+  final VoidCallback onRetry;
 
   const SearchSection({
     Key? key,
     required this.searchResults,
+    this.isLoading = false,
+    this.error,
     required this.onSearch,
     required this.onPlay,
     required this.onSave,
     required this.onRemove,
+    required this.onRetry,
   }) : super(key: key);
 
   @override
-  State<SearchSection> createState() => _SearchSectionState();
-}
-
-class _SearchSectionState extends State<SearchSection> {
-  String _searchQuery = '';
-  Timer? _debounce;
-  bool _showResults = false;
-
-  void _onSearchChanged(String query) {
-    if (_debounce?.isActive ?? false) _debounce!.cancel();
-    setState(() => _searchQuery = query);
-    if (query.isEmpty) {
-      setState(() => _showResults = false);
-      widget.onSearch('');
-      return;
-    }
-    _debounce = Timer(const Duration(milliseconds: 500), () async {
-      await widget.onSearch(query);
-      setState(() => _showResults = true);
-    });
-  }
-
-  void _onClear() {
-    setState(() {
-      _searchQuery = '';
-      _showResults = false;
-    });
-    widget.onSearch('');
-  }
-
-  @override
-  void dispose() {
-    _debounce?.cancel();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    // Add debug logging to check search results
-    debugPrint('SearchSection build: showResults=${_showResults}, resultCount=${widget.searchResults.length}');
-    if (widget.searchResults.isNotEmpty) {
-      debugPrint('Search results available but may not be displayed: showResults=${_showResults}');
-      // Force show results when we have them
-      if (!_showResults) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          setState(() {
-            _showResults = true;
-          });
-        });
-      }
-    }
-    
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        children: [
-          custom.SearchBar(
-            placeholder: 'Search tracks...',
-            onSearch: _onSearchChanged,
-            onClear: _onClear,
-            initialValue: _searchQuery, // Restore this parameter now that it's supported
+    if (isLoading) {
+      return const Padding(
+        padding: EdgeInsets.all(24.0),
+        child: Center(
+          child: CircularProgressIndicator(
+            valueColor: AlwaysStoppedAnimation(Colors.white70),
           ),
-          if (_showResults && widget.searchResults.isNotEmpty)
-            Container(
-              margin: const EdgeInsets.only(top: 16),
-              decoration: BoxDecoration(
-                color: const Color.fromRGBO(18, 18, 18, 0.95),
-                borderRadius: BorderRadius.circular(8),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.2),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
+        ),
+      );
+    }
+
+    if (error != null) {
+      return Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                error!,
+                style: const TextStyle(color: Colors.white),
+                textAlign: TextAlign.center,
               ),
-              constraints: BoxConstraints(
-                maxHeight: MediaQuery.of(context).size.height * 0.6,
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: onRetry,
+                child: const Text('Retry'),
               ),
-              child: SingleChildScrollView(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: MediaGrid(
-                    columns: 4,
-                    children: widget.searchResults
-                        .map((track) => TrackCard(
-                              track: track,
-                              isSaved: false,
-                              onPlay: (t) => widget.onPlay(t),
-                              onSave: (t) => widget.onSave(t),
-                              onRemove: (t) => widget.onRemove(t),
-                            ))
-                        .toList(),
-                  ),
-                ),
-              ),
-            )
-          else if (_showResults && widget.searchResults.isEmpty)
-            Container(
-              margin: const EdgeInsets.only(top: 16),
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: const Color.fromRGBO(18, 18, 18, 0.95),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Center(
-                child: Text(
-                  'No tracks found',
-                  style: TextStyle(color: Colors.white70),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // Display search results in a MediaGrid with 4 columns
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(left: 16.0, bottom: 16.0),
+              child: Text(
+                'Search Results: ${searchResults.length} tracks',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
                 ),
               ),
             ),
-        ],
+            MediaGrid(
+              columns: 4,  // Using 4 columns as requested
+              children: searchResults
+                  .map((track) => TrackCard(
+                        track: track,
+                        isSaved: false,
+                        onPlay: (t) => onPlay(t),
+                        onSave: (t) => onSave(t),
+                        onRemove: (t) => onRemove(t),
+                      ))
+                  .toList(),
+            ),
+          ],
+        ),
       ),
     );
   }
