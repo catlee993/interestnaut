@@ -322,7 +322,7 @@ class _SpotifyPlayerState extends State<SpotifyPlayer> {
         child: Container(
           height: 80,
           decoration: BoxDecoration(
-            color: const Color.fromRGBO(28, 28, 28, 0.85),
+            color: const Color.fromRGBO(28, 28, 28, 0.55),
             border: Border(
               top: BorderSide(
                 color: Colors.white.withOpacity(0.1),
