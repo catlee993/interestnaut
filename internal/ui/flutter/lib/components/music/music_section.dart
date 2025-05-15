@@ -456,9 +456,8 @@ class _MusicSectionState extends State<MusicSection> {
             Expanded(
               child: !_isAuthenticated
                   ? _buildAuthPrompt()
-                  : SingleChildScrollView(
-                      // Add bottom padding to accommodate the player
-                      padding: const EdgeInsets.only(bottom: 80),
+                  : ScrollContentWrapper(
+                      headerHeight: 106, // Original value
                       child: _buildAuthenticatedView(),
                     ),
             ),
