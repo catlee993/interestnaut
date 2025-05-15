@@ -182,6 +182,7 @@ class _SpotifyPlayerState extends State<SpotifyPlayer> {
   void _setupEventListeners() {
     // Listen for track change events
     _trackSubscription = SpotifyEvents.onTrackChange.listen((track) {
+      debugPrint('SpotifyPlayer received track change event: ${track.name}');
       if (mounted) {
         setState(() {
           _currentTrack = track;
@@ -198,6 +199,7 @@ class _SpotifyPlayerState extends State<SpotifyPlayer> {
 
     // Listen for playback state change events
     _playbackStateSubscription = SpotifyEvents.onPlaybackStateChange.listen((state) {
+      debugPrint('SpotifyPlayer received playback state change: playing=${state.isPlaying}');
       if (mounted) {
         setState(() {
           _isPlaying = state.isPlaying;

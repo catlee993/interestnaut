@@ -209,9 +209,11 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
       
       // Emit track change event
       SpotifyEvents.emitTrackChange(trackObj);
+      debugPrint('Emitted track change event for track: ${trackObj.name}');
       
       // Emit playback state change event
       SpotifyEvents.emitPlaybackStateChange(playbackState);
+      debugPrint('Emitted playback state change event: playing=${!isPaused}');
     }
   }
   

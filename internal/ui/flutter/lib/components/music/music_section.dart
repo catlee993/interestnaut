@@ -83,6 +83,7 @@ class _MusicSectionState extends State<MusicSection> {
   StreamSubscription? _deviceIdSubscription;
   StreamSubscription? _playbackStateSubscription;
   StreamSubscription? _trackChangeSubscription;
+  StreamSubscription? _spotifyEventsTrackSubscription;
 
   @override
   void initState() {
@@ -107,6 +108,14 @@ class _MusicSectionState extends State<MusicSection> {
           });
         }
       }
+    });
+    
+    // Also listen for track changes from SpotifyEvents
+    _spotifyEventsTrackSubscription = SpotifyEvents.onTrackChange.listen((track) {
+      debugPrint('MusicSection received SpotifyEvents track change: ${track.name}');
+      setState(() {
+        _nowPlayingTrack = track;
+      });
     });
     
     // Listen for auth state changes
@@ -149,6 +158,7 @@ class _MusicSectionState extends State<MusicSection> {
     _deviceIdSubscription?.cancel();
     _playbackStateSubscription?.cancel();
     _trackChangeSubscription?.cancel();
+    _spotifyEventsTrackSubscription?.cancel();
     super.dispose();
   }
 
@@ -465,21 +475,29 @@ class _MusicSectionState extends State<MusicSection> {
         ),
 
         // Player positioned at the bottom
-        if (_isAuthenticated && _nowPlayingTrack != null)
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: Material(
-              elevation: 8,
-              child: Container(
-                color: Theme.of(context).canvasColor,
-                child: const SpotifyPlayer(
-                  key: ValueKey('spotify_player'),
+        Builder(builder: (context) {
+          // Debug: Log when we try to show the player
+          debugPrint('Player conditions: isAuthenticated=$_isAuthenticated, nowPlayingTrack=${_nowPlayingTrack != null ? _nowPlayingTrack!.name : 'null'}');
+          
+          if (_isAuthenticated && _nowPlayingTrack != null) {
+            return Positioned(
+              left: 0,
+              right: 0, 
+              bottom: 0,
+              child: Material(
+                elevation: 8,
+                child: Container(
+                  color: Theme.of(context).canvasColor,
+                  child: SpotifyPlayer(
+                    key: ValueKey('spotify_player'),
+                  ),
                 ),
               ),
-            ),
-          ),
+            );
+          } else {
+            return const SizedBox.shrink(); // Return empty widget if conditions not met
+          }
+        }),
       ],
     );
   }
