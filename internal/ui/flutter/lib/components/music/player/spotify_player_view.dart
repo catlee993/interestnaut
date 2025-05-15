@@ -209,7 +209,7 @@ class _SpotifyPlayerState extends State<SpotifyPlayer> {
           _position = 0;
           
           // Initiate polling for full track data when track changes
-          _getFullTrackDuration();
+          _getPlaybackStateFromSpotify();
           
           _startProgressTimer();
         });
@@ -251,16 +251,16 @@ class _SpotifyPlayerState extends State<SpotifyPlayer> {
   }
   
   void _setupTimers() {
-    // Start polling for playback state to get track duration
+    // Start polling for playback state to get track duration and accurate position
     _pollingTimer?.cancel();
-    _pollingTimer = Timer.periodic(const Duration(seconds: 5), (_) {
-      _getFullTrackDuration();
+    _pollingTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      _getPlaybackStateFromSpotify();
     });
   }
   
-  // Poll Spotify API for playback state to get full track data
-  void _getFullTrackDuration() async {
-    if (_currentTrack == null) return;
+  // Poll Spotify API for playback state to get full track data and current position
+  void _getPlaybackStateFromSpotify() async {
+    if (_currentTrack == null || !_isPlaying) return;
     
     final playbackState = await _spotifyService.getPlaybackState();
     if (playbackState != null && mounted) {
@@ -272,7 +272,7 @@ class _SpotifyPlayerState extends State<SpotifyPlayer> {
         setState(() {
           _duration = playbackState['item']['duration_ms'] as int;
           
-          // Also update position for accuracy
+          // Update position from the actual Spotify playback state for accuracy
           if (playbackState.containsKey('progress_ms')) {
             _position = playbackState['progress_ms'] as int;
           }
@@ -352,16 +352,20 @@ class _SpotifyPlayerState extends State<SpotifyPlayer> {
   }
   
   void _startProgressTimer() {
+    // Cancel any existing timer
     _positionTimer?.cancel();
-    _positionTimer = Timer.periodic(const Duration(milliseconds: 1000), (timer) {
+    
+    // Create a new timer that updates the position every 250ms
+    _positionTimer = Timer.periodic(const Duration(milliseconds: 250), (_) {
       if (mounted && _isPlaying) {
         setState(() {
-          if (_position < _duration) {
-            _position += 1000;
-          } else {
-            // Track finished, reset position
-            _position = 0;
-            timer.cancel();
+          // Update position more frequently for smoother scrubber motion
+          // But this is just for UI; we'll get actual position from Spotify periodically
+          _position += 250;
+          
+          // Don't let the position exceed the duration
+          if (_position > _duration && _duration > 0) {
+            _position = _duration;
           }
         });
       }

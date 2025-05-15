@@ -215,7 +215,13 @@
           // Resume playback at current position
           if (player) {
             console.log('Resuming playback via Web Player SDK');
-            player.togglePlay();
+            player.resume().then(() => {
+              console.log('Resume playback successful');
+            }).catch(error => {
+              console.error('Resume playback failed:', error);
+              // Try alternative method if resume fails
+              player.togglePlay();
+            });
           }
         }
       }

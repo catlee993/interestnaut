@@ -454,12 +454,14 @@ class _MusicSectionState extends State<MusicSection> {
     final isCurrentlyPlaying = _nowPlayingTrack != null && 
       trackId != null && trackId == _nowPlayingTrack!.id;
     
+    debugPrint('Track card action: isCurrentlyPlaying=$isCurrentlyPlaying, ID=$trackId');
+    
     if (isCurrentlyPlaying) {
       // If this is the active track, just toggle play/pause without restarting
-      _togglePlayback();
+      await _togglePlayback();
     } else {
       // If not the active track, start playing it from the beginning
-      _playTrack(trackUri);
+      await _playTrack(trackUri);
     }
   }
 
@@ -485,8 +487,12 @@ class _MusicSectionState extends State<MusicSection> {
         return;
       }
       
+      // Check current playback state before toggling
+      debugPrint('Toggle playback: isPlaybackPaused=$_isPlaybackPaused');
+      
       if (_isPlaybackPaused) {
         // Resume playback instead of restarting the track
+        debugPrint('Resuming track: ${_nowPlayingTrack!.name}');
         _webPlayerKey.currentState?.resumePlayback();
         
         // Set state optimistically for UI responsiveness
@@ -495,6 +501,7 @@ class _MusicSectionState extends State<MusicSection> {
         });
       } else {
         // Pause playback via web player directly for immediate UI response
+        debugPrint('Pausing track: ${_nowPlayingTrack!.name}');
         _webPlayerKey.currentState?.pausePlayback();
         
         // Set state optimistically for UI responsiveness
@@ -504,14 +511,6 @@ class _MusicSectionState extends State<MusicSection> {
       }
     } catch (e) {
       debugPrint('Error toggling playback: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error controlling playback: $e'),
-            duration: const Duration(seconds: 3),
-          ),
-        );
-      }
     }
   }
 
