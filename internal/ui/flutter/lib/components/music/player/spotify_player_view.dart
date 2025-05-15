@@ -2,12 +2,8 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'dart:async';
-import 'dart:convert';
 import '../../../models.dart';
 import '../spotify_service.dart';
-import 'spotify_web_player.dart';
 
 /// A widget that displays the currently playing track and provides playback controls
 /// Based on the previous React implementation in NowPlayingBar.tsx
