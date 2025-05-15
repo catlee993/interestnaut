@@ -439,12 +439,22 @@ class SpotifyClient {
   /// Search for tracks on Spotify
   Future<List<SimpleTrack>> searchTracks(String query, {int limit = 20}) async {
     try {
+      // Add log for search query
+      debugPrint('Starting search for tracks with query: "$query"');
+      
+      // Remove the minimum length check to allow single character searches
+      if (query.isEmpty) {
+        debugPrint('Empty query, skipping API call');
+        return [];
+      }
+      
       final params = <String, String>{
         'q': query,
         'type': 'track',
         'limit': limit.toString(),
       };
       
+      debugPrint('Calling Spotify search API with params: $params');
       final response = await _apiRequest(
         'GET',
         'search',
@@ -454,6 +464,7 @@ class SpotifyClient {
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         final items = data['tracks']['items'] as List<dynamic>;
+        debugPrint('Search successful, found ${items.length} tracks');
         
         return items.map((item) {
           // Extract artist information

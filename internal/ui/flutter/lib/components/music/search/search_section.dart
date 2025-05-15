@@ -60,6 +60,20 @@ class _SearchSectionState extends State<SearchSection> {
 
   @override
   Widget build(BuildContext context) {
+    // Add debug logging to check search results
+    debugPrint('SearchSection build: showResults=${_showResults}, resultCount=${widget.searchResults.length}');
+    if (widget.searchResults.isNotEmpty) {
+      debugPrint('Search results available but may not be displayed: showResults=${_showResults}');
+      // Force show results when we have them
+      if (!_showResults) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          setState(() {
+            _showResults = true;
+          });
+        });
+      }
+    }
+    
     return Padding(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -68,6 +82,7 @@ class _SearchSectionState extends State<SearchSection> {
             placeholder: 'Search tracks...',
             onSearch: _onSearchChanged,
             onClear: _onClear,
+            initialValue: _searchQuery, // Restore this parameter now that it's supported
           ),
           if (_showResults && widget.searchResults.isNotEmpty)
             Container(
@@ -90,6 +105,7 @@ class _SearchSectionState extends State<SearchSection> {
                 child: Padding(
                   padding: const EdgeInsets.all(16),
                   child: MediaGrid(
+                    columns: 4,
                     children: widget.searchResults
                         .map((track) => TrackCard(
                               track: track,
@@ -100,6 +116,21 @@ class _SearchSectionState extends State<SearchSection> {
                             ))
                         .toList(),
                   ),
+                ),
+              ),
+            )
+          else if (_showResults && widget.searchResults.isEmpty)
+            Container(
+              margin: const EdgeInsets.only(top: 16),
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color.fromRGBO(18, 18, 18, 0.95),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Center(
+                child: Text(
+                  'No tracks found',
+                  style: TextStyle(color: Colors.white70),
                 ),
               ),
             ),

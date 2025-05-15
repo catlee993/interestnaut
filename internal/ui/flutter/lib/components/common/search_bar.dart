@@ -7,6 +7,7 @@ class SearchBar extends StatefulWidget {
   final VoidCallback? onClear;
   final int debounceTime;
   final TextStyle? style;
+  final String initialValue;
 
   const SearchBar({
     Key? key,
@@ -15,6 +16,7 @@ class SearchBar extends StatefulWidget {
     this.onClear,
     this.debounceTime = 500,
     this.style,
+    this.initialValue = '',
   }) : super(key: key);
 
   @override
@@ -22,11 +24,34 @@ class SearchBar extends StatefulWidget {
 }
 
 class _SearchBarState extends State<SearchBar> {
-  final TextEditingController _controller = TextEditingController();
+  late final TextEditingController _controller;
   final FocusNode _focusNode = FocusNode();
   Timer? _debounce;
   String _lastSearch = '';
 
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialValue);
+    _lastSearch = widget.initialValue;
+    
+    // If there's an initial value, notify the search handler
+    if (widget.initialValue.isNotEmpty) {
+      widget.onSearch(widget.initialValue);
+    }
+  }
+
+  @override
+  void didUpdateWidget(SearchBar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Update controller if initialValue changes externally
+    if (widget.initialValue != oldWidget.initialValue && 
+        widget.initialValue != _controller.text) {
+      _controller.text = widget.initialValue;
+      _lastSearch = widget.initialValue;
+    }
+  }
+  
   @override
   void dispose() {
     _debounce?.cancel();

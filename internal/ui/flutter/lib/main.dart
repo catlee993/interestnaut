@@ -13,6 +13,8 @@ import 'components/music/music_section.dart';
 import 'components/music/search/search_section.dart';
 import 'components/music/spotify_service.dart';
 import 'models.dart'; // Import models to get the Track class
+import 'components/common/media_grid.dart';
+import 'components/music/tracks/track_card.dart'; // Add this import
 
 /// Entry point for the Flutter app
 Future<void> main() async {
@@ -217,6 +219,12 @@ class _InterestnautAppState extends State<InterestnautApp> {
                     left: 0,
                     right: 0,
                     child: Container(
+                      padding: EdgeInsets.only(
+                        top: 60.0,
+                        left: 8.0,
+                        right: 8.0,
+                        bottom: 8.0,
+                      ),
                       decoration: BoxDecoration(
                         color: const Color.fromRGBO(18, 18, 18, 0.95),
                         borderRadius: const BorderRadius.only(
@@ -233,6 +241,7 @@ class _InterestnautAppState extends State<InterestnautApp> {
                         ],
                       ),
                       constraints: BoxConstraints(
+                        minHeight: 300,
                         maxHeight: MediaQuery.of(context).size.height * 0.7,
                       ),
                       child: _MusicSearchHandler(
@@ -400,13 +409,14 @@ class _MusicSearchHandlerState extends State<_MusicSearchHandler> {
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
+  Widget _buildSearchResultsOnly() {
     if (_isLoading) {
       return const Padding(
         padding: EdgeInsets.all(24.0),
         child: Center(
-          child: CircularProgressIndicator(),
+          child: CircularProgressIndicator(
+            valueColor: AlwaysStoppedAnimation(Colors.white70),
+          ),
         ),
       );
     }
@@ -434,12 +444,45 @@ class _MusicSearchHandlerState extends State<_MusicSearchHandler> {
       );
     }
 
-    return SearchSection(
-      searchResults: _searchResults,
-      onSearch: _performSearch,
-      onPlay: _handlePlay,
-      onSave: _handleSave,
-      onRemove: _handleRemove,
+    // Display search results in a MediaGrid with 5 columns directly
+    // without using the SearchSection component that adds another search bar
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(left: 16.0, bottom: 16.0),
+              child: Text(
+                'Search Results: ${_searchResults.length} tracks',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            MediaGrid(
+              columns: 5,  // Use 5 columns as requested
+              children: _searchResults
+                  .map((track) => TrackCard(
+                        track: track,
+                        isSaved: false,
+                        onPlay: (t) => _handlePlay(t),
+                        onSave: (t) => _handleSave(t),
+                        onRemove: (t) => _handleRemove(t),
+                      ))
+                  .toList(),
+            ),
+          ],
+        ),
+      ),
     );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _buildSearchResultsOnly();
   }
 }

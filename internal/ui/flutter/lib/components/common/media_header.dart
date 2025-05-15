@@ -406,6 +406,7 @@ class _MediaHeaderState extends State<MediaHeader> {
                                           : 'Search games...',
                           onSearch: widget.onSearch,
                           onClear: widget.onClearSearch,
+                          initialValue: '',  // Add this parameter to match the updated SearchBar API
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 14,
