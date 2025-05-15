@@ -1,13 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import '../../../models.dart';
 import '../spotify_service.dart';
-import '../../../services/event_bus.dart';
 import 'spotify_player_view.dart'; // Import to access SpotifyEvents
 
 /// A WebView-based Spotify player that uses the Spotify Web Playback SDK
@@ -30,10 +27,11 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
   final WebViewController _controller = WebViewController();
   String? _deviceId;
   Track? _currentTrack;
-  bool _isPlaying = false;
+  final bool _isPlaying = false;
   bool _isReady = false;
   Timer? _reconnectTimer;
   String _htmlContent = '';
+  int _retryCount = 0;
   
   @override
   void initState() {
@@ -87,7 +85,7 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
   }
   
   void _initWebView() {
-    // Configure the WebView controller
+    // Configure the WebView controller with only essential settings
     _controller
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..addJavaScriptChannel(
@@ -101,24 +99,48 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
           },
           onPageFinished: (_) => _onWebViewLoaded(),
         ),
-      );
+      )
+      ..setBackgroundColor(Colors.transparent);
     
-    // Load the HTML content directly
+    // Add a simple audio context initialization script to help with autoplay
+    const audioEnableScript = """
+    <script>
+    // Simple script to help with audio permissions on various platforms
+    document.addEventListener('DOMContentLoaded', () => {
+      try {
+        // Create a silent audio context to enable audio
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        console.log('Audio context created successfully');
+      } catch(e) {
+        console.error('Failed to create audio context:', e);
+      }
+    });
+    </script>
+    """;
+    
+    // Add the script inline to the HTML before the closing head tag
+    _htmlContent = _htmlContent.replaceFirst('</head>', '$audioEnableScript</head>');
+    
+    // Load the HTML with audio enabling script
     _controller.loadHtmlString(_htmlContent);
   }
   
   void _onWebViewLoaded() {
-    // When the WebView is loaded, initialize the player with the access token
+    // Simplified initialization that focuses only on sending the token
     widget.spotifyService.getAccessToken().then((token) {
       if (token != null) {
+        // Send token to the player in the standard way
         final message = jsonEncode({
           'type': 'token',
           'token': token,
         });
         _controller.runJavaScript("window.postMessage($message, '*');");
+        debugPrint('Sent Spotify token to web player');
       } else {
         debugPrint('Cannot initialize Spotify Web Player: No access token available');
       }
+    }).catchError((error) {
+      debugPrint('Error getting Spotify access token: $error');
     });
   }
   
@@ -233,14 +255,38 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
   
   // Method to play a track
   void playTrack(String uri) {
-    if (_isReady && _deviceId != null) {
+    // Simple retry mechanism to handle not-ready state
+    if (!_isReady) {
+      debugPrint('Attempting to play track but player not ready. Retrying in 2 seconds...');
+      // Add a limited retry (max 3 times) to avoid infinite loops
+      if (_retryCount < 3) {
+        _retryCount++;
+        Timer(const Duration(seconds: 2), () {
+          if (mounted) {
+            playTrack(uri);
+          }
+        });
+      } else {
+        _retryCount = 0;
+        debugPrint('Failed to play after 3 retry attempts');
+      }
+      return;
+    }
+    
+    // Reset retry counter when we successfully reach ready state
+    _retryCount = 0;
+    
+    if (_deviceId != null) {
+      debugPrint('Playing track via web player: $uri');
+      
+      // Simple approach - just send the message to play
       final message = jsonEncode({
         'type': 'playTrack',
         'uri': uri,
       });
       _controller.runJavaScript("window.postMessage($message, '*');");
     } else {
-      debugPrint('Cannot play track: Spotify Web Player not ready');
+      debugPrint('Cannot play track: No device ID available');
     }
   }
   

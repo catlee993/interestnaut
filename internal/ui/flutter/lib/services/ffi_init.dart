@@ -94,7 +94,7 @@ class FFIInitializer {
           final targetFile = File(targetDylibPath);
           if (!await targetFile.exists()) {
             // Source dylib path
-            final sourceDylibPath = '/Users/catastrophe/stuff/interestnaut/internal/ui/flutter/libinterestnaut.dylib';
+            const sourceDylibPath = '/Users/catastrophe/stuff/interestnaut/internal/ui/flutter/libinterestnaut.dylib';
             final sourceFile = File(sourceDylibPath);
             
             if (await sourceFile.exists()) {

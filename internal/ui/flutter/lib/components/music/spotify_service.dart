@@ -3,19 +3,14 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 import 'package:crypto/crypto.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import 'package:flutter_web_auth/flutter_web_auth.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:uni_links/uni_links.dart';
-import 'package:flutter/services.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../models.dart';
 import '../../services/secure_storage.dart' as secure_storage;
 import 'spotify_client.dart';
-import 'package:path_provider/path_provider.dart';
 
 // Event classes for state management
 class AuthStatusEvent {

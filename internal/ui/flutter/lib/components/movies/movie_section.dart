@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'movie_card.dart';
 import '../common/media_grid.dart';
 import '../common/media_section_layout.dart';
-import '../common/media_suggestion_display.dart';
 import '../../models.dart';
 
 class MovieSection extends StatefulWidget {

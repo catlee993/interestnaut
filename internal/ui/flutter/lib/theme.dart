@@ -81,19 +81,16 @@ class AppTheme {
         primary: primaryColor,
         secondary: accentColor,
         surface: surfaceColor,
-        background: backgroundColor,
         error: errorColor,
         onPrimary: textPrimary,
         onSecondary: textPrimary,
         onSurface: textPrimary,
-        onBackground: textPrimary,
         onError: textPrimary,
         brightness: Brightness.dark,
       ),
       
       // Background colors
       scaffoldBackgroundColor: backgroundColor,
-      dialogBackgroundColor: surfaceColor,
       canvasColor: backgroundColor,
       applyElevationOverlayColor: true,
       
@@ -107,7 +104,7 @@ class AppTheme {
         shadowColor: Colors.black.withOpacity(0.3),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(cardBorderRadius),
-          side: BorderSide(color: const Color(0xFF323232), width: 1),
+          side: const BorderSide(color: Color(0xFF323232), width: 1),
         ),
         margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
         clipBehavior: Clip.antiAlias,
@@ -149,14 +146,14 @@ class AppTheme {
       
       // Switch theme
       switchTheme: SwitchThemeData(
-        thumbColor: MaterialStateProperty.resolveWith<Color>((states) {
-          if (states.contains(MaterialState.selected)) {
+        thumbColor: WidgetStateProperty.resolveWith<Color>((states) {
+          if (states.contains(WidgetState.selected)) {
             return primaryColor;
           }
           return Colors.grey;
         }),
-        trackColor: MaterialStateProperty.resolveWith<Color>((states) {
-          if (states.contains(MaterialState.selected)) {
+        trackColor: WidgetStateProperty.resolveWith<Color>((states) {
+          if (states.contains(WidgetState.selected)) {
             return primaryColor.withOpacity(0.5);
           }
           return Colors.grey.withOpacity(0.5);
@@ -246,21 +243,21 @@ class AppTheme {
       titleSmall: headingStyle.copyWith(fontSize: 14, fontWeight: FontWeight.w400),
       
       // Label styles - for buttons, tabs, etc.
-      labelLarge: TextStyle(
+      labelLarge: const TextStyle(
         fontFamily: 'Inter, Roboto, -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif',
         fontSize: 14,
         fontWeight: FontWeight.w500,
         color: textPrimary,
         letterSpacing: 0.5,
       ),
-      labelMedium: TextStyle(
+      labelMedium: const TextStyle(
         fontFamily: 'Inter, Roboto, -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif',
         fontSize: 12,
         fontWeight: FontWeight.w500,
         color: textPrimary,
         letterSpacing: 0.5,
       ),
-      labelSmall: TextStyle(
+      labelSmall: const TextStyle(
         fontFamily: 'Inter, Roboto, -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif',
         fontSize: 11,
         fontWeight: FontWeight.w500,
@@ -288,11 +285,11 @@ class AppTheme {
         ),
         elevation: 0,
       ).copyWith(
-        overlayColor: MaterialStateProperty.resolveWith<Color>((states) {
-          if (states.contains(MaterialState.hovered)) {
+        overlayColor: WidgetStateProperty.resolveWith<Color>((states) {
+          if (states.contains(WidgetState.hovered)) {
             return primaryHover;
           }
-          if (states.contains(MaterialState.focused) || states.contains(MaterialState.pressed)) {
+          if (states.contains(WidgetState.focused) || states.contains(WidgetState.pressed)) {
             return primaryHover.withOpacity(0.8);
           }
           return Colors.transparent;
@@ -318,11 +315,11 @@ class AppTheme {
         ),
         side: const BorderSide(color: primaryColor, width: 1),
       ).copyWith(
-        overlayColor: MaterialStateProperty.resolveWith<Color>((states) {
-          if (states.contains(MaterialState.hovered)) {
+        overlayColor: WidgetStateProperty.resolveWith<Color>((states) {
+          if (states.contains(WidgetState.hovered)) {
             return primaryColor.withOpacity(0.1);
           }
-          if (states.contains(MaterialState.focused) || states.contains(MaterialState.pressed)) {
+          if (states.contains(WidgetState.focused) || states.contains(WidgetState.pressed)) {
             return primaryColor.withOpacity(0.2);
           }
           return Colors.transparent;
@@ -347,11 +344,11 @@ class AppTheme {
           borderRadius: BorderRadius.circular(buttonBorderRadius),
         ),
       ).copyWith(
-        overlayColor: MaterialStateProperty.resolveWith<Color>((states) {
-          if (states.contains(MaterialState.hovered)) {
+        overlayColor: WidgetStateProperty.resolveWith<Color>((states) {
+          if (states.contains(WidgetState.hovered)) {
             return primaryColor.withOpacity(0.1);
           }
-          if (states.contains(MaterialState.focused) || states.contains(MaterialState.pressed)) {
+          if (states.contains(WidgetState.focused) || states.contains(WidgetState.pressed)) {
             return primaryColor.withOpacity(0.2);
           }
           return Colors.transparent;

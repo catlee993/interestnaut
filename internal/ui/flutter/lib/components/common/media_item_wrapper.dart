@@ -28,7 +28,7 @@ class MediaItemWrapper extends StatelessWidget {
               child: MouseRegion(
                 cursor: SystemMouseCursors.click,
                 child: AnimatedContainer(
-                  duration: Duration(milliseconds: 150),
+                  duration: const Duration(milliseconds: 150),
                   width: 24,
                   height: 24,
                   child: CustomPaint(
@@ -48,7 +48,7 @@ class _RemoveXIconPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final purplePaint = Paint()
-      ..color = Color(0xFF6a1b9a)
+      ..color = const Color(0xFF6a1b9a)
       ..strokeWidth = 6
       ..strokeCap = StrokeCap.round;
     final whitePaint = Paint()
@@ -56,11 +56,11 @@ class _RemoveXIconPainter extends CustomPainter {
       ..strokeWidth = 1.5
       ..strokeCap = StrokeCap.round;
     // Purple outline X
-    canvas.drawLine(Offset(6.4, 6.4), Offset(17.6, 17.6), purplePaint);
-    canvas.drawLine(Offset(6.4, 17.6), Offset(17.6, 6.4), purplePaint);
+    canvas.drawLine(const Offset(6.4, 6.4), const Offset(17.6, 17.6), purplePaint);
+    canvas.drawLine(const Offset(6.4, 17.6), const Offset(17.6, 6.4), purplePaint);
     // White inner X
-    canvas.drawLine(Offset(6.4, 6.4), Offset(17.6, 17.6), whitePaint);
-    canvas.drawLine(Offset(6.4, 17.6), Offset(17.6, 6.4), whitePaint);
+    canvas.drawLine(const Offset(6.4, 6.4), const Offset(17.6, 17.6), whitePaint);
+    canvas.drawLine(const Offset(6.4, 17.6), const Offset(17.6, 6.4), whitePaint);
   }
 
   @override

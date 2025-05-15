@@ -79,21 +79,21 @@ class _ApiCredentialsManagerState extends State<ApiCredentialsManager> {
               isDense: true,
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(8),
-                borderSide: BorderSide(color: Color.fromRGBO(123, 104, 238, 0.3)),
+                borderSide: const BorderSide(color: Color.fromRGBO(123, 104, 238, 0.3)),
               ),
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(8),
-                borderSide: BorderSide(color: Color.fromRGBO(123, 104, 238, 0.3)),
+                borderSide: const BorderSide(color: Color.fromRGBO(123, 104, 238, 0.3)),
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(8),
-                borderSide: BorderSide(color: Colors.white),
+                borderSide: const BorderSide(color: Colors.white),
               ),
               labelStyle: TextStyle(color: Colors.white.withOpacity(0.7)),
               hintStyle: TextStyle(color: Colors.white.withOpacity(0.5)),
-              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             ),
-            style: TextStyle(color: Colors.white),
+            style: const TextStyle(color: Colors.white),
             onChanged: (v) => _handleChange(v),
           ),
         ),
@@ -106,8 +106,8 @@ class _ApiCredentialsManagerState extends State<ApiCredentialsManager> {
           onPressed: (widget.disabled || _controller.text.isEmpty) ? null : _handleClear,
         ),
         if (_loading)
-          Padding(
-            padding: const EdgeInsets.only(left: 8),
+          const Padding(
+            padding: EdgeInsets.only(left: 8),
             child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
           ),
       ],

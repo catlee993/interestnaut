@@ -38,16 +38,16 @@ class ModelSelector extends StatelessWidget {
         labelStyle: TextStyle(color: Colors.white.withOpacity(0.7)),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
-          borderSide: BorderSide(color: Color.fromRGBO(123, 104, 238, 0.3)),
+          borderSide: const BorderSide(color: Color.fromRGBO(123, 104, 238, 0.3)),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
-          borderSide: BorderSide(color: Colors.white),
+          borderSide: const BorderSide(color: Colors.white),
         ),
-        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       ),
-      dropdownColor: Color.fromRGBO(30, 30, 30, 0.95),
-      style: TextStyle(color: Colors.white),
+      dropdownColor: const Color.fromRGBO(30, 30, 30, 0.95),
+      style: const TextStyle(color: Colors.white),
       items: items,
     );
   }

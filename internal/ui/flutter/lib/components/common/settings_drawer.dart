@@ -33,7 +33,7 @@ class _SettingsDrawerState extends State<SettingsDrawer> with SingleTickerProvid
 
   @override
   Widget build(BuildContext context) {
-    if (!widget.open) return SizedBox.shrink();
+    if (!widget.open) return const SizedBox.shrink();
     return Stack(
       children: [
         GestureDetector(
@@ -49,7 +49,7 @@ class _SettingsDrawerState extends State<SettingsDrawer> with SingleTickerProvid
           child: Container(
             width: 400,
             height: double.infinity,
-            color: Color.fromRGBO(18, 18, 18, 0.95),
+            color: const Color.fromRGBO(18, 18, 18, 0.95),
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
               child: Column(
@@ -59,7 +59,7 @@ class _SettingsDrawerState extends State<SettingsDrawer> with SingleTickerProvid
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
                       IconButton(
-                        icon: Icon(Icons.close, color: Colors.white),
+                        icon: const Icon(Icons.close, color: Colors.white),
                         onPressed: widget.onClose,
                       ),
                     ],
@@ -103,7 +103,7 @@ class _SettingsDrawerState extends State<SettingsDrawer> with SingleTickerProvid
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    BorderedSectionTitle('LLM APIs'),
+                                    const BorderedSectionTitle('LLM APIs'),
                                     const SizedBox(height: 12),
                                     ApiCredentialsManager(
                                       label: 'OpenAI',
@@ -125,7 +125,7 @@ class _SettingsDrawerState extends State<SettingsDrawer> with SingleTickerProvid
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    BorderedSectionTitle('Media APIs'),
+                                    const BorderedSectionTitle('Media APIs'),
                                     const SizedBox(height: 12),
                                     ApiCredentialsManager(
                                       label: 'TMDB',

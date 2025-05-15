@@ -54,9 +54,9 @@ class SpotifyUserControl extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.end,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(
+                    const Text(
                       'Logged in as',
-                      style: const TextStyle(
+                      style: TextStyle(
                         color: Color(0xFF1DB954),
                         fontSize: 8.5, 
                         fontWeight: FontWeight.w300,
@@ -93,13 +93,13 @@ class SpotifyUserControl extends StatelessWidget {
                         ),
                 ),
                 const SizedBox(width: 8),
-                Container(
+                SizedBox(
                   height: 20, 
                   child: OutlinedButton(
                     onPressed: onClearAuth,
                     style: OutlinedButton.styleFrom(
                       foregroundColor: AppTheme.purpleRed,
-                      side: BorderSide(color: AppTheme.purpleRed),
+                      side: const BorderSide(color: AppTheme.purpleRed),
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
                       minimumSize: const Size(70, 0),
                       tapTargetSize: MaterialTapTargetSize.shrinkWrap,

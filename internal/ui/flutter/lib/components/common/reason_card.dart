@@ -35,14 +35,14 @@ class ReasonCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
+          const Row(
             children: [
               Icon(
                 AppIcons.spotify,
                 size: AppIcons.iconSizeSmall,
                 color: AppTheme.primaryColor,
               ),
-              const SizedBox(width: 8),
+              SizedBox(width: 8),
               Text(
                 'Our AI Says:',
                 style: TextStyle(
@@ -56,7 +56,7 @@ class ReasonCard extends StatelessWidget {
           const SizedBox(height: 12),
           Text(
             reason,
-            style: TextStyle(
+            style: const TextStyle(
               color: AppTheme.textPrimary,
               fontSize: 14,
               height: 1.5,

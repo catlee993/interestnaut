@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'dart:ui';
 import 'search_bar.dart' as custom;
 import 'settings_drawer.dart';
-import '../../theme.dart';
 import '../music/spotify_service.dart';
 import '../music/spotify_connect_button.dart';
 import '../music/spotify_user_control.dart';

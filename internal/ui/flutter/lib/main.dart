@@ -3,15 +3,11 @@ import 'dart:io';
 import 'dart:ffi' as ffi;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:provider/provider.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:window_size/window_size.dart' as window_package;
 
 import 'theme.dart';
 import 'services/go_bindings.dart';
 import 'services/ffi_init.dart';
-import 'components/music/spotify_service.dart';
-import 'services/secure_storage.dart';
 import 'components/common/media_header.dart';
 import 'components/music/music_section.dart';
 

@@ -87,31 +87,31 @@ class MediaSectionLayout<T> extends StatelessWidget {
             margin: const EdgeInsets.only(bottom: 32),
             padding: const EdgeInsets.all(24),
             decoration: BoxDecoration(
-              color: Color.fromRGBO(0, 145, 234, 0.1),
+              color: const Color.fromRGBO(0, 145, 234, 0.1),
               borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Color.fromRGBO(0, 145, 234, 0.3)),
+              border: Border.all(color: const Color.fromRGBO(0, 145, 234, 0.3)),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Missing API Credentials', style: TextStyle(color: Color(0xFF0091EA), fontSize: 18, fontWeight: FontWeight.bold)),
+                const Text('Missing API Credentials', style: TextStyle(color: Color(0xFF0091EA), fontSize: 18, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 8),
                 Text(
                   type == 'game'
                       ? 'The RAWG API credentials are not configured. Please set up your RAWG API key in the Settings to use game recommendations.'
                       : 'The Movie Database API credentials are not configured. Please set up your TMDB API key in the Settings to use recommendations.',
-                  style: TextStyle(color: Colors.white70),
+                  style: const TextStyle(color: Colors.white70),
                 ),
               ],
             ),
           ),
-        if (searchResults.isNotEmpty && showSearchResults && renderSearchResults != null)
+        if (searchResults.isNotEmpty && showSearchResults)
           Container(
             margin: const EdgeInsets.only(bottom: 32),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Search Results', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white)),
+                const Text('Search Results', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white)),
                 const SizedBox(height: 12),
                 renderSearchResults(),
               ],
@@ -122,12 +122,12 @@ class MediaSectionLayout<T> extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Suggested for You', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white)),
+              const Text('Suggested for You', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white)),
               const SizedBox(height: 12),
               if (suggestedItem != null)
                 MediaSuggestionDisplay(
                   mediaType: type,
-                  suggestedItem: mapToSuggestionItem(suggestedItem!),
+                  suggestedItem: mapToSuggestionItem(suggestedItem as T),
                   suggestionReason: suggestionReason,
                   isLoading: isLoadingSuggestion,
                   error: suggestionError,
@@ -147,7 +147,7 @@ class MediaSectionLayout<T> extends StatelessWidget {
                 Center(
                   child: ElevatedButton(
                     onPressed: isLoadingSuggestion ? null : onRequestSuggestion,
-                    child: Text('Get a Suggestion'),
+                    child: const Text('Get a Suggestion'),
                   ),
                 ),
             ],
@@ -163,11 +163,11 @@ class MediaSectionLayout<T> extends StatelessWidget {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Text('Your $queueName', style: TextStyle(fontSize: 18, color: Colors.white)),
+                    Text('Your $queueName', style: const TextStyle(fontSize: 18, color: Colors.white)),
                     const SizedBox(width: 12),
                     Text(
                       showWatchlist ? 'Hide (${watchlistItems.length})' : 'Show (${watchlistItems.length})',
-                      style: TextStyle(color: Colors.white70),
+                      style: const TextStyle(color: Colors.white70),
                     ),
                   ],
                 ),
@@ -178,7 +178,7 @@ class MediaSectionLayout<T> extends StatelessWidget {
                     ? Center(
                         child: Padding(
                           padding: const EdgeInsets.symmetric(vertical: 32),
-                          child: Text('Your watchlist is empty. Add ${typeName.toLowerCase()}s to watch later by clicking the "Add to Watchlist" icon.', style: TextStyle(color: Colors.white54)),
+                          child: Text('Your watchlist is empty. Add ${typeName.toLowerCase()}s to watch later by clicking the "Add to Watchlist" icon.', style: const TextStyle(color: Colors.white54)),
                         ),
                       )
                     : renderWatchlistItems(),
@@ -195,11 +195,11 @@ class MediaSectionLayout<T> extends StatelessWidget {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Text('Your Library', style: TextStyle(fontSize: 18, color: Colors.white)),
+                    const Text('Your Library', style: TextStyle(fontSize: 18, color: Colors.white)),
                     const SizedBox(width: 12),
                     Text(
                       showLibrary ? 'Hide (${savedItems.length})' : 'Show (${savedItems.length})',
-                      style: TextStyle(color: Colors.white70),
+                      style: const TextStyle(color: Colors.white70),
                     ),
                   ],
                 ),
@@ -210,7 +210,7 @@ class MediaSectionLayout<T> extends StatelessWidget {
                     ? Center(
                         child: Padding(
                           padding: const EdgeInsets.symmetric(vertical: 32),
-                          child: Text("You haven't saved any ${typeName.toLowerCase()}s yet. Search for ${typeName.toLowerCase()}s and click the heart icon to add them to your favorites.", style: TextStyle(color: Colors.white54)),
+                          child: Text("You haven't saved any ${typeName.toLowerCase()}s yet. Search for ${typeName.toLowerCase()}s and click the heart icon to add them to your favorites.", style: const TextStyle(color: Colors.white54)),
                         ),
                       )
                     : renderSavedItems(),

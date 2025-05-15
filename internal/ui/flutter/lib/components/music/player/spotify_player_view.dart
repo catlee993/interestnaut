@@ -4,7 +4,6 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import '../../../models.dart';
 import '../spotify_service.dart';
-import '../../../services/event_bus.dart';
 
 /// A widget that displays the currently playing track and provides playback controls
 /// Based on the previous React implementation in NowPlayingBar.tsx

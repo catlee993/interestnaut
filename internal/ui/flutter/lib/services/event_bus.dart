@@ -191,7 +191,7 @@ class EventBus {
         // Don't close the real controller as that would break existing listeners
         // Instead just create a "fake" connection state that allows the app to continue
         _port = -1;
-        _reconnectTimer = Timer(Duration(seconds: 30), () {
+        _reconnectTimer = Timer(const Duration(seconds: 30), () {
           _reconnectTimer = null;
           _reconnectAttempts = 0; // Reset counter for fresh attempts
           if (!_shutdown) {

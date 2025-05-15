@@ -17,7 +17,7 @@ class MediaGrid extends StatelessWidget {
         crossAxisSpacing: 24,
         mainAxisSpacing: 24,
         shrinkWrap: true,
-        physics: NeverScrollableScrollPhysics(),
+        physics: const NeverScrollableScrollPhysics(),
         children: children,
       ),
     );

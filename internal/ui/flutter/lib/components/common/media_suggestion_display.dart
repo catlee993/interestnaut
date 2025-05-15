@@ -42,7 +42,7 @@ class MediaSuggestionDisplay extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (isLoading) {
-      return Center(
+      return const Center(
         child: SizedBox(
           height: 48,
           width: 48,
@@ -54,20 +54,20 @@ class MediaSuggestionDisplay extends StatelessWidget {
     }
 
     if (error != null && error!.isNotEmpty) {
-      final truncatedError = error!.length > 500 ? error!.substring(0, 500) + '...' : error!;
+      final truncatedError = error!.length > 500 ? '${error!.substring(0, 500)}...' : error!;
       return Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Container(
-            padding: EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
             decoration: BoxDecoration(
-              color: Color.fromRGBO(194, 59, 133, 0.1),
+              color: const Color.fromRGBO(194, 59, 133, 0.1),
               borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Color.fromRGBO(194, 59, 133, 0.3)),
+              border: Border.all(color: const Color.fromRGBO(194, 59, 133, 0.3)),
             ),
             child: Text(
               truncatedError,
-              style: TextStyle(
+              style: const TextStyle(
                 color: Color(0xFFC23B85),
                 fontWeight: FontWeight.w500,
               ),
@@ -75,16 +75,16 @@ class MediaSuggestionDisplay extends StatelessWidget {
           ),
           if (errorDetails != null && errorDetails!.isNotEmpty)
             Container(
-              margin: EdgeInsets.only(top: 16),
-              padding: EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+              margin: const EdgeInsets.only(top: 16),
+              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
               decoration: BoxDecoration(
-                color: Color.fromRGBO(0, 0, 0, 0.05),
+                color: const Color.fromRGBO(0, 0, 0, 0.05),
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Color.fromRGBO(0, 0, 0, 0.1)),
+                border: Border.all(color: const Color.fromRGBO(0, 0, 0, 0.1)),
               ),
               child: Text(
                 errorDetails!,
-                style: TextStyle(
+                style: const TextStyle(
                   color: Colors.black54,
                   fontSize: 14,
                 ),
@@ -94,7 +94,7 @@ class MediaSuggestionDisplay extends StatelessWidget {
             padding: const EdgeInsets.only(top: 16),
             child: ElevatedButton(
               onPressed: isProcessing ? null : onRequestSuggestion,
-              child: Text('Try Again'),
+              child: const Text('Try Again'),
             ),
           ),
         ],
@@ -105,13 +105,13 @@ class MediaSuggestionDisplay extends StatelessWidget {
       return Center(
         child: ElevatedButton(
           onPressed: isProcessing ? null : onRequestSuggestion,
-          child: Text('Get a Suggestion'),
+          child: const Text('Get a Suggestion'),
         ),
       );
     }
 
     Widget defaultImage(MediaSuggestionItem item) {
-      if (item.imageUrl == null || item.imageUrl!.isEmpty) return SizedBox.shrink();
+      if (item.imageUrl == null || item.imageUrl!.isEmpty) return const SizedBox.shrink();
       return Card(
         child: Image.network(
           item.imageUrl!,
@@ -138,7 +138,7 @@ class MediaSuggestionDisplay extends StatelessWidget {
     }
 
     return Container(
-      padding: EdgeInsets.all(24),
+      padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
         color: Theme.of(context).cardColor,
         borderRadius: BorderRadius.circular(16),
@@ -146,14 +146,14 @@ class MediaSuggestionDisplay extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
+          SizedBox(
             width: 300,
             height: 450,
             child: suggestedItem != null
                 ? (renderImage != null ? renderImage!(suggestedItem!) : defaultImage(suggestedItem!))
                 : const SizedBox.shrink(),
           ),
-          SizedBox(width: 24),
+          const SizedBox(width: 24),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -194,36 +194,36 @@ class MediaSuggestionDisplay extends StatelessWidget {
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ),
-                Spacer(),
+                const Spacer(),
                 Wrap(
                   spacing: 10,
                   runSpacing: 8,
                   children: [
                     ElevatedButton.icon(
                       onPressed: isProcessing ? null : onLike,
-                      icon: Icon(Icons.thumb_up),
-                      label: Text('Like'),
+                      icon: const Icon(Icons.thumb_up),
+                      label: const Text('Like'),
                     ),
                     ElevatedButton.icon(
                       onPressed: isProcessing ? null : onDislike,
-                      icon: Icon(Icons.thumb_down),
-                      label: Text('Dislike'),
+                      icon: const Icon(Icons.thumb_down),
+                      label: const Text('Dislike'),
                     ),
                     if (onAddToWatchlist != null && mediaType == 'movie')
                       ElevatedButton.icon(
                         onPressed: isProcessing ? null : onAddToWatchlist,
-                        icon: Icon(Icons.playlist_add),
+                        icon: const Icon(Icons.playlist_add),
                         label: Text(queueName),
                       ),
                     if (onAddToLibrary != null && (mediaType == 'movie' || mediaType == 'book' || mediaType == 'podcast'))
                       ElevatedButton.icon(
                         onPressed: isProcessing ? null : onAddToLibrary,
-                        icon: Icon(Icons.favorite),
+                        icon: const Icon(Icons.favorite),
                         label: Text(getAddToLibraryButtonText()),
                       ),
                     ElevatedButton.icon(
                       onPressed: isProcessing ? null : onSkip,
-                      icon: Icon(Icons.skip_next),
+                      icon: const Icon(Icons.skip_next),
                       label: Text(hasBeenLiked ? 'Next' : 'Skip'),
                     ),
                   ],

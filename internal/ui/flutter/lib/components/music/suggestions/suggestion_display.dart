@@ -136,7 +136,7 @@ class _SuggestionDisplayState extends State<SuggestionDisplay> {
     // Error state
     if (widget.suggestionError != null) {
       final truncatedError = widget.suggestionError!.length > 500
-          ? widget.suggestionError!.substring(0, 500) + "..."
+          ? "${widget.suggestionError!.substring(0, 500)}..."
           : widget.suggestionError!;
 
       return Column(
@@ -154,7 +154,7 @@ class _SuggestionDisplayState extends State<SuggestionDisplay> {
             ),
             child: Text(
               truncatedError,
-              style: TextStyle(
+              style: const TextStyle(
                 color: AppTheme.purpleRed,
                 fontWeight: FontWeight.w500,
                 fontSize: 14,
@@ -230,7 +230,7 @@ class _SuggestionDisplayState extends State<SuggestionDisplay> {
                   children: [
                     Text(
                       track.title,
-                      style: TextStyle(
+                      style: const TextStyle(
                         fontWeight: FontWeight.w600,
                         fontSize: 24,
                         color: AppTheme.textPrimary,
@@ -239,7 +239,7 @@ class _SuggestionDisplayState extends State<SuggestionDisplay> {
                     const SizedBox(height: 6),
                     Text(
                       track.overview,
-                      style: TextStyle(
+                      style: const TextStyle(
                         fontSize: 16,
                         color: AppTheme.textPrimary,
                       ),
@@ -280,12 +280,12 @@ class _SuggestionDisplayState extends State<SuggestionDisplay> {
               // Like button
               _buildStyledButton(
                 onPressed: () => widget.onSuggestionFeedback('like'),
-                child: Row(
+                child: const Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(AppIcons.thumbUp, size: AppIcons.iconSizeSmall),
-                    const SizedBox(width: 8),
-                    const Text('Like'),
+                    SizedBox(width: 8),
+                    Text('Like'),
                   ],
                 ),
                 className: 'feedback-button like-button',
@@ -296,12 +296,12 @@ class _SuggestionDisplayState extends State<SuggestionDisplay> {
               // Dislike button
               _buildStyledButton(
                 onPressed: () => widget.onSuggestionFeedback('dislike'),
-                child: Row(
+                child: const Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(AppIcons.thumbDown, size: AppIcons.iconSizeSmall),
-                    const SizedBox(width: 8),
-                    const Text('Dislike'),
+                    SizedBox(width: 8),
+                    Text('Dislike'),
                   ],
                 ),
                 className: 'feedback-button dislike-button',
@@ -312,12 +312,12 @@ class _SuggestionDisplayState extends State<SuggestionDisplay> {
               // Add to library button
               _buildStyledButton(
                 onPressed: widget.onAddToLibrary,
-                child: Row(
+                child: const Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(AppIcons.plus, size: AppIcons.iconSizeSmall),
-                    const SizedBox(width: 8),
-                    const Text('Add to Library'),
+                    SizedBox(width: 8),
+                    Text('Add to Library'),
                   ],
                 ),
                 className: 'action-button add-button',
@@ -333,7 +333,7 @@ class _SuggestionDisplayState extends State<SuggestionDisplay> {
                   children: [
                     Text(widget.hasLikedCurrentSuggestion ? 'Next' : 'Skip'),
                     const SizedBox(width: 8),
-                    Icon(AppIcons.stepForward, size: AppIcons.iconSizeSmall),
+                    const Icon(AppIcons.stepForward, size: AppIcons.iconSizeSmall),
                   ],
                 ),
                 className: 'action-button next-button',

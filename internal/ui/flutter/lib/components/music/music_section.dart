@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import '../common/media_grid.dart';
 import '../common/scroll_content_wrapper.dart';
 import '../../models.dart';
 import 'library/library_section.dart';
@@ -55,9 +54,9 @@ class MusicSection extends StatefulWidget {
 class _MusicSectionState extends State<MusicSection> {
   // State variables
   bool _isAuthenticated = false;
-  bool _isLoading = true;
+  final bool _isLoading = true;
   String? _errorMessage;
-  GlobalKey<SpotifyWebPlayerState> _webPlayerKey = GlobalKey();
+  final GlobalKey<SpotifyWebPlayerState> _webPlayerKey = GlobalKey();
   String? _activeDeviceId;
 
   // Suggestion state
@@ -117,15 +116,20 @@ class _MusicSectionState extends State<MusicSection> {
 
       if (_isAuthenticated) {
         _loadLibrary();
-        _loadSuggestion();
       }
     });
-
-    // Listen for device ID changes
-    _deviceIdSubscription = _spotifyService.onDeviceIdChange.listen((deviceId) {
+    
+    // Listen for device ID changes - this is crucial for proper playback
+    _deviceIdSubscription = SpotifyEvents.onDeviceReady.listen((deviceId) {
+      debugPrint('Spotify device ready: $deviceId');
       setState(() {
         _activeDeviceId = deviceId;
       });
+      
+      // Now that the device is ready, load a suggestion and enable playback
+      if (_isAuthenticated && _suggestion == null) {
+        _loadSuggestion();
+      }
     });
 
     // Listen for playback state changes
@@ -154,7 +158,6 @@ class _MusicSectionState extends State<MusicSection> {
 
     if (_isAuthenticated) {
       _loadLibrary();
-      _loadSuggestion();
     }
   }
 
@@ -172,7 +175,7 @@ class _MusicSectionState extends State<MusicSection> {
 
       final List<Track> tracks = [];
       
-      if (response is Map<String, dynamic> && response.containsKey('items')) {
+      if (response.containsKey('items')) {
         final items = response['items'];
         final total = response['total'] as int?;
         
@@ -299,10 +302,17 @@ class _MusicSectionState extends State<MusicSection> {
   Future<void> _playTrack(String trackUri) async {
     if (_activeDeviceId == null) {
       debugPrint('No active Spotify device available. Using web player.');
-      // Try to play via the web player directly
-      _webPlayerKey.currentState?.playTrack(trackUri);
+      // Even though we check for device readiness via events, add an additional safety check here
+      final webPlayerState = _webPlayerKey.currentState;
+      if (webPlayerState != null) {
+        webPlayerState.playTrack(trackUri);
+        debugPrint('Sent playTrack command to web player');
+      } else {
+        debugPrint('Web player state is null, cannot play track');
+      }
     } else {
       // Use the stored device ID
+      debugPrint('Playing track on device: $_activeDeviceId');
       await _spotifyService.playTrack(trackUri, deviceId: _activeDeviceId);
     }
     
@@ -329,7 +339,7 @@ class _MusicSectionState extends State<MusicSection> {
         }
       }
       
-      // If we found the track, update it and emit the track change event
+      // If found, update the UI
       if (track != null) {
         setState(() {
           _nowPlayingTrack = track;
@@ -469,9 +479,10 @@ class _MusicSectionState extends State<MusicSection> {
   Widget build(BuildContext context) {
     return Stack(
       children: [
-        // Position the web player absolutely to avoid any visual elements
+        // Position the web player where it won't interfere with UI
+        // but will still be initialized properly
         Positioned(
-          left: -1000, // Position it far off-screen
+          left: -1000, // Position it off-screen
           top: -1000,
           child: SizedBox(
             width: 1,
@@ -507,11 +518,11 @@ class _MusicSectionState extends State<MusicSection> {
 
         // Player positioned at the bottom
         if (_isAuthenticated && _nowPlayingTrack != null)
-          Positioned(
+          const Positioned(
             left: 0,
             right: 0,
             bottom: 0,
-            child: const SpotifyPlayer(
+            child: SpotifyPlayer(
               key: ValueKey('spotify_player'),
             ),
           ),
@@ -529,8 +540,8 @@ class _MusicSectionState extends State<MusicSection> {
           padding: const EdgeInsets.only(bottom: 20.0),
           child: Column(
             children: [
-              Center(
-                child: const Text(
+              const Center(
+                child: Text(
                   'Suggested for You',
                   style: TextStyle(
                     fontSize: 20,
@@ -553,12 +564,12 @@ class _MusicSectionState extends State<MusicSection> {
                   ),
                 )
               else if (_suggestion == null)
-                Center(
+                const Center(
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 24),
+                    padding: EdgeInsets.symmetric(vertical: 24),
                     child: Text(
                       'No suggestions available',
-                      style: const TextStyle(color: Colors.white54),
+                      style: TextStyle(color: Colors.white54),
                       textAlign: TextAlign.center,
                     ),
                   ),
@@ -581,8 +592,8 @@ class _MusicSectionState extends State<MusicSection> {
 
         // 2. LIBRARY SECTION (LIKED SONGS) AT THE BOTTOM
         const SizedBox(height: 24),
-        Center(
-          child: const Text(
+        const Center(
+          child: Text(
             'Your Library',
             style: TextStyle(
               fontSize: 20,
@@ -644,7 +655,6 @@ class _MusicSectionState extends State<MusicSection> {
                   _isAuthenticated = true;
                 });
                 _loadLibrary();
-                _loadSuggestion();
               }
             },
             child: const Text('Connect to Spotify'),

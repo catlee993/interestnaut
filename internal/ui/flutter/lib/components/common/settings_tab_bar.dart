@@ -13,10 +13,10 @@ class SettingsTabBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return TabBar(
-      indicatorColor: Color(0xFF7B68EE),
+      indicatorColor: const Color(0xFF7B68EE),
       labelColor: Colors.white,
       unselectedLabelColor: Colors.white,
-      labelStyle: TextStyle(fontWeight: FontWeight.w500),
+      labelStyle: const TextStyle(fontWeight: FontWeight.w500),
       tabs: const [
         Tab(text: 'Settings'),
         Tab(text: 'Authentication'),

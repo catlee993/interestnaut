@@ -28,7 +28,7 @@ class MediaCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasPoster = item.posterPath != null && item.posterPath!.isNotEmpty;
+    final hasPoster = item.posterPath.isNotEmpty;
     final isMovie = item.mediaType == 'movie';
     final isBook = item.mediaType == 'book';
     final isTV = item.mediaType == 'tv';
@@ -246,7 +246,7 @@ class MediaCard extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Text(
               title,
-              style: TextStyle(
+              style: const TextStyle(
                 color: AppTheme.textPrimary,
                 fontWeight: FontWeight.bold,
               ),
@@ -263,11 +263,11 @@ class MediaCard extends StatelessWidget {
   // Helper to get the correct image URL based on media type
   String _getImageUrl(MediaItem item) {
     if (item.mediaType == 'book' || item.mediaType == 'audiobook') {
-      return item.posterPath!;
+      return item.posterPath;
     } else if (item.mediaType == 'movie' || item.mediaType == 'tv') {
       return 'https://image.tmdb.org/t/p/w500${item.posterPath}';
     } else {
-      return item.posterPath!;
+      return item.posterPath;
     }
   }
 
@@ -287,7 +287,7 @@ class MediaCard extends StatelessWidget {
           ),
           child: Text(
             item.subjects![0],
-            style: TextStyle(
+            style: const TextStyle(
               color: AppTheme.textPrimary, 
               fontSize: 12,
               fontWeight: FontWeight.bold,
@@ -312,8 +312,8 @@ class MediaCard extends StatelessWidget {
             ),
             const SizedBox(width: 2),
             Text(
-              '${item.voteAverage!.toStringAsFixed(1)}',
-              style: TextStyle(
+              item.voteAverage!.toStringAsFixed(1),
+              style: const TextStyle(
                 color: AppTheme.textPrimary, 
                 fontSize: 12,
                 fontWeight: FontWeight.bold,
@@ -429,7 +429,7 @@ class _FeedbackControls extends StatelessWidget {
               borderRadius: BorderRadius.circular(16),
             ),
             child: IconButton(
-              icon: Icon(
+              icon: const Icon(
                 Icons.thumb_up,
                 color: AppTheme.textPrimary,
                 size: 20,
@@ -448,7 +448,7 @@ class _FeedbackControls extends StatelessWidget {
               borderRadius: BorderRadius.circular(16),
             ),
             child: IconButton(
-              icon: Icon(
+              icon: const Icon(
                 Icons.thumb_down,
                 color: AppTheme.textPrimary,
                 size: 20,

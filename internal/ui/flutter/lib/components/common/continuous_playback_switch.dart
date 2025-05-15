@@ -15,12 +15,12 @@ class ContinuousPlaybackSwitch extends StatelessWidget {
     return SwitchListTile(
       value: value,
       onChanged: onChanged,
-      title: Text(
+      title: const Text(
         'Continue playing liked songs',
         style: TextStyle(color: Colors.white, fontSize: 14),
       ),
-      activeColor: Color(0xFF7B68EE),
-      activeTrackColor: Color.fromRGBO(123, 104, 238, 0.5),
+      activeColor: const Color(0xFF7B68EE),
+      activeTrackColor: const Color.fromRGBO(123, 104, 238, 0.5),
       inactiveTrackColor: Colors.white24,
       contentPadding: EdgeInsets.zero,
     );

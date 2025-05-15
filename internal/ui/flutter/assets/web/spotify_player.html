@@ -49,7 +49,6 @@
         if (data.type === 'token') {
           // Got token from Flutter
           token = data.token;
-          initializePlayer(token);
         }
         else if (data.type === 'playTrack') {
           // Play a track
@@ -170,6 +169,11 @@
             });
           }
         });
+      }
+      
+      // Initialize player with token
+      if (token) {
+        initializePlayer(token);
       }
     };
   </script>

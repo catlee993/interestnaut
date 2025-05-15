@@ -73,13 +73,13 @@ class _SearchSectionState extends State<SearchSection> {
             Container(
               margin: const EdgeInsets.only(top: 16),
               decoration: BoxDecoration(
-                color: Color.fromRGBO(18, 18, 18, 0.95),
+                color: const Color.fromRGBO(18, 18, 18, 0.95),
                 borderRadius: BorderRadius.circular(8),
                 boxShadow: [
                   BoxShadow(
                     color: Colors.black.withOpacity(0.2),
                     blurRadius: 8,
-                    offset: Offset(0, 2),
+                    offset: const Offset(0, 2),
                   ),
                 ],
               ),

@@ -41,8 +41,8 @@ class LibrarySection extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           if (showHeader) ...[
-            Center(
-              child: const Text(
+            const Center(
+              child: Text(
                 'Your Library', 
                 style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white)
               ),

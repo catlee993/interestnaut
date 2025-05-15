@@ -1,20 +1,12 @@
 import 'dart:ffi';
-import 'dart:io';
 import 'package:flutter/foundation.dart';
-import 'package:path/path.dart' as path;
-import '../models.dart';
 import 'ffi_bridge.dart' show FFIBindingBase, GoFFILibrary;
 import 'ffi_init.dart';
-import 'dart:convert';
 
 // Import all FFI bindings
 import 'auth_ffi.dart';
-import 'books_ffi.dart';
-import 'games_ffi.dart';
 import 'movies_ffi.dart';
 import 'music_ffi.dart';
-import 'settings_ffi.dart';
-import 'tv_ffi.dart';
 
 /// GoBindings provides direct access to the Go backend functions
 /// Similar to the Wails bindings in frontend/wailsjs/go/bindings
