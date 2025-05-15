@@ -10,6 +10,9 @@ import 'services/go_bindings.dart';
 import 'services/ffi_init.dart';
 import 'components/common/media_header.dart';
 import 'components/music/music_section.dart';
+import 'components/music/search/search_section.dart';
+import 'components/music/spotify_service.dart';
+import 'models.dart'; // Import models to get the Track class
 
 /// Entry point for the Flutter app
 Future<void> main() async {
@@ -145,6 +148,24 @@ class InterestnautApp extends StatefulWidget {
 
 class _InterestnautAppState extends State<InterestnautApp> {
   String _currentMediaType = 'music'; // Default media type
+  String _searchQuery = '';
+  bool _isSearchActive = false;
+  
+  void _handleSearch(String query) {
+    setState(() {
+      _searchQuery = query;
+      _isSearchActive = query.isNotEmpty;
+    });
+    
+    debugPrint('Searching for "$query" in $_currentMediaType');
+  }
+  
+  void _clearSearch() {
+    setState(() {
+      _searchQuery = '';
+      _isSearchActive = false;
+    });
+  }
   
   @override
   Widget build(BuildContext context) {
@@ -170,14 +191,59 @@ class _InterestnautAppState extends State<InterestnautApp> {
                   _currentMediaType = media;
                 });
               },
-              onSearch: (query) {
-                // TODO: Implement search per media type
-              },
-              onClearSearch: () {
-                // TODO: Implement clear search per media type
-              },
+              onSearch: _handleSearch,
+              onClearSearch: _clearSearch,
             ),
           ),
+          
+          // Search overlay - only shown when search is active
+          if (_isSearchActive && _currentMediaType == 'music')
+            Positioned.fill(
+              child: Stack(
+                children: [
+                  // Semi-transparent background overlay
+                  Positioned.fill(
+                    child: GestureDetector(
+                      onTap: _clearSearch, // Clear search when tapping outside
+                      child: Container(
+                        color: Colors.black.withOpacity(0.5),
+                      ),
+                    ),
+                  ),
+                  
+                  // Actual search results
+                  Positioned(
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: const Color.fromRGBO(18, 18, 18, 0.95),
+                        borderRadius: const BorderRadius.only(
+                          bottomLeft: Radius.circular(16),
+                          bottomRight: Radius.circular(16),
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.3),
+                            blurRadius: 8,
+                            spreadRadius: 0,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      constraints: BoxConstraints(
+                        maxHeight: MediaQuery.of(context).size.height * 0.7,
+                      ),
+                      child: _MusicSearchHandler(
+                        searchQuery: _searchQuery,
+                        onClearSearch: _clearSearch,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
         ],
       ),
     );
@@ -191,9 +257,189 @@ class _InterestnautAppState extends State<InterestnautApp> {
         return const Center(child: Text('Movies Section', style: TextStyle(color: Colors.white)));
       case 'tv':
         return const Center(child: Text('TV Shows Section', style: TextStyle(color: Colors.white)));
-      case 'home':
+      case 'games':
+        return const Center(child: Text('Games Section', style: TextStyle(color: Colors.white)));
+      case 'books':
+        return const Center(child: Text('Books Section', style: TextStyle(color: Colors.white)));
       default:
         return const Center(child: Text('Home Section', style: TextStyle(color: Colors.white)));
     }
+  }
+}
+
+// A separate widget to handle Spotify search state and display
+class _MusicSearchHandler extends StatefulWidget {
+  final String searchQuery;
+  final VoidCallback onClearSearch;
+
+  const _MusicSearchHandler({
+    Key? key,
+    required this.searchQuery,
+    required this.onClearSearch,
+  }) : super(key: key);
+
+  @override
+  State<_MusicSearchHandler> createState() => _MusicSearchHandlerState();
+}
+
+class _MusicSearchHandlerState extends State<_MusicSearchHandler> {
+  final SpotifyService _spotifyService = SpotifyService();
+  List<SimpleTrack> _searchResults = [];
+  bool _isLoading = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _performSearch(widget.searchQuery);
+  }
+
+  @override
+  void didUpdateWidget(_MusicSearchHandler oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.searchQuery != oldWidget.searchQuery) {
+      _performSearch(widget.searchQuery);
+    }
+  }
+
+  Future<void> _performSearch(String query) async {
+    if (query.isEmpty) {
+      setState(() {
+        _searchResults = [];
+        _isLoading = false;
+        _error = null;
+      });
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+
+    try {
+      final results = await _spotifyService.searchTracks(query);
+      if (mounted) {
+        setState(() {
+          _searchResults = results;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error searching tracks: $e');
+      if (mounted) {
+        setState(() {
+          _error = 'Failed to search tracks: $e';
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _handlePlay(SimpleTrack track) async {
+    try {
+      await _spotifyService.playTrack(track.uri);
+    } catch (e) {
+      debugPrint('Error playing track: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to play track: $e'),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _handleSave(SimpleTrack track) async {
+    try {
+      await _spotifyService.saveTrack(track.id);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Added "${track.name}" to your library'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error saving track: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to save track: $e'),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _handleRemove(SimpleTrack track) async {
+    try {
+      await _spotifyService.removeTrack(track.id);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Removed "${track.name}" from your library'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error removing track: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to remove track: $e'),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Padding(
+        padding: EdgeInsets.all(24.0),
+        child: Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
+
+    if (_error != null) {
+      return Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                _error!,
+                style: const TextStyle(color: Colors.white),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: () => _performSearch(widget.searchQuery),
+                child: const Text('Retry'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return SearchSection(
+      searchResults: _searchResults,
+      onSearch: _performSearch,
+      onPlay: _handlePlay,
+      onSave: _handleSave,
+      onRemove: _handleRemove,
+    );
   }
 }

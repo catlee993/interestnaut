@@ -6,11 +6,11 @@ import '../../common/media_grid.dart';
 import 'dart:async';
 
 class SearchSection extends StatefulWidget {
-  final List<Track> searchResults;
+  final List<SimpleTrack> searchResults;
   final Future<void> Function(String) onSearch;
-  final Future<void> Function(Track) onPlay;
-  final Future<void> Function(Track) onSave;
-  final Future<void> Function(Track) onRemove;
+  final Future<void> Function(SimpleTrack) onPlay;
+  final Future<void> Function(SimpleTrack) onSave;
+  final Future<void> Function(SimpleTrack) onRemove;
 
   const SearchSection({
     Key? key,
@@ -107,4 +107,4 @@ class _SearchSectionState extends State<SearchSection> {
       ),
     );
   }
-} 
+}

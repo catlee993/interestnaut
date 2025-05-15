@@ -221,7 +221,7 @@ class _MediaHeaderState extends State<MediaHeader> {
         filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
         child: Container(
           decoration: BoxDecoration(
-            color: const Color.fromRGBO(18, 18, 18, 0.6),
+            color: const Color.fromRGBO(18, 18, 18, 0.8), // Restore 80% opacity as per user preference
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withOpacity(0.3),
@@ -383,6 +383,7 @@ class _MediaHeaderState extends State<MediaHeader> {
                   ),
                 ),
               ),
+              // Add a custom search bar in the header
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 8),
                 child: Row(
