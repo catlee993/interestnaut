@@ -69,8 +69,8 @@ class _ScrollContentWrapperState extends State<ScrollContentWrapper> {
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
                     colors: [
-                      Colors.black.withOpacity(1.0),  // Fully opaque at top
-                      Colors.black.withOpacity(0.8),  // 80% opacity in middle
+                      Colors.black.withOpacity(0.6),  // Less opaque at top to allow blur effect
+                      Colors.black.withOpacity(0.4),  // Less opacity in middle
                       Colors.black.withOpacity(0.0),  // Transparent at bottom for smooth transition
                     ],
                     stops: const [0.0, 0.7, 1.0],

@@ -1,3 +1,4 @@
+import 'dart:ui';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../common/scroll_content_wrapper.dart';
@@ -484,12 +485,16 @@ class _MusicSectionState extends State<MusicSection> {
               left: 0,
               right: 0, 
               bottom: 0,
-              child: Material(
-                elevation: 8,
-                child: Container(
-                  color: Theme.of(context).canvasColor,
-                  child: SpotifyPlayer(
-                    key: ValueKey('spotify_player'),
+              child: ClipRect(
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 10.0, sigmaY: 10.0),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).canvasColor.withOpacity(0.7),
+                    ),
+                    child: SpotifyPlayer(
+                      key: ValueKey('spotify_player'),
+                    ),
                   ),
                 ),
               ),
