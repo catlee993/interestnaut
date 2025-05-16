@@ -1269,6 +1269,12 @@ class SpotifyService {
     _deviceIdController.add(deviceId);
   }
 
+  /// Clear the active Spotify device ID
+  void clearActiveDeviceId() {
+    _activeDeviceId = null;
+    debugPrint('Cleared active Spotify device ID');
+  }
+
   /// Get the active device ID if available
   String? getActiveDeviceId() {
     return _activeDeviceId;

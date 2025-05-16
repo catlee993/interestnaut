@@ -132,17 +132,61 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
         _handleDeviceDisconnected();
       } else if (data['type'] == 'error') {
         debugPrint('Spotify Web Player error: ${data['message']}');
-        // If the error is related to playback, we should try to recover
-        if (data['message'].toString().contains('playback')) {
-          // Try to reconnect the player after a short delay
-          if (_reconnectTimer == null || !_reconnectTimer!.isActive) {
-            _reconnectTimer = Timer(const Duration(seconds: 2), _onWebViewLoaded);
+        
+        // Enhanced error detection
+        if (data['message'] != null) {
+          final errorMessage = data['message'].toString().toLowerCase();
+          
+          // Critical error detection
+          bool isCriticalError = 
+              errorMessage.contains('authentication') || 
+              errorMessage.contains('expired') ||
+              errorMessage.contains('authorization') ||
+              errorMessage.contains('failed to initialize') ||
+              errorMessage.contains('device not found') ||
+              errorMessage.contains('not available') ||
+              errorMessage.contains('connection') ||
+              errorMessage.contains('timeout') ||
+              errorMessage.contains('disconnected');
+          
+          if (isCriticalError) {
+            debugPrint('Critical Spotify Web Player error detected - forcing reconnection');
+            // Clear the device ID if it's a device error
+            if (errorMessage.contains('device')) {
+              widget.spotifyService.clearActiveDeviceId();
+            }
+            forcePlayerReconnection();
+          } else {
+            // For non-critical errors, try to reconnect the player if the error is playback-related
+            if (errorMessage.contains('playback')) {
+              debugPrint('Playback-related error - attempting reconnection via timer');
+              // Try to reconnect the player after a short delay
+              if (_reconnectTimer == null || !_reconnectTimer!.isActive) {
+                _reconnectTimer = Timer(const Duration(seconds: 2), _onWebViewLoaded);
+              }
+            }
           }
         }
       }
     } catch (e) {
       debugPrint('Error processing JavaScript message: $e');
     }
+  }
+  
+  void _handleDeviceDisconnected() {
+    debugPrint('Spotify device disconnected');
+    
+    // Set states to reflect disconnection
+    setState(() {
+      _isReady = false;
+      _deviceId = null;
+    });
+    
+    // Clear the active device ID
+    widget.spotifyService.clearActiveDeviceId();
+    
+    // Try to recover automatically
+    forcePlayerReconnection();
   }
   
   void _handleDeviceReady(String deviceId) {
@@ -230,20 +274,15 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
     }
   }
   
-  void _handleDeviceDisconnected() {
-    setState(() {
-      _isReady = false;
-    });
-    
-    debugPrint('Spotify Web Player disconnected');
-    
-    // Try to reconnect after a delay
-    _reconnectTimer?.cancel();
-    _reconnectTimer = Timer(const Duration(seconds: 5), _onWebViewLoaded);
-  }
-  
   // Method to play a track with a given Spotify URI
-  void playTrack(String uri) {
+  void playTrack(String uri) async {
+    // First check if the player needs recovery
+    if (checkAndRecoverPlayerIfNeeded()) {
+      debugPrint('Player was in bad state - queueing track $uri for after recovery');
+      _pendingTrackUri = uri;
+      return;
+    }
+    
     if (!_isReady) {
       debugPrint('Cannot play track: WebPlayer not ready yet');
       _pendingTrackUri = uri;
@@ -257,74 +296,148 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
     }
     
     debugPrint('Playing track via web player: $uri');
-    final message = jsonEncode({
-      'type': 'playTrack',
-      'uri': uri,
-    });
     
-    _controller.runJavaScript("window.postMessage($message, '*');");
-    
-    // Immediately emit a playback state change event to provide feedback before the 
-    // actual event comes back from the player. This improves responsiveness.
-    if (_currentTrack != null) {
-      SpotifyEvents.emitPlaybackStateChange(SpotifyPlaybackState(
-        isPlaying: true,
-        progressMs: 0,
-        item: _currentTrack,
-      ));
+    try {
+      final message = jsonEncode({
+        'type': 'playTrack',
+        'uri': uri,
+      });
+      
+      _controller.runJavaScript("window.postMessage($message, '*');");
+      
+      // Immediately emit a playback state change event to provide feedback before the 
+      // actual event comes back from the player. This improves responsiveness.
+      if (_currentTrack != null) {
+        SpotifyEvents.emitPlaybackStateChange(SpotifyPlaybackState(
+          isPlaying: true,
+          progressMs: 0,
+          item: _currentTrack,
+        ));
+      }
+    } catch (e) {
+      debugPrint('Error playing track: $e');
+      // If JavaScript errors occur, try to recover the player
+      forcePlayerReconnection();
+      _pendingTrackUri = uri; // Queue the track for after recovery
     }
   }
   
   // Method to resume playback at current position
-  void resumePlayback() {
-    if (!_isReady) {
-      debugPrint('Cannot resume playback: WebPlayer not ready yet');
+  void resumePlayback() async {
+    // First check if the player needs recovery
+    if (checkAndRecoverPlayerIfNeeded()) {
+      debugPrint('Player was in bad state - cannot resume playback');
       return;
     }
     
     debugPrint('Resuming playback via web player');
-    final message = jsonEncode({
-      'type': 'resume',
-    });
-    _controller.runJavaScript("window.postMessage($message, '*');");
     
-    // Immediately emit a playback state change event to provide feedback
-    if (_currentTrack != null) {
-      SpotifyEvents.emitPlaybackStateChange(SpotifyPlaybackState(
-        isPlaying: true,
-        progressMs: null, // Keep the current progress
-        item: _currentTrack,
-      ));
+    try {
+      final message = jsonEncode({
+        'type': 'resume',
+      });
+      
+      _controller.runJavaScript("window.postMessage($message, '*');");
+      
+      // Immediately emit a playback state change event to provide feedback
+      if (_currentTrack != null) {
+        SpotifyEvents.emitPlaybackStateChange(SpotifyPlaybackState(
+          isPlaying: true,
+          progressMs: 0, // We don't know the exact progress here
+          item: _currentTrack,
+        ));
+      }
+    } catch (e) {
+      debugPrint('Error resuming playback: $e');
+      // If JavaScript errors occur, try to recover the player
+      forcePlayerReconnection();
     }
   }
   
   // Method to pause playback
-  void pausePlayback() {
-    if (!_isReady) {
-      debugPrint('Cannot pause playback: WebPlayer not ready yet');
+  void pausePlayback() async {
+    // First check if the player needs recovery
+    if (checkAndRecoverPlayerIfNeeded()) {
+      debugPrint('Player was in bad state - cannot pause playback');
       return;
     }
     
     debugPrint('Pausing playback via web player');
-    final message = jsonEncode({
-      'type': 'pause',
-    });
-    _controller.runJavaScript("window.postMessage($message, '*');");
     
-    // Immediately emit a playback state change event to provide feedback before the 
-    // actual event comes back from the player. This improves responsiveness.
-    if (_currentTrack != null) {
-      SpotifyEvents.emitPlaybackStateChange(SpotifyPlaybackState(
-        isPlaying: false,
-        progressMs: null,
-        item: _currentTrack,
-      ));
+    try {
+      final message = jsonEncode({
+        'type': 'pause',
+      });
+      
+      _controller.runJavaScript("window.postMessage($message, '*');");
+      
+      // Immediately emit a playback state change event to provide feedback before the 
+      // actual event comes back from the player. This improves responsiveness.
+      if (_currentTrack != null) {
+        SpotifyEvents.emitPlaybackStateChange(SpotifyPlaybackState(
+          isPlaying: false,
+          progressMs: 0, // We don't know the exact progress here
+          item: _currentTrack,
+        ));
+      }
+    } catch (e) {
+      debugPrint('Error pausing playback: $e');
+      // If JavaScript errors occur, try to recover the player
+      forcePlayerReconnection();
     }
   }
   
   // Check if the player is ready to play tracks
   bool isPlayerReady() {
     return _isReady && _deviceId != null;
+  }
+  
+  // Force a complete player reconnection - useful when the player gets into a bad state
+  void forcePlayerReconnection() {
+    debugPrint('Forcing complete player reconnection');
+    
+    // First set state to indicate reconnection
+    setState(() {
+      _isReady = false;
+      _deviceId = null;
+      _deviceLoadFailed = false;
+      _connectRetryCount = 0;
+    });
+    
+    // Clear any existing device ID to prevent stale references
+    widget.spotifyService.clearActiveDeviceId();
+    debugPrint('Cleared active Spotify device ID');
+    
+    // Cancel any pending reconnection timers
+    _reconnectTimer?.cancel();
+    
+    // Create a completely new WebViewController
+    _controller = WebViewController();
+    
+    // Reload HTML content which will reinitialize everything
+    _loadHtmlFromAssets();
+  }
+  
+  // Check if the player is in a bad state and recover if needed
+  bool checkAndRecoverPlayerIfNeeded() {
+    // Check if we have critical issues
+    bool needsRecovery = false;
+    
+    // Check for stale device ID
+    final activeDeviceId = widget.spotifyService.getActiveDeviceId();
+    if (_isReady && (_deviceId != activeDeviceId || _deviceId == null || _deviceId!.isEmpty)) {
+      debugPrint('Device ID mismatch detected: player=$_deviceId, service=$activeDeviceId');
+      needsRecovery = true;
+    }
+    
+    // If we need recovery, force reconnection
+    if (needsRecovery) {
+      debugPrint('Player in bad state - forcing reconnection');
+      forcePlayerReconnection();
+      return true;
+    }
+    
+    return false;
   }
   
   @override
