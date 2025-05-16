@@ -291,6 +291,75 @@ func GetMovie(db *sql.DB, id int64) (*Movie, error) {
 	return &movie, nil
 }
 
+// AddShow adds a new show entry to the database
+func AddShow(db *sql.DB, show *Show) error {
+	query := `
+	INSERT INTO shows (title, director, writer, poster_url, is_favorite, is_watchlist)
+	VALUES (?, ?, ?, ?, ?, ?)
+	`
+
+	result, err := db.Exec(
+		query,
+		show.Title,
+		show.Director,
+		show.Writer,
+		show.PosterURL,
+		show.IsFavorite,
+		show.IsWatchlist,
+	)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
+	}
+
+	id, err := result.LastInsertId()
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
+	}
+
+	show.ID = id
+	return nil
+}
+
+// GetShow retrieves a show entry by ID
+func GetShow(db *sql.DB, id int64) (*Show, error) {
+	query := `
+	SELECT id, title, director, writer, poster_url, is_favorite, is_watchlist, created_at, updated_at
+	FROM shows
+	WHERE id = ?
+	`
+
+	var show Show
+	var createdAt, updatedAt string
+
+	err := db.QueryRow(query, id).Scan(
+		&show.ID,
+		&show.Title,
+		&show.Director,
+		&show.Writer,
+		&show.PosterURL,
+		&show.IsFavorite,
+		&show.IsWatchlist,
+		&createdAt,
+		&updatedAt,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, ErrNotFound
+	} else if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
+	}
+
+	// Parse timestamps
+	if show.CreatedAt, err = time.Parse(time.RFC3339, createdAt); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
+	}
+	if show.UpdatedAt, err = time.Parse(time.RFC3339, updatedAt); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
+	}
+
+	return &show, nil
+}
+
 // AddVideoGame adds a new video game entry to the database with platforms
 func AddVideoGame(db *sql.DB, game *VideoGame) error {
 	// Begin transaction to handle both the video game and its platforms
