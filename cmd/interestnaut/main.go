@@ -2,11 +2,9 @@ package main
 
 import (
 	"context"
-	"interestnaut/internal/app/bindings"
 	"interestnaut/internal/app/creds"
 	"interestnaut/internal/app/ffi"
 	"interestnaut/internal/app/session"
-	"interestnaut/internal/app/spotify"
 	"log"
 	"os"
 	"os/signal"
@@ -48,51 +46,6 @@ func main() {
 	// Initialize FFI bindings with the central manager
 	ffi.Initialize(cm)
 	log.Println("FFI bindings initialized")
-
-	// binders map client to backend API
-	music := bindings.NewMusicBinder(ctx, cm, spotify.ClientID)
-	movies, mErr := bindings.NewMovieBinder(ctx, cm)
-	if mErr != nil {
-		log.Fatalf("Failed to create movies binder: %v", mErr)
-	}
-
-	tvShows, tErr := bindings.NewTVShowBinder(ctx, cm)
-	if tErr != nil {
-		log.Fatalf("Failed to create TV shows binder: %v", tErr)
-	}
-
-	games, gErr := bindings.NewGames(ctx, cm)
-	if gErr != nil {
-		log.Fatalf("Failed to create games binder: %v", gErr)
-	}
-
-	books, bErr := bindings.NewBooks(ctx, cm)
-	if bErr != nil {
-		log.Fatalf("Failed to create books binder: %v", bErr)
-	}
-
-	// Collect all LLM handlers for credential change registration
-	llmHandlers := []creds.LLMCredentialChangeHandler{
-		music,
-		movies,
-		tvShows,
-		games,
-		books,
-	}
-
-	// Collect TMDB handlers for credential change registration
-	tmdbHandlers := []creds.TMDBCredentialChangeHandler{
-		movies,
-		tvShows,
-	}
-
-	// Collect RAWG handlers for credential change registration
-	rawgHandlers := []creds.RAWGCredentialChangeHandler{
-		games,
-	}
-
-	// Run startup processes
-	onStartup(ctx, llmHandlers, tmdbHandlers, rawgHandlers)
 
 	// Wait for a signal using a synchronous approach instead of goroutine
 	// This doesn't create a background goroutine that might be orphaned

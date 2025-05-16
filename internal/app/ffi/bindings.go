@@ -10,6 +10,7 @@ import (
 	"interestnaut/internal/app/bindings"
 	"interestnaut/internal/app/eventbus"
 	"interestnaut/internal/app/session"
+	"interestnaut/internal/app/spotify"
 	"log"
 	"os"
 	"sync"
@@ -19,13 +20,7 @@ import (
 
 // Global instances of our bindings to avoid recreating them
 var (
-	authBindings     *bindings.Auth
-	bookBindings     *bindings.Books
-	gameBindings     *bindings.Games
-	movieBindings    *bindings.Movies
-	musicBindings    *bindings.Music
-	settingsBindings *bindings.Settings
-	tvBindings       *bindings.TVShows
+	musicBindings *bindings.Music
 
 	// Central manager for all content
 	centralManager session.CentralManager
@@ -66,36 +61,12 @@ func Initialize(cm session.CentralManager) {
 		// For now, just log and continue to see other errors
 	}
 
-	authBindings = &bindings.Auth{}
-	var err error
-
-	bookBindings, err = bindings.NewBooks(context.Background(), cm)
-	if err != nil {
-		log.Printf("ERROR initializing book bindings: %v", err)
-	}
-
-	gameBindings, err = bindings.NewGames(context.Background(), cm)
-	if err != nil {
-		log.Printf("ERROR initializing game bindings: %v", err)
-	}
-
-	movieBindings, err = bindings.NewMovieBinder(context.Background(), cm)
-	if err != nil {
-		log.Printf("ERROR initializing movie bindings: %v", err)
-	}
-
 	log.Println("Attempting to initialize musicBindings...")
 	musicBindings = bindings.NewMusicBinder(context.Background(), cm, "3bb48a30577342869a9ffcb176dee7d2")
 	if musicBindings == nil {
 		log.Println("CRITICAL: musicBindings is NIL after NewMusicBinder call!")
 	} else {
 		log.Println("SUCCESS: musicBindings initialized.")
-	}
-
-	settingsBindings = &bindings.Settings{ContentManager: cm}
-	tvBindings, err = bindings.NewTVShowBinder(context.Background(), cm)
-	if err != nil {
-		log.Printf("ERROR initializing TV bindings: %v", err)
 	}
 
 	log.Println("FFI bindings initialization process complete.")
@@ -172,6 +143,7 @@ func FreeString(s *C.char) {
 }
 
 // FFI glue for Flutter event bus contract
+//
 //export EventBus_Init
 func EventBus_Init() C.int64_t {
 	return C.int64_t(eventbus.StartEventServer())
@@ -180,4 +152,79 @@ func EventBus_Init() C.int64_t {
 //export EventBus_Shutdown
 func EventBus_Shutdown() {
 	// No-op for now, but symbol required for FFI contract
+}
+
+func ensureMusicBindingsInitialized() bool {
+	if musicBindings != nil {
+		return true
+	}
+
+	log.Println("Music bindings not initialized, attempting to initialize...")
+
+	// Create a central manager if needed
+	if centralManager == nil {
+		ctx := context.Background()
+		cm, err := session.NewCentralManager(ctx, session.DefaultUserID)
+		if err != nil {
+			log.Printf("Failed to create central manager: %v", err)
+			return false
+		}
+		centralManager = cm
+	}
+
+	// Initialize music bindings
+	musicBindings = bindings.NewMusicBinder(context.Background(), centralManager, "3bb48a30577342869a9ffcb176dee7d2")
+
+	if musicBindings == nil {
+		log.Println("CRITICAL: Failed to initialize music bindings")
+		return false
+	}
+
+	log.Println("Music bindings initialized successfully on-demand")
+	return true
+}
+
+//export Music_InitiateSpotifyAuth
+func Music_InitiateSpotifyAuth(port C.int) *C.char {
+	var result *C.char
+
+	if !ensureMusicBindingsInitialized() {
+		result = C.CString("{\"error\": \"Failed to initialize music bindings\"}")
+		return result
+	}
+
+	// Call the simplified version that just opens the browser, passing the port
+	err := musicBindings.InitiateSpotifyAuth(int(port))
+	if err != nil {
+		log.Printf("Music_InitiateSpotifyAuth failed: %v", err)
+		errorJson, _ := json.Marshal(map[string]interface{}{
+			"error": err.Error(),
+		})
+		result = C.CString(string(errorJson))
+		return result
+	}
+
+	if pid := os.Getpid(); pid > 0 {
+		log.Printf("Spotify auth browser opened with port %d. PID is: %d", int(port), pid)
+	}
+
+	// Return the auth status and indicate that the browser was opened
+	// This is critical for Flutter to know if it should handle the callback
+	authStatus := make(map[string]interface{})
+
+	// Add a browserOpened flag to let Flutter know the browser was opened
+	authStatus["browserOpened"] = true
+
+	// Add port number to response so Flutter knows what port was used
+	authStatus["port"] = int(port)
+
+	// Add the code verifier so Flutter can use it for token exchange
+	codeVerifier := spotify.GetCodeVerifier()
+	log.Printf("DEBUG: Code verifier in Music_InitiateSpotifyAuth: '%s'", codeVerifier)
+	authStatus["codeVerifier"] = codeVerifier
+
+	jsonBytes, _ := json.Marshal(authStatus)
+	result = C.CString(string(jsonBytes))
+
+	return result
 }
