@@ -7,6 +7,22 @@ import '../../../models.dart';
 import '../spotify_service.dart';
 import 'spotify_player_view.dart'; // Import to access SpotifyEvents
 
+// Global reference to the most recent SpotifyWebPlayerState instance
+// This allows forcing reconnection from outside the component
+SpotifyWebPlayerState? _activeWebPlayerState;
+
+/// A method to force reconnection of the Spotify Web Player from anywhere in the app
+/// Returns true if reconnection was triggered, false if no player is available
+bool forceSpotifyPlayerReconnection() {
+  if (_activeWebPlayerState != null) {
+    debugPrint('Forcing global Spotify player reconnection');
+    _activeWebPlayerState!.forcePlayerReconnection();
+    return true;
+  }
+  debugPrint('Cannot force player reconnection: No active player instance');
+  return false;
+}
+
 /// A WebView-based Spotify player that uses the Spotify Web Playback SDK
 /// to create a device ID for playback and provide event-driven updates
 class SpotifyWebPlayer extends StatefulWidget {
@@ -42,10 +58,17 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
     super.initState();
     _controller = WebViewController();
     _loadHtmlFromAssets();
+    
+    // Register this instance as the active web player state
+    _activeWebPlayerState = this;
   }
   
   @override
   void dispose() {
+    // Clear the global reference if this instance is the active one
+    if (_activeWebPlayerState == this) {
+      _activeWebPlayerState = null;
+    }
     _reconnectTimer?.cancel();
     super.dispose();
   }

@@ -519,6 +519,13 @@ class SpotifyEvents {
   // Static getter for player readiness
   static bool get isPlayerReady => _isPlayerReady;
 
+  // Reset method to explicitly clear player state during auth changes
+  static void resetPlayerState() {
+    debugPrint('SpotifyEvents: Explicitly resetting player state');
+    _isPlayerReady = false;
+    _playerReadyController.add(false);
+  }
+  
   // Stream getters
   static Stream<String> get onDeviceReady => _deviceReadyController.stream;
   static Stream<Track> get onTrackChange => _trackChangeController.stream;

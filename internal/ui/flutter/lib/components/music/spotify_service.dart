@@ -5,11 +5,15 @@ import 'dart:math' as math;
 import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import 'package:url_launcher/url_launcher.dart';
-import 'package:uni_links/uni_links.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../../models.dart';
+import 'package:spotify/spotify.dart' hide Queue;
+import 'package:uni_links/uni_links.dart';
+import 'package:url_launcher/url_launcher.dart';
+
+import './player/spotify_player_view.dart';  
+import './player/spotify_web_player.dart'; // Import for forceSpotifyPlayerReconnection
 import '../../services/secure_storage.dart' as secure_storage;
+import '../../../models.dart';
 import 'spotify_client.dart';
 
 // Event classes for state management
@@ -660,6 +664,10 @@ class SpotifyService {
       
       // Check response
       if (response.statusCode == 200) {
+        // Reset player state first to ensure clean initialization
+        SpotifyEvents.resetPlayerState();
+        debugPrint('Reset Spotify player state during authentication');
+        
         final data = jsonDecode(response.body);
         final accessToken = data['access_token'] as String;
         final refreshToken = data['refresh_token'] as String;
@@ -687,6 +695,14 @@ class SpotifyService {
         
         // Fetch user details
         _fetchUserDetails();
+        
+        // Force a reconnection of the web player to ensure it uses the new token
+        // Use a small delay to ensure the token is fully processed
+        Future.delayed(const Duration(milliseconds: 500), () {
+          // Trigger a complete player reconnection to ensure fresh state
+          forceSpotifyPlayerReconnection();
+          debugPrint('Forced Spotify player reconnection after successful authentication');
+        });
         
         return true;
       } else {
@@ -730,6 +746,10 @@ class SpotifyService {
       
       // Check response
       if (response.statusCode == 200) {
+        // Reset player state to ensure clean initialization after token refresh
+        SpotifyEvents.resetPlayerState();
+        debugPrint('Reset Spotify player state during token refresh');
+        
         final data = jsonDecode(response.body);
         final accessToken = data['access_token'] as String;
         final expiresIn = data['expires_in'] as int;
@@ -758,6 +778,13 @@ class SpotifyService {
         
         // Schedule next refresh
         _setupTokenRefresh();
+        
+        // Force a reconnection of the web player to ensure it uses the new token
+        // Allow a small delay to ensure the token is fully processed
+        Future.delayed(const Duration(milliseconds: 500), () {
+          forceSpotifyPlayerReconnection();
+          debugPrint('Forced Spotify player reconnection after token refresh');
+        });
         
         return true;
       } else {

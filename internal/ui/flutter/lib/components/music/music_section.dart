@@ -144,8 +144,30 @@ class _MusicSectionState extends State<MusicSection> {
       });
 
       if (_isAuthenticated) {
+        // Log player conditions to help with debugging
+        debugPrint('Player conditions: isAuthenticated=$_isAuthenticated, nowPlayingTrack=$_nowPlayingTrack');
+        
         _loadLibrary();
         _loadSuggestion(); // Ensure we load a suggestion on authentication
+        
+        // Check player readiness after a short delay to allow for initialization
+        Future.delayed(const Duration(seconds: 1), () {
+          if (_pendingTrackUri != null && SpotifyEvents.isPlayerReady) {
+            debugPrint('Auth completed and player is ready - playing pending track: $_pendingTrackUri');
+            _playTrack(_pendingTrackUri!);
+            _pendingTrackUri = null;
+          } else if (_pendingTrackUri != null) {
+            debugPrint('Auth completed but player not ready - track remains pending: $_pendingTrackUri');
+            // Keep the track pending until the player is ready
+          }
+        });
+      } else {
+        debugPrint('User logged out - clearing player state');
+        // Clear player state on logout
+        setState(() {
+          _pendingTrackUri = null;
+          _nowPlayingTrack = null;
+        });
       }
     });
     
