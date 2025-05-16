@@ -420,6 +420,7 @@ class _MusicSearchHandlerState extends State<_MusicSearchHandler> {
       onSave: _handleSave,
       onRemove: _handleRemove,
       onRetry: () => _performSearch(widget.searchQuery),
+      onClose: widget.onClearSearch,
     );
   }
 }

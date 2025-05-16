@@ -12,6 +12,7 @@ class SearchSection extends StatelessWidget {
   final Future<void> Function(SimpleTrack) onSave;
   final Future<void> Function(SimpleTrack) onRemove;
   final VoidCallback onRetry;
+  final VoidCallback onClose;
 
   const SearchSection({
     Key? key,
@@ -23,6 +24,7 @@ class SearchSection extends StatelessWidget {
     required this.onSave,
     required this.onRemove,
     required this.onRetry,
+    required this.onClose,
   }) : super(key: key);
 
   @override
@@ -68,16 +70,26 @@ class SearchSection extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Padding(
-              padding: const EdgeInsets.only(left: 16.0, bottom: 16.0),
-              child: Text(
-                'Search Results: ${searchResults.length} tracks',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(left: 16.0, bottom: 16.0),
+                  child: Text(
+                    'Search Results: ${searchResults.length} tracks',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                 ),
-              ),
+                IconButton(
+                  icon: const Icon(Icons.close, color: Colors.white),
+                  onPressed: onClose,
+                  tooltip: 'Close search',
+                ),
+              ],
             ),
             MediaGrid(
               columns: 4,  // Using 4 columns as requested
