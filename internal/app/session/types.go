@@ -24,32 +24,37 @@ const (
 )
 
 type Music struct {
+	ID     uint64 `json:"id"`
 	Title  string `json:"title"`
 	Artist string `json:"artist"`
 	Album  string `json:"album"`
 }
 
 type Movie struct {
-	Title      string `json:"title"`
-	Director   string `json:"director"`
-	Writer     string `json:"writer"`
+	ID        uint64 `json:"id"`
+	Title     string `json:"title"`
+	Director  string `json:"director"`
+	Writer    string `json:"writer"`
 	PosterPath string `json:"poster_path"`
 }
 
 type Book struct {
-	Title     string `json:"title"`
-	Author    string `json:"author"`
+	ID       uint64 `json:"id"`
+	Title    string `json:"title"`
+	Author   string `json:"author"`
 	CoverPath string `json:"cover_path"`
 }
 
 type TVShow struct {
-	Title      string `json:"title"`
-	Director   string `json:"director"`
-	Writer     string `json:"writer"`
+	ID        uint64 `json:"id"`
+	Title     string `json:"title"`
+	Director  string `json:"director"`
+	Writer    string `json:"writer"`
 	PosterPath string `json:"poster_path"`
 }
 
 type VideoGame struct {
+	ID        uint64   `json:"id"`
 	Title     string   `json:"title"`
 	Developer string   `json:"developer"`
 	Publisher string   `json:"publisher"`
@@ -68,58 +73,63 @@ type Media interface {
 
 func (m Music) Equal(other any) bool {
 	o, ok := other.(Music)
-	return ok && m.Title == o.Title &&
+	return ok && m.ID == o.ID &&
+		m.Title == o.Title &&
 		m.Artist == o.Artist &&
 		m.Album == o.Album
 }
 
 func (m Music) Key() string {
-	return sanitizeKey(fmt.Sprintf("%s_%s_%s", m.Title, m.Artist, m.Album))
+	return sanitizeKey(fmt.Sprintf("%d_%s_%s_%s", m.ID, m.Title, m.Artist, m.Album))
 }
 
 func (m Movie) Equal(other any) bool {
 	o, ok := other.(Movie)
-	return ok && m.Title == o.Title &&
+	return ok && m.ID == o.ID &&
+		m.Title == o.Title &&
 		m.Director == o.Director &&
 		m.Writer == o.Writer
 }
 
 func (m Movie) Key() string {
-	return sanitizeKey(fmt.Sprintf("%s_%s_%s", m.Title, m.Director, m.Writer))
+	return sanitizeKey(fmt.Sprintf("%d_%s_%s_%s", m.ID, m.Title, m.Director, m.Writer))
 }
 
 func (m Book) Equal(other any) bool {
 	o, ok := other.(Book)
-	return ok && m.Title == o.Title &&
+	return ok && m.ID == o.ID &&
+		m.Title == o.Title &&
 		m.Author == o.Author
 }
 
 func (m Book) Key() string {
-	return sanitizeKey(fmt.Sprintf("%s_%s", m.Title, m.Author))
+	return sanitizeKey(fmt.Sprintf("%d_%s_%s", m.ID, m.Title, m.Author))
 }
 
 func (m TVShow) Equal(other any) bool {
 	o, ok := other.(TVShow)
-	return ok && m.Title == o.Title &&
+	return ok && m.ID == o.ID &&
+		m.Title == o.Title &&
 		m.Director == o.Director &&
 		m.Writer == o.Writer
 }
 
 func (m TVShow) Key() string {
-	return sanitizeKey(fmt.Sprintf("%s_%s_%s", m.Title, m.Director, m.Writer))
+	return sanitizeKey(fmt.Sprintf("%d_%s_%s_%s", m.ID, m.Title, m.Director, m.Writer))
 }
 
 func (m VideoGame) Equal(other any) bool {
 	o, ok := other.(VideoGame)
 
-	return ok && m.Title == o.Title &&
+	return ok && m.ID == o.ID &&
+		m.Title == o.Title &&
 		m.Developer == o.Developer &&
 		m.Publisher == o.Publisher &&
 		m.CoverPath == o.CoverPath
 }
 
 func (m VideoGame) Key() string {
-	return sanitizeKey(fmt.Sprintf("%s_%s_%s", m.Title, m.Developer, m.Publisher))
+	return sanitizeKey(fmt.Sprintf("%d_%s_%s_%s", m.ID, m.Title, m.Developer, m.Publisher))
 }
 
 type Suggestion[T Media] struct {

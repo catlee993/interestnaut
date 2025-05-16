@@ -8,32 +8,53 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
+// DB is global
+var DB Database
+
+// SqliteDatabase implements the Database interface for SQLite
+type SqliteDatabase struct {
+	db *sql.DB
+}
+
+// NewSqliteDatabase creates a new SQLite database implementation
+func NewSqliteDatabase(db *sql.DB) Database {
+	return &SqliteDatabase{db: db}
+}
+
 // InitDB initializes the database and creates all necessary tables if they don't exist
-func InitDB(path string) (*sql.DB, error) {
+func InitDB(path string) error {
 	// Initialize the database connection
-	db, err := sql.Open("sqlite3", path)
+	sqlDB, err := sql.Open("sqlite3", path)
 	if err != nil {
 		log.Printf("Failed to open database: %v", err)
-		return nil, err
+		return err
+	}
+
+	// Test the connection
+	if err = sqlDB.Ping(); err != nil {
+		log.Printf("Failed to ping database: %v", err)
+		return err
 	}
 
 	// Enable foreign keys
-	_, err = db.Exec("PRAGMA foreign_keys = ON")
-	if err != nil {
-		log.Printf("Failed to enable foreign keys: %v", err)
-		db.Close()
-		return nil, err
+	_, eErr := sqlDB.Exec("PRAGMA foreign_keys = ON")
+	if eErr != nil {
+		log.Printf("Failed to enable foreign keys: %v", eErr)
+		sqlDB.Close()
+		return eErr
 	}
 
 	// Apply migrations if needed
-	if err := applyMigrations(db); err != nil {
-		log.Printf("Failed to apply migrations: %v", err)
-		db.Close()
-		return nil, err
+	if aErr := applyMigrations(sqlDB); aErr != nil {
+		log.Printf("Failed to apply migrations: %v", aErr)
+		sqlDB.Close()
+		return aErr
 	}
 
 	log.Printf("Database initialized successfully at %s", path)
-	return db, nil
+	// Create and set the global DB instance
+	DB = NewSqliteDatabase(sqlDB)
+	return nil
 }
 
 // applyMigrations applies all necessary migrations based on the current schema version
@@ -43,7 +64,7 @@ func applyMigrations(db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	
+
 	// Ensure proper rollback on error
 	defer func() {
 		if err != nil {
@@ -74,7 +95,7 @@ func applyMigrations(db *sql.DB) error {
 	// Apply all migrations if we need to upgrade
 	if currentVersion < SchemaVersion {
 		log.Printf("Applying database migrations from version %d to %d", currentVersion, SchemaVersion)
-		
+
 		// Apply all migrations in order
 		for _, migration := range AllMigrations {
 			_, err = tx.Exec(migration)
@@ -82,13 +103,13 @@ func applyMigrations(db *sql.DB) error {
 				return fmt.Errorf("migration failed: %w", err)
 			}
 		}
-		
+
 		// Update schema version
 		_, err = tx.Exec(InitializeSchemaVersionSQL, SchemaVersion)
 		if err != nil {
 			return fmt.Errorf("failed to update schema version: %w", err)
 		}
-		
+
 		log.Printf("Successfully applied migrations to version %d", SchemaVersion)
 	}
 
@@ -98,17 +119,4 @@ func applyMigrations(db *sql.DB) error {
 	}
 
 	return nil
-}
-
-// GetSchemaVersion returns the current schema version from the database
-func GetSchemaVersion(db *sql.DB) (int, error) {
-	var version int
-	err := db.QueryRow("SELECT version FROM schema_version WHERE id = 1").Scan(&version)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return 0, nil
-		}
-		return 0, err
-	}
-	return version, nil
 }
