@@ -2,7 +2,6 @@ package suggestions
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"interestnaut/internal/app/llm"
@@ -92,23 +91,6 @@ func (s *Service) GetLLMClientForMediaType(mediaType db.MediaType) (interface{},
 	}
 }
 
-// GetTypedLLMClient returns a properly typed LLM client based on the media type
-// This uses generics for type-safety while allowing dynamic selection based on media type
-func (s *Service) GetTypedLLMClient[T session.Media](mediaType db.MediaType) (llm.Client[T], error) {
-	client, err := s.GetLLMClientForMediaType(mediaType)
-	if err != nil {
-		return nil, err
-	}
-	
-	// Type assertion
-	typedClient, ok := client.(llm.Client[T])
-	if !ok {
-		return nil, fmt.Errorf("client for media type %s is not compatible with the requested type", mediaType)
-	}
-	
-	return typedClient, nil
-}
-
 // GetLLMClientMusic returns the music LLM client
 func (s *Service) GetLLMClientMusic() (llm.Client[session.Music], error) {
 	if s.llmMusic == nil {
@@ -153,31 +135,31 @@ func (s *Service) GetLLMClientVideoGame() (llm.Client[session.VideoGame], error)
 func (s *Service) GetSuggestions(ctx context.Context, mediaType db.MediaType, basedOnID uint64, limit int) ([]Suggestion, error) {
 	// Start with an empty slice of suggestions
 	var suggestions []Suggestion
-	
+
 	// Get suggestions from various sources
-	
+
 	// 1. First, try to get suggestions from our database
 	dbSuggestions, err := s.getDBSuggestions(ctx, mediaType, basedOnID, limit)
 	if err == nil && len(dbSuggestions) > 0 {
 		suggestions = append(suggestions, dbSuggestions...)
 	}
-	
+
 	// If we already have enough suggestions, return them
 	if len(suggestions) >= limit {
 		return suggestions[:limit], nil
 	}
-	
+
 	// 2. Try to get suggestions from Wikidata
 	wikiSuggestions, err := s.getWikidataSuggestions(ctx, mediaType, basedOnID, limit-len(suggestions))
 	if err == nil && len(wikiSuggestions) > 0 {
 		suggestions = append(suggestions, wikiSuggestions...)
 	}
-	
+
 	// If we already have enough suggestions, return them
 	if len(suggestions) >= limit {
 		return suggestions[:limit], nil
 	}
-	
+
 	// 3. Finally, try to get suggestions from LLM
 	llmClient, err := s.GetLLMClientForMediaType(mediaType)
 	if err == nil && llmClient != nil {
@@ -186,7 +168,7 @@ func (s *Service) GetSuggestions(ctx context.Context, mediaType db.MediaType, ba
 			suggestions = append(suggestions, llmSuggestions...)
 		}
 	}
-	
+
 	// Return whatever suggestions we have, limited to the requested amount
 	if len(suggestions) > limit {
 		return suggestions[:limit], nil
@@ -196,187 +178,242 @@ func (s *Service) GetSuggestions(ctx context.Context, mediaType db.MediaType, ba
 
 // getDBSuggestions gets suggestions from our local database based on similar items
 func (s *Service) getDBSuggestions(ctx context.Context, mediaType db.MediaType, basedOnID uint64, limit int) ([]Suggestion, error) {
-	var suggestions []Suggestion
-
 	// If there's no specific item to base suggestions on, return empty
 	if basedOnID <= 0 {
-		return suggestions, nil
+		return []Suggestion{}, nil
 	}
+
+	// Call the appropriate type-specific method based on media type
+	switch mediaType {
+	case db.MediaTypeMusic:
+		return s.getDBMusicSuggestions(ctx, basedOnID, limit)
+	case db.MediaTypeBook:
+		return s.getDBBookSuggestions(ctx, basedOnID, limit)
+	case db.MediaTypeMovie:
+		return s.getDBMovieSuggestions(ctx, basedOnID, limit)
+	case db.MediaTypeShow:
+		return s.getDBShowSuggestions(ctx, basedOnID, limit)
+	case db.MediaTypeVideoGame:
+		return s.getDBVideoGameSuggestions(ctx, basedOnID, limit)
+	default:
+		return []Suggestion{}, fmt.Errorf("unsupported media type: %s", mediaType)
+	}
+}
+
+// getDBMusicSuggestions gets music suggestions from the database
+func (s *Service) getDBMusicSuggestions(ctx context.Context, basedOnID uint64, limit int) ([]Suggestion, error) {
+	var suggestions []Suggestion
 
 	// Set up search options with limit
 	options := db.DefaultSearchOptions()
 	options.Limit = limit
 
-	// Depending on the media type, get similar items
-	switch mediaType {
-	case db.MediaTypeMusic:
-		// First, get the music item to base suggestions on
-		music, err := db.DB.GetMusic(basedOnID)
-		if err != nil {
-			return nil, err
+	// First, get the music item to base suggestions on
+	music, err := db.DB.GetMusic(basedOnID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Search for music by the same artist
+	searchResults, err := db.DB.SearchMusic(music.Artist, options)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, m := range searchResults {
+		// Skip the same item
+		if m.ID == basedOnID {
+			continue
 		}
 
-		// Search for music by the same artist
-		searchResults, err := db.DB.SearchMusic(music.Artist, options)
-		if err != nil {
-			return nil, err
+		suggestions = append(suggestions, Suggestion{
+			MediaID:   m.ID,
+			MediaType: db.MediaTypeMusic,
+			Title:     m.Title,
+			Subtitle:  m.Artist,
+			ImageURL:  m.AlbumArtURL,
+			Reason:    fmt.Sprintf("By the same artist: %s", m.Artist),
+			Source:    "database",
+		})
+
+		if len(suggestions) >= limit {
+			break
+		}
+	}
+
+	return suggestions, nil
+}
+
+// getDBBookSuggestions gets book suggestions from the database
+func (s *Service) getDBBookSuggestions(ctx context.Context, basedOnID uint64, limit int) ([]Suggestion, error) {
+	var suggestions []Suggestion
+
+	// Set up search options with limit
+	options := db.DefaultSearchOptions()
+	options.Limit = limit
+
+	// First, get the book to base suggestions on
+	book, err := db.DB.GetBook(basedOnID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Search for books by the same author
+	searchResults, err := db.DB.SearchBooks(book.Author, options)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, b := range searchResults {
+		// Skip the same item
+		if b.ID == basedOnID {
+			continue
 		}
 
-		for _, m := range searchResults {
-			// Skip the same item
-			if m.ID == basedOnID {
-				continue
-			}
+		suggestions = append(suggestions, Suggestion{
+			MediaID:   b.ID,
+			MediaType: db.MediaTypeBook,
+			Title:     b.Title,
+			Subtitle:  b.Author,
+			ImageURL:  b.CoverArtURL,
+			Reason:    fmt.Sprintf("By the same author: %s", b.Author),
+			Source:    "database",
+		})
 
-			suggestions = append(suggestions, Suggestion{
-				MediaID:   m.ID,
-				MediaType: mediaType,
-				Title:     m.Title,
-				Subtitle:  m.Artist,
-				ImageURL:  m.AlbumArtURL,
-				Reason:    fmt.Sprintf("By the same artist: %s", m.Artist),
-				Source:    "database",
-			})
+		if len(suggestions) >= limit {
+			break
+		}
+	}
 
-			if len(suggestions) >= limit {
-				break
-			}
+	return suggestions, nil
+}
+
+// getDBMovieSuggestions gets movie suggestions from the database
+func (s *Service) getDBMovieSuggestions(ctx context.Context, basedOnID uint64, limit int) ([]Suggestion, error) {
+	var suggestions []Suggestion
+
+	// Set up search options with limit
+	options := db.DefaultSearchOptions()
+	options.Limit = limit
+
+	// First, get the movie to base suggestions on
+	movie, err := db.DB.GetMovie(basedOnID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Search for movies by the same director
+	searchResults, err := db.DB.SearchMovies(movie.Director, options)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, m := range searchResults {
+		// Skip the same item
+		if m.ID == basedOnID {
+			continue
 		}
 
-	case db.MediaTypeBook:
-		// First, get the book to base suggestions on
-		book, err := db.DB.GetBook(basedOnID)
-		if err != nil {
-			return nil, err
+		suggestions = append(suggestions, Suggestion{
+			MediaID:   m.ID,
+			MediaType: db.MediaTypeMovie,
+			Title:     m.Title,
+			Subtitle:  m.Director,
+			ImageURL:  m.PosterURL,
+			Reason:    fmt.Sprintf("By the same director: %s", m.Director),
+			Source:    "database",
+		})
+
+		if len(suggestions) >= limit {
+			break
+		}
+	}
+
+	return suggestions, nil
+}
+
+// getDBShowSuggestions gets TV show suggestions from the database
+func (s *Service) getDBShowSuggestions(ctx context.Context, basedOnID uint64, limit int) ([]Suggestion, error) {
+	var suggestions []Suggestion
+
+	// Set up search options with limit
+	options := db.DefaultSearchOptions()
+	options.Limit = limit
+
+	// First, get the show to base suggestions on
+	show, err := db.DB.GetShow(basedOnID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Search for shows by the same director
+	searchResults, err := db.DB.SearchShows(show.Director, options)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, sh := range searchResults {
+		// Skip the same item
+		if sh.ID == basedOnID {
+			continue
 		}
 
-		// Search for books by the same author
-		searchResults, err := db.DB.SearchBooks(book.Author, options)
-		if err != nil {
-			return nil, err
+		suggestions = append(suggestions, Suggestion{
+			MediaID:   sh.ID,
+			MediaType: db.MediaTypeShow,
+			Title:     sh.Title,
+			Subtitle:  sh.Director,
+			ImageURL:  sh.PosterURL,
+			Reason:    fmt.Sprintf("By the same creator: %s", sh.Director),
+			Source:    "database",
+		})
+
+		if len(suggestions) >= limit {
+			break
+		}
+	}
+
+	return suggestions, nil
+}
+
+// getDBVideoGameSuggestions gets video game suggestions from the database
+func (s *Service) getDBVideoGameSuggestions(ctx context.Context, basedOnID uint64, limit int) ([]Suggestion, error) {
+	var suggestions []Suggestion
+
+	// Set up search options with limit
+	options := db.DefaultSearchOptions()
+	options.Limit = limit
+
+	// First, get the game to base suggestions on
+	game, err := db.DB.GetVideoGame(basedOnID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Search for games by the same developer
+	searchResults, err := db.DB.SearchVideoGames(game.Developer, options)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, g := range searchResults {
+		// Skip the same item
+		if g.ID == basedOnID {
+			continue
 		}
 
-		for _, b := range searchResults {
-			// Skip the same item
-			if b.ID == basedOnID {
-				continue
-			}
+		suggestions = append(suggestions, Suggestion{
+			MediaID:   g.ID,
+			MediaType: db.MediaTypeVideoGame,
+			Title:     g.Title,
+			Subtitle:  g.Developer,
+			ImageURL:  g.CoverArtURL,
+			Reason:    fmt.Sprintf("By the same developer: %s", g.Developer),
+			Source:    "database",
+		})
 
-			suggestions = append(suggestions, Suggestion{
-				MediaID:   b.ID,
-				MediaType: mediaType,
-				Title:     b.Title,
-				Subtitle:  b.Author,
-				ImageURL:  b.CoverArtURL,
-				Reason:    fmt.Sprintf("By the same author: %s", b.Author),
-				Source:    "database",
-			})
-
-			if len(suggestions) >= limit {
-				break
-			}
-		}
-
-	case db.MediaTypeMovie:
-		// First, get the movie to base suggestions on
-		movie, err := db.DB.GetMovie(basedOnID)
-		if err != nil {
-			return nil, err
-		}
-
-		// Search for movies by the same director
-		searchResults, err := db.DB.SearchMovies(movie.Director, options)
-		if err != nil {
-			return nil, err
-		}
-
-		for _, m := range searchResults {
-			// Skip the same item
-			if m.ID == basedOnID {
-				continue
-			}
-
-			suggestions = append(suggestions, Suggestion{
-				MediaID:   m.ID,
-				MediaType: mediaType,
-				Title:     m.Title,
-				Subtitle:  m.Director,
-				ImageURL:  m.PosterURL,
-				Reason:    fmt.Sprintf("By the same director: %s", m.Director),
-				Source:    "database",
-			})
-
-			if len(suggestions) >= limit {
-				break
-			}
-		}
-
-	case db.MediaTypeShow:
-		// First, get the show to base suggestions on
-		show, err := db.DB.GetShow(basedOnID)
-		if err != nil {
-			return nil, err
-		}
-
-		// Search for shows by the same director
-		searchResults, err := db.DB.SearchShows(show.Director, options)
-		if err != nil {
-			return nil, err
-		}
-
-		for _, sh := range searchResults {
-			// Skip the same item
-			if sh.ID == basedOnID {
-				continue
-			}
-
-			suggestions = append(suggestions, Suggestion{
-				MediaID:   sh.ID,
-				MediaType: mediaType,
-				Title:     sh.Title,
-				Subtitle:  sh.Director,
-				ImageURL:  sh.PosterURL,
-				Reason:    fmt.Sprintf("By the same creator: %s", sh.Director),
-				Source:    "database",
-			})
-
-			if len(suggestions) >= limit {
-				break
-			}
-		}
-
-	case db.MediaTypeVideoGame:
-		// First, get the game to base suggestions on
-		game, err := db.DB.GetVideoGame(basedOnID)
-		if err != nil {
-			return nil, err
-		}
-
-		// Search for games by the same developer
-		searchResults, err := db.DB.SearchVideoGames(game.Developer, options)
-		if err != nil {
-			return nil, err
-		}
-
-		for _, g := range searchResults {
-			// Skip the same item
-			if g.ID == basedOnID {
-				continue
-			}
-
-			suggestions = append(suggestions, Suggestion{
-				MediaID:   g.ID,
-				MediaType: mediaType,
-				Title:     g.Title,
-				Subtitle:  g.Developer,
-				ImageURL:  g.CoverArtURL,
-				Reason:    fmt.Sprintf("By the same developer: %s", g.Developer),
-				Source:    "database",
-			})
-
-			if len(suggestions) >= limit {
-				break
-			}
+		if len(suggestions) >= limit {
+			break
 		}
 	}
 
@@ -385,66 +422,129 @@ func (s *Service) getDBSuggestions(ctx context.Context, mediaType db.MediaType, 
 
 // getWikidataSuggestions gets suggestions from Wikidata based on related items
 func (s *Service) getWikidataSuggestions(ctx context.Context, mediaType db.MediaType, basedOnID uint64, limit int) ([]Suggestion, error) {
-	var suggestions []Suggestion
-
-	// If there's no specific item to base suggestions on, use a generic search
+	// If there's no specific item to base suggestions on, return empty
 	if basedOnID <= 0 {
-		return suggestions, nil
+		return []Suggestion{}, nil
 	}
 
-	// First, we need to get the item's title and creator to use in our search
-	var title, creator string
-	var query string
-
+	// Call the appropriate type-specific method based on media type
 	switch mediaType {
 	case db.MediaTypeMusic:
-		music, err := db.DB.GetMusic(basedOnID)
-		if err != nil {
-			return nil, err
-		}
-		title = music.Title
-		creator = music.Artist
-		query = fmt.Sprintf("%s %s", title, creator)
-
+		return s.getWikidataMusicSuggestions(ctx, basedOnID, limit)
 	case db.MediaTypeBook:
-		book, err := db.DB.GetBook(basedOnID)
-		if err != nil {
-			return nil, err
-		}
-		title = book.Title
-		creator = book.Author
-		query = fmt.Sprintf("%s %s", title, creator)
-
+		return s.getWikidataBookSuggestions(ctx, basedOnID, limit)
 	case db.MediaTypeMovie:
-		movie, err := db.DB.GetMovie(basedOnID)
-		if err != nil {
-			return nil, err
-		}
-		title = movie.Title
-		creator = movie.Director
-		query = fmt.Sprintf("%s %s", title, creator)
-
+		return s.getWikidataMovieSuggestions(ctx, basedOnID, limit)
 	case db.MediaTypeShow:
-		show, err := db.DB.GetShow(basedOnID)
-		if err != nil {
-			return nil, err
-		}
-		title = show.Title
-		creator = show.Director
-		query = fmt.Sprintf("%s %s", title, creator)
-
+		return s.getWikidataShowSuggestions(ctx, basedOnID, limit)
 	case db.MediaTypeVideoGame:
-		game, err := db.DB.GetVideoGame(basedOnID)
-		if err != nil {
-			return nil, err
-		}
-		title = game.Title
-		creator = game.Developer
-		query = fmt.Sprintf("%s %s", title, creator)
+		return s.getWikidataVideoGameSuggestions(ctx, basedOnID, limit)
+	default:
+		return []Suggestion{}, fmt.Errorf("unsupported media type: %s", mediaType)
+	}
+}
+
+// getWikidataMusicSuggestions gets music suggestions from Wikidata
+func (s *Service) getWikidataMusicSuggestions(ctx context.Context, basedOnID uint64, limit int) ([]Suggestion, error) {
+	// Get the base music item
+	music, err := db.DB.GetMusic(basedOnID)
+	if err != nil {
+		return nil, err
 	}
 
+	title := music.Title
+	creator := music.Artist
+	query := fmt.Sprintf("%s %s", title, creator)
+
 	// Convert media type to wikidata's format
-	wdMediaType := wikidata.MediaType(string(mediaType))
+	wdMediaType := wikidata.MediaType(string(db.MediaTypeMusic))
+
+	return s.fetchWikidataSuggestions(ctx, query, wdMediaType, db.MediaTypeMusic, title, creator, limit)
+}
+
+// getWikidataBookSuggestions gets book suggestions from Wikidata
+func (s *Service) getWikidataBookSuggestions(ctx context.Context, basedOnID uint64, limit int) ([]Suggestion, error) {
+	// Get the base book item
+	book, err := db.DB.GetBook(basedOnID)
+	if err != nil {
+		return nil, err
+	}
+
+	title := book.Title
+	creator := book.Author
+	query := fmt.Sprintf("%s %s", title, creator)
+
+	// Convert media type to wikidata's format
+	wdMediaType := wikidata.MediaType(string(db.MediaTypeBook))
+
+	return s.fetchWikidataSuggestions(ctx, query, wdMediaType, db.MediaTypeBook, title, creator, limit)
+}
+
+// getWikidataMovieSuggestions gets movie suggestions from Wikidata
+func (s *Service) getWikidataMovieSuggestions(ctx context.Context, basedOnID uint64, limit int) ([]Suggestion, error) {
+	// Get the base movie item
+	movie, err := db.DB.GetMovie(basedOnID)
+	if err != nil {
+		return nil, err
+	}
+
+	title := movie.Title
+	creator := movie.Director
+	query := fmt.Sprintf("%s %s", title, creator)
+
+	// Convert media type to wikidata's format
+	wdMediaType := wikidata.MediaType(string(db.MediaTypeMovie))
+
+	return s.fetchWikidataSuggestions(ctx, query, wdMediaType, db.MediaTypeMovie, title, creator, limit)
+}
+
+// getWikidataShowSuggestions gets TV show suggestions from Wikidata
+func (s *Service) getWikidataShowSuggestions(ctx context.Context, basedOnID uint64, limit int) ([]Suggestion, error) {
+	// Get the base show item
+	show, err := db.DB.GetShow(basedOnID)
+	if err != nil {
+		return nil, err
+	}
+
+	title := show.Title
+	creator := show.Director
+	query := fmt.Sprintf("%s %s", title, creator)
+
+	// Convert media type to wikidata's format
+	wdMediaType := wikidata.MediaType(string(db.MediaTypeShow))
+
+	return s.fetchWikidataSuggestions(ctx, query, wdMediaType, db.MediaTypeShow, title, creator, limit)
+}
+
+// getWikidataVideoGameSuggestions gets video game suggestions from Wikidata
+func (s *Service) getWikidataVideoGameSuggestions(ctx context.Context, basedOnID uint64, limit int) ([]Suggestion, error) {
+	// Get the base video game item
+	game, err := db.DB.GetVideoGame(basedOnID)
+	if err != nil {
+		return nil, err
+	}
+
+	title := game.Title
+	creator := game.Developer
+	query := fmt.Sprintf("%s %s", title, creator)
+
+	// Convert media type to wikidata's format
+	wdMediaType := wikidata.MediaType(string(db.MediaTypeVideoGame))
+
+	return s.fetchWikidataSuggestions(ctx, query, wdMediaType, db.MediaTypeVideoGame, title, creator, limit)
+}
+
+// fetchWikidataSuggestions is a helper function to avoid code duplication across media types
+func (s *Service) fetchWikidataSuggestions(
+	ctx context.Context,
+	query string,
+	wdMediaType wikidata.MediaType,
+	appMediaType db.MediaType,
+	baseTitle string,
+	baseCreator string,
+	limit int,
+) ([]Suggestion, error) {
+	var suggestions []Suggestion
 
 	// Use Wikidata to find similar items
 	results, err := s.wikidataClient.SearchEntities(ctx, query, wdMediaType, "en")
@@ -456,7 +556,7 @@ func (s *Service) getWikidataSuggestions(ctx context.Context, mediaType db.Media
 	count := 0
 	for _, result := range results {
 		// Skip if this appears to be the same item we're basing suggestions on
-		if result.Label == title {
+		if result.Label == baseTitle {
 			continue
 		}
 
@@ -467,34 +567,27 @@ func (s *Service) getWikidataSuggestions(ctx context.Context, mediaType db.Media
 		}
 
 		var subtitle string
-		var reason string
 
-		switch mediaType {
+		// Set subtitle based on media type
+		switch appMediaType {
 		case db.MediaTypeMusic:
 			subtitle = info.Artist
-			reason = fmt.Sprintf("Similar to %s by %s", title, creator)
 		case db.MediaTypeBook:
 			subtitle = info.Author
-			reason = fmt.Sprintf("Similar to %s by %s", title, creator)
-		case db.MediaTypeMovie:
+		case db.MediaTypeMovie, db.MediaTypeShow:
 			subtitle = info.Director
-			reason = fmt.Sprintf("Similar to %s by %s", title, creator)
-		case db.MediaTypeShow:
-			subtitle = info.Director
-			reason = fmt.Sprintf("Similar to %s by %s", title, creator)
 		case db.MediaTypeVideoGame:
 			subtitle = info.Developer
-			reason = fmt.Sprintf("Similar to %s by %s", title, creator)
 		}
 
 		// Create a suggestion
 		suggestion := Suggestion{
-			MediaID:   -1, // Not in database yet
-			MediaType: mediaType,
+			MediaID:   0, // Not in database yet
+			MediaType: appMediaType,
 			Title:     info.Title,
 			Subtitle:  subtitle,
 			ImageURL:  info.ImageURL,
-			Reason:    reason,
+			Reason:    fmt.Sprintf("Similar to %s by %s", baseTitle, baseCreator),
 			Source:    "wikidata",
 		}
 
@@ -516,110 +609,364 @@ func (s *Service) getLLMSuggestions(ctx context.Context, mediaType db.MediaType,
 		return nil, errors.New("basedOnID is required for LLM suggestions")
 	}
 
-	// Get information about the base item to inform the LLM
+	// Use switch to call the appropriate type-specific method
 	switch mediaType {
 	case db.MediaTypeMusic:
-		return s.getLLMSuggestionsForType[session.Music](ctx, mediaType, basedOnID, limit, llmClient)
+		musicClient, ok := llmClient.(llm.Client[session.Music])
+		if !ok {
+			return nil, errors.New("invalid music LLM client type")
+		}
+		return s.getLLMMusicSuggestions(ctx, basedOnID, limit, musicClient)
 	case db.MediaTypeMovie:
-		return s.getLLMSuggestionsForType[session.Movie](ctx, mediaType, basedOnID, limit, llmClient)
+		movieClient, ok := llmClient.(llm.Client[session.Movie])
+		if !ok {
+			return nil, errors.New("invalid movie LLM client type")
+		}
+		return s.getLLMMovieSuggestions(ctx, basedOnID, limit, movieClient)
 	case db.MediaTypeShow:
-		return s.getLLMSuggestionsForType[session.TVShow](ctx, mediaType, basedOnID, limit, llmClient)
+		showClient, ok := llmClient.(llm.Client[session.TVShow])
+		if !ok {
+			return nil, errors.New("invalid TV show LLM client type")
+		}
+		return s.getLLMShowSuggestions(ctx, basedOnID, limit, showClient)
 	case db.MediaTypeBook:
-		return s.getLLMSuggestionsForType[session.Book](ctx, mediaType, basedOnID, limit, llmClient)
+		bookClient, ok := llmClient.(llm.Client[session.Book])
+		if !ok {
+			return nil, errors.New("invalid book LLM client type")
+		}
+		return s.getLLMBookSuggestions(ctx, basedOnID, limit, bookClient)
 	case db.MediaTypeVideoGame:
-		return s.getLLMSuggestionsForType[session.VideoGame](ctx, mediaType, basedOnID, limit, llmClient)
+		gameClient, ok := llmClient.(llm.Client[session.VideoGame])
+		if !ok {
+			return nil, errors.New("invalid video game LLM client type")
+		}
+		return s.getLLMVideoGameSuggestions(ctx, basedOnID, limit, gameClient)
 	default:
 		return nil, fmt.Errorf("unsupported media type: %s", mediaType)
 	}
 }
 
-// getLLMSuggestionsForType is a generic helper that handles the type-specific LLM suggestions
-func (s *Service) getLLMSuggestionsForType[T session.Media](ctx context.Context, mediaType db.MediaType, basedOnID uint64, limit int, llmClient interface{}) ([]Suggestion, error) {
-	// Get the proper LLM client with correct type
-	typedClient, ok := llmClient.(llm.Client[T])
-	if !ok {
-		return nil, fmt.Errorf("invalid LLM client type for %s", mediaType)
-	}
-	
-	// Get information about the base item
-	var basedOnInfo T
-	var err error
-	
-	switch mediaType {
-	case db.MediaTypeMusic:
-		// Type assertion is safe because we know T is session.Music based on the call site
-		var musicInfo *db.Music
-		musicInfo, err = db.DB.GetMusic(basedOnID)
-		if err == nil {
-			music := session.Music{
-				ID:     musicInfo.ID,
-				Title:  musicInfo.Title,
-				Artist: musicInfo.Artist,
-				Album:  musicInfo.Album,
-			}
-			basedOnInfo = any(music).(T)
-		}
-	case db.MediaTypeBook:
-		var bookInfo *db.Book
-		bookInfo, err = db.DB.GetBook(basedOnID)
-		if err == nil {
-			book := session.Book{
-				ID:     bookInfo.ID,
-				Title:  bookInfo.Title,
-				Author: bookInfo.Author,
-			}
-			basedOnInfo = any(book).(T)
-		}
-	case db.MediaTypeMovie:
-		var movieInfo *db.Movie
-		movieInfo, err = db.DB.GetMovie(basedOnID)
-		if err == nil {
-			movie := session.Movie{
-				ID:       movieInfo.ID,
-				Title:    movieInfo.Title,
-				Director: movieInfo.Director,
-				Writer:   movieInfo.Writer,
-			}
-			basedOnInfo = any(movie).(T)
-		}
-	case db.MediaTypeShow:
-		var showInfo *db.Show
-		showInfo, err = db.DB.GetShow(basedOnID)
-		if err == nil {
-			show := session.TVShow{
-				ID:       showInfo.ID,
-				Title:    showInfo.Title,
-				Director: showInfo.Director,
-				Writer:   showInfo.Writer,
-			}
-			basedOnInfo = any(show).(T)
-		}
-	case db.MediaTypeVideoGame:
-		var gameInfo *db.VideoGame
-		gameInfo, err = db.DB.GetVideoGame(basedOnID)
-		if err == nil {
-			game := session.VideoGame{
-				ID:        gameInfo.ID,
-				Title:     gameInfo.Title,
-				Developer: gameInfo.Developer,
-				Platforms: gameInfo.Platforms,
-			}
-			basedOnInfo = any(game).(T)
-		}
-	}
-	
+// getLLMMusicSuggestions gets music suggestions from the LLM provider
+func (s *Service) getLLMMusicSuggestions(ctx context.Context, basedOnID uint64, limit int, client llm.Client[session.Music]) ([]Suggestion, error) {
+	// Get information about the base music item
+	musicInfo, err := db.DB.GetMusic(basedOnID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get information about base item: %w", err)
+		return nil, fmt.Errorf("failed to get music information: %w", err)
 	}
-	
-	// Generate suggestions
-	return typedClient.GenerateSuggestions(ctx, basedOnInfo, limit)
+
+	// Create session.Music from db.Music
+	music := session.Music{
+		ID:     musicInfo.ID,
+		Title:  musicInfo.Title,
+		Artist: musicInfo.Artist,
+		Album:  musicInfo.Album,
+	}
+
+	// Create content for the LLM
+	content := &session.Content[session.Music]{
+		PrimeDirective: session.PrimeDirective{
+			Task:     fmt.Sprintf("Suggest music similar to '%s' by %s", music.Title, music.Artist),
+			Baseline: fmt.Sprintf("The user enjoys '%s' by %s", music.Title, music.Artist),
+		},
+		Suggestions:     make(map[string]session.Suggestion[session.Music]),
+		UserConstraints: []string{},
+	}
+
+	// Compose messages for the LLM
+	messages, err := client.ComposeMessages(ctx, content)
+	if err != nil {
+		return nil, fmt.Errorf("failed to compose messages: %w", err)
+	}
+
+	// Send messages to the LLM and get a response
+	response, err := client.SendMessages(ctx, messages...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get LLM response: %w", err)
+	}
+
+	// Convert LLM response to suggestions
+	var suggestions []Suggestion
+
+	// Add a suggestion based on the response
+	suggestion := Suggestion{
+		MediaID:   0, // Not in database yet
+		MediaType: db.MediaTypeMusic,
+		Title:     response.Title,
+		Subtitle:  response.Artist,
+		ImageURL:  "", // LLM doesn't provide image URLs
+		Reason:    response.Reason,
+		Source:    "llm",
+	}
+	suggestions = append(suggestions, suggestion)
+
+	return suggestions, nil
+}
+
+// getLLMMovieSuggestions gets movie suggestions from the LLM provider
+func (s *Service) getLLMMovieSuggestions(ctx context.Context, basedOnID uint64, limit int, client llm.Client[session.Movie]) ([]Suggestion, error) {
+	// Get information about the base movie item
+	movieInfo, err := db.DB.GetMovie(basedOnID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get movie information: %w", err)
+	}
+
+	// Create session.Movie from db.Movie
+	movie := session.Movie{
+		ID:       movieInfo.ID,
+		Title:    movieInfo.Title,
+		Director: movieInfo.Director,
+		Writer:   movieInfo.Writer,
+	}
+
+	// Create content for the LLM
+	content := &session.Content[session.Movie]{
+		PrimeDirective: session.PrimeDirective{
+			Task:     fmt.Sprintf("Suggest movies similar to '%s' directed by %s", movie.Title, movie.Director),
+			Baseline: fmt.Sprintf("The user enjoys '%s' directed by %s", movie.Title, movie.Director),
+		},
+		Suggestions:     make(map[string]session.Suggestion[session.Movie]),
+		UserConstraints: []string{},
+	}
+
+	// Compose messages for the LLM
+	messages, err := client.ComposeMessages(ctx, content)
+	if err != nil {
+		return nil, fmt.Errorf("failed to compose messages: %w", err)
+	}
+
+	// Send messages to the LLM and get a response
+	response, err := client.SendMessages(ctx, messages...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get LLM response: %w", err)
+	}
+
+	// Convert LLM response to suggestions
+	var suggestions []Suggestion
+
+	// Add a suggestion based on the response
+	suggestion := Suggestion{
+		MediaID:   0, // Not in database yet
+		MediaType: db.MediaTypeMovie,
+		Title:     response.Title,
+		Subtitle:  response.Artist, // LLM response uses Artist field for Director
+		ImageURL:  "",              // LLM doesn't provide image URLs
+		Reason:    response.Reason,
+		Source:    "llm",
+	}
+	suggestions = append(suggestions, suggestion)
+
+	return suggestions, nil
+}
+
+// getLLMShowSuggestions gets TV show suggestions from the LLM provider
+func (s *Service) getLLMShowSuggestions(ctx context.Context, basedOnID uint64, limit int, client llm.Client[session.TVShow]) ([]Suggestion, error) {
+	// Get information about the base show item
+	showInfo, err := db.DB.GetShow(basedOnID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get TV show information: %w", err)
+	}
+
+	// Create session.TVShow from db.Show
+	show := session.TVShow{
+		ID:       showInfo.ID,
+		Title:    showInfo.Title,
+		Director: showInfo.Director,
+		Writer:   showInfo.Writer,
+	}
+
+	// Create content for the LLM
+	content := &session.Content[session.TVShow]{
+		PrimeDirective: session.PrimeDirective{
+			Task:     fmt.Sprintf("Suggest TV shows similar to '%s'", show.Title),
+			Baseline: fmt.Sprintf("The user enjoys '%s'", show.Title),
+		},
+		Suggestions:     make(map[string]session.Suggestion[session.TVShow]),
+		UserConstraints: []string{},
+	}
+
+	// Compose messages for the LLM
+	messages, err := client.ComposeMessages(ctx, content)
+	if err != nil {
+		return nil, fmt.Errorf("failed to compose messages: %w", err)
+	}
+
+	// Send messages to the LLM and get a response
+	response, err := client.SendMessages(ctx, messages...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get LLM response: %w", err)
+	}
+
+	// Convert LLM response to suggestions
+	var suggestions []Suggestion
+
+	// Add a suggestion based on the response
+	suggestion := Suggestion{
+		MediaID:   0, // Not in database yet
+		MediaType: db.MediaTypeShow,
+		Title:     response.Title,
+		Subtitle:  response.Artist, // LLM response uses Artist field for Director/Creator
+		ImageURL:  "",              // LLM doesn't provide image URLs
+		Reason:    response.Reason,
+		Source:    "llm",
+	}
+	suggestions = append(suggestions, suggestion)
+
+	return suggestions, nil
+}
+
+// getLLMBookSuggestions gets book suggestions from the LLM provider
+func (s *Service) getLLMBookSuggestions(ctx context.Context, basedOnID uint64, limit int, client llm.Client[session.Book]) ([]Suggestion, error) {
+	// Get information about the base book item
+	bookInfo, err := db.DB.GetBook(basedOnID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get book information: %w", err)
+	}
+
+	// Create session.Book from db.Book
+	book := session.Book{
+		ID:     bookInfo.ID,
+		Title:  bookInfo.Title,
+		Author: bookInfo.Author,
+	}
+
+	// Create content for the LLM
+	content := &session.Content[session.Book]{
+		PrimeDirective: session.PrimeDirective{
+			Task:     fmt.Sprintf("Suggest books similar to '%s' by %s", book.Title, book.Author),
+			Baseline: fmt.Sprintf("The user enjoys '%s' by %s", book.Title, book.Author),
+		},
+		Suggestions:     make(map[string]session.Suggestion[session.Book]),
+		UserConstraints: []string{},
+	}
+
+	// Compose messages for the LLM
+	messages, err := client.ComposeMessages(ctx, content)
+	if err != nil {
+		return nil, fmt.Errorf("failed to compose messages: %w", err)
+	}
+
+	// Send messages to the LLM and get a response
+	response, err := client.SendMessages(ctx, messages...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get LLM response: %w", err)
+	}
+
+	// Convert LLM response to suggestions
+	var suggestions []Suggestion
+
+	// Add a suggestion based on the response
+	suggestion := Suggestion{
+		MediaID:   0, // Not in database yet
+		MediaType: db.MediaTypeBook,
+		Title:     response.Title,
+		Subtitle:  response.Artist, // LLM response uses Artist field for Author
+		ImageURL:  "",              // LLM doesn't provide image URLs
+		Reason:    response.Reason,
+		Source:    "llm",
+	}
+	suggestions = append(suggestions, suggestion)
+
+	return suggestions, nil
+}
+
+// getLLMVideoGameSuggestions gets video game suggestions from the LLM provider
+func (s *Service) getLLMVideoGameSuggestions(ctx context.Context, basedOnID uint64, limit int, client llm.Client[session.VideoGame]) ([]Suggestion, error) {
+	// Get information about the base video game item
+	gameInfo, err := db.DB.GetVideoGame(basedOnID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get video game information: %w", err)
+	}
+
+	// Create session.VideoGame from db.VideoGame
+	game := session.VideoGame{
+		ID:        gameInfo.ID,
+		Title:     gameInfo.Title,
+		Developer: gameInfo.Developer,
+		Platforms: gameInfo.Platforms,
+	}
+
+	// Create content for the LLM
+	content := &session.Content[session.VideoGame]{
+		PrimeDirective: session.PrimeDirective{
+			Task:     fmt.Sprintf("Suggest video games similar to '%s' by %s", game.Title, game.Developer),
+			Baseline: fmt.Sprintf("The user enjoys '%s' by %s", game.Title, game.Developer),
+		},
+		Suggestions:     make(map[string]session.Suggestion[session.VideoGame]),
+		UserConstraints: []string{},
+	}
+
+	// Compose messages for the LLM
+	messages, err := client.ComposeMessages(ctx, content)
+	if err != nil {
+		return nil, fmt.Errorf("failed to compose messages: %w", err)
+	}
+
+	// Send messages to the LLM and get a response
+	response, err := client.SendMessages(ctx, messages...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get LLM response: %w", err)
+	}
+
+	// Convert LLM response to suggestions
+	var suggestions []Suggestion
+
+	// Add a suggestion based on the response
+	suggestion := Suggestion{
+		MediaID:   0, // Not in database yet
+		MediaType: db.MediaTypeVideoGame,
+		Title:     response.Title,
+		Subtitle:  response.Artist, // LLM response uses Artist field for Developer
+		ImageURL:  "",              // LLM doesn't provide image URLs
+		Reason:    response.Reason,
+		Source:    "llm",
+	}
+	suggestions = append(suggestions, suggestion)
+
+	return suggestions, nil
 }
 
 // SaveSuggestionOutcome records a user's response to a suggestion
 func (s *Service) SaveSuggestionOutcome(ctx context.Context, mediaType db.MediaType, mediaID uint64, reason string, outcome db.SuggestionOutcome) error {
-	// Use the AddSuggestion function from the db package
-	return db.DB.AddSuggestion(mediaID, mediaType, reason, outcome)
+	// Call the appropriate type-specific method based on media type
+	switch mediaType {
+	case db.MediaTypeMusic:
+		return s.SaveMusicSuggestionOutcome(ctx, mediaID, reason, outcome)
+	case db.MediaTypeBook:
+		return s.SaveBookSuggestionOutcome(ctx, mediaID, reason, outcome)
+	case db.MediaTypeMovie:
+		return s.SaveMovieSuggestionOutcome(ctx, mediaID, reason, outcome)
+	case db.MediaTypeShow:
+		return s.SaveShowSuggestionOutcome(ctx, mediaID, reason, outcome)
+	case db.MediaTypeVideoGame:
+		return s.SaveVideoGameSuggestionOutcome(ctx, mediaID, reason, outcome)
+	default:
+		return fmt.Errorf("unsupported media type: %s", mediaType)
+	}
+}
+
+// SaveMusicSuggestionOutcome records a user's response to a music suggestion
+func (s *Service) SaveMusicSuggestionOutcome(ctx context.Context, mediaID uint64, reason string, outcome db.SuggestionOutcome) error {
+	return db.DB.AddSuggestion(mediaID, db.MediaTypeMusic, reason, outcome)
+}
+
+// SaveBookSuggestionOutcome records a user's response to a book suggestion
+func (s *Service) SaveBookSuggestionOutcome(ctx context.Context, mediaID uint64, reason string, outcome db.SuggestionOutcome) error {
+	return db.DB.AddSuggestion(mediaID, db.MediaTypeBook, reason, outcome)
+}
+
+// SaveMovieSuggestionOutcome records a user's response to a movie suggestion
+func (s *Service) SaveMovieSuggestionOutcome(ctx context.Context, mediaID uint64, reason string, outcome db.SuggestionOutcome) error {
+	return db.DB.AddSuggestion(mediaID, db.MediaTypeMovie, reason, outcome)
+}
+
+// SaveShowSuggestionOutcome records a user's response to a TV show suggestion
+func (s *Service) SaveShowSuggestionOutcome(ctx context.Context, mediaID uint64, reason string, outcome db.SuggestionOutcome) error {
+	return db.DB.AddSuggestion(mediaID, db.MediaTypeShow, reason, outcome)
+}
+
+// SaveVideoGameSuggestionOutcome records a user's response to a video game suggestion
+func (s *Service) SaveVideoGameSuggestionOutcome(ctx context.Context, mediaID uint64, reason string, outcome db.SuggestionOutcome) error {
+	return db.DB.AddSuggestion(mediaID, db.MediaTypeVideoGame, reason, outcome)
 }
 
 // GetTopSuggestionsForUser returns top suggestions for a user based on their preferences
@@ -852,13 +1199,6 @@ func (s *Service) SearchForExternalSuggestions(ctx context.Context, query string
 
 // SaveSuggestionToDatabase saves an external suggestion to the local database
 func (s *Service) SaveSuggestionToDatabase(ctx context.Context, suggestion Suggestion) (uint64, error) {
-	// Start a transaction
-	tx, err := db.DB.BeginTx(ctx, nil)
-	if err != nil {
-		return 0, err
-	}
-	defer tx.Rollback()
-
 	var mediaID uint64
 
 	// Insert into the appropriate table based on media type
@@ -871,7 +1211,7 @@ func (s *Service) SaveSuggestionToDatabase(ctx context.Context, suggestion Sugge
 			IsWatchlist: true,
 		}
 
-		if err := db.AddMusic(tx, music); err != nil {
+		if err := db.DB.AddMusic(music); err != nil {
 			return 0, err
 		}
 		mediaID = music.ID
@@ -884,7 +1224,7 @@ func (s *Service) SaveSuggestionToDatabase(ctx context.Context, suggestion Sugge
 			IsWatchlist: true,
 		}
 
-		if err := db.AddBook(tx, book); err != nil {
+		if err := db.DB.AddBook(book); err != nil {
 			return 0, err
 		}
 		mediaID = book.ID
@@ -897,7 +1237,7 @@ func (s *Service) SaveSuggestionToDatabase(ctx context.Context, suggestion Sugge
 			IsWatchlist: true,
 		}
 
-		if err := db.AddMovie(tx, movie); err != nil {
+		if err := db.DB.AddMovie(movie); err != nil {
 			return 0, err
 		}
 		mediaID = movie.ID
@@ -910,7 +1250,7 @@ func (s *Service) SaveSuggestionToDatabase(ctx context.Context, suggestion Sugge
 			IsWatchlist: true,
 		}
 
-		if err := db.AddShow(tx, show); err != nil {
+		if err := db.DB.AddShow(show); err != nil {
 			return 0, err
 		}
 		mediaID = show.ID
@@ -923,7 +1263,7 @@ func (s *Service) SaveSuggestionToDatabase(ctx context.Context, suggestion Sugge
 			IsWatchlist: true,
 		}
 
-		if err := db.AddVideoGame(tx, game); err != nil {
+		if err := db.DB.AddVideoGame(game); err != nil {
 			return 0, err
 		}
 		mediaID = game.ID
@@ -933,12 +1273,7 @@ func (s *Service) SaveSuggestionToDatabase(ctx context.Context, suggestion Sugge
 	}
 
 	// Also record this as a suggestion with the outcome "added"
-	if err := tx.AddSuggestion(mediaID, suggestion.MediaType, suggestion.Reason, db.OutcomeAdded); err != nil {
-		return 0, err
-	}
-
-	// Commit the transaction
-	if err := tx.Commit(); err != nil {
+	if err := db.DB.AddSuggestion(mediaID, suggestion.MediaType, suggestion.Reason, db.OutcomeAdded); err != nil {
 		return 0, err
 	}
 
