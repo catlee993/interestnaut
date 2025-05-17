@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"interestnaut/internal/app/bindings"
 	"interestnaut/internal/app/eventbus"
+	"interestnaut/internal/app/mistral"
 	"interestnaut/internal/app/session"
 	"interestnaut/internal/app/spotify"
 	"log"
@@ -227,4 +228,58 @@ func Music_InitiateSpotifyAuth(port C.int) *C.char {
 	result = C.CString(string(jsonBytes))
 
 	return result
+}
+
+//export GGUF_DownloadModel
+func GGUF_DownloadModel(modelPathPtr *C.char) *C.char {
+	modelPath := C.GoString(modelPathPtr)
+	log.Printf("GGUF_DownloadModel called with path: %s", modelPath)
+
+	if modelPath == "" {
+		return returnJSON(map[string]string{
+			"error": "Model path is empty",
+		})
+	}
+
+	// Download synchronously - this will block until download completes
+	err := mistral.DownloadGGUF(modelPath)
+	if err != nil {
+		log.Printf("Error downloading GGUF model: %v", err)
+		return returnJSON(map[string]interface{}{
+			"status": "error",
+			"error":  err.Error(),
+		})
+	}
+
+	return returnJSON(map[string]interface{}{
+		"status": "complete",
+		"path":   modelPath,
+	})
+}
+
+//export GGUF_HasModel
+func GGUF_HasModel() *C.char {
+	hasModel := mistral.HasModel()
+
+	return returnJSON(map[string]interface{}{
+		"hasModel": hasModel,
+	})
+}
+
+//export GGUF_HandleNewSuggestion
+func GGUF_HandleNewSuggestion() *C.char {
+	log.Println("GGUF_HandleNewSuggestion called")
+
+	response, err := mistral.HandleNewSuggestion()
+	if err != nil {
+		log.Printf("Error handling new suggestion: %v", err)
+		return returnJSON(map[string]interface{}{
+			"error": err.Error(),
+		})
+	}
+
+	return returnJSON(map[string]interface{}{
+		"title":  response.Title,
+		"artist": response.Artist,
+	})
 }

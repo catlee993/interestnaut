@@ -1,4 +1,4 @@
-package minstral
+package mistral
 
 import (
 	"context"
@@ -36,7 +36,7 @@ type MClient[T session.Media] struct {
 	modelPath string
 }
 
-type MinstralResponse struct {
+type MistralResponse struct {
 	Title  string `json:"title"`
 	Artist string `json:"artist"`
 }
@@ -110,7 +110,7 @@ func DownloadGGUF(modelPath string) error {
 	return nil
 }
 
-func HandleNewSuggestion() (*MinstralResponse, error) {
+func HandleNewSuggestion() (*MistralResponse, error) {
 	c := DefaultClient
 	messages, mErr := c.ComposeMessages(context.Background(), nil)
 	if mErr != nil {
@@ -122,7 +122,7 @@ func HandleNewSuggestion() (*MinstralResponse, error) {
 		return nil, fmt.Errorf("send messages: %w", rErr)
 	}
 
-	return &MinstralResponse{Title: res.Title, Artist: res.Artist}, nil
+	return &MistralResponse{Title: res.Title, Artist: res.Artist}, nil
 }
 
 // RunGGUF loads a .gguf model at modelPath, runs `prompt` through it, and returns the generated output.
@@ -213,7 +213,7 @@ func (c *MClient[T]) SendMessages(_ context.Context, msgs ...llm.Message) (*llm.
 	}
 
 	// Attempt to parse the output as JSON
-	var suggestion MinstralResponse
+	var suggestion MistralResponse
 	if uErr := json.Unmarshal([]byte(output), &suggestion); uErr != nil {
 		return nil, fmt.Errorf("unmarshal response: %w", uErr)
 	}

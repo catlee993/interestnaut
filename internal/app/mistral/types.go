@@ -1,4 +1,4 @@
-package minstral
+package mistral
 
 type Message struct {
 	Role    string `json:"role"`

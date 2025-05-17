@@ -4,7 +4,7 @@ import (
 	"context"
 	"interestnaut/internal/app/creds"
 	"interestnaut/internal/app/ffi"
-	"interestnaut/internal/app/minstral"
+	"interestnaut/internal/app/mistral"
 	"interestnaut/internal/app/session"
 	"log"
 	"os"
@@ -44,7 +44,7 @@ func main() {
 		log.Fatalf("Failed to create central manager: %v", err)
 	}
 
-	minstral.SetCentralManager(minstral.DefaultClient, cm)
+	mistral.SetCentralManager(mistral.DefaultClient, cm)
 
 	// Initialize FFI bindings with the central manager
 	ffi.Initialize(cm)
