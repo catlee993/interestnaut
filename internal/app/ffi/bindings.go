@@ -144,13 +144,13 @@ func FreeString(s *C.char) {
 
 // FFI glue for Flutter event bus contract
 //
-//export EventBus_Init
-func EventBus_Init() C.int64_t {
+//export EventBusInit
+func EventBusInit() C.int64_t {
 	return C.int64_t(eventbus.StartEventServer())
 }
 
 //export EventBus_Shutdown
-func EventBus_Shutdown() {
+func EventBusShutdown() {
 	// No-op for now, but symbol required for FFI contract
 }
 
