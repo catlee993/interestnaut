@@ -11,13 +11,15 @@ import (
 	"path/filepath"
 	"strings"
 
-	llama "github.com/go-skynet/go-llama.cpp"
+	"github.com/go-skynet/go-llama.cpp"
 )
+
+const downloadURL = "https://interestnaut.com/Mistral-7B-Instruct-v0.3-q4_1.gguf"
 
 // DownloadGGUF fetches the file from `url` and writes it to destPath.
 // If HF_TOKEN is in the env, it will be sent as a Bearer token.
-func DownloadGGUF(ctx context.Context, url, destPath string) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+func DownloadGGUF(ctx context.Context, destPath string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, nil)
 	if err != nil {
 		return fmt.Errorf("construct request: %w", err)
 	}
@@ -64,19 +66,19 @@ func RunGGUF(ctx context.Context, modelPath, prompt string, maxTokens int, tempe
 	if maxTokens <= 0 {
 		maxTokens = 512
 	}
-	
+
 	// Set default temperature if not specified
 	if temperature <= 0 {
 		temperature = 0.7
 	}
-	
+
 	// Load the model with minimal required options for broader compatibility
 	// Following the exact pattern from the examples
-	l, err := llama.New(modelPath, 
-		llama.EnableF16Memory,      // Enable F16 memory for better performance and iOS compatibility
-		llama.SetContext(2048),     // Set a reasonable context size
-		llama.SetGPULayers(0))      // Use CPU only by default for iOS compatibility
-	
+	l, err := llama.New(modelPath,
+		llama.EnableF16Memory,  // Enable F16 memory for better performance and iOS compatibility
+		llama.SetContext(2048), // Set a reasonable context size
+		llama.SetGPULayers(0))  // Use CPU only by default for iOS compatibility
+
 	if err != nil {
 		return "", fmt.Errorf("loading model: %w", err)
 	}
@@ -84,7 +86,7 @@ func RunGGUF(ctx context.Context, modelPath, prompt string, maxTokens int, tempe
 
 	// Create a string builder to collect tokens
 	var result strings.Builder
-	
+
 	// Run prediction with appropriate options - following exact pattern from example
 	_, err = l.Predict(
 		prompt,
@@ -99,7 +101,7 @@ func RunGGUF(ctx context.Context, modelPath, prompt string, maxTokens int, tempe
 		llama.SetTopP(0.95),
 		llama.SetStopWords("\n\n", "```"),
 	)
-	
+
 	if err != nil {
 		return "", fmt.Errorf("prediction error: %w", err)
 	}
