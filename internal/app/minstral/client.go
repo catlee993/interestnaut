@@ -36,7 +36,7 @@ type MClient[T session.Media] struct {
 	modelPath string
 }
 
-type minstralResponse struct {
+type MinstralResponse struct {
 	Title  string `json:"title"`
 	Artist string `json:"artist"`
 }
@@ -47,7 +47,8 @@ func SetCentralManager[T session.Media](c *MClient[T], cm session.CentralManager
 	c.cm = cm
 }
 
-func (c *MClient[T]) HasModel() bool {
+func HasModel() bool {
+	c := DefaultClient
 	if c.modelPath == "" {
 		return false
 	}
@@ -109,7 +110,8 @@ func DownloadGGUF(modelPath string) error {
 	return nil
 }
 
-func (c *MClient[T]) HandleNewSuggestion() (*llm.SuggestionResponse[T], error) {
+func HandleNewSuggestion() (*MinstralResponse, error) {
+	c := DefaultClient
 	messages, mErr := c.ComposeMessages(context.Background(), nil)
 	if mErr != nil {
 		return nil, fmt.Errorf("compose messages: %w", mErr)
@@ -120,7 +122,7 @@ func (c *MClient[T]) HandleNewSuggestion() (*llm.SuggestionResponse[T], error) {
 		return nil, fmt.Errorf("send messages: %w", rErr)
 	}
 
-	return res, nil
+	return &MinstralResponse{Title: res.Title, Artist: res.Artist}, nil
 }
 
 // RunGGUF loads a .gguf model at modelPath, runs `prompt` through it, and returns the generated output.
@@ -211,7 +213,7 @@ func (c *MClient[T]) SendMessages(_ context.Context, msgs ...llm.Message) (*llm.
 	}
 
 	// Attempt to parse the output as JSON
-	var suggestion minstralResponse
+	var suggestion MinstralResponse
 	if uErr := json.Unmarshal([]byte(output), &suggestion); uErr != nil {
 		return nil, fmt.Errorf("unmarshal response: %w", uErr)
 	}
