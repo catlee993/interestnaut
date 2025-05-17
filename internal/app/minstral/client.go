@@ -2,29 +2,79 @@ package minstral
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"interestnaut/internal/app/llm"
+	"interestnaut/internal/app/session"
 	"io"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/go-skynet/go-llama.cpp"
 )
 
 const downloadURL = "https://interestnaut.com/Mistral-7B-Instruct-v0.3-q4_1.gguf"
 
+const (
+	maxTokens   = 4096
+	temperature = 0.7
+)
+
+const (
+	roleSystem    = "system"
+	roleUser      = "user"
+	roleAssistant = "assistant"
+)
+
+type MClient[T session.Media] struct {
+	cm        session.CentralManager
+	modelPath string
+}
+
+type minstralResponse struct {
+	Title  string `json:"title"`
+	Artist string `json:"artist"`
+}
+
+var DefaultClient = &MClient[session.Media]{}
+
+func SetCentralManager[T session.Media](c *MClient[T], cm session.CentralManager) {
+	c.cm = cm
+}
+
+func (c *MClient[T]) HasModel() bool {
+	if c.modelPath == "" {
+		return false
+	}
+	if _, err := os.Stat(c.modelPath); os.IsNotExist(err) {
+		return false
+	}
+
+	return true
+}
+
+var mutex = &sync.Mutex{}
+
 // DownloadGGUF fetches the file from `url` and writes it to destPath.
 // If HF_TOKEN is in the env, it will be sent as a Bearer token.
-func DownloadGGUF(ctx context.Context, destPath string) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, nil)
+func DownloadGGUF(modelPath string) error {
+	mutex.Lock()
+	defer mutex.Unlock()
+	if exists, _ := os.Stat(modelPath); exists != nil {
+		return nil
+	}
+
+	if DefaultClient.modelPath == "" {
+		DefaultClient.modelPath = modelPath
+	}
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, downloadURL, nil)
 	if err != nil {
 		return fmt.Errorf("construct request: %w", err)
-	}
-	if token := os.Getenv("HF_TOKEN"); token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -40,10 +90,10 @@ func DownloadGGUF(ctx context.Context, destPath string) error {
 	}()
 
 	// ensure directory exists
-	if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(modelPath), 0o755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
-	f, err := os.Create(destPath)
+	f, err := os.Create(modelPath)
 	if err != nil {
 		return fmt.Errorf("create file: %w", err)
 	}
@@ -59,22 +109,26 @@ func DownloadGGUF(ctx context.Context, destPath string) error {
 	return nil
 }
 
+func (c *MClient[T]) HandleNewSuggestion() (*llm.SuggestionResponse[T], error) {
+	messages, mErr := c.ComposeMessages(context.Background(), nil)
+	if mErr != nil {
+		return nil, fmt.Errorf("compose messages: %w", mErr)
+	}
+
+	res, rErr := c.SendMessages(context.Background(), messages...)
+	if rErr != nil {
+		return nil, fmt.Errorf("send messages: %w", rErr)
+	}
+
+	return res, nil
+}
+
 // RunGGUF loads a .gguf model at modelPath, runs `prompt` through it, and returns the generated output.
 // It works with iOS-compatible models and recent versions of go-llama.cpp.
-func RunGGUF(ctx context.Context, modelPath, prompt string, maxTokens int, temperature float32) (string, error) {
-	// Set default max tokens if not specified
-	if maxTokens <= 0 {
-		maxTokens = 512
-	}
-
-	// Set default temperature if not specified
-	if temperature <= 0 {
-		temperature = 0.7
-	}
-
+func (c *MClient[T]) runGGUF(message string) (string, error) {
 	// Load the model with minimal required options for broader compatibility
 	// Following the exact pattern from the examples
-	l, err := llama.New(modelPath,
+	l, err := llama.New(c.modelPath,
 		llama.EnableF16Memory,  // Enable F16 memory for better performance and iOS compatibility
 		llama.SetContext(2048), // Set a reasonable context size
 		llama.SetGPULayers(0))  // Use CPU only by default for iOS compatibility
@@ -89,7 +143,7 @@ func RunGGUF(ctx context.Context, modelPath, prompt string, maxTokens int, tempe
 
 	// Run prediction with appropriate options - following exact pattern from example
 	_, err = l.Predict(
-		prompt,
+		message,
 		llama.SetTokenCallback(func(token string) bool {
 			result.WriteString(token)
 			return true
@@ -112,4 +166,85 @@ func RunGGUF(ctx context.Context, modelPath, prompt string, maxTokens int, tempe
 	}
 
 	return output, nil
+}
+
+func (c *MClient[T]) ComposeMessages(_ context.Context, content *session.Content[T]) ([]llm.Message, error) {
+	if content == nil {
+		return nil, fmt.Errorf("content cannot be nil")
+	}
+
+	msg := &Message{
+		Role:    roleSystem,
+		Content: content.PrimeDirective.Task + "\n" + content.PrimeDirective.Baseline,
+	}
+
+	for _, suggestion := range content.Suggestions {
+		msg.Content += "\n" + formatSuggestion(suggestion)
+	}
+	msgs := []llm.Message{msg}
+
+	for _, constraint := range content.UserConstraints {
+		msgs = append(msgs, &Message{
+			Role:    roleUser,
+			Content: constraint,
+		})
+	}
+
+	return msgs, nil
+}
+
+// GetContent implements the llm.Message interface
+func (m *Message) GetContent() string {
+	return m.Content
+}
+
+func (c *MClient[T]) SendMessages(_ context.Context, msgs ...llm.Message) (*llm.SuggestionResponse[T], error) {
+	var sb strings.Builder
+	for _, msg := range msgs {
+		sb.WriteString(msg.GetContent())
+		sb.WriteString("\n")
+	}
+
+	output, err := c.runGGUF(sb.String())
+	if err != nil {
+		return nil, fmt.Errorf("run model: %w", err)
+	}
+
+	// Attempt to parse the output as JSON
+	var suggestion minstralResponse
+	if uErr := json.Unmarshal([]byte(output), &suggestion); uErr != nil {
+		return nil, fmt.Errorf("unmarshal response: %w", uErr)
+	}
+
+	return &llm.SuggestionResponse[T]{
+		Title:  suggestion.Title,
+		Artist: suggestion.Artist,
+	}, nil
+}
+
+func (c *MClient[T]) ErrorFollowup(_ context.Context, _ *llm.SuggestionResponse[T], _ ...llm.Message) (*llm.SuggestionResponse[T], error) {
+	fmt.Printf("Error followup not implemented for Mistral MClient")
+	return nil, nil
+}
+
+func formatSuggestion[T session.Media](suggestion session.Suggestion[T]) string {
+	switch media := any(suggestion.Content).(type) {
+	case session.Music:
+		return fmt.Sprintf("Suggested song:\nTitle: %s\nArtist: %s\nAlbum: %s\nUser Outcome: %s",
+			media.Title, media.Artist, media.Album, suggestion.UserOutcome)
+	case session.Movie:
+		return fmt.Sprintf("Suggested movie:\nTitle: %s\nDirector: %s\nWriter: %s\nUser Outcome: %s",
+			media.Title, media.Director, media.Writer, suggestion.UserOutcome)
+	case session.Book:
+		return fmt.Sprintf("Suggested book:\nTitle: %s\nAuthor: %s\nUser Outcome: %s",
+			media.Title, media.Author, suggestion.UserOutcome)
+	case session.TVShow:
+		return fmt.Sprintf("Suggested TV show:\nTitle: %s\nDirector: %s\nWriter: %s\nUser Outcome: %s",
+			media.Title, media.Director, media.Writer, suggestion.UserOutcome)
+	case session.VideoGame:
+		return fmt.Sprintf("Suggested video game:\nTitle: %s\nDeveloper: %s\nPublisher: %s\nUser Outcome: %s",
+			media.Title, media.Developer, media.Publisher, suggestion.UserOutcome)
+	default:
+		return fmt.Sprintf("Reasoning: %s", suggestion.Reasoning)
+	}
 }
