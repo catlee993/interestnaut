@@ -124,6 +124,12 @@ func DownloadGGUF(modelDir string) error {
 	return DefaultClient.initialize(modelPath)
 }
 
+func HasModel() bool {
+	mutex.Lock()
+	defer mutex.Unlock()
+	return DefaultClient.model != nil
+}
+
 func HandleNewSuggestion() (*llm.SuggestionResponse[session.Media], error) {
 	c := DefaultClient
 	messages, mErr := c.ComposeMessages(context.Background(), nil)

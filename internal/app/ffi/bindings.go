@@ -242,6 +242,7 @@ func GGUF_DownloadModel(modelPathPtr *C.char) *C.char {
 	}
 
 	// Download synchronously - this will block until download completes
+	// But do NOT initialize model yet to avoid signal handler conflicts
 	err := mistral.DownloadGGUF(modelPath)
 	if err != nil {
 		log.Printf("Error downloading GGUF model: %v", err)
