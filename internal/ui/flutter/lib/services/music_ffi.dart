@@ -1,5 +1,4 @@
 import 'dart:ffi' as ffi;
-import 'package:ffi/ffi.dart';
 import 'package:flutter/foundation.dart';
 import 'ffi_init.dart';
 import 'ffi_bridge.dart';

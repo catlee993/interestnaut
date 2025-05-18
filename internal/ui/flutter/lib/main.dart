@@ -13,8 +13,7 @@ import 'components/music/music_section.dart';
 import 'components/music/search/search_section.dart';
 import 'components/music/spotify_service.dart';
 import 'models.dart'; // Import models to get the Track class
-import 'components/common/media_grid.dart';
-import 'components/music/tracks/track_card.dart'; // Add this import
+// Add this import
 
 /// Entry point for the Flutter app
 Future<void> main() async {

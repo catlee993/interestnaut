@@ -421,14 +421,14 @@ class _MediaHeaderState extends State<MediaHeader> {
                   ],
                 ),
               ),
-              SettingsDrawer(
-                open: _showSettingsDrawer,
-                onClose: () {
-                  setState(() {
-                    _showSettingsDrawer = false;
-                  });
-                },
-              ),
+              if (_showSettingsDrawer)
+                SettingsDrawer(
+                  onClose: () {
+                    setState(() {
+                      _showSettingsDrawer = false;
+                    });
+                  },
+                ),
             ],
           ),
         ),
