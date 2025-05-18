@@ -47,6 +47,12 @@ void GoFreeContext(void* ctx);
 // Generate text using the model
 char* GoLlamaGenerate(const char* model_path, const char* prompt, int max_tokens);
 
+// Functions expected by Flutter FFI
+char* GGUF_DownloadModel(const char* model_path);
+char* GGUF_HasModel(void);
+char* GGUF_HandleNewSuggestion(void);
+void FreeString(char* str);
+
 #ifdef __cplusplus
 }
 #endif

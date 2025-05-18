@@ -218,3 +218,56 @@ void go_llama_free_context(void* ctx) {
 void go_llama_free_model(void* model) {
     GoFreeModel(model);
 }
+
+// Flutter FFI bridging functions
+// These are called by Flutter directly through FFI
+
+// Implementation of model download function for Flutter
+char* GGUF_DownloadModel(const char* model_path) {
+    // Allocate a buffer for result - should be freed by caller
+    char* result = (char*)malloc(1024);
+    if (result == NULL) {
+        return NULL;
+    }
+    
+    // For now, we just return a simple response
+    // In a real implementation, this would fetch the model
+    sprintf(result, "{\"status\":\"success\", \"path\":\"%s\"}", model_path);
+    
+    return result;
+}
+
+// Implementation of model check function for Flutter
+char* GGUF_HasModel(void) {
+    // Allocate a buffer for result - should be freed by caller
+    char* result = (char*)malloc(1024);
+    if (result == NULL) {
+        return NULL;
+    }
+    
+    // This would check if the model exists on disk
+    // For now we'll just return a fixed response
+    sprintf(result, "{\"exists\":true}");
+    
+    return result;
+}
+
+// Implementation of suggestion handler for Flutter
+char* GGUF_HandleNewSuggestion(void) {
+    // Allocate a buffer for result - should be freed by caller
+    char* result = (char*)malloc(1024);
+    if (result == NULL) {
+        return NULL;
+    }
+    
+    // This would handle a new suggestion
+    // For now we'll just return a fixed response
+    sprintf(result, "{\"suggestion\":\"Hello, how can I help you today?\"}");
+    
+    return result;
+}
+
+// Free a string allocated by any of the GGUF_* functions
+void FreeString(char* str) {
+    free(str);
+}
