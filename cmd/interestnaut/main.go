@@ -1,102 +1,73 @@
 package main
 
+/*
+#cgo CFLAGS: -I${SRCDIR}/../../dependencies/llama.cpp/include -I${SRCDIR}/../../dependencies/llama.cpp/common -I${SRCDIR}/../../dependencies/llama.cpp/ggml/include -I${SRCDIR}/../../internal/llama
+#cgo LDFLAGS: -L${SRCDIR}/../../dependencies/llama.cpp/build -lllama -lstdc++ -lm -framework Accelerate -framework Foundation -framework Metal
+#include "llama_wrapper.h"
+#include <stdlib.h>
+*/
+import "C"
 import (
-	"context"
-	"interestnaut/internal/app/creds"
-	"interestnaut/internal/app/ffi"
-	"interestnaut/internal/app/mistral"
-	"interestnaut/internal/app/session"
-	"log"
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
-	// Import "C" is required for CGO exports, but must be in its own block if it has comments above it.
-	// Or, ensure no comments are directly above it in the import block.
+	"unsafe"
 )
 
-/*
-#include <stdlib.h>
-*/
-import "C" // This is the correct way to import C for CGO exports
-
-//export InitializeApp
-func InitializeApp() {
-	log.Println("Go: (Legacy?) InitializeApp CALLED")
-	// This function might need to be updated or removed if InitializeFFIBridge is the new primary init.
-	// For now, it can coexist or call InitializeFFIBridge as well if it serves a distinct purpose.
-}
-
-//export SignalGoAppShutdown
-func SignalGoAppShutdown() {
-	log.Println("Go: SignalGoAppShutdown CALLED")
-	ffi.SignalShutdown() // Assuming ffi package has a public SignalShutdown
-}
-
 func main() {
-	// Set up signal handling for graceful shutdown
-	signalChan := make(chan os.Signal, 1)
-	signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM)
+	// Setup signal handling for graceful shutdown
+	setupSignalHandling()
 
-	// Create an instance of the app structure
-	ctx := context.Background()
-	cm, err := session.NewCentralManager(ctx, session.DefaultUserID)
-	if err != nil {
-		log.Fatalf("Failed to create central manager: %v", err)
+	// Use environment variable for model path or use a default
+	modelPath := os.Getenv("LLAMA_MODEL_PATH")
+	if modelPath == "" {
+		modelPath = "models/llama-2-7b-chat.gguf" // Default model path
 	}
 
-	mistral.SetCentralManager(cm)
-
-	// Initialize FFI bindings with the central manager
-	ffi.Initialize(cm)
-	log.Println("FFI bindings initialized")
-
-	// Wait for a signal using a synchronous approach instead of goroutine
-	// This doesn't create a background goroutine that might be orphaned
-	sig := <-signalChan
-	log.Printf("Received signal: %v, initiating shutdown", sig)
+	// Test the llama integration
+	fmt.Println("Testing llama.cpp integration...")
+	testLlamaIntegration(modelPath)
 }
 
-func onStartup(ctx context.Context,
-	llmHandlers []creds.LLMCredentialChangeHandler,
-	tmdbHandlers []creds.TMDBCredentialChangeHandler,
-	rawgHandlers []creds.RAWGCredentialChangeHandler) {
-	log.Println("Starting application...")
+// testLlamaIntegration tests the integration with llama.cpp
+func testLlamaIntegration(modelPath string) {
+	fmt.Printf("Loading model from: %s\n", modelPath)
 
-	// Initialize credential events system
-	creds.SetupEvents(ctx)
-	log.Println("Credential events system initialized")
-
-	// Register LLM client refresh handlers for all media bindings
-	// These will automatically refresh LLM clients when OpenAI or Gemini credentials change
-	for _, handler := range llmHandlers {
-		creds.RegisterLLMClientRefreshHandler(handler)
+	// Simple prompt for testing
+	prompt := "Hello, I am an AI assistant. How can I help you today?"
+	
+	// Call our wrapper function to generate text
+	cModelPath := C.CString(modelPath)
+	cPrompt := C.CString(prompt)
+	defer C.free(unsafe.Pointer(cModelPath))
+	defer C.free(unsafe.Pointer(cPrompt))
+	
+	fmt.Println("Generating response...")
+	cResult := C.GoLlamaGenerate(cModelPath, cPrompt, C.int(100))
+	
+	if cResult == nil {
+		fmt.Println("Error: Failed to generate text")
+		return
 	}
-	log.Println("LLM credential change handlers registered")
+	
+	// Convert the C string to a Go string and free the C memory
+	result := C.GoString(cResult)
+	C.free(unsafe.Pointer(cResult))
+	
+	fmt.Println("Generated response:")
+	fmt.Println(result)
+}
 
-	// Register TMDB client refresh handlers
-	// These will automatically refresh TMDB clients when TMDB credentials change
-	for _, handler := range tmdbHandlers {
-		creds.RegisterTMDBClientRefreshHandler(handler)
-	}
-	log.Println("TMDB credential change handlers registered")
-
-	// Register RAWG client refresh handlers
-	// These will automatically refresh RAWG clients when RAWG credentials change
-	for _, handler := range rawgHandlers {
-		creds.RegisterRAWGClientRefreshHandler(handler)
-	}
-	log.Println("RAWG credential change handlers registered")
-
-	// Check if we have a valid authorization code
-	//_, err := creds.GetSpotifyToken()
-	//if err != nil {
-	//	log.Println("No valid authorization code found, starting authentication flow...")
-	//	if iErr := spotify.RunInitialAuthFlow(ctx); iErr != nil {
-	//		log.Printf("Authentication failed: %v", iErr)
-	//	} else {
-	//		log.Println("Authentication successful")
-	//	}
-	//} else {
-	//	log.Println("Using existing authorization code")
-	//}
+// setupSignalHandling configures signal handling for graceful shutdown
+func setupSignalHandling() {
+	signalChan := make(chan os.Signal, 1)
+	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM)
+	
+	go func() {
+		sig := <-signalChan
+		fmt.Printf("Received signal: %s\n", sig)
+		fmt.Println("Shutting down gracefully...")
+		os.Exit(0)
+	}()
 }
