@@ -41,12 +41,19 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
 
   Future<void> _checkModelStatus() async {
     try {
-      final hasModel = await MinstralIsolateService.hasModel();
-      if (mounted) {
-        setState(() {
-          _hasModel = hasModel;
-        });
-      }
+      // For now, assume model isn't installed to avoid the FFI error
+      // We'll implement proper FFI checks once the bindings are fixed
+      setState(() {
+        _hasModel = false;
+      });
+      
+      // The original code is commented out until the FFI binding is fixed:
+      // final hasModel = await MinstralIsolateService.hasModel();
+      // if (mounted) {
+      //   setState(() {
+      //     _hasModel = hasModel;
+      //   });
+      // }
     } catch (e) {
       print('Error in _checkModelStatus: $e');
       if (mounted) {
@@ -88,26 +95,33 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
         ),
       );
 
-      // Start the download in an isolate
-      final response = await MinstralIsolateService.downloadModelInIsolate(modelPath);
-
-      if (mounted) {
-        setState(() {
-          _isDownloading = false;
-          _hasModel = response.success;
-          _downloadError = response.error;
-        });
-
-        // Show success or error toast
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(response.success 
-              ? 'Mistral AI model downloaded successfully!' 
-              : 'Failed to download Mistral AI model: ${response.error}'),
-            duration: const Duration(seconds: 5),
-          ),
-        );
-      }
+      // Temporarily disabled until FFI binding is fixed
+      setState(() {
+        _isDownloading = false;
+        _downloadError = "Download functionality temporarily disabled until FFI binding is fixed.";
+      });
+      
+      // The original code is commented out until the FFI binding is fixed:
+      // // Start the download in an isolate
+      // final response = await MinstralIsolateService.downloadModelInIsolate(modelPath);
+      //
+      // if (mounted) {
+      //   setState(() {
+      //     _isDownloading = false;
+      //     _hasModel = response.success;
+      //     _downloadError = response.error;
+      //   });
+      //
+      //   // Show success or error toast
+      //   ScaffoldMessenger.of(context).showSnackBar(
+      //     SnackBar(
+      //       content: Text(response.success 
+      //         ? 'Mistral AI model downloaded successfully!' 
+      //         : 'Failed to download Mistral AI model: ${response.error}'),
+      //       duration: const Duration(seconds: 5),
+      //     ),
+      //   );
+      // }
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -128,139 +142,116 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
 
   @override
   Widget build(BuildContext context) {
-    // Get the screen size for proper positioning
-    final Size screenSize = MediaQuery.of(context).size;
-    
-    // Create a full-screen overlay with the drawer
+    // The settings drawer panel
     return Material(
-      color: Colors.transparent,
-      child: Stack(
-        children: [
-          // Semi-transparent overlay
-          Positioned.fill(
-            child: GestureDetector(
-              onTap: widget.onClose,
-              child: Container(color: Colors.black.withOpacity(0.5)),
-            ),
-          ),
-          
-          // The settings drawer panel
-          Positioned(
-            right: 0,
-            top: 0,
-            height: screenSize.height,
-            width: 350,
-            child: Material(
-              color: const Color(0xFF121212),
-              elevation: 16,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Header with title and close button
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Padding(
-                          padding: EdgeInsets.only(left: 16.0),
-                          child: Text(
-                            'Settings',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 18,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.close, color: Colors.white),
-                          onPressed: widget.onClose,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    
-                    // Content area
-                    Expanded(
-                      child: ListView(
-                        children: [
-                          ContinuousPlaybackSwitch(
-                            value: _continuousPlayback,
-                            onChanged: (v) => setState(() => _continuousPlayback = v),
-                          ),
-                          const SizedBox(height: 24),
-                          const Divider(color: Colors.white24),
-                          const SizedBox(height: 24),
-                          const Text(
-                            'Mistral AI',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 16,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            _hasModel 
-                                ? 'Mistral AI model is installed'
-                                : 'Download the Mistral AI model (4.6GB) to enable offline AI suggestions',
-                            style: const TextStyle(
-                              color: Colors.white70,
-                              fontSize: 14,
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          SizedBox(
-                            width: double.infinity,
-                            child: ElevatedButton(
-                              onPressed: (_hasModel || _isDownloading) ? null : _downloadModel,
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF7B68EE),
-                                foregroundColor: Colors.white,
-                                disabledBackgroundColor: Colors.grey.shade700,
-                                disabledForegroundColor: Colors.grey.shade400,
-                                padding: const EdgeInsets.symmetric(vertical: 12),
-                              ),
-                              child: _isDownloading
-                                  ? const Row(
-                                      mainAxisAlignment: MainAxisAlignment.center,
-                                      children: [
-                                        SizedBox(
-                                          width: 16,
-                                          height: 16,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                            color: Colors.white,
-                                          ),
-                                        ),
-                                        SizedBox(width: 8),
-                                        Text('Downloading...'),
-                                      ],
-                                    )
-                                  : Text(_hasModel ? 'Installed' : 'Install Mistral AI'),
-                            ),
-                          ),
-                          if (_downloadError != null)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 8.0),
-                              child: Text(
-                                'Error: $_downloadError',
-                                style: const TextStyle(
-                                  color: Colors.red,
-                                  fontSize: 12,
-                                ),
-                              ),
-                            ),
-                        ],
+      color: const Color(0xFF121212),
+      child: SizedBox(
+        width: 350,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header with title and close button
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.only(left: 16.0),
+                    child: Text(
+                      'Settings',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, color: Colors.white),
+                    onPressed: widget.onClose,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              
+              // Content area
+              Expanded(
+                child: ListView(
+                  children: [
+                    ContinuousPlaybackSwitch(
+                      value: _continuousPlayback,
+                      onChanged: (v) => setState(() => _continuousPlayback = v),
+                    ),
+                    const SizedBox(height: 24),
+                    const Divider(color: Colors.white24),
+                    const SizedBox(height: 24),
+                    const Text(
+                      'Mistral AI',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      _hasModel 
+                          ? 'Mistral AI model is installed'
+                          : 'Download the Mistral AI model (4.6GB) to enable offline AI suggestions',
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 14,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: (_hasModel || _isDownloading) ? null : _downloadModel,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF7B68EE),
+                          foregroundColor: Colors.white,
+                          disabledBackgroundColor: Colors.grey.shade700,
+                          disabledForegroundColor: Colors.grey.shade400,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                        child: _isDownloading
+                            ? const Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                  SizedBox(width: 8),
+                                  Text('Downloading...'),
+                                ],
+                              )
+                            : Text(_hasModel ? 'Installed' : 'Install Mistral AI'),
+                      ),
+                    ),
+                    if (_downloadError != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8.0),
+                        child: Text(
+                          'Error: $_downloadError',
+                          style: const TextStyle(
+                            color: Colors.red,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
                   ],
                 ),
               ),
-            ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -269,26 +260,29 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
 /// Shows a settings drawer as an overlay above the entire application.
 /// This function handles creating and showing the drawer properly.
 void showSettingsDrawer(BuildContext context) {
-  showGeneralDialog(
-    context: context,
-    barrierDismissible: true,
-    barrierLabel: 'Settings',
-    transitionDuration: const Duration(milliseconds: 200),
-    pageBuilder: (context, _, __) {
-      return SettingsDrawer(
-        onClose: () {
-          Navigator.of(context).pop();
-        },
-      );
-    },
-    transitionBuilder: (context, animation, secondaryAnimation, child) {
-      return SlideTransition(
-        position: Tween<Offset>(
-          begin: const Offset(1.0, 0.0),
-          end: Offset.zero,
-        ).animate(animation),
-        child: child,
-      );
-    },
+  Navigator.of(context).push(
+    PageRouteBuilder(
+      opaque: false,
+      barrierDismissible: true,
+      pageBuilder: (context, _, __) {
+        return Align(
+          alignment: Alignment.centerRight,
+          child: SettingsDrawer(
+            onClose: () {
+              Navigator.of(context).pop();
+            },
+          ),
+        );
+      },
+      transitionsBuilder: (context, animation, secondaryAnimation, child) {
+        return SlideTransition(
+          position: Tween<Offset>(
+            begin: const Offset(1.0, 0.0),
+            end: Offset.zero,
+          ).animate(animation),
+          child: child,
+        );
+      },
+    ),
   );
 }
