@@ -364,9 +364,8 @@ class _MediaHeaderState extends State<MediaHeader> {
                             IconButton(
                               icon: const Icon(Icons.settings, color: Color(0xFF7b68ee), size: 20),
                               onPressed: () {
-                                setState(() {
-                                  _showSettingsDrawer = true;
-                                });
+                                // Use the showSettingsDrawer function to display drawer as overlay
+                                showSettingsDrawer(context);
                               },
                               padding: const EdgeInsets.all(2),
                               splashRadius: 18,
@@ -421,14 +420,6 @@ class _MediaHeaderState extends State<MediaHeader> {
                   ],
                 ),
               ),
-              if (_showSettingsDrawer)
-                SettingsDrawer(
-                  onClose: () {
-                    setState(() {
-                      _showSettingsDrawer = false;
-                    });
-                  },
-                ),
             ],
           ),
         ),
