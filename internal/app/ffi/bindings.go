@@ -150,7 +150,7 @@ func EventBusInit() C.int64_t {
 	return C.int64_t(eventbus.StartEventServer())
 }
 
-//export EventBus_Shutdown
+//export EventBusShutdown
 func EventBusShutdown() {
 	// No-op for now, but symbol required for FFI contract
 }

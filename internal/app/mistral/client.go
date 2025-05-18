@@ -2,11 +2,9 @@ package mistral
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"interestnaut/internal/app/llm"
-	"interestnaut/internal/app/session"
+	"interestnaut/internal/app/llama"
 	"io"
 	"log"
 	"net/http"
@@ -15,10 +13,12 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/go-skynet/go-llama.cpp"
+	"interestnaut/internal/app/llm"
+	"interestnaut/internal/app/session"
 )
 
 const downloadURL = "https://interestnaut.com/Mistral-7B-Instruct-v0.3-q4_1.gguf"
+const modelName = "Mistral-7B-Instruct-v0.3-q4_1.gguf"
 
 const (
 	maxTokens   = 4096
@@ -32,47 +32,83 @@ const (
 )
 
 type MClient[T session.Media] struct {
-	cm        session.CentralManager
-	modelPath string
+	cm          session.CentralManager
+	model       *llama.Model
+	context     *llama.Context
+	initialized bool
+	mu          sync.Mutex
 }
 
-type MistralResponse struct {
-	Title  string `json:"title"`
-	Artist string `json:"artist"`
-}
+// DefaultClient is the global instance of the client, should be used for most operations.
+var DefaultClient *MClient[session.Music]
 
-var DefaultClient = &MClient[session.Media]{}
-
-func SetCentralManager[T session.Media](c *MClient[T], cm session.CentralManager) {
-	c.cm = cm
-}
-
-func HasModel() bool {
-	c := DefaultClient
-	if c.modelPath == "" {
-		return false
+// MusicClient is the music client
+func MusicClient(cm session.CentralManager) *MClient[session.Music] {
+	if DefaultClient == nil {
+		DefaultClient = &MClient[session.Music]{cm: cm}
 	}
-	if _, err := os.Stat(c.modelPath); os.IsNotExist(err) {
-		return false
-	}
-
-	return true
+	return DefaultClient
 }
 
 var mutex = &sync.Mutex{}
 
+// Initialize sets up the model and creates a context
+func (c *MClient[T]) Initialize(modelDir string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.initialized {
+		return nil
+	}
+
+	// Make sure model directory exists
+	if err := os.MkdirAll(modelDir, 0755); err != nil {
+		return fmt.Errorf("failed to create model directory: %w", err)
+	}
+
+	// Construct the model path
+	modelPath := filepath.Join(modelDir, modelName)
+
+	// Download the model if it doesn't exist
+	if _, err := os.Stat(modelPath); os.IsNotExist(err) {
+		if err := DownloadGGUF(modelPath); err != nil {
+			return fmt.Errorf("failed to download model: %w", err)
+		}
+	}
+
+	// Initialize the llama library
+	if err := llama.Initialize(); err != nil {
+		return fmt.Errorf("failed to initialize llama: %w", err)
+	}
+
+	// Load the model
+	model, err := llama.LoadModel(modelPath)
+	if err != nil {
+		return fmt.Errorf("failed to load model: %w", err)
+	}
+	c.model = model
+
+	// Create a context for inference
+	context, err := model.CreateContext()
+	if err != nil {
+		return fmt.Errorf("failed to create context: %w", err)
+	}
+	c.context = context
+
+	c.initialized = true
+	return nil
+}
+
 // DownloadGGUF fetches the file from `url` and writes it to destPath.
-// If HF_TOKEN is in the env, it will be sent as a Bearer token.
 func DownloadGGUF(modelPath string) error {
 	mutex.Lock()
 	defer mutex.Unlock()
+
 	if exists, _ := os.Stat(modelPath); exists != nil {
 		return nil
 	}
 
-	if DefaultClient.modelPath == "" {
-		DefaultClient.modelPath = modelPath
-	}
+	// Download using HTTP client
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, downloadURL, nil)
 	if err != nil {
 		return fmt.Errorf("construct request: %w", err)
@@ -110,7 +146,7 @@ func DownloadGGUF(modelPath string) error {
 	return nil
 }
 
-func HandleNewSuggestion() (*MistralResponse, error) {
+func HandleNewSuggestion() (*llm.SuggestionResponse[session.Music], error) {
 	c := DefaultClient
 	messages, mErr := c.ComposeMessages(context.Background(), nil)
 	if mErr != nil {
@@ -122,52 +158,37 @@ func HandleNewSuggestion() (*MistralResponse, error) {
 		return nil, fmt.Errorf("send messages: %w", rErr)
 	}
 
-	return &MistralResponse{Title: res.Title, Artist: res.Artist}, nil
+	return res, nil
 }
 
-// RunGGUF loads a .gguf model at modelPath, runs `prompt` through it, and returns the generated output.
-// It works with iOS-compatible models and recent versions of go-llama.cpp.
+// runGGUF runs the prompt through the loaded model
 func (c *MClient[T]) runGGUF(message string) (string, error) {
-	// Load the model with minimal required options for broader compatibility
-	// Following the exact pattern from the examples
-	l, err := llama.New(c.modelPath,
-		llama.EnableF16Memory,  // Enable F16 memory for better performance and iOS compatibility
-		llama.SetContext(2048), // Set a reasonable context size
-		llama.SetGPULayers(0))  // Use CPU only by default for iOS compatibility
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
-	if err != nil {
-		return "", fmt.Errorf("loading model: %w", err)
-	}
-	defer l.Free() // Properly free resources when done
-
-	// Create a string builder to collect tokens
-	var result strings.Builder
-
-	// Run prediction with appropriate options - following exact pattern from example
-	_, err = l.Predict(
-		message,
-		llama.SetTokenCallback(func(token string) bool {
-			result.WriteString(token)
-			return true
-		}),
-		llama.SetTokens(maxTokens),
-		llama.SetThreads(4),
-		llama.SetTemperature(temperature),
-		llama.SetTopK(40),
-		llama.SetTopP(0.95),
-		llama.SetStopWords("\n\n", "```"),
-	)
-
-	if err != nil {
-		return "", fmt.Errorf("prediction error: %w", err)
+	if !c.initialized {
+		return "", fmt.Errorf("mistral client not initialized")
 	}
 
-	output := result.String()
-	if output == "" {
+	// Format prompt for Mistral
+	formattedPrompt := formatPrompt(message)
+
+	// Generate completion
+	completion, err := c.context.Complete(formattedPrompt, maxTokens)
+	if err != nil {
+		return "", fmt.Errorf("completion error: %w", err)
+	}
+
+	if completion == "" {
 		return "", errors.New("no output generated from model")
 	}
 
-	return output, nil
+	return completion, nil
+}
+
+// formatPrompt formats a prompt for Mistral
+func formatPrompt(prompt string) string {
+	return fmt.Sprintf("<s>[INST] %s [/INST]", strings.TrimSpace(prompt))
 }
 
 func (c *MClient[T]) ComposeMessages(_ context.Context, content *session.Content[T]) ([]llm.Message, error) {
@@ -195,11 +216,6 @@ func (c *MClient[T]) ComposeMessages(_ context.Context, content *session.Content
 	return msgs, nil
 }
 
-// GetContent implements the llm.Message interface
-func (m *Message) GetContent() string {
-	return m.Content
-}
-
 func (c *MClient[T]) SendMessages(_ context.Context, msgs ...llm.Message) (*llm.SuggestionResponse[T], error) {
 	var sb strings.Builder
 	for _, msg := range msgs {
@@ -212,21 +228,25 @@ func (c *MClient[T]) SendMessages(_ context.Context, msgs ...llm.Message) (*llm.
 		return nil, fmt.Errorf("run model: %w", err)
 	}
 
-	// Attempt to parse the output as JSON
-	var suggestion MistralResponse
-	if uErr := json.Unmarshal([]byte(output), &suggestion); uErr != nil {
-		return nil, fmt.Errorf("unmarshal response: %w", uErr)
-	}
-
-	return &llm.SuggestionResponse[T]{
-		Title:  suggestion.Title,
-		Artist: suggestion.Artist,
-	}, nil
+	return llm.ParseSuggestionFromString[T](output)
 }
 
-func (c *MClient[T]) ErrorFollowup(_ context.Context, _ *llm.SuggestionResponse[T], _ ...llm.Message) (*llm.SuggestionResponse[T], error) {
-	fmt.Printf("Error followup not implemented for Mistral MClient")
-	return nil, nil
+// Close releases resources
+func (c *MClient[T]) Close() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.model != nil {
+		c.model.Free()
+		c.model = nil
+	}
+
+	if c.context != nil {
+		c.context.Free()
+		c.context = nil
+	}
+
+	c.initialized = false
 }
 
 func formatSuggestion[T session.Media](suggestion session.Suggestion[T]) string {
