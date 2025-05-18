@@ -41,19 +41,13 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
 
   Future<void> _checkModelStatus() async {
     try {
-      // For now, assume model isn't installed to avoid the FFI error
-      // We'll implement proper FFI checks once the bindings are fixed
-      setState(() {
-        _hasModel = false;
-      });
-      
-      // The original code is commented out until the FFI binding is fixed:
-      // final hasModel = await MinstralIsolateService.hasModel();
-      // if (mounted) {
-      //   setState(() {
-      //     _hasModel = hasModel;
-      //   });
-      // }
+      // Try to check if model exists via FFI
+      final hasModel = await MinstralIsolateService.hasModel();
+      if (mounted) {
+        setState(() {
+          _hasModel = hasModel;
+        });
+      }
     } catch (e) {
       print('Error in _checkModelStatus: $e');
       if (mounted) {
@@ -95,33 +89,43 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
         ),
       );
 
-      // Temporarily disabled until FFI binding is fixed
-      setState(() {
-        _isDownloading = false;
-        _downloadError = "Download functionality temporarily disabled until FFI binding is fixed.";
-      });
-      
-      // The original code is commented out until the FFI binding is fixed:
-      // // Start the download in an isolate
-      // final response = await MinstralIsolateService.downloadModelInIsolate(modelPath);
-      //
-      // if (mounted) {
-      //   setState(() {
-      //     _isDownloading = false;
-      //     _hasModel = response.success;
-      //     _downloadError = response.error;
-      //   });
-      //
-      //   // Show success or error toast
-      //   ScaffoldMessenger.of(context).showSnackBar(
-      //     SnackBar(
-      //       content: Text(response.success 
-      //         ? 'Mistral AI model downloaded successfully!' 
-      //         : 'Failed to download Mistral AI model: ${response.error}'),
-      //       duration: const Duration(seconds: 5),
-      //     ),
-      //   );
-      // }
+      try {
+        // Start the download in an isolate
+        final response = await MinstralIsolateService.downloadModelInIsolate(modelPath);
+
+        if (mounted) {
+          setState(() {
+            _isDownloading = false;
+            _hasModel = response.success;
+            _downloadError = response.error;
+          });
+
+          // Show success or error toast
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(response.success 
+                ? 'Mistral AI model downloaded successfully!' 
+                : 'Failed to download Mistral AI model: ${response.error}'),
+              duration: const Duration(seconds: 5),
+            ),
+          );
+        }
+      } catch (e) {
+        // Handle FFI errors specifically
+        if (mounted) {
+          setState(() {
+            _isDownloading = false;
+            _downloadError = "FFI binding error: $e\n\nThe required library function was not found. Please ensure the Go library is properly built with llama.cpp support.";
+          });
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('FFI binding error: $e'),
+              duration: const Duration(seconds: 5),
+            ),
+          );
+        }
+      }
     } catch (e) {
       if (mounted) {
         setState(() {

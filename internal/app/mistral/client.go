@@ -32,50 +32,26 @@ const (
 )
 
 type MClient[T session.Media] struct {
-	cm          session.CentralManager
-	model       *llama.Model
-	context     *llama.Context
-	initialized bool
-	mu          sync.Mutex
+	cm      session.CentralManager
+	model   *llama.Model
+	context *llama.Context
+	mu      sync.Mutex
 }
 
 // DefaultClient is the global instance of the client, should be used for most operations.
-var DefaultClient *MClient[session.Music]
-
-// MusicClient is the music client
-func MusicClient(cm session.CentralManager) *MClient[session.Music] {
-	if DefaultClient == nil {
-		DefaultClient = &MClient[session.Music]{cm: cm}
-	}
-	return DefaultClient
-}
+var DefaultClient *MClient[session.Media]
 
 var mutex = &sync.Mutex{}
 
-// Initialize sets up the model and creates a context
-func (c *MClient[T]) Initialize(modelDir string) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if c.initialized {
-		return nil
+func SetCentralManager(cm session.CentralManager) {
+	if DefaultClient == nil {
+		DefaultClient = &MClient[session.Media]{cm: cm}
+	} else {
+		DefaultClient.cm = cm
 	}
+}
 
-	// Make sure model directory exists
-	if err := os.MkdirAll(modelDir, 0755); err != nil {
-		return fmt.Errorf("failed to create model directory: %w", err)
-	}
-
-	// Construct the model path
-	modelPath := filepath.Join(modelDir, modelName)
-
-	// Download the model if it doesn't exist
-	if _, err := os.Stat(modelPath); os.IsNotExist(err) {
-		if err := DownloadGGUF(modelPath); err != nil {
-			return fmt.Errorf("failed to download model: %w", err)
-		}
-	}
-
+func (c *MClient[T]) initialize(modelPath string) error {
 	// Initialize the llama library
 	if err := llama.Initialize(); err != nil {
 		return fmt.Errorf("failed to initialize llama: %w", err)
@@ -95,14 +71,15 @@ func (c *MClient[T]) Initialize(modelDir string) error {
 	}
 	c.context = context
 
-	c.initialized = true
 	return nil
 }
 
 // DownloadGGUF fetches the file from `url` and writes it to destPath.
-func DownloadGGUF(modelPath string) error {
+func DownloadGGUF(modelDir string) error {
 	mutex.Lock()
 	defer mutex.Unlock()
+
+	modelPath := filepath.Join(modelDir, modelName)
 
 	if exists, _ := os.Stat(modelPath); exists != nil {
 		return nil
@@ -127,7 +104,7 @@ func DownloadGGUF(modelPath string) error {
 	}()
 
 	// ensure directory exists
-	if err := os.MkdirAll(filepath.Dir(modelPath), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(modelDir), 0o755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
 	f, err := os.Create(modelPath)
@@ -143,10 +120,11 @@ func DownloadGGUF(modelPath string) error {
 	if _, err := io.Copy(f, resp.Body); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
-	return nil
+
+	return DefaultClient.initialize(modelPath)
 }
 
-func HandleNewSuggestion() (*llm.SuggestionResponse[session.Music], error) {
+func HandleNewSuggestion() (*llm.SuggestionResponse[session.Media], error) {
 	c := DefaultClient
 	messages, mErr := c.ComposeMessages(context.Background(), nil)
 	if mErr != nil {
@@ -166,7 +144,7 @@ func (c *MClient[T]) runGGUF(message string) (string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if !c.initialized {
+	if c.model == nil {
 		return "", fmt.Errorf("mistral client not initialized")
 	}
 
@@ -245,8 +223,6 @@ func (c *MClient[T]) Close() {
 		c.context.Free()
 		c.context = nil
 	}
-
-	c.initialized = false
 }
 
 func formatSuggestion[T session.Media](suggestion session.Suggestion[T]) string {

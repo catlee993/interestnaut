@@ -44,7 +44,7 @@ func main() {
 		log.Fatalf("Failed to create central manager: %v", err)
 	}
 
-	mistral.SetCentralManager(mistral.DefaultClient, cm)
+	mistral.SetCentralManager(cm)
 
 	// Initialize FFI bindings with the central manager
 	ffi.Initialize(cm)
