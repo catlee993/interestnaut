@@ -19,10 +19,13 @@ class ContinuousPlaybackSwitch extends StatelessWidget {
         'Continue playing liked songs',
         style: TextStyle(color: Colors.white, fontSize: 14),
       ),
-      activeColor: const Color(0xFF7B68EE),
-      activeTrackColor: const Color.fromRGBO(123, 104, 238, 0.5),
-      inactiveTrackColor: Colors.white24,
+      activeColor: const Color(0xFF7B68EE), // Bright purple color for the thumb when active
+      activeTrackColor: const Color(0x887B68EE), // Slightly transparent purple for the track
+      inactiveThumbColor: Colors.grey[400], // Light grey for inactive thumb
+      inactiveTrackColor: Colors.grey[800], // Dark grey for inactive track
       contentPadding: EdgeInsets.zero,
+      controlAffinity: ListTileControlAffinity.leading, // Place the switch on the left
+      dense: true, // Make the tile more compact
     );
   }
-} 
+}

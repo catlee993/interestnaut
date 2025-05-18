@@ -4,6 +4,8 @@ import 'package:path_provider/path_provider.dart';
 import 'continuous_playback_switch.dart';
 import '../../services/mistral_isolate.dart';
 
+/// A widget that displays the settings drawer overlay.
+/// This should be placed at a top level in the widget tree, not inside a constrained container.
 class SettingsDrawer extends StatefulWidget {
   final VoidCallback onClose;
 
@@ -25,15 +27,33 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
   @override
   void initState() {
     super.initState();
-    _checkModelStatus();
+    // Wrap in try-catch to handle FFI errors gracefully
+    try {
+      _checkModelStatus();
+    } catch (e) {
+      print('Error in SettingsDrawer initState: $e');
+      // Set default value if we can't check
+      setState(() {
+        _hasModel = false;
+      });
+    }
   }
 
   Future<void> _checkModelStatus() async {
-    final hasModel = await MinstralIsolateService.hasModel();
-    if (mounted) {
-      setState(() {
-        _hasModel = hasModel;
-      });
+    try {
+      final hasModel = await MinstralIsolateService.hasModel();
+      if (mounted) {
+        setState(() {
+          _hasModel = hasModel;
+        });
+      }
+    } catch (e) {
+      print('Error in _checkModelStatus: $e');
+      if (mounted) {
+        setState(() {
+          _hasModel = false;
+        });
+      }
     }
   }
 
@@ -108,27 +128,31 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
 
   @override
   Widget build(BuildContext context) {
-    // Custom drawer implementation that avoids the rendering issues
-    return Stack(
-      children: [
-        // Semi-transparent overlay
-        Positioned.fill(
-          child: GestureDetector(
-            onTap: widget.onClose,
-            child: Container(color: Colors.black.withOpacity(0.5)),
+    // Get the screen size for proper positioning
+    final Size screenSize = MediaQuery.of(context).size;
+    
+    // Create a full-screen overlay with the drawer
+    return Material(
+      color: Colors.transparent,
+      child: Stack(
+        children: [
+          // Semi-transparent overlay
+          Positioned.fill(
+            child: GestureDetector(
+              onTap: widget.onClose,
+              child: Container(color: Colors.black.withOpacity(0.5)),
+            ),
           ),
-        ),
-        
-        // Drawer panel
-        Positioned(
-          right: 0,
-          top: 0,
-          bottom: 0,
-          width: 400,
-          child: Material(
-            color: const Color.fromRGBO(18, 18, 18, 0.95),
-            elevation: 16,
-            child: SafeArea(
+          
+          // The settings drawer panel
+          Positioned(
+            right: 0,
+            top: 0,
+            height: screenSize.height,
+            width: 350,
+            child: Material(
+              color: const Color(0xFF121212),
+              elevation: 16,
               child: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
                 child: Column(
@@ -236,8 +260,35 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
               ),
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
+}
+
+/// Shows a settings drawer as an overlay above the entire application.
+/// This function handles creating and showing the drawer properly.
+void showSettingsDrawer(BuildContext context) {
+  showGeneralDialog(
+    context: context,
+    barrierDismissible: true,
+    barrierLabel: 'Settings',
+    transitionDuration: const Duration(milliseconds: 200),
+    pageBuilder: (context, _, __) {
+      return SettingsDrawer(
+        onClose: () {
+          Navigator.of(context).pop();
+        },
+      );
+    },
+    transitionBuilder: (context, animation, secondaryAnimation, child) {
+      return SlideTransition(
+        position: Tween<Offset>(
+          begin: const Offset(1.0, 0.0),
+          end: Offset.zero,
+        ).animate(animation),
+        child: child,
+      );
+    },
+  );
 }

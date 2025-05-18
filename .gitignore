@@ -8,7 +8,7 @@ frontend/dist
 node_modules
 frontend/node_modules/.vite/
 dependencies/llama.cpp/
-dependencies/go-llama.cpp/
+dependencies/*
 
 # Environment files
 .env
@@ -39,3 +39,5 @@ go.work
 debug/
 /bin/
 /cmd/interestnaut/interestnaut
+/dependencies/
+/dependencies/
