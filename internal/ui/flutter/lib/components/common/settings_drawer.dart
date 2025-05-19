@@ -159,7 +159,7 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
       if (success) {
         // Send a simple prompt to test with minimal tokens needed
         final response = await llamaService.processPrompt(
-          "Generate one song: title, artist, album in json; single json object only. \n {\"title\": \"Song Title\", \"artist\": \"Artist Name\", \"album\": \"Album Name\"}",
+          "Generate one song: title, artist, album in JSON; respond with one JSON object only, nothing else. \n {\"title\": \"Song Title\", \"artist\": \"Artist Name\", \"album\": \"Album Name\"}",
         );
         print("Generated response: $response");
         // Note: The service will handle showing toast messages for the results
@@ -170,9 +170,12 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
     } catch (e) {
       _showToast("Error running LLM: $e", isError: true);
     } finally {
-      setState(() {
-        _isRunningLLM = false;
-      });
+      // Check if widget is still mounted before calling setState
+      if (mounted) {
+        setState(() {
+          _isRunningLLM = false;
+        });
+      }
     }
   }
 

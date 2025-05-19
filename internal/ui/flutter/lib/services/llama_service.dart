@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:math' as math;
-import 'package:flutter/foundation.dart';
+import 'dart:convert';  // Add json library
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
@@ -204,7 +203,7 @@ class LlamaService {
       
       // Create a ModelParams with GPU acceleration
       final modelParams = ModelParams();
-      modelParams.nGpuLayers = 32;     // Load 16 layers on GPU for speed
+      modelParams.nGpuLayers = 26;     // Load 16 layers on GPU for speed
       modelParams.mainGpu = 0;         // Use primary GPU
       
       // Use conservative settings to prevent freezing
@@ -361,6 +360,31 @@ class LlamaService {
           // Call onToken callback if provided
           onToken?.call(token);
           
+          // Check if response contains a complete JSON object and end early if it does
+          final currentResponse = responseBuffer.toString();
+          if (currentResponse.contains('}') && _isValidCompletedJson(currentResponse)) {
+            print('LlamaService: Found complete JSON object. Stopping generation.');
+            
+            // Extract just the JSON object for the response
+            final jsonObject = _extractJsonObject(currentResponse);
+            
+            if (!completer.isCompleted) {
+              completer.complete(jsonObject);
+              
+              // Cancel the subscription immediately to stop token handling
+              subscription?.cancel();
+              
+              // Stop the generation
+              _llamaParent?.stop().catchError((e) {
+                print('LlamaService: Error stopping generation: $e');
+              });
+              
+              // Cancel the timeout timer
+              timeoutTimer?.cancel();
+            }
+            return;
+          }
+          
           // Check if we've reached the target token count and manually complete
           if (tokenCount >= targetTokenCount && !completer.isCompleted) {
             print('LlamaService: Reached target token count ($targetTokenCount). Treating as error.');
@@ -478,6 +502,53 @@ class LlamaService {
         // Handle case where widget is unmounted
         print('LlamaService: Error showing toast: $e');
       }
+    }
+  }
+  
+  /// Check if we have a valid context to show UI elements
+  bool _hasValidContext() {
+    try {
+      return WidgetsBinding.instance.lifecycleState != AppLifecycleState.detached;
+    } catch (e) {
+      return false;
+    }
+  }
+  
+  /// Check if a string contains a valid and complete JSON object
+  bool _isValidCompletedJson(String text) {
+    try {
+      // Look for patterns like {...} with optional content before or after
+      final regexp = RegExp(r'.*?(\{.*\}).*');
+      final match = regexp.firstMatch(text);
+      
+      if (match != null && match.groupCount >= 1) {
+        final jsonStr = match.group(1);
+        // Try parsing to verify it's valid JSON
+        json.decode(jsonStr!);
+        return true;
+      }
+      
+      return false;
+    } catch (e) {
+      // Not valid JSON yet
+      return false;
+    }
+  }
+  
+  /// Extract just the JSON object from text that might have other content
+  String _extractJsonObject(String text) {
+    try {
+      final regexp = RegExp(r'.*?(\{.*\}).*');
+      final match = regexp.firstMatch(text);
+      
+      if (match != null && match.groupCount >= 1) {
+        return match.group(1)!;
+      }
+      
+      // If we couldn't extract JSON, return the original text
+      return text;
+    } catch (e) {
+      return text;
     }
   }
   
