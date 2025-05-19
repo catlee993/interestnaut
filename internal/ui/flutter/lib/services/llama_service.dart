@@ -204,16 +204,16 @@ class LlamaService {
       
       // Create a ModelParams with GPU acceleration
       final modelParams = ModelParams();
-      modelParams.nGpuLayers = 16;     // Load 16 layers on GPU for speed
+      modelParams.nGpuLayers = 32;     // Load 16 layers on GPU for speed
       modelParams.mainGpu = 0;         // Use primary GPU
       
       // Use conservative settings to prevent freezing
       _contextParams = ContextParams();
       _contextParams!.nCtx = 2048;          // Small context size to prevent memory issues
-      _contextParams!.nBatch = 16;         // Moderate batch size (default is 512)
-      _contextParams!.nUbatch = 16;        // Match physical batch size
-      _contextParams!.nThreads = 4;        // Conservative thread count
-      _contextParams!.nThreadsBatch = 4;   // Match batch thread count
+      _contextParams!.nBatch = 32;         // Moderate batch size (default is 512)
+      _contextParams!.nUbatch = 32;        // Match physical batch size
+      _contextParams!.nThreads = 8;        // Conservative thread count
+      _contextParams!.nThreadsBatch = 8;   // Match batch thread count
       _contextParams!.nPredict = 100;      // Limited token generation
       _contextParams!.nSeqMax = 1;         // Single sequence only
       _contextParams!.offloadKqv = true;   // Offload KQV operations to GPU
@@ -221,7 +221,8 @@ class LlamaService {
       _contextParams!.embeddings = false;  // Don't compute embeddings
       _contextParams!.flashAttn = true;    // Enable flash attention if available
       _contextParams!.noPerfTimings = true; // Disable performance timings
-      
+      _contextParams!.defragThold = 0.5;
+
       // Configure aggressive sampling for speed
       final samplerParams = SamplerParams();
       samplerParams.greedy = false;         // Greedy sampling for maximum speed
