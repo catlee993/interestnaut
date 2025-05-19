@@ -157,9 +157,11 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
       });
 
       if (success) {
-        // Send a simple prompt to test
-        await llamaService.sendPrompt("What song should I listen to right now?");
-
+        // Send a simple prompt to test with minimal tokens needed
+        final response = await llamaService.processPrompt(
+          "Generate one song: title, artist, album. Make it short."
+        );
+        print("Generated response: $response");
         // Note: The service will handle showing toast messages for the results
         // through the callback we provided
       } else {
