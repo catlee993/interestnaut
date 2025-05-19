@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as path;
@@ -7,49 +8,126 @@ import 'package:path_provider/path_provider.dart';
 import 'package:llama_cpp_dart/llama_cpp_dart.dart';
 import 'model_constants.dart';
 
+/// A helper class to manage token generation in a non-blocking way
+class LlamaTokenStream {
+  final Llama llm;
+  final String prompt;
+  final StreamController<String> controller = StreamController<String>();
+  
+  LlamaTokenStream(this.llm, this.prompt);
+  
+  /// Start token generation in microtasks
+  Future<String> generate() async {
+    final completer = Completer<String>();
+    final buffer = StringBuffer();
+    
+    try {
+      // Set the prompt first
+      llm.setPrompt(prompt);
+      
+      // Start a new microtask to process tokens without blocking the UI
+      _processNextToken(buffer, completer);
+      
+      // Return the future that will complete when all tokens are generated
+      return completer.future;
+    } catch (e) {
+      controller.addError(e);
+      completer.completeError(e);
+      return completer.future;
+    }
+  }
+  
+  /// Process the next token without blocking the UI thread
+  void _processNextToken(StringBuffer buffer, Completer<String> completer) {
+    // Schedule a microtask to allow UI to update between token generations
+    Future.microtask(() {
+      try {
+        // Try to get the next token
+        final (token, isDone) = llm.getNext();
+        
+        // Add the token to the buffer and stream
+        if (token.isNotEmpty) {
+          buffer.write(token);
+          controller.add(token);
+        }
+        
+        if (isDone) {
+          // Generation is complete
+          controller.close();
+          completer.complete(buffer.toString());
+        } else {
+          // Schedule the next token generation
+          _processNextToken(buffer, completer);
+        }
+      } catch (e) {
+        // Handle errors
+        controller.addError(e);
+        completer.completeError(e);
+        controller.close();
+      }
+    });
+  }
+  
+  /// Get the stream of tokens
+  Stream<String> get stream => controller.stream;
+}
+
 /// Service to handle LLM inferencing using llama_cpp_dart
 /// This provides a direct interface to the llama.cpp library through FFI
 class LlamaService {
-  // Singleton pattern
-  static final LlamaService _instance = LlamaService._();
-  factory LlamaService() => _instance;
+  /// Singleton instance
+  static final LlamaService _instance = LlamaService._internal();
   
-  // LLM instance from llama_cpp_dart
-  Llama? _llm;
-  
-  // Storing our own context parameters since we can't access private fields
-  ContextParams? _contextParams;
-  
-  // Status tracking
-  bool _isRunning = false;
-  Completer<void>? _initCompleter;
-  
-  // Callback function for showing toast messages
+  /// Function to show toast messages
   Function(String message, {bool isError})? showToast;
   
-  // Private constructor
-  LlamaService._();
+  /// The underlying LLM model parent (manages isolate communication)
+  LlamaParent? _llamaParent;
   
-  /// Get the status of the LLM service
+  /// Context parameters for the model
+  ContextParams? _contextParams;
+  
+  /// Status flag
+  bool _isRunning = false;
+  
+  /// Initialization completer
+  Completer<void>? _initCompleter;
+  
+  /// Response stream controller
+  StreamController<String>? _responseStreamController;
+  
+  /// Factory constructor
+  factory LlamaService() {
+    return _instance;
+  }
+  
+  /// Private constructor
+  LlamaService._internal();
+  
+  /// Get instance
+  static LlamaService get instance => _instance;
+  
+  /// Check if the service is initialized and running
   bool get isRunning => _isRunning;
   
-  /// Get the path to the LLM model file
-  /// This is a static method that returns the expected path for the model
-  static Future<String> getModelPath() async {
-    final directory = await getApplicationDocumentsDirectory();
-    // Use a subfolder to keep models organized
-    final modelsDir = Directory('${directory.path}/${kModelsDirectoryName}');
-    if (!await modelsDir.exists()) {
-      await modelsDir.create(recursive: true);
-    }
-    return '${modelsDir.path}/${kMistralModelFileName}';
+  /// Stream of response tokens
+  Stream<String>? get responseStream => _responseStreamController?.stream;
+  
+  /// Get model path
+  static Future<String> getModelPath({String? modelFileName}) async {
+    final documentsDir = await getApplicationDocumentsDirectory();
+    return path.join(
+      documentsDir.path,
+      kModelsDirectoryName,
+      modelFileName ?? kMistralModelFileName,
+    );
   }
   
   /// Initialize the Llama service with the given model path
   Future<bool> initialize(String modelPath, {Function(String message, {bool isError})? toastCallback}) async {
     showToast = toastCallback;
     
-    if (_isRunning && _llm != null) {
+    if (_isRunning && _llamaParent != null) {
       _showToast('LlamaService already initialized');
       return true;
     }
@@ -126,28 +204,56 @@ class LlamaService {
       _showToast('Using library at: $libraryPath');
       Llama.libraryPath = libraryPath;
       
-      // Configure model parameters
+      // Configure model parameters with optimized settings for lower resource usage
       final modelParams = ModelParams();
+      modelParams.nGpuLayers = 0;  // Disable GPU layers (CPU-only mode)
       
-      // Configure context parameters - store a copy for later use
+      // Configure context parameters with conservative values
       _contextParams = ContextParams();
-      _contextParams!.nPredict = 512;  // Default max tokens to predict
+      _contextParams!.nCtx = 1024;        // Reduced context size
+      _contextParams!.nBatch = 128;       // Smaller batch size
+      _contextParams!.nThreads = 4;       // Fewer threads
+      _contextParams!.nPredict = 256;     // Limit token generation
+      _contextParams!.offloadKqv = false; // Don't offload to GPU
       
       // Configure sampler parameters
       final samplerParams = SamplerParams();
-      samplerParams.temp = 0.7;     // Set default temperature
-      samplerParams.topP = 0.9;     // Set default top-p sampling value
+      samplerParams.temp = 0.7;
+      samplerParams.topP = 0.9;
       
-      // Initialize the LLM with llama_cpp_dart
-      _llm = Llama(
-        modelPath,
-        modelParams,
-        _contextParams,
-        samplerParams,
-        true, // verbose
+      _showToast('Initializing with CPU-only mode and reduced memory usage');
+      
+      // Create the LlamaLoad command
+      final loadCommand = LlamaLoad(
+        path: modelPath,
+        modelParams: modelParams,
+        contextParams: _contextParams!,
+        samplingParams: samplerParams,
       );
       
-      _showToast('LLM successfully initialized');
+      // Initialize the isolate parent
+      _llamaParent = LlamaParent(loadCommand);
+      await _llamaParent!.init();
+      
+      // Create a stream controller for response tokens
+      _responseStreamController = StreamController<String>.broadcast();
+      
+      // Listen to the parent's token stream
+      _llamaParent!.stream.listen(
+        (token) {
+          // Add token to our stream controller
+          _responseStreamController?.add(token);
+        },
+        onError: (error) {
+          _showToast('Error from LlamaParent: $error', isError: true);
+          _responseStreamController?.addError(error);
+        },
+        onDone: () {
+          // Optional: handle completion if needed
+        },
+      );
+      
+      _showToast('LLM successfully initialized in isolate');
       _isRunning = true;
       _initCompleter?.complete();
       
@@ -159,192 +265,112 @@ class LlamaService {
     }
   }
   
-  /// Ensure the LLM service is initialized
-  /// This will wait for initialization to complete if it's in progress
-  Future<void> ensureInitialized() async {
-    if (_isRunning) return;
-    
-    if (_initCompleter != null) {
-      return _initCompleter!.future;
+  /// Process a prompt and generate a response
+  Future<String> processPrompt(String prompt, {
+    int maxTokens = 512, 
+    Function(String token)? onToken,
+    Function(String errorMsg)? onError,
+  }) async {
+    if (!_isRunning || _llamaParent == null) {
+      final error = 'LlamaService not initialized';
+      onError?.call(error);
+      return Future.error(error);
     }
     
-    throw Exception("LlamaService not initialized. Call initialize() first.");
+    _showToast('Processing prompt: ${prompt.substring(0, math.min(prompt.length, 25))}...');
+    _showToast('Generating response...');
+    
+    try {
+      // Create a completer to await the full response
+      final completer = Completer<String>();
+      final responseBuffer = StringBuffer();
+      
+      // Set up a subscription to collect all tokens
+      final subscription = _llamaParent!.stream.listen(
+        (token) {
+          // Add token to response buffer
+          responseBuffer.write(token);
+          
+          // Call onToken callback if provided
+          onToken?.call(token);
+        },
+        onError: (error) {
+          final errorMsg = 'Error generating response: $error';
+          _showToast(errorMsg, isError: true);
+          onError?.call(errorMsg);
+          completer.completeError(error);
+        },
+        onDone: () {
+          // Complete with the full response
+          completer.complete(responseBuffer.toString());
+        }
+      );
+      
+      // Send the prompt to the isolate
+      _llamaParent!.sendPrompt(prompt);
+      
+      // Wait for the response to complete
+      final response = await completer.future;
+      
+      // Cancel the subscription
+      await subscription.cancel();
+      
+      return response;
+    } catch (e) {
+      final errorMsg = 'Error processing prompt: $e';
+      _showToast(errorMsg, isError: true);
+      onError?.call(errorMsg);
+      throw e;
+    }
   }
   
-  /// Send a prompt to the LLM and get a completion
-  /// This is a simplified interface for the settings drawer test
+  /// Simple method to send a prompt and get a response (for settings drawer)
   Future<String> sendPrompt(String prompt) async {
-    if (!_isRunning || _llm == null) {
-      _showToast('Cannot send prompt: LLM not initialized', isError: true);
-      return "Error: LLM not initialized";
+    if (!_isRunning || _llamaParent == null) {
+      final error = 'LlamaService not initialized';
+      _showToast(error, isError: true);
+      return "Error: $error";
     }
     
-    try {
-      _showToast('Processing prompt: ${prompt.substring(0, prompt.length > 30 ? 30 : prompt.length)}...');
-      
-      // Set the prompt to start generation
-      _llm!.setPrompt(prompt);
-      
-      // Collect the generated text
-      final buffer = StringBuffer();
-      
-      // Generate text tokens until completed
-      _showToast('Generating response...');
-      while (true) {
-        final (token, done) = _llm!.getNext();
-        if (done) break;
-        buffer.write(token);
-      }
-      
-      final result = buffer.toString();
-      _showToast('LLM response complete', isError: false);
-      return result;
-    } catch (e) {
-      _showToast('Error processing prompt: $e', isError: true);
-      return "Error: $e";
-    }
-  }
-  
-  /// Generate text completion with the given prompt
-  Future<String> completionText(String prompt, {
-    int maxTokens = 512,
-    double temperature = 0.7,
-    double topP = 0.9,
-    int seed = 42,
-  }) async {
-    if (!_isRunning || _llm == null) {
-      _showToast('Cannot generate text: LLM not initialized', isError: true);
-      return "Error: LLM not initialized";
-    }
+    _showToast('Processing prompt: ${prompt.substring(0, math.min(prompt.length, 25))}...');
+    _showToast('Generating response...');
     
     try {
-      _showToast('Generating text with prompt: ${prompt.substring(0, prompt.length > 30 ? 30 : prompt.length)}...');
+      // Create a completer to await the full response
+      final completer = Completer<String>();
+      final responseBuffer = StringBuffer();
       
-      // Update our stored context parameters
-      if (_contextParams != null) {
-        _contextParams!.nPredict = maxTokens;
-      }
+      // Set up a subscription to collect all tokens
+      final subscription = _llamaParent!.stream.listen(
+        (token) {
+          // Add token to response buffer
+          responseBuffer.write(token);
+        },
+        onError: (error) {
+          final errorMsg = 'Error generating response: $error';
+          _showToast(errorMsg, isError: true);
+          completer.completeError(error);
+        },
+        onDone: () {
+          // Complete with the full response
+          completer.complete(responseBuffer.toString());
+        }
+      );
       
-      // Create sampling parameters with correct values
-      final samplerParams = SamplerParams();
-      samplerParams.temp = temperature;
-      samplerParams.topP = topP;
-      samplerParams.seed = seed;
+      // Send the prompt to the isolate
+      _llamaParent!.sendPrompt(prompt);
       
-      // Set the prompt to start generation
-      _llm!.setPrompt(prompt);
+      // Wait for the response to complete
+      final response = await completer.future;
       
-      // Collect the generated text
-      final buffer = StringBuffer();
+      // Cancel the subscription
+      await subscription.cancel();
       
-      // Generate text tokens until completed
-      while (true) {
-        final (token, done) = _llm!.getNext();
-        if (done) break;
-        buffer.write(token);
-      }
-      
-      return buffer.toString();
+      _showToast('Response complete: ${response.substring(0, math.min(response.length, 25))}...');
+      return response;
     } catch (e) {
-      _showToast('Error generating text: $e', isError: true);
-      return "Error: $e";
-    }
-  }
-  
-  /// Generate streaming completion with the given prompt and listen for tokens
-  Stream<String> generateStream(String prompt, {
-    int maxTokens = 512,
-    double temperature = 0.7,
-    double topP = 0.9,
-    int seed = 42,
-  }) async* {
-    if (!_isRunning || _llm == null) {
-      _showToast('Cannot generate stream: LLM not initialized', isError: true);
-      yield "Error: LLM not initialized";
-      return;
-    }
-    
-    try {
-      _showToast('Streaming generation with prompt: ${prompt.substring(0, prompt.length > 30 ? 30 : prompt.length)}...');
-      
-      // Update our stored context parameters
-      if (_contextParams != null) {
-        _contextParams!.nPredict = maxTokens;
-      }
-      
-      // Create sampling parameters with correct values
-      final samplerParams = SamplerParams();
-      samplerParams.temp = temperature;
-      samplerParams.topP = topP;
-      samplerParams.seed = seed;
-      
-      // Set the prompt to start generation
-      _llm!.setPrompt(prompt);
-      
-      // Use the built-in stream
-      await for (final token in _llm!.generateText()) {
-        yield token;
-      }
-    } catch (e) {
-      _showToast('Error in streaming generation: $e', isError: true);
-      yield "Error: $e";
-    }
-  }
-  
-  /// Generate a completion in chat format
-  Future<String> chatCompletion(List<Message> messages, {
-    int maxTokens = 512,
-    double temperature = 0.7,
-    double topP = 0.9,
-    int seed = 42,
-  }) async {
-    if (!_isRunning || _llm == null) {
-      _showToast('Cannot generate chat: LLM not initialized', isError: true);
-      return "Error: LLM not initialized";
-    }
-    
-    try {
-      _showToast('Generating chat response...');
-      
-      // Convert messages to ChatML format
-      final history = ChatHistory();
-      for (final message in messages) {
-        history.addMessage(
-          role: message.role,
-          content: message.content,
-        );
-      }
-      
-      // Format the chat history as ChatML
-      final prompt = history.exportFormat(ChatFormat.chatml);
-      
-      // Update our stored context parameters
-      if (_contextParams != null) {
-        _contextParams!.nPredict = maxTokens;
-      }
-      
-      // Create sampling parameters with correct values
-      final samplerParams = SamplerParams();
-      samplerParams.temp = temperature;
-      samplerParams.topP = topP;
-      samplerParams.seed = seed;
-      
-      // Set the prompt to start generation
-      _llm!.setPrompt(prompt);
-      
-      // Collect the generated text
-      final buffer = StringBuffer();
-      
-      // Generate text tokens until completed
-      while (true) {
-        final (token, done) = _llm!.getNext();
-        if (done) break;
-        buffer.write(token);
-      }
-      
-      return buffer.toString();
-    } catch (e) {
-      _showToast('Error generating chat response: $e', isError: true);
+      final errorMsg = 'Error processing prompt: $e';
+      _showToast(errorMsg, isError: true);
       return "Error: $e";
     }
   }
@@ -354,29 +380,24 @@ class LlamaService {
     if (!_isRunning) return;
     
     try {
-      _showToast('Shutting down LLM service...');
+      // Clean up resources
+      if (_llamaParent != null) {
+        await _llamaParent!.dispose();
+        _llamaParent = null;
+      }
       
-      // Clean up the LLM
-      _llm?.dispose();
-      _llm = null;
+      // Close stream controller
+      await _responseStreamController?.close();
+      _responseStreamController = null;
       
       _isRunning = false;
-      _showToast('LLM service shutdown complete');
+      _showToast('LLM shutdown complete');
     } catch (e) {
-      _showToast('Error shutting down LLM: $e', isError: true);
+      _showToast('Error during shutdown: $e', isError: true);
     }
   }
   
-  /// Create a system message
-  Message systemMessage(String content) => Message(role: Role.system, content: content);
-  
-  /// Create a user message
-  Message userMessage(String content) => Message(role: Role.user, content: content);
-  
-  /// Create an assistant message
-  Message assistantMessage(String content) => Message(role: Role.assistant, content: content);
-  
-  /// Utility method to show toast messages via the callback
+  /// Show toast message
   void _showToast(String message, {bool isError = false}) {
     debugPrint('LlamaService: $message');
     showToast?.call(message, isError: isError);
