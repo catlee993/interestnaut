@@ -209,8 +209,8 @@ class LlamaService {
       // Use conservative settings to prevent freezing
       _contextParams = ContextParams();
       _contextParams!.nCtx = 2048;          // Small context size to prevent memory issues
-      _contextParams!.nBatch = 32;         // Moderate batch size (default is 512)
-      _contextParams!.nUbatch = 32;        // Match physical batch size
+      _contextParams!.nBatch = 26;         // Moderate batch size (default is 512)
+      _contextParams!.nUbatch = 26;        // Match physical batch size
       _contextParams!.nThreads = 8;        // Conservative thread count
       _contextParams!.nThreadsBatch = 8;   // Match batch thread count
       _contextParams!.nPredict = 100;      // Limited token generation
@@ -225,7 +225,7 @@ class LlamaService {
       // Configure aggressive sampling for speed
       final samplerParams = SamplerParams();
       samplerParams.greedy = false;         // Greedy sampling for maximum speed
-      samplerParams.temp = 0.5;            // Zero temperature = pure greedy
+      samplerParams.temp = 0.7;            // Zero temperature = pure greedy
       samplerParams.topK = 1;              // Only consider most likely token
       samplerParams.topP = 1.0;            // Don't filter by probability
       samplerParams.minP = 0.5;            // No minimum probability threshold
