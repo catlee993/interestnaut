@@ -209,7 +209,7 @@ class LlamaService {
       
       // Use conservative settings to prevent freezing
       _contextParams = ContextParams();
-      _contextParams!.nCtx = 128;          // Small context size to prevent memory issues
+      _contextParams!.nCtx = 2048;          // Small context size to prevent memory issues
       _contextParams!.nBatch = 16;         // Moderate batch size (default is 512)
       _contextParams!.nUbatch = 16;        // Match physical batch size
       _contextParams!.nThreads = 4;        // Conservative thread count

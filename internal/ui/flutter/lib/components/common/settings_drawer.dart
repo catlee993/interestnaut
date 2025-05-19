@@ -159,7 +159,7 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
       if (success) {
         // Send a simple prompt to test with minimal tokens needed
         final response = await llamaService.processPrompt(
-          "Generate one song: title, artist, album. Make it short."
+          "Generate one song: title, artist, album in json; nothing else. \n {\"title\": \"Song Title\", \"artist\": \"Artist Name\", \"album\": \"Album Name\"}",
         );
         print("Generated response: $response");
         // Note: The service will handle showing toast messages for the results
