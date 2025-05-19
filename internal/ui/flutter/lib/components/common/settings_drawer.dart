@@ -4,6 +4,7 @@ import 'package:path_provider/path_provider.dart';
 import 'continuous_playback_switch.dart';
 import '../../services/mistral_service.dart';
 import '../../services/llama_service.dart';
+import '../../services/model_constants.dart';
 import '../../theme.dart';
 
 /// A widget that displays the settings drawer overlay.
@@ -63,7 +64,7 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
   Future<String> _getModelPath() async {
     final directory = await getApplicationDocumentsDirectory();
     // Use the same filename as defined in the MistralService
-    final path = '${directory.path}/mistral';
+    final path = '${directory.path}/${kModelsDirectoryName}/${kMistralModelFileName}';
     return path;
   }
 

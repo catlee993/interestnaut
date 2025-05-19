@@ -4,6 +4,10 @@ import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as path;
+import 'model_constants.dart';
+
+/// Constants for model files
+export 'model_constants.dart' show kMistralModelFileName;
 
 /// Response from the download operation
 class DownloadModelResponse {
@@ -30,7 +34,7 @@ class DownloadModelResponse {
 class MistralService {
   // Constants for the Mistral model
   static const String modelDownloadUrl = "https://interestnaut.com/Mistral-7B-Instruct-v0.3-q4_1.gguf";
-  static const String modelFileName = "Mistral-7B-Instruct-v0.3-q4_1.gguf";
+  static const String modelFileName = kMistralModelFileName;
   
   // Singleton pattern with private constructor
   static final MistralService _instance = MistralService._();
