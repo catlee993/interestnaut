@@ -2,7 +2,9 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'continuous_playback_switch.dart';
-import '../../services/mistral_isolate.dart';
+import '../../services/mistral_service.dart';
+import '../../services/llama_service.dart';
+import '../../theme.dart';
 
 /// A widget that displays the settings drawer overlay.
 /// This should be placed at a top level in the widget tree, not inside a constrained container.
@@ -20,9 +22,9 @@ class SettingsDrawer extends StatefulWidget {
 
 class _SettingsDrawerState extends State<SettingsDrawer> {
   bool _continuousPlayback = false;
+  bool _isDownloadingModel = false;
   bool _hasModel = false;
-  bool _isDownloading = false;
-  String? _downloadError;
+  bool _isRunningLLM = false;
 
   @override
   void initState() {
@@ -42,7 +44,7 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
   Future<void> _checkModelStatus() async {
     try {
       // Try to check if model exists via FFI
-      final hasModel = await MinstralIsolateService.hasModel();
+      final hasModel = await MistralService.hasModel();
       if (mounted) {
         setState(() {
           _hasModel = hasModel;
@@ -60,26 +62,20 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
 
   Future<String> _getModelPath() async {
     final directory = await getApplicationDocumentsDirectory();
-    final path = '${directory.path}/mistral/mistral-7b-instruct-v0.2.Q4_K_M.gguf';
+    // Use the same filename as defined in the MistralService
+    final path = '${directory.path}/mistral';
     return path;
   }
 
   Future<void> _downloadModel() async {
-    if (_isDownloading) return;
+    if (_isDownloadingModel) return;
 
     setState(() {
-      _isDownloading = true;
-      _downloadError = null;
+      _isDownloadingModel = true;
     });
 
     try {
       final modelPath = await _getModelPath();
-
-      // Ensure directory exists
-      final dir = Directory(modelPath.substring(0, modelPath.lastIndexOf('/')));
-      if (!await dir.exists()) {
-        await dir.create(recursive: true);
-      }
 
       // Show a toast that download has started
       ScaffoldMessenger.of(context).showSnackBar(
@@ -90,22 +86,21 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
       );
 
       try {
-        // Start the download in an isolate
-        final response = await MinstralIsolateService.downloadModelInIsolate(modelPath);
+        // Start the download using the pure Dart implementation
+        final response = await MistralService.downloadModel(modelPath);
 
         if (mounted) {
           setState(() {
-            _isDownloading = false;
+            _isDownloadingModel = false;
             _hasModel = response.success;
-            _downloadError = response.error;
           });
 
           // Show success or error toast
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(response.success 
-                ? 'Mistral AI model downloaded successfully!' 
-                : 'Failed to download Mistral AI model: ${response.error}'),
+              content: Text(response.success
+                  ? 'Mistral AI model downloaded successfully!'
+                  : 'Failed to download Mistral AI model: ${response.error}'),
               duration: const Duration(seconds: 5),
             ),
           );
@@ -114,8 +109,7 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
         // Handle FFI errors specifically
         if (mounted) {
           setState(() {
-            _isDownloading = false;
-            _downloadError = "FFI binding error: $e\n\nThe required library function was not found. Please ensure the Go library is properly built with llama.cpp support.";
+            _isDownloadingModel = false;
           });
 
           ScaffoldMessenger.of(context).showSnackBar(
@@ -129,8 +123,7 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          _isDownloading = false;
-          _downloadError = e.toString();
+          _isDownloadingModel = false;
         });
 
         // Show error toast
@@ -142,6 +135,53 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
         );
       }
     }
+  }
+
+  /// Test the LLM functionality
+  Future<void> _testLLM() async {
+    if (_isRunningLLM) return;
+
+    setState(() {
+      _isRunningLLM = true;
+    });
+
+    try {
+      final modelPath = await LlamaService.getModelPath();
+
+      // Initialize LLM with toast callback
+      final llamaService = LlamaService();
+      final success = await llamaService.initialize(modelPath,
+          toastCallback: (message, {bool isError = false}) {
+        _showToast(message, isError: isError);
+      });
+
+      if (success) {
+        // Send a simple prompt to test
+        await llamaService.sendPrompt("What song should I listen to right now?");
+
+        // Note: The service will handle showing toast messages for the results
+        // through the callback we provided
+      } else {
+        _showToast("Failed to initialize LLM", isError: true);
+      }
+    } catch (e) {
+      _showToast("Error running LLM: $e", isError: true);
+    } finally {
+      setState(() {
+        _isRunningLLM = false;
+      });
+    }
+  }
+
+  /// Show a toast message to the user
+  void _showToast(String message, {bool isError = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: isError ? Colors.red : Colors.green,
+        duration: Duration(seconds: isError ? 5 : 3),
+      ),
+    );
   }
 
   @override
@@ -178,7 +218,7 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
                 ],
               ),
               const SizedBox(height: 16),
-              
+
               // Content area
               Expanded(
                 child: ListView(
@@ -200,7 +240,7 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      _hasModel 
+                      _hasModel
                           ? 'Mistral AI model is installed'
                           : 'Download the Mistral AI model (4.6GB) to enable offline AI suggestions',
                       style: const TextStyle(
@@ -212,7 +252,7 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton(
-                        onPressed: (_hasModel || _isDownloading) ? null : _downloadModel,
+                        onPressed: _isDownloadingModel ? null : _downloadModel,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFF7B68EE),
                           foregroundColor: Colors.white,
@@ -220,7 +260,7 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
                           disabledForegroundColor: Colors.grey.shade400,
                           padding: const EdgeInsets.symmetric(vertical: 12),
                         ),
-                        child: _isDownloading
+                        child: _isDownloadingModel
                             ? const Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
@@ -239,17 +279,37 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
                             : Text(_hasModel ? 'Installed' : 'Install Mistral AI'),
                       ),
                     ),
-                    if (_downloadError != null)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 8.0),
-                        child: Text(
-                          'Error: $_downloadError',
-                          style: const TextStyle(
-                            color: Colors.red,
-                            fontSize: 12,
-                          ),
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: !_hasModel || _isRunningLLM ? null : _testLLM,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF7B68EE),
+                          foregroundColor: Colors.white,
+                          disabledBackgroundColor: Colors.grey.shade700,
+                          disabledForegroundColor: Colors.grey.shade400,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
                         ),
+                        child: _isRunningLLM
+                            ? const Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                  SizedBox(width: 8),
+                                  Text('Running...'),
+                                ],
+                              )
+                            : Text('Test LLM Integration'),
                       ),
+                    ),
                   ],
                 ),
               ),

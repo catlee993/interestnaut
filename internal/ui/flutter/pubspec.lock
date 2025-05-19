@@ -248,6 +248,15 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.1.1"
+  llama_cpp_dart:
+    dependency: "direct main"
+    description:
+      path: "."
+      ref: main
+      resolved-ref: "7552372a783794533be90d20c7d7a8d163ffa51c"
+      url: "https://github.com/netdur/llama_cpp_dart.git"
+    source: git
+    version: "0.0.8"
   logger:
     dependency: transitive
     description:
@@ -517,6 +526,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.4.0"
+  typed_isolate:
+    dependency: transitive
+    description:
+      name: typed_isolate
+      sha256: e245b87368104f9da13a75268e0bce16a2a8d4c9a4194a5eb50bb569be680c65
+      url: "https://pub.dev"
+    source: hosted
+    version: "6.0.0"
   uni_links:
     dependency: "direct main"
     description:

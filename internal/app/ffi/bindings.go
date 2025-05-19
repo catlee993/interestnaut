@@ -9,9 +9,7 @@ import (
 	"encoding/json"
 	"interestnaut/internal/app/bindings"
 	"interestnaut/internal/app/eventbus"
-	"interestnaut/internal/app/mistral"
 	"interestnaut/internal/app/session"
-	"interestnaut/internal/app/spotify"
 	"log"
 	"os"
 	"sync"
@@ -205,82 +203,7 @@ func Music_InitiateSpotifyAuth(port C.int) *C.char {
 		return result
 	}
 
-	if pid := os.Getpid(); pid > 0 {
-		log.Printf("Spotify auth browser opened with port %d. PID is: %d", int(port), pid)
-	}
-
-	// Return the auth status and indicate that the browser was opened
-	// This is critical for Flutter to know if it should handle the callback
-	authStatus := make(map[string]interface{})
-
-	// Add a browserOpened flag to let Flutter know the browser was opened
-	authStatus["browserOpened"] = true
-
-	// Add port number to response so Flutter knows what port was used
-	authStatus["port"] = int(port)
-
-	// Add the code verifier so Flutter can use it for token exchange
-	codeVerifier := spotify.GetCodeVerifier()
-	log.Printf("DEBUG: Code verifier in Music_InitiateSpotifyAuth: '%s'", codeVerifier)
-	authStatus["codeVerifier"] = codeVerifier
-
-	jsonBytes, _ := json.Marshal(authStatus)
-	result = C.CString(string(jsonBytes))
-
+	// Return success message
+	result = C.CString("{\"status\": \"Spotify auth initiated successfully\"}")
 	return result
-}
-
-//export GGUF_DownloadModel
-func GGUF_DownloadModel(modelPathPtr *C.char) *C.char {
-	modelPath := C.GoString(modelPathPtr)
-	log.Printf("GGUF_DownloadModel called with path: %s", modelPath)
-
-	if modelPath == "" {
-		return returnJSON(map[string]string{
-			"error": "Model path is empty",
-		})
-	}
-
-	// Download synchronously - this will block until download completes
-	// But do NOT initialize model yet to avoid signal handler conflicts
-	err := mistral.DownloadGGUF(modelPath)
-	if err != nil {
-		log.Printf("Error downloading GGUF model: %v", err)
-		return returnJSON(map[string]interface{}{
-			"status": "error",
-			"error":  err.Error(),
-		})
-	}
-
-	return returnJSON(map[string]interface{}{
-		"status": "complete",
-		"path":   modelPath,
-	})
-}
-
-//export GGUF_HasModel
-func GGUF_HasModel() *C.char {
-	hasModel := mistral.HasModel()
-
-	return returnJSON(map[string]interface{}{
-		"hasModel": hasModel,
-	})
-}
-
-//export GGUF_HandleNewSuggestion
-func GGUF_HandleNewSuggestion() *C.char {
-	log.Println("GGUF_HandleNewSuggestion called")
-
-	response, err := mistral.HandleNewSuggestion()
-	if err != nil {
-		log.Printf("Error handling new suggestion: %v", err)
-		return returnJSON(map[string]interface{}{
-			"error": err.Error(),
-		})
-	}
-
-	return returnJSON(map[string]interface{}{
-		"title":  response.Title,
-		"artist": response.Artist,
-	})
 }

@@ -25,6 +25,11 @@ environment:
 # To automatically upgrade your package dependencies to the latest versions
 # consider running `flutter pub get`.
 dependencies:
+  llama_cpp_dart:
+    git:
+      url: https://github.com/netdur/llama_cpp_dart.git
+      ref: main
+
   flutter:
     sdk: flutter
 
@@ -37,7 +42,7 @@ dependencies:
   # Additional dependencies for our app
   path: ^1.8.3
   http: ^1.1.0
-  
+
   # Window management for desktop
   window_size: ^0.1.0
   
