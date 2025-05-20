@@ -590,18 +590,13 @@ class _MusicSectionState extends State<MusicSection> {
                 )
               : Container(color: Colors.transparent),
         ),
-        // Main content (text, lists) starts below header
+        // Main content (text, lists, errors) now all inside ScrollContentWrapper
         ScrollContentWrapper(
           headerHeight: 106.0,
           builder: (scrollOffset) {
-            // Calculate fade for "Suggested for You" (titleHeight ~40)
-            const double titleHeight = 40.0;
-            double titleBottom = 106.0 + 12.0 + titleHeight - scrollOffset; // headerHeight + padding + titleHeight - scroll
-            double opacity = titleBottom > 106.0 ? 1.0 : 0.0;
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Add the web player (hidden but active)
                 SizedBox(
                   width: 1,
                   height: 1,
@@ -614,7 +609,7 @@ class _MusicSectionState extends State<MusicSection> {
                 const SizedBox(height: 12),
                 Center(
                   child: Opacity(
-                    opacity: opacity,
+                    opacity: (scrollOffset <= 70) ? 1.0 : 0.0,
                     child: const Text(
                       'Suggested for You',
                       style: TextStyle(
@@ -622,13 +617,66 @@ class _MusicSectionState extends State<MusicSection> {
                         fontWeight: FontWeight.bold,
                         color: Colors.white,
                       ),
+                      textAlign: TextAlign.center,
                     ),
                   ),
                 ),
-                // Content area
-                !_isAuthenticated
-                    ? _buildAuthPrompt()
-                    : _buildAuthenticatedView(),
+                const SizedBox(height: 12),
+                if (_isLoadingSuggestion)
+                  const SizedBox.shrink()
+                else if (_suggestionError != null)
+                  Center(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 24),
+                      child: Text(
+                        'Error: $_suggestionError',
+                        style: const TextStyle(
+                          color: Colors.white54,
+                          fontSize: 16,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  )
+                else if (_suggestion == null)
+                  const Center(
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(vertical: 24),
+                      child: Text(
+                        'No suggestions available',
+                        style: TextStyle(
+                          color: Colors.white54,
+                          fontSize: 16,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  )
+                else
+                  SuggestionDisplay(
+                    suggestedTrack: TrackAdapter.toMediaItem(_suggestion!),
+                    onRequestSuggestion: _loadSuggestion,
+                    onSkipSuggestion: _loadSuggestion,
+                    onSuggestionFeedback: (feedback) => _provideFeedback(feedback),
+                    onAddToLibrary: () => _saveTrack(_suggestion!.id),
+                    onPlay: (mediaItem) => _handleTrackCardAction(mediaItem),
+                    isPlaybackPaused: _isPlaybackPaused,
+                    nowPlayingTrack: _nowPlayingTrack != null ? TrackAdapter.toMediaItem(_nowPlayingTrack!) : null,
+                    onPlayPause: () => _togglePlayback(),
+                    isPlayerReady: _isPlayerReady,
+                  ),
+                const SizedBox(height: 24),
+                const Center(
+                  child: Text(
+                    'Your Library',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                _buildLibrarySection(),
               ],
             );
           },
@@ -658,77 +706,6 @@ class _MusicSectionState extends State<MusicSection> {
             return const SizedBox.shrink();
           }
         }),
-      ],
-    );
-  }
-
-  // Build the UI for authenticated users
-  Widget _buildAuthenticatedView() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // 1. SUGGESTION SECTION AT THE TOP
-        Padding(
-          padding: const EdgeInsets.only(bottom: 20.0),
-          child: Column(
-            children: [
-              const SizedBox(height: 16),
-              if (_isLoadingSuggestion)
-                const SizedBox.shrink()
-              else if (_suggestionError != null)
-                Center(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 24),
-                    child: Text(
-                      'Error: $_suggestionError',
-                      style: const TextStyle(color: Colors.white54),
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
-                )
-              else if (_suggestion == null)
-                const Center(
-                  child: Padding(
-                    padding: EdgeInsets.symmetric(vertical: 24),
-                    child: Text(
-                      'No suggestions available',
-                      style: TextStyle(color: Colors.white54),
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
-                )
-              else
-                SuggestionDisplay(
-                  suggestedTrack: TrackAdapter.toMediaItem(_suggestion!),
-                  onRequestSuggestion: _loadSuggestion,
-                  onSkipSuggestion: _loadSuggestion,
-                  onSuggestionFeedback: (feedback) => _provideFeedback(feedback),
-                  onAddToLibrary: () => _saveTrack(_suggestion!.id),
-                  onPlay: (mediaItem) => _handleTrackCardAction(mediaItem),
-                  isPlaybackPaused: _isPlaybackPaused,
-                  nowPlayingTrack: _nowPlayingTrack != null ? TrackAdapter.toMediaItem(_nowPlayingTrack!) : null,
-                  onPlayPause: () => _togglePlayback(),
-                  isPlayerReady: _isPlayerReady,
-                ),
-            ],
-          ),
-        ),
-
-        // 2. LIBRARY SECTION (LIKED SONGS) AT THE BOTTOM
-        const SizedBox(height: 24),
-        const Center(
-          child: Text(
-            'Your Library',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ),
-        const SizedBox(height: 16),
-
-        // Library content in a grid
-        _buildLibrarySection(),
       ],
     );
   }

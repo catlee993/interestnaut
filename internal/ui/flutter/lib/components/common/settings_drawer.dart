@@ -164,16 +164,16 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
         // Send a simple prompt to test with minimal tokens needed
         final response = await llamaService.processPrompt(
           r'''
-Below is a JSON Schema.  Produce exactly one JSON object that _validates_ against it—no extra keys, no wrapping in text or markdown.
-Verify this title exists through wikipedia.
+Below is a JSON Schema. Produce exactly one JSON object that _validates_ against it—no extra keys, no wrapping in text or markdown.
+
 Schema:
 {
   "type": "object",
   "properties": {
-    "title":  { "type": "string" },
-    "artist": { "type": "string" },
-    "album":  { "type": "string" },
-    "reasoning": { "type": "string" }
+    "title":     { "type": "string" },
+    "artist":    { "type": "string" },
+    "album":     { "type": "string" },
+    "reasoning": { "type": "string", "maxLength": 80 }
   },
   "required": ["title","artist","album","reasoning"],
   "additionalProperties": false
@@ -181,6 +181,7 @@ Schema:
 
 ### Instruction:
 Generate one song recommendation that matches the schema.
+Your reasoning must be a single sentence, under 80 characters, and not repeat itself.
 
 ### Response:
 ''',
