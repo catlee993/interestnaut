@@ -219,16 +219,8 @@ class _MediaHeaderState extends State<MediaHeader> {
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
         child: Container(
-          decoration: BoxDecoration(
-            color: const Color.fromRGBO(18, 18, 18, 0.8), // Restore 80% opacity as per user preference
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.3),
-                spreadRadius: 0,
-                blurRadius: 4,
-                offset: const Offset(0, 2),
-              ),
-            ],
+          decoration: const BoxDecoration(
+            color: Color.fromRGBO(18, 18, 18, 0.92),
           ),
           child: Column(
             children: [

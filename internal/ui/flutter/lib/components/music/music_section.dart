@@ -577,44 +577,68 @@ class _MusicSectionState extends State<MusicSection> {
   // Build the main music section UI
   @override
   Widget build(BuildContext context) {
+    const double headerHeight = 145;
     return Stack(
       children: [
-        // Main content area with scrolling
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Add the web player (hidden but active)
-            SizedBox(
-              width: 1,
-              height: 1,
-              child: SpotifyWebPlayer(
-                key: _webPlayerKey,
-                spotifyService: _spotifyService,
-                visible: false,
-              ),
-            ),
-
-            // Content area
-            Expanded(
-              child: !_isAuthenticated
-                  ? _buildAuthPrompt()
-                  : ScrollContentWrapper(
-                      headerHeight: 145, // Original value
-                      child: _buildAuthenticatedView(),
-                    ),
-            ),
-          ],
+        // Album art background (scrolls under header)
+        Positioned.fill(
+          child: _suggestion != null && _suggestion!.album.images.isNotEmpty
+              ? Image.network(
+                  _suggestion!.album.images.first.url,
+                  fit: BoxFit.cover,
+                  alignment: Alignment.topCenter,
+                )
+              : Container(color: Colors.transparent),
         ),
-
-        // Player positioned at the bottom
+        // Main content (text, lists) starts below header
+        ScrollContentWrapper(
+          headerHeight: 106.0,
+          builder: (scrollOffset) {
+            // Calculate fade for "Suggested for You" (titleHeight ~40)
+            const double titleHeight = 40.0;
+            double titleBottom = 106.0 + 12.0 + titleHeight - scrollOffset; // headerHeight + padding + titleHeight - scroll
+            double opacity = titleBottom > 106.0 ? 1.0 : 0.0;
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Add the web player (hidden but active)
+                SizedBox(
+                  width: 1,
+                  height: 1,
+                  child: SpotifyWebPlayer(
+                    key: _webPlayerKey,
+                    spotifyService: _spotifyService,
+                    visible: false,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Center(
+                  child: Opacity(
+                    opacity: opacity,
+                    child: const Text(
+                      'Suggested for You',
+                      style: TextStyle(
+                        fontSize: 24.0,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ),
+                // Content area
+                !_isAuthenticated
+                    ? _buildAuthPrompt()
+                    : _buildAuthenticatedView(),
+              ],
+            );
+          },
+        ),
+        // Player positioned at the bottom (unchanged)
         Builder(builder: (context) {
-          // Debug: Log when we try to show the player
-          debugPrint('Player conditions: isAuthenticated=$_isAuthenticated, nowPlayingTrack=${_nowPlayingTrack != null ? _nowPlayingTrack!.name : 'null'}');
-          
           if (_isAuthenticated && _nowPlayingTrack != null) {
             return Positioned(
               left: 0,
-              right: 0, 
+              right: 0,
               bottom: 0,
               child: ClipRect(
                 child: BackdropFilter(
@@ -631,7 +655,7 @@ class _MusicSectionState extends State<MusicSection> {
               ),
             );
           } else {
-            return const SizedBox.shrink(); // Return empty widget if conditions not met
+            return const SizedBox.shrink();
           }
         }),
       ],
@@ -648,15 +672,6 @@ class _MusicSectionState extends State<MusicSection> {
           padding: const EdgeInsets.only(bottom: 20.0),
           child: Column(
             children: [
-              const Center(
-                child: Text(
-                  'Suggested for You',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
               const SizedBox(height: 16),
               if (_isLoadingSuggestion)
                 const SizedBox.shrink()

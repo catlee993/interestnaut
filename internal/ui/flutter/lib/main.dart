@@ -148,6 +148,7 @@ class InterestnautApp extends StatefulWidget {
 }
 
 class _InterestnautAppState extends State<InterestnautApp> {
+  final GlobalKey _searchBarKey = GlobalKey();
   String _currentMediaType = 'music'; // Default media type
   String _searchQuery = '';
   bool _isSearchActive = false;
@@ -168,6 +169,12 @@ class _InterestnautAppState extends State<InterestnautApp> {
     });
   }
   
+  void _handleMediaChange(String media) {
+    setState(() {
+      _currentMediaType = media;
+    });
+  }
+  
   @override
   Widget build(BuildContext context) {
     // Main app UI
@@ -179,79 +186,21 @@ class _InterestnautAppState extends State<InterestnautApp> {
           Positioned.fill(
             child: _buildCurrentContent(),
           ),
-          
-          // Header - Always show the header at the top
+          // Header - absolutely positioned for transparency/blur
           Positioned(
             top: 0,
             left: 0,
             right: 0,
             child: MediaHeader(
-              currentMedia: _currentMediaType,
-              onMediaChange: (media) {
-                setState(() {
-                  _currentMediaType = media;
-                });
-              },
+              key: _searchBarKey,
               onSearch: _handleSearch,
               onClearSearch: _clearSearch,
+              currentMedia: _currentMediaType,
+              onMediaChange: _handleMediaChange,
             ),
           ),
-          
-          // Search overlay - only shown when search is active
           if (_isSearchActive && _currentMediaType == 'music')
-            Positioned.fill(
-              child: Stack(
-                children: [
-                  // Semi-transparent background overlay
-                  Positioned.fill(
-                    child: GestureDetector(
-                      onTap: _clearSearch, // Clear search when tapping outside
-                      child: Container(
-                        color: Colors.black.withOpacity(0.5),
-                      ),
-                    ),
-                  ),
-                  
-                  // Actual search results
-                  Positioned(
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    child: Container(
-                      padding: const EdgeInsets.only(
-                        top: 60.0,
-                        left: 8.0,
-                        right: 8.0,
-                        bottom: 8.0,
-                      ),
-                      decoration: BoxDecoration(
-                        color: const Color.fromRGBO(18, 18, 18, 0.95),
-                        borderRadius: const BorderRadius.only(
-                          bottomLeft: Radius.circular(16),
-                          bottomRight: Radius.circular(16),
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.3),
-                            blurRadius: 8,
-                            spreadRadius: 0,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      constraints: BoxConstraints(
-                        minHeight: 300,
-                        maxHeight: MediaQuery.of(context).size.height * 0.7,
-                      ),
-                      child: _MusicSearchHandler(
-                        searchQuery: _searchQuery,
-                        onClearSearch: _clearSearch,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+            _buildSearchOverlay(context),
         ],
       ),
     );
@@ -272,6 +221,63 @@ class _InterestnautAppState extends State<InterestnautApp> {
       default:
         return const Center(child: Text('Home Section', style: TextStyle(color: Colors.white)));
     }
+  }
+
+  Widget _buildSearchOverlay(BuildContext context) {
+    // Get the position and size of the search bar
+    final RenderBox? box = _searchBarKey.currentContext?.findRenderObject() as RenderBox?;
+    final Offset offset = box?.localToGlobal(Offset.zero) ?? Offset.zero;
+    final double barHeight = box?.size.height ?? 0;
+    final double barWidth = box?.size.width ?? MediaQuery.of(context).size.width;
+    return Stack(
+      children: [
+        // Dim background BELOW the search bar only
+        Positioned(
+          top: offset.dy + barHeight,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          child: GestureDetector(
+            onTap: _clearSearch,
+            child: Container(
+              color: Colors.black.withOpacity(0.5),
+            ),
+          ),
+        ),
+        // Search results window directly below the search bar
+        Positioned(
+          left: offset.dx,
+          top: offset.dy + barHeight,
+          width: barWidth,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
+            decoration: BoxDecoration(
+              color: const Color.fromRGBO(18, 18, 18, 0.95),
+              borderRadius: const BorderRadius.only(
+                bottomLeft: Radius.circular(16),
+                bottomRight: Radius.circular(16),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.3),
+                  blurRadius: 8,
+                  spreadRadius: 0,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            constraints: BoxConstraints(
+              minHeight: 300,
+              maxHeight: MediaQuery.of(context).size.height * 0.7,
+            ),
+            child: _MusicSearchHandler(
+              searchQuery: _searchQuery,
+              onClearSearch: _clearSearch,
+            ),
+          ),
+        ),
+      ],
+    );
   }
 }
 
