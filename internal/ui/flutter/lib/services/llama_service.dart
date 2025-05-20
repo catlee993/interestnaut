@@ -1,11 +1,38 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:convert';  // Add json library
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 import 'package:llama_cpp_dart/llama_cpp_dart.dart';
 import 'model_constants.dart';
+import 'llm_downloader_service.dart';
+
+/// Custom Llama2 chat format
+class Llama2ChatFormat extends PromptFormat {
+  Llama2ChatFormat()
+      : super(
+          PromptFormatType.raw,
+          inputSequence: "[INST]",
+          outputSequence: "[/INST]",
+          systemSequence: "<<SYS>>",
+          stopSequence: "</s>",
+        );
+}
+
+/// Custom Llama3 chat format
+class Llama3ChatFormat extends PromptFormat {
+  Llama3ChatFormat()
+      : super(
+          PromptFormatType.raw,
+          inputSequence: "Assistant\n",
+          outputSequence: "User\n",
+          systemSequence: "System\n",
+          stopSequence: "</s>",
+        );
+}
 
 /// A helper class to manage token generation in a non-blocking way
 class LlamaTokenStream {
@@ -112,35 +139,46 @@ class LlamaService {
   /// Stream of response tokens
   Stream<String>? get responseStream => _responseStreamController?.stream;
   
-  /// Get model path
+  /// Get path to the model file
   static Future<String> getModelPath({String? modelFileName}) async {
-    final documentsDir = await getApplicationDocumentsDirectory();
+    // Get the application documents directory
+    final appDir = await getApplicationDocumentsDirectory();
+
+    // Get the models directory
+    final modelDir = path.join(appDir.path, kModelsDirectoryName);
+
+    // Create directory if it doesn't exist
+    final directory = Directory(modelDir);
+    if (!await directory.exists()) {
+      await directory.create(recursive: true);
+    }
+
+    // Return the path to the model file
     return path.join(
-      documentsDir.path,
-      kModelsDirectoryName,
+      modelDir,
       modelFileName ?? kMistralModelFileName,
     );
   }
-  
+
   /// Initialize the Llama service with the given model path
   Future<bool> initialize(String modelPath, {Function(String message, {bool isError})? toastCallback}) async {
     showToast = toastCallback;
-    
+
     if (_isRunning && _llamaParent != null) {
       _showToast('LlamaService already initialized');
       return true;
     }
-    
+
     if (_initCompleter != null && !_initCompleter!.isCompleted) {
       _showToast('LlamaService initialization in progress');
       return _initCompleter!.future.then((_) => true);
     }
-    
+
     _initCompleter = Completer<void>();
-    
+
     try {
       _showToast('Initializing LLM with model: ${path.basename(modelPath)}');
-      
+
       // Check if model exists first
       final modelFile = File(modelPath);
       if (!await modelFile.exists()) {
@@ -148,13 +186,13 @@ class LlamaService {
         _initCompleter?.complete();
         return false;
       }
-      
+
       // Try several approaches to find the dynamic library
       String? libraryPath;
-      
+
       // Approach 1: Try to find the library relative to the project root
       try {
-        // Get the project root directory 
+        // Get the project root directory
         final projectRootDir = await _findProjectRoot();
         if (projectRootDir != null) {
           final devLibPath = path.join(
@@ -166,7 +204,7 @@ class LlamaService {
             'Libraries',
             'libllama.dylib'
           );
-          
+
           final devLibFile = File(devLibPath);
           if (await devLibFile.exists()) {
             libraryPath = devLibPath;
@@ -175,13 +213,13 @@ class LlamaService {
       } catch (e) {
         _showToast('Error looking for library in project directory: $e');
       }
-      
+
       // Approach 2: If not found, try a path relative to the model file
       if (libraryPath == null) {
         try {
           final modelDir = path.dirname(modelPath);
           final libNextToModelPath = path.join(modelDir, 'libllama.dylib');
-          
+
           final libFile = File(libNextToModelPath);
           if (await libFile.exists()) {
             _showToast('Found library next to model: $libNextToModelPath');
@@ -191,30 +229,32 @@ class LlamaService {
           _showToast('Error looking for library next to model: $e');
         }
       }
-      
+
       // Approach 3: Fallback to system path
       if (libraryPath == null) {
         _showToast('Using system library path as fallback');
         libraryPath = 'libllama.dylib';
       }
-      
+
       // Set the library path
       Llama.libraryPath = libraryPath;
-      
+
       // Create a ModelParams with GPU acceleration
       final modelParams = ModelParams();
-      modelParams.nGpuLayers = 26;     // Load 16 layers on GPU for speed
-      modelParams.mainGpu = 0;         // Use primary GPU
+
+      modelParams.nGpuLayers = 32;
+      modelParams.mainGpu=0;
+
+      // No formatter for better JSON generation
       
-      // Use conservative settings to prevent freezing
+      // Use conservative settings to prevent freezing as per user preferences
       _contextParams = ContextParams();
-      _contextParams!.nCtx = 2048;          // Small context size to prevent memory issues
-      _contextParams!.nBatch = 26;         // Moderate batch size (default is 512)
-      _contextParams!.nUbatch = 26;        // Match physical batch size
-      _contextParams!.nThreads = 8;        // Conservative thread count
-      _contextParams!.nThreadsBatch = 8;   // Match batch thread count
-      _contextParams!.nPredict = 100;      // Limited token generation
-      _contextParams!.nSeqMax = 1;         // Single sequence only
+      _contextParams!.nCtx = 1024;          // Reduced context size
+      _contextParams!.nBatch = 26;          // Smaller batch size
+      _contextParams!.nUbatch = 26;         // Match batch size
+      _contextParams!.nThreads = 8;         // Limited thread count
+      _contextParams!.nThreadsBatch = 8;    // Match thread count
+      _contextParams!.nPredict = 100;       // Reasonable token generation limit
       _contextParams!.offloadKqv = true;   // Offload KQV operations to GPU
       _contextParams!.logitsAll = false;   // Don't compute logits for all tokens
       _contextParams!.embeddings = false;  // Don't compute embeddings
@@ -224,14 +264,14 @@ class LlamaService {
 
       // Configure aggressive sampling for speed
       final samplerParams = SamplerParams();
-      samplerParams.greedy = false;         // Greedy sampling for maximum speed
-      samplerParams.temp = 0.7;            // Zero temperature = pure greedy
+      samplerParams.greedy = true;         // Non-greedy sampling
+      samplerParams.temp = 0.2;            // Higher temperature
       samplerParams.topK = 1;              // Only consider most likely token
       samplerParams.topP = 1.0;            // Don't filter by probability
       samplerParams.minP = 0.5;            // No minimum probability threshold
-      samplerParams.typical = 0.0;         // Disable typical sampling
-      samplerParams.penaltyLastTokens = 0; // Disable penalty window
-      samplerParams.penaltyRepeat = 1.0;   // No repeat penalty 
+      samplerParams.typical = 0.5;         // Disable typical sampling
+      samplerParams.penaltyLastTokens = 1; // Disable penalty window
+      samplerParams.penaltyRepeat = 1.0;   // No repeat penalty
       samplerParams.penaltyFreq = 0.0;     // No frequency penalty
       samplerParams.penaltyPresent = 0.0;  // No presence penalty
       samplerParams.ignoreEOS = false;     // Allow normal EOS handling for proper completion
@@ -243,11 +283,11 @@ class LlamaService {
         contextParams: _contextParams!,
         samplingParams: samplerParams,
       );
-      
+
       // Initialize the isolate parent
       _llamaParent = LlamaParent(loadCommand);
       await _llamaParent!.init();
-      
+
       // Create a stream controller for response tokens
       _responseStreamController = StreamController<String>.broadcast();
 
@@ -256,7 +296,7 @@ class LlamaService {
         (token) {
           // Debug: Print each token as it's generated
           print('LlamaService: Token generated: "$token"');
-          
+
           // Add token to our stream controller
           _responseStreamController?.add(token);
         },
@@ -270,11 +310,11 @@ class LlamaService {
           _showToast('Text generation complete');
         },
       );
-      
+
       _showToast('LLM successfully initialized in isolate');
       _isRunning = true;
       _initCompleter?.complete();
-      
+
       return true;
     } catch (e) {
       _showToast('Error initializing LLM: $e', isError: true);
@@ -282,48 +322,73 @@ class LlamaService {
       return false;
     }
   }
-  
+
+  /// Helper method to extract a JSON object from a response
+  String _extractJsonObject(String response) {
+    // Check for standard JSON format with braces
+    final jsonRegex = RegExp(r'(\{(?:[^{}]|(?:\{(?:[^{}]|(?:\{[^{}]*\}))*\}))*\})');
+    final match = jsonRegex.firstMatch(response);
+    if (match != null) {
+      return match.group(0) ?? response;
+    }
+    return response;
+  }
+
+  /// Check if a string contains a complete, valid JSON object
+  bool _isValidCompletedJson(String text) {
+    try {
+      // Extract just the JSON part using regex
+      final jsonText = _extractJsonObject(text);
+
+      // Try to decode the JSON to validate it
+      jsonDecode(jsonText);
+      return true;
+    } catch (e) {
+      // Not valid JSON yet
+      return false;
+    }
+  }
+
   /// Process a prompt and generate a response
-  /// 
+  ///
   /// Parameters:
   /// - prompt: The input text to generate a response for
   /// - maxTokens: Maximum number of tokens to generate (default: 512)
-  /// - onToken: Optional callback for each token generated
+  /// - onToken: Optional callback to process tokens as they're generated
   /// - onError: Optional callback for error handling
-  /// 
+  ///
   /// Returns a Future with the complete response text
   Future<String> processPrompt(String prompt, {
-    int maxTokens = 512, 
+    int maxTokens = 512,
     Function(String token)? onToken,
     Function(String errorMsg)? onError,
   }) async {
     if (!_isRunning || _llamaParent == null) {
-      const error = 'LlamaService not initialized';
-      print('LlamaService ERROR: $error');
+      final error = "Model not initialized";
       _showToast(error, isError: true);
       onError?.call(error);
       return "Error: $error";
     }
-    
+
     print('LlamaService: Processing prompt: "$prompt"');
     _showToast('Generating response...');
-    
+
     try {
       // Create a completer to await the full response
       final completer = Completer<String>();
       final responseBuffer = StringBuffer();
       var tokenCount = 0;
-      
+
       // Get the target token limit from context params
       final targetTokenCount = _contextParams?.nPredict ?? 5;
-      
+
       // Create a refreshable timeout timer
       Timer? timeoutTimer;
       StreamSubscription? subscription;
       refreshTimeout() {
         // Cancel existing timer if any
         timeoutTimer?.cancel();
-        
+
         // Create new timer
         timeoutTimer = Timer(const Duration(seconds: 60), () {
           if (!completer.isCompleted) {
@@ -332,10 +397,10 @@ class LlamaService {
             _showToast(errorMsg, isError: true);
             onError?.call(errorMsg);
             completer.completeError(errorMsg);
-            
+
             // Cancel the subscription immediately
             subscription?.cancel();
-            
+
             // Stop the generation
             _llamaParent?.stop().catchError((e) {
               print('LlamaService: Error stopping generation: $e');
@@ -343,48 +408,48 @@ class LlamaService {
           }
         });
       }
-      
+
       // Start initial timeout
       refreshTimeout();
-      
+
       // Set up a subscription to collect all tokens
       subscription = _llamaParent!.stream.listen(
         (token) {
           // Refresh timeout on every token
           refreshTimeout();
-          
+
           // Add token to response buffer
           responseBuffer.write(token);
           tokenCount++;
-          
+
           // Call onToken callback if provided
           onToken?.call(token);
-          
+
           // Check if response contains a complete JSON object and end early if it does
           final currentResponse = responseBuffer.toString();
           if (currentResponse.contains('}') && _isValidCompletedJson(currentResponse)) {
             print('LlamaService: Found complete JSON object. Stopping generation.');
-            
+
             // Extract just the JSON object for the response
             final jsonObject = _extractJsonObject(currentResponse);
-            
+
             if (!completer.isCompleted) {
               completer.complete(jsonObject);
-              
+
               // Cancel the subscription immediately to stop token handling
               subscription?.cancel();
-              
+
               // Stop the generation
               _llamaParent?.stop().catchError((e) {
                 print('LlamaService: Error stopping generation: $e');
               });
-              
+
               // Cancel the timeout timer
               timeoutTimer?.cancel();
             }
             return;
           }
-          
+
           // Check if we've reached the target token count and manually complete
           if (tokenCount >= targetTokenCount && !completer.isCompleted) {
             print('LlamaService: Reached target token count ($targetTokenCount). Treating as error.');
@@ -392,10 +457,10 @@ class LlamaService {
             _showToast(errorMsg, isError: true);
             onError?.call(errorMsg);
             completer.completeError(errorMsg);
-            
+
             // Cancel the subscription immediately to stop token handling
             subscription?.cancel();
-            
+
             // Stop the generation
             _llamaParent?.stop().catchError((e) {
               print('LlamaService: Error stopping generation: $e');
@@ -410,7 +475,7 @@ class LlamaService {
           if (!completer.isCompleted) {
             completer.completeError(error);
           }
-          
+
           // Cancel the timeout timer
           timeoutTimer?.cancel();
         },
@@ -420,16 +485,16 @@ class LlamaService {
           if (!completer.isCompleted) {
             completer.complete(responseBuffer.toString());
           }
-          
+
           // Cancel the timeout timer
           timeoutTimer?.cancel();
         }
       );
-      
+
       print('LlamaService: Sending prompt to isolate');
       // Send the prompt to the isolate
       _llamaParent!.sendPrompt(prompt);
-      
+
       // Wait for the response to complete
       String response;
       try {
@@ -444,20 +509,20 @@ class LlamaService {
         // Rethrow to be caught by outer try-catch
         rethrow;
       }
-      
+
       // Cancel the subscription
       await subscription?.cancel();
-      
+
       // Cancel the timeout timer
       timeoutTimer?.cancel();
-      
+
       // Try to stop the generation in case it's still running
       try {
         await _llamaParent!.stop();
       } catch (e) {
         print('LlamaService: Error stopping generation: $e');
       }
-      
+
       // Show the response in the toast
       _showToast(response.trim());
       return response;
@@ -469,29 +534,29 @@ class LlamaService {
       return "Error: $e";
     }
   }
-  
+
   /// Shutdown and clean up resources
   Future<void> shutdown() async {
     if (!_isRunning) return;
-    
+
     try {
       // Clean up resources
       if (_llamaParent != null) {
         await _llamaParent!.dispose();
         _llamaParent = null;
       }
-      
+
       // Close stream controller
       await _responseStreamController?.close();
       _responseStreamController = null;
-      
+
       _isRunning = false;
       _showToast('LLM shutdown complete');
     } catch (e) {
       _showToast('Error during shutdown: $e', isError: true);
     }
   }
-  
+
   /// Show toast message
   void _showToast(String message, {bool isError = false}) {
     // Only show toast if callback exists and isn't empty
@@ -504,51 +569,13 @@ class LlamaService {
       }
     }
   }
-  
+
   /// Check if we have a valid context to show UI elements
   bool _hasValidContext() {
     try {
       return WidgetsBinding.instance.lifecycleState != AppLifecycleState.detached;
     } catch (e) {
       return false;
-    }
-  }
-  
-  /// Check if a string contains a valid and complete JSON object
-  bool _isValidCompletedJson(String text) {
-    try {
-      // Look for patterns like {...} with optional content before or after
-      final regexp = RegExp(r'.*?(\{.*\}).*');
-      final match = regexp.firstMatch(text);
-      
-      if (match != null && match.groupCount >= 1) {
-        final jsonStr = match.group(1);
-        // Try parsing to verify it's valid JSON
-        json.decode(jsonStr!);
-        return true;
-      }
-      
-      return false;
-    } catch (e) {
-      // Not valid JSON yet
-      return false;
-    }
-  }
-  
-  /// Extract just the JSON object from text that might have other content
-  String _extractJsonObject(String text) {
-    try {
-      final regexp = RegExp(r'.*?(\{.*\}).*');
-      final match = regexp.firstMatch(text);
-      
-      if (match != null && match.groupCount >= 1) {
-        return match.group(1)!;
-      }
-      
-      // If we couldn't extract JSON, return the original text
-      return text;
-    } catch (e) {
-      return text;
     }
   }
   

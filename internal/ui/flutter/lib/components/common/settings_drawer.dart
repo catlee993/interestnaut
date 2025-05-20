@@ -1,8 +1,9 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as path;
 import 'continuous_playback_switch.dart';
-import '../../services/mistral_service.dart';
+import '../../services/llm_downloader_service.dart';
 import '../../services/llama_service.dart';
 import '../../services/model_constants.dart';
 import '../../theme.dart';
@@ -44,11 +45,11 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
 
   Future<void> _checkModelStatus() async {
     try {
-      // Try to check if model exists via FFI
-      final hasModel = await MistralService.hasModel();
+      // Check if any models exist in the models directory
+      final hasModels = await LLMDownloaderService.hasModels();
       if (mounted) {
         setState(() {
-          _hasModel = hasModel;
+          _hasModel = hasModels;
         });
       }
     } catch (e) {
@@ -62,10 +63,9 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
   }
 
   Future<String> _getModelPath() async {
-    final directory = await getApplicationDocumentsDirectory();
-    // Use the same filename as defined in the MistralService
-    final path = '${directory.path}/${kModelsDirectoryName}/${kMistralModelFileName}';
-    return path;
+    // Use the proper method from LLMDownloaderService
+    final modelDir = await LLMDownloaderService.getModelDirectory();
+    return path.join(modelDir, kMistralModelFileName);
   }
 
   Future<void> _downloadModel() async {
@@ -76,19 +76,23 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
     });
 
     try {
-      final modelPath = await _getModelPath();
+      // Get the model directory
+      final modelDir = await LLMDownloaderService.getModelDirectory();
 
       // Show a toast that download has started
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Downloading Mistral AI model (4.6GB). This may take a while...'),
+          content: Text('Downloading model (4.6GB). This may take a while...'),
           duration: Duration(seconds: 5),
         ),
       );
 
       try {
-        // Start the download using the pure Dart implementation
-        final response = await MistralService.downloadModel(modelPath);
+        // Start the download using the proper method signature
+        final response = await LLMDownloaderService.downloadModel(
+          modelDir,
+          kMistralModelFileName
+        );
 
         if (mounted) {
           setState(() {
@@ -100,8 +104,8 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(response.success
-                  ? 'Mistral AI model downloaded successfully!'
-                  : 'Failed to download Mistral AI model: ${response.error}'),
+                  ? 'Model downloaded successfully!'
+                  : 'Failed to download model: ${response.error}'),
               duration: const Duration(seconds: 5),
             ),
           );
@@ -130,7 +134,7 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
         // Show error toast
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error downloading Mistral AI model: $e'),
+            content: Text('Error downloading model: $e'),
             duration: const Duration(seconds: 5),
           ),
         );
@@ -147,7 +151,7 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
     });
 
     try {
-      final modelPath = await LlamaService.getModelPath();
+      final modelPath = await LlamaService.getModelPath(modelFileName: kLlamaModelFileName);
 
       // Initialize LLM with toast callback
       final llamaService = LlamaService();
@@ -247,8 +251,8 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
                     const SizedBox(height: 8),
                     Text(
                       _hasModel
-                          ? 'Mistral AI model is installed'
-                          : 'Download the Mistral AI model (4.6GB) to enable offline AI suggestions',
+                          ? 'Model is installed'
+                          : 'Download the model (4.6GB) to enable offline AI suggestions',
                       style: const TextStyle(
                         color: Colors.white70,
                         fontSize: 14,
@@ -282,7 +286,7 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
                                   Text('Downloading...'),
                                 ],
                               )
-                            : Text(_hasModel ? 'Installed' : 'Install Mistral AI'),
+                            : Text(_hasModel ? 'Installed' : 'Install Model'),
                       ),
                     ),
                     const SizedBox(height: 16),

@@ -7,7 +7,7 @@ import 'package:path/path.dart' as path;
 import 'model_constants.dart';
 
 /// Constants for model files
-export 'model_constants.dart' show kMistralModelFileName;
+export 'model_constants.dart' show kModelsDirectoryName;
 
 /// Response from the download operation
 class DownloadModelResponse {
@@ -29,16 +29,15 @@ class DownloadModelResponse {
   }
 }
 
-/// Service for Mistral operations
+/// Service for LLM model operations
 /// Pure Dart implementation without FFI
-class MistralService {
-  // Constants for the Mistral model
-  static const String modelDownloadUrl = "https://interestnaut.com/Mistral-7B-Instruct-v0.3-q4_1.gguf";
-  static const String modelFileName = kMistralModelFileName;
+class LLMDownloaderService {
+  // Default download URL - can be overridden
+  static String defaultModelDownloadUrl = "https://interestnaut.com/Mistral-7B-Instruct-v0.3-q4_1.gguf";
   
   // Singleton pattern with private constructor
-  static final MistralService _instance = MistralService._();
-  factory MistralService() => _instance;
+  static final LLMDownloaderService _instance = LLMDownloaderService._();
+  factory LLMDownloaderService() => _instance;
   
   // Locking mechanism
   final Completer<void> _mutex = Completer<void>.sync()..complete();
@@ -47,16 +46,20 @@ class MistralService {
   // Download future - used to return the same future for concurrent requests
   Future<DownloadModelResponse>? _activeDownload;
   
-  // Cache for whether the model exists
-  bool? _modelExists;
+  // Cache for whether any models exist
+  bool? _modelsExist;
   
   // Private constructor
-  MistralService._();
+  LLMDownloaderService._();
   
-  /// Download the Mistral model to the specified directory
+  /// Download a model to the specified directory
   ///
   /// Returns a [DownloadModelResponse] when the download is complete
-  static Future<DownloadModelResponse> downloadModel(String modelDir) async {
+  static Future<DownloadModelResponse> downloadModel(
+    String modelDir, 
+    String modelFileName, 
+    {String? downloadUrl}
+  ) async {
     // If a download is already in progress, return the same future
     if (_instance._activeDownload != null && _instance._isDownloading) {
       debugPrint('Download already in progress, returning existing future');
@@ -73,15 +76,23 @@ class MistralService {
     _instance._isDownloading = true;
     
     // Create a new download future
-    _instance._activeDownload = _instance._downloadModelImpl(modelDir);
+    _instance._activeDownload = _instance._downloadModelImpl(
+      modelDir, 
+      modelFileName, 
+      downloadUrl ?? defaultModelDownloadUrl
+    );
     
     // Return the active download
     return _instance._activeDownload!;
   }
   
   /// Internal implementation for downloading the model
-  Future<DownloadModelResponse> _downloadModelImpl(String modelDir) async {
-    debugPrint('Starting Mistral model download to $modelDir');
+  Future<DownloadModelResponse> _downloadModelImpl(
+    String modelDir,
+    String modelFileName,
+    String downloadUrl
+  ) async {
+    debugPrint('Starting model download to $modelDir');
     
     try {
       final modelPath = path.join(modelDir, modelFileName);
@@ -90,7 +101,7 @@ class MistralService {
       // Check if the model already exists
       if (await modelFile.exists()) {
         debugPrint('Model file already exists at $modelPath, skipping download.');
-        _modelExists = true;
+        _modelsExist = true;
         _isDownloading = false;
         return DownloadModelResponse(
           success: true,
@@ -99,13 +110,13 @@ class MistralService {
       }
       
       // Ensure directory exists
-      final directory = Directory(path.dirname(modelDir));
+      final directory = Directory(modelDir);
       if (!await directory.exists()) {
         await directory.create(recursive: true);
       }
       
       // Start the download
-      final request = http.Request('GET', Uri.parse(modelDownloadUrl));
+      final request = http.Request('GET', Uri.parse(downloadUrl));
       final response = await http.Client().send(request);
       
       if (response.statusCode != 200) {
@@ -132,9 +143,9 @@ class MistralService {
       });
       
       await fileStream.close();
-      _modelExists = true;
+      _modelsExist = true;
       
-      debugPrint('Mistral model download completed successfully');
+      debugPrint('Model download completed successfully');
       return DownloadModelResponse(
         success: true,
         path: modelPath
@@ -152,25 +163,40 @@ class MistralService {
   /// Get the model directory path
   static Future<String> getModelDirectory() async {
     final appDir = await getApplicationDocumentsDirectory();
-    return path.join(appDir.path, 'mistral');
+    return path.join(appDir.path, kModelsDirectoryName);
   }
   
-  /// Check if the Mistral model exists
+  /// Check if any model exists in the models directory
   ///
-  /// Returns true if the model is available, false otherwise
-  static Future<bool> hasModel() async {
+  /// Returns true if at least one .gguf file is available, false otherwise
+  static Future<bool> hasModels() async {
     // Use cached value if available
-    if (_instance._modelExists != null) {
-      return _instance._modelExists!;
+    if (_instance._modelsExist != null) {
+      return _instance._modelsExist!;
     }
     
     try {
       final modelDir = await getModelDirectory();
-      final modelPath = path.join(modelDir, modelFileName);
-      final exists = await File(modelPath).exists();
+      final directory = Directory(modelDir);
+      
+      if (!await directory.exists()) {
+        _instance._modelsExist = false;
+        return false;
+      }
+      
+      // Count .gguf files in the directory
+      int ggufCount = 0;
+      await for (final entity in directory.list()) {
+        if (entity is File && entity.path.toLowerCase().endsWith('.gguf')) {
+          ggufCount++;
+          break; // At least one file exists, no need to count all
+        }
+      }
+      
+      final exists = ggufCount > 0;
       
       // Cache the result
-      _instance._modelExists = exists;
+      _instance._modelsExist = exists;
       return exists;
     } catch (e) {
       debugPrint('Error checking model existence: $e');
@@ -178,13 +204,28 @@ class MistralService {
     }
   }
   
-  /// Handle a new suggestion (placeholder implementation)
-  static Future<Map<String, dynamic>> handleNewSuggestion() async {
-    // This would be replaced with actual implementation
-    // for generating suggestions using the Mistral model
-    return {
-      'title': 'Sample Song',
-      'artist': 'Sample Artist',
-    };
+  /// Get a list of available models
+  static Future<List<String>> getAvailableModels() async {
+    try {
+      final modelDir = await getModelDirectory();
+      final directory = Directory(modelDir);
+      
+      if (!await directory.exists()) {
+        return [];
+      }
+      
+      // Collect all .gguf files in the directory
+      final models = <String>[];
+      await for (final entity in directory.list()) {
+        if (entity is File && entity.path.toLowerCase().endsWith('.gguf')) {
+          models.add(path.basename(entity.path));
+        }
+      }
+      
+      return models;
+    } catch (e) {
+      debugPrint('Error listing available models: $e');
+      return [];
+    }
   }
 }
