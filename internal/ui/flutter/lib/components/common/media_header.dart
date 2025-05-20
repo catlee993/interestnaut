@@ -29,7 +29,7 @@ class MediaHeader extends StatefulWidget {
 class _MediaHeaderState extends State<MediaHeader> {
   late String activeMedia;
   late GlobalKey _menuKey;
-  bool _showSettingsDrawer = false;
+  final bool _showSettingsDrawer = false;
   
   // Add Spotify-related state
   final SpotifyService _spotifyService = SpotifyService();

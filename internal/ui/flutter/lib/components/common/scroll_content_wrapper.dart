@@ -88,6 +88,8 @@ class _ScrollContentWrapperState extends State<ScrollContentWrapper> {
 
 // Example usage:
 class ExampleUsage extends StatelessWidget {
+  const ExampleUsage({super.key});
+
   @override
   Widget build(BuildContext context) {
     return ScrollContentWrapper(

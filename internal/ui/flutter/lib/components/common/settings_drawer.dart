@@ -1,12 +1,9 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as path;
 import 'continuous_playback_switch.dart';
 import '../../services/llm_downloader_service.dart';
 import '../../services/llama_service.dart';
 import '../../services/model_constants.dart';
-import '../../theme.dart';
 
 /// A widget that displays the settings drawer overlay.
 /// This should be placed at a top level in the widget tree, not inside a constrained container.
@@ -338,7 +335,7 @@ Your reasoning must be a single sentence, under 80 characters, and not repeat it
                                   Text('Running...'),
                                 ],
                               )
-                            : Text('Test LLM Integration'),
+                            : const Text('Test LLM Integration'),
                       ),
                     ),
                   ],

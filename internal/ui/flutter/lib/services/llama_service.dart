@@ -1,14 +1,11 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:math' as math;
 import 'dart:convert';  // Add json library
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 import 'package:llama_cpp_dart/llama_cpp_dart.dart';
 import 'model_constants.dart';
-import 'llm_downloader_service.dart';
 
 /// Custom Llama2 chat format
 class Llama2ChatFormat extends PromptFormat {
@@ -364,7 +361,7 @@ class LlamaService {
     Function(String errorMsg)? onError,
   }) async {
     if (!_isRunning || _llamaParent == null) {
-      final error = "Model not initialized";
+      const error = "Model not initialized";
       _showToast(error, isError: true);
       onError?.call(error);
       return "Error: $error";
@@ -393,7 +390,7 @@ class LlamaService {
         timeoutTimer = Timer(const Duration(seconds: 60), () {
           if (!completer.isCompleted) {
             print('LlamaService: Timeout reached. Treating as error.');
-            final errorMsg = 'Response generation timed out';
+            const errorMsg = 'Response generation timed out';
             _showToast(errorMsg, isError: true);
             onError?.call(errorMsg);
             completer.completeError(errorMsg);
@@ -453,7 +450,7 @@ class LlamaService {
           // Check if we've reached the target token count and manually complete
           if (tokenCount >= targetTokenCount && !completer.isCompleted) {
             print('LlamaService: Reached target token count ($targetTokenCount). Treating as error.');
-            final errorMsg = 'Token limit reached without proper completion';
+            const errorMsg = 'Token limit reached without proper completion';
             _showToast(errorMsg, isError: true);
             onError?.call(errorMsg);
             completer.completeError(errorMsg);
@@ -503,7 +500,7 @@ class LlamaService {
       } catch (e) {
         print('LlamaService ERROR: Completion error: $e');
         // Cancel the subscription in case of error
-        await subscription?.cancel();
+        await subscription.cancel();
         // Cancel the timeout timer
         timeoutTimer?.cancel();
         // Rethrow to be caught by outer try-catch
@@ -511,7 +508,7 @@ class LlamaService {
       }
 
       // Cancel the subscription
-      await subscription?.cancel();
+      await subscription.cancel();
 
       // Cancel the timeout timer
       timeoutTimer?.cancel();
