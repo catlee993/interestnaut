@@ -242,7 +242,7 @@ class LlamaService {
       // Create a ModelParams with GPU acceleration
       final modelParams = ModelParams();
 
-      modelParams.nGpuLayers = 32;
+      modelParams.nGpuLayers = 26;
       modelParams.mainGpu=0;
 
       // No formatter for better JSON generation
@@ -250,11 +250,11 @@ class LlamaService {
       // Use conservative settings to prevent freezing as per user preferences
       _contextParams = ContextParams();
       _contextParams!.nCtx = 1024;          // Reduced context size
-      _contextParams!.nBatch = 26;          // Smaller batch size
-      _contextParams!.nUbatch = 26;         // Match batch size
+      _contextParams!.nBatch = 256;          // Smaller batch size
+      _contextParams!.nUbatch = 256;         // Match batch size
       _contextParams!.nThreads = 8;         // Limited thread count
       _contextParams!.nThreadsBatch = 8;    // Match thread count
-      _contextParams!.nPredict = 100;       // Reasonable token generation limit
+      _contextParams!.nPredict = 256;       // Reasonable token generation limit
       _contextParams!.offloadKqv = true;   // Offload KQV operations to GPU
       _contextParams!.logitsAll = false;   // Don't compute logits for all tokens
       _contextParams!.embeddings = false;  // Don't compute embeddings
@@ -265,7 +265,7 @@ class LlamaService {
       // Configure aggressive sampling for speed
       final samplerParams = SamplerParams();
       samplerParams.greedy = true;         // Non-greedy sampling
-      samplerParams.temp = 0.2;            // Higher temperature
+      samplerParams.temp = 0.0;            // Higher temperature
       samplerParams.topK = 1;              // Only consider most likely token
       samplerParams.topP = 1.0;            // Don't filter by probability
       samplerParams.minP = 0.5;            // No minimum probability threshold
@@ -359,7 +359,7 @@ class LlamaService {
   ///
   /// Returns a Future with the complete response text
   Future<String> processPrompt(String prompt, {
-    int maxTokens = 512,
+    int maxTokens = 1024,
     Function(String token)? onToken,
     Function(String errorMsg)? onError,
   }) async {
@@ -380,7 +380,7 @@ class LlamaService {
       var tokenCount = 0;
 
       // Get the target token limit from context params
-      final targetTokenCount = _contextParams?.nPredict ?? 5;
+      final targetTokenCount = _contextParams?.nPredict ?? 256;
 
       // Create a refreshable timeout timer
       Timer? timeoutTimer;

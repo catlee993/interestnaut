@@ -163,7 +163,27 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
       if (success) {
         // Send a simple prompt to test with minimal tokens needed
         final response = await llamaService.processPrompt(
-          "Generate one song: title, artist, album in JSON; respond with one JSON object only, nothing else. \n {\"title\": \"Song Title\", \"artist\": \"Artist Name\", \"album\": \"Album Name\"}",
+          r'''
+Below is a JSON Schema.  Produce exactly one JSON object that _validates_ against it—no extra keys, no wrapping in text or markdown.
+Verify this title exists through wikipedia.
+Schema:
+{
+  "type": "object",
+  "properties": {
+    "title":  { "type": "string" },
+    "artist": { "type": "string" },
+    "album":  { "type": "string" },
+    "reasoning": { "type": "string" }
+  },
+  "required": ["title","artist","album","reasoning"],
+  "additionalProperties": false
+}
+
+### Instruction:
+Generate one song recommendation that matches the schema.
+
+### Response:
+''',
         );
         print("Generated response: $response");
         // Note: The service will handle showing toast messages for the results
