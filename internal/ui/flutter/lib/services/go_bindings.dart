@@ -5,6 +5,8 @@ import 'ffi_init.dart';
 
 // Import all FFI bindings
 import 'music_ffi.dart';
+import 'recommendation_ffi.dart';
+import 'recommendation_service.dart' show MediaSuggestion;
 
 /// GoBindings provides direct access to the Go backend functions
 /// Similar to the Wails bindings in frontend/wailsjs/go/bindings
@@ -14,10 +16,12 @@ class GoBindings {
   
   // Direct bindings to Go services
   late MusicBindings music;
+  late RecommendationBindings recommendations;
   
   // Private constructor for singleton
   GoBindings._() {
     music = MusicBindings();
+    recommendations = RecommendationBindings();
   }
   
   /// Returns the singleton instance
@@ -146,5 +150,62 @@ class MusicBindings {
       debugPrint('FFI status: initialized=${FFIInitializer.isInitialized}');
       // Don't rethrow - the UI should be listening to the event bus for auth status
     }
+  }
+}
+
+/// RecommendationBindings provides direct access to Go functions for recommendations.
+class RecommendationBindings {
+  final _ffi = RecommendationFFI();
+
+  Future<void> _ensureInitialized() async {
+    if (!GoBindings.ffiAvailable) {
+      debugPrint("FFI not initialized or valid in RecommendationBindings, attempting initialization...");
+      try {
+        if (!FFIInitializer.isInitialized) {
+          await FFIInitializer.initialize();
+        }
+        await GoBindings.initialize(); // Ensures GoBindings singleton is also ready
+        if (!GoBindings.ffiAvailable) {
+          throw Exception('FFI initialization completed but verification failed in RecommendationBindings.');
+        }
+      } catch (e) {
+        debugPrint('Error during RecommendationBindings initialization: $e');
+        throw Exception('Failed to initialize FFI for RecommendationBindings: $e');
+      }
+    }
+  }
+
+  Future<MediaSuggestion> findAndSaveSuggestion(String rawSuggestion, String mediaType, String llmReasoning) async {
+    await _ensureInitialized();
+    final resultJson = await _ffi.findAndSaveSuggestion(rawSuggestion, mediaType, llmReasoning);
+    FFIBindingBase.checkForError(resultJson); // Centralized error check
+    return MediaSuggestion.fromJson(resultJson);
+  }
+
+  Future<List<MediaSuggestion>> getAllSuggestions(String mediaType, {String statusFilter = '', int limit = 0, int offset = 0}) async {
+    await _ensureInitialized();
+    final resultList = await _ffi.getAllSuggestions(mediaType, statusFilter, limit, offset);
+    return resultList.map((item) => MediaSuggestion.fromJson(item as Map<String, dynamic>)).toList();
+  }
+
+  Future<void> updateSuggestionStatus(String suggestionId, String status) async {
+    await _ensureInitialized();
+    final resultJson = await _ffi.updateSuggestionStatus(suggestionId, status);
+    FFIBindingBase.checkForError(resultJson);
+    if (resultJson.containsKey('status') && resultJson['status'] == 'success') {
+      return;
+    } else {
+      throw Exception("Failed to update suggestion status or unexpected response: $resultJson");
+    }
+  }
+
+  Future<int> getPendingSuggestionsCount(String mediaType) async {
+    await _ensureInitialized();
+    final resultJson = await _ffi.getPendingSuggestionsCount(mediaType);
+    FFIBindingBase.checkForError(resultJson);
+    if (resultJson.containsKey('count') && resultJson['count'] is int) {
+      return resultJson['count'] as int;
+    }
+    throw Exception('Failed to get pending suggestions count or unexpected response format: $resultJson');
   }
 }

@@ -1,10 +1,16 @@
 package db
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
+	"interestnaut/internal/app/models"
+	"log"
+	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // Common errors
@@ -652,11 +658,10 @@ func (db *SqliteDatabase) GetConstraintsByMediaType(mediaType MediaType) ([]*Con
 	query := `
 	SELECT id, rule, media, created_at, updated_at
 	FROM constraints
-	WHERE media = ? OR media = ?
-	ORDER BY id
+	WHERE media = ? OR media = 'global'
 	`
 
-	rows, err := db.db.Query(query, string(mediaType), string(MediaTypeGlobal))
+	rows, err := db.db.Query(query, mediaType)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
 	}
@@ -664,16 +669,317 @@ func (db *SqliteDatabase) GetConstraintsByMediaType(mediaType MediaType) ([]*Con
 
 	var constraints []*Constraint
 	for rows.Next() {
-		var c Constraint
-		var mediaTypeStr string
-
-		if err := rows.Scan(&c.ID, &c.Rule, &mediaTypeStr, &c.CreatedAt, &c.UpdatedAt); err != nil {
+		var constraint Constraint
+		var createdAt, updatedAt string
+		if err := rows.Scan(
+			&constraint.ID,
+			&constraint.Rule,
+			&constraint.Media,
+			&createdAt,
+			&updatedAt,
+		); err != nil {
 			return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
 		}
-
-		c.Media = MediaType(mediaTypeStr)
-		constraints = append(constraints, &c)
+		// Parse timestamps
+		if constraint.CreatedAt, err = time.Parse(time.RFC3339, createdAt); err != nil {
+			// Try parsing without RFC3339 for older sqlite versions that might not store it perfectly
+			if constraint.CreatedAt, err = time.Parse("2006-01-02 15:04:05-07:00", createdAt); err != nil {
+				log.Printf("WARN: Could not parse constraint.CreatedAt timestamp '%s': %v", createdAt, err)
+			}
+		}
+		if constraint.UpdatedAt, err = time.Parse(time.RFC3339, updatedAt); err != nil {
+			if constraint.UpdatedAt, err = time.Parse("2006-01-02 15:04:05-07:00", updatedAt); err != nil {
+				log.Printf("WARN: Could not parse constraint.UpdatedAt timestamp '%s': %v", updatedAt, err)
+			}
+		}
+		constraints = append(constraints, &constraint)
 	}
 
 	return constraints, nil
+}
+
+// --- Recommendation System Methods ---
+
+// SaveMediaSuggestion saves a new suggestion or updates an existing one based on ID.
+func (db *SqliteDatabase) SaveMediaSuggestion(ctx context.Context, s *models.MediaSuggestion) error {
+	isNew := false
+	if s.ID == "" {
+		s.ID = uuid.NewString()
+		isNew = true
+		s.CreatedAt = time.Now()
+	}
+	now := time.Now()
+	s.UpdatedAt = &now
+
+	query := `
+	INSERT INTO recommendations (id, query, media_type, title, artist, album, cover_art_url, description, wiki_url, wikidata_id, bot_reasoning, status, created_at, updated_at)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	ON CONFLICT(id) DO UPDATE SET
+		query = excluded.query,
+		media_type = excluded.media_type,
+		title = excluded.title,
+		artist = excluded.artist,
+		album = excluded.album,
+		cover_art_url = excluded.cover_art_url,
+		description = excluded.description,
+		wiki_url = excluded.wiki_url,
+		wikidata_id = excluded.wikidata_id,
+		bot_reasoning = excluded.bot_reasoning,
+		status = excluded.status,
+		updated_at = excluded.updated_at
+	`
+	// If it's a new record, use its own CreatedAt. If updating, keep original CreatedAt.
+	// The ON CONFLICT clause for SQLite doesn't easily allow preserving created_at on update while setting it on insert.
+	// So, if it's not new, we fetch current created_at first, or rely on the fact that we don't list created_at in the SET part for updates (but excluded.updated_at handles this example).
+	// For simplicity and because the trigger handles updated_at, we can simplify the insert.
+	// The trigger will update `updated_at` so we don't strictly need to set it in the query, but it's good practice.
+
+	// For created_at, if it's an update, we want to preserve the original creation time.
+	// The current UPSERT logic will use `excluded.created_at` if it's an update, which is not what we want.
+	// We'll handle this by setting `created_at` only on `INSERT` and not touching it on `UPDATE`.
+
+	var stmt *sql.Stmt
+	var err error
+
+	if isNew {
+		query = `
+		INSERT INTO recommendations (id, query, media_type, title, artist, album, cover_art_url, description, wiki_url, wikidata_id, bot_reasoning, status, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`
+		stmt, err = db.db.PrepareContext(ctx, query)
+		if err != nil {
+			return fmt.Errorf("%w: preparing insert: %v", ErrDatabaseFailure, err)
+		}
+		defer stmt.Close()
+		_, err = stmt.ExecContext(ctx, s.ID, s.Query, s.MediaType, s.Title, s.Artist, s.Album, s.CoverArtURL, s.Description, s.WikiURL, s.WikidataID, s.BotReasoning, s.Status, s.CreatedAt, s.UpdatedAt)
+	} else {
+		query = `
+		UPDATE recommendations SET
+			query = ?,
+			media_type = ?,
+			title = ?,
+			artist = ?,
+			album = ?,
+			cover_art_url = ?,
+			description = ?,
+			wiki_url = ?,
+			wikidata_id = ?,
+			bot_reasoning = ?,
+			status = ?,
+			updated_at = ? 
+		WHERE id = ?
+		` // created_at is not updated
+		stmt, err = db.db.PrepareContext(ctx, query)
+		if err != nil {
+			return fmt.Errorf("%w: preparing update: %v", ErrDatabaseFailure, err)
+		}
+		defer stmt.Close()
+		_, err = stmt.ExecContext(ctx, s.Query, s.MediaType, s.Title, s.Artist, s.Album, s.CoverArtURL, s.Description, s.WikiURL, s.WikidataID, s.BotReasoning, s.Status, s.UpdatedAt, s.ID)
+	}
+
+	if err != nil {
+		return fmt.Errorf("%w: executing insert/update suggestion: %v", ErrDatabaseFailure, err)
+	}
+	return nil
+}
+
+// GetMediaSuggestionByID retrieves a specific suggestion by its unique ID.
+func (db *SqliteDatabase) GetMediaSuggestionByID(ctx context.Context, id string) (*models.MediaSuggestion, error) {
+	query := `
+	SELECT id, query, media_type, title, artist, album, cover_art_url, description, wiki_url, wikidata_id, bot_reasoning, status, created_at, updated_at
+	FROM recommendations
+	WHERE id = ?
+	`
+	row := db.db.QueryRowContext(ctx, query, id)
+	var s models.MediaSuggestion
+	var createdAtStr string
+	var updatedAtStr sql.NullString // updated_at can be NULL if using older sqlite versions or if not set by trigger initially
+
+	err := row.Scan(
+		&s.ID, &s.Query, &s.MediaType,
+		&s.Title, &s.Artist, &s.Album, &s.CoverArtURL,
+		&s.Description, &s.WikiURL, &s.WikidataID, &s.BotReasoning,
+		&s.Status, &createdAtStr, &updatedAtStr,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, ErrNotFound
+	} else if err != nil {
+		return nil, fmt.Errorf("%w: scanning suggestion: %v", ErrDatabaseFailure, err)
+	}
+
+	s.CreatedAt, err = time.Parse(time.RFC3339, createdAtStr) 
+	if err != nil {
+        // Fallback for different timestamp formats that might be in the DB
+        s.CreatedAt, err = time.Parse("2006-01-02 15:04:05-07:00", createdAtStr)
+        if err != nil {
+            s.CreatedAt, err = time.Parse("2006-01-02T15:04:05Z", createdAtStr) // ISO8601 UTC
+             if err != nil {
+                log.Printf("WARN: Could not parse GetMediaSuggestionByID.CreatedAt timestamp '%s': %v", createdAtStr, err)
+             }
+        }
+	}
+	if updatedAtStr.Valid {
+		updatedAt, parseErr := time.Parse(time.RFC3339, updatedAtStr.String)
+        if parseErr != nil {
+            updatedAt, parseErr = time.Parse("2006-01-02 15:04:05-07:00", updatedAtStr.String)
+            if parseErr != nil {
+                updatedAt, parseErr = time.Parse("2006-01-02T15:04:05Z", updatedAtStr.String)
+                if parseErr != nil {
+                     log.Printf("WARN: Could not parse GetMediaSuggestionByID.UpdatedAt timestamp '%s': %v", updatedAtStr.String, parseErr)
+                }
+            }
+        }
+        if parseErr == nil {
+            s.UpdatedAt = &updatedAt
+        }
+	}
+
+	return &s, nil
+}
+
+// GetAllMediaSuggestions retrieves a list of suggestions, optionally filtered by media type and status.
+func (db *SqliteDatabase) GetAllMediaSuggestions(ctx context.Context, mediaType string, statusFilter models.SuggestionStatus, limit int, offset int) ([]*models.MediaSuggestion, error) {
+	var args []interface{}
+	queryBuilder := strings.Builder{}
+	queryBuilder.WriteString(`
+	SELECT id, query, media_type, title, artist, album, cover_art_url, description, wiki_url, wikidata_id, bot_reasoning, status, created_at, updated_at
+	FROM recommendations
+	`)
+
+	conditions := []string{}
+	if mediaType != "" {
+		conditions = append(conditions, "media_type = ?")
+		args = append(args, mediaType)
+	}
+	if statusFilter != "" {
+		conditions = append(conditions, "status = ?")
+		args = append(args, statusFilter)
+	}
+
+	if len(conditions) > 0 {
+		queryBuilder.WriteString(" WHERE ")
+		queryBuilder.WriteString(strings.Join(conditions, " AND "))
+	}
+
+	queryBuilder.WriteString(" ORDER BY created_at DESC")
+
+	if limit > 0 {
+		queryBuilder.WriteString(" LIMIT ?")
+		args = append(args, limit)
+	}
+	if offset > 0 {
+		queryBuilder.WriteString(" OFFSET ?")
+		args = append(args, offset)
+	}
+
+	rows, err := db.db.QueryContext(ctx, queryBuilder.String(), args...)
+	if err != nil {
+		return nil, fmt.Errorf("%w: querying suggestions: %v", ErrDatabaseFailure, err)
+	}
+	defer rows.Close()
+
+	var suggestions []*models.MediaSuggestion
+	for rows.Next() {
+		var s models.MediaSuggestion
+		var createdAtStr string
+		var updatedAtStr sql.NullString
+		if err := rows.Scan(
+			&s.ID, &s.Query, &s.MediaType,
+			&s.Title, &s.Artist, &s.Album, &s.CoverArtURL,
+			&s.Description, &s.WikiURL, &s.WikidataID, &s.BotReasoning,
+			&s.Status, &createdAtStr, &updatedAtStr,
+		); err != nil {
+			return nil, fmt.Errorf("%w: scanning suggestion in GetAll: %v", ErrDatabaseFailure, err)
+		}
+		s.CreatedAt, err = time.Parse(time.RFC3339, createdAtStr)
+		if err != nil {
+            s.CreatedAt, err = time.Parse("2006-01-02 15:04:05-07:00", createdAtStr)
+            if err != nil {
+                s.CreatedAt, err = time.Parse("2006-01-02T15:04:05Z", createdAtStr)
+                if err != nil {
+    			    log.Printf("WARN: Could not parse GetAllMediaSuggestions.CreatedAt timestamp '%s': %v", createdAtStr, err)
+                }
+            }
+		}
+		if updatedAtStr.Valid {
+			updatedAt, parseErr := time.Parse(time.RFC3339, updatedAtStr.String)
+            if parseErr != nil {
+                updatedAt, parseErr = time.Parse("2006-01-02 15:04:05-07:00", updatedAtStr.String)
+                if parseErr != nil {
+                    updatedAt, parseErr = time.Parse("2006-01-02T15:04:05Z", updatedAtStr.String)
+                    if parseErr != nil {
+                        log.Printf("WARN: Could not parse GetAllMediaSuggestions.UpdatedAt timestamp '%s': %v", updatedAtStr.String, parseErr)
+                    }
+                }
+            }
+            if parseErr == nil {
+			    s.UpdatedAt = &updatedAt
+            }
+		}
+		suggestions = append(suggestions, &s)
+	}
+	return suggestions, nil
+}
+
+// GetPendingMediaSuggestions retrieves a list of pending suggestions for a specific media type.
+func (db *SqliteDatabase) GetPendingMediaSuggestions(ctx context.Context, mediaType string, limit int) ([]*models.MediaSuggestion, error) {
+	return db.GetAllMediaSuggestions(ctx, mediaType, models.StatusPending, limit, 0)
+}
+
+// UpdateMediaSuggestionStatus updates the status of an existing suggestion.
+func (db *SqliteDatabase) UpdateMediaSuggestionStatus(ctx context.Context, id string, status models.SuggestionStatus) error {
+	query := `UPDATE recommendations SET status = ?, updated_at = ? WHERE id = ?`
+	stmt, err := db.db.PrepareContext(ctx, query)
+	if err != nil {
+		return fmt.Errorf("%w: preparing update status: %v", ErrDatabaseFailure, err)
+	}
+	defer stmt.Close()
+
+	result, err := stmt.ExecContext(ctx, status, time.Now(), id)
+	if err != nil {
+		return fmt.Errorf("%w: executing update status: %v", ErrDatabaseFailure, err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("%w: getting rows affected: %v", ErrDatabaseFailure, err)
+	}
+	if rowsAffected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// DeleteMediaSuggestion removes a suggestion from the database.
+func (db *SqliteDatabase) DeleteMediaSuggestion(ctx context.Context, id string) error {
+	query := `DELETE FROM recommendations WHERE id = ?`
+	stmt, err := db.db.PrepareContext(ctx, query)
+	if err != nil {
+		return fmt.Errorf("%w: preparing delete suggestion: %v", ErrDatabaseFailure, err)
+	}
+	defer stmt.Close()
+
+	result, err := stmt.ExecContext(ctx, id)
+	if err != nil {
+		return fmt.Errorf("%w: executing delete suggestion: %v", ErrDatabaseFailure, err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("%w: getting rows affected on delete: %v", ErrDatabaseFailure, err)
+	}
+	if rowsAffected == 0 {
+		return ErrNotFound // Or just return nil if not finding it is acceptable
+	}
+	return nil
+}
+
+// CountPendingMediaSuggestions counts pending suggestions for a specific media type.
+func (db *SqliteDatabase) CountPendingMediaSuggestions(ctx context.Context, mediaType string) (int, error) {
+	query := `SELECT COUNT(*) FROM recommendations WHERE media_type = ? AND status = ?`
+	var count int
+	err := db.db.QueryRowContext(ctx, query, mediaType, models.StatusPending).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("%w: counting pending suggestions: %v", ErrDatabaseFailure, err)
+	}
+	return count, nil
 }

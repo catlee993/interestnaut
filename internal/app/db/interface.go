@@ -3,6 +3,8 @@ package db
 import (
 	"database/sql"
 	"context"
+
+	"interestnaut/internal/app/models"
 )
 
 // Database defines the interface for all database operations
@@ -43,4 +45,22 @@ type Database interface {
 	
 	// Schema management
 	GetSchemaVersion() (int, error)
+
+	// --- Recommendation System Methods ---
+	// SaveMediaSuggestion saves a new suggestion or updates an existing one based on ID.
+	SaveMediaSuggestion(ctx context.Context, suggestion *models.MediaSuggestion) error
+	// GetMediaSuggestionByID retrieves a specific suggestion by its unique ID.
+	GetMediaSuggestionByID(ctx context.Context, id string) (*models.MediaSuggestion, error)
+	// GetAllMediaSuggestions retrieves a list of suggestions, optionally filtered by media type and status.
+	// If mediaType is empty, suggestions for all media types are returned.
+	// If statusFilter is empty, suggestions of all statuses are returned.
+	GetAllMediaSuggestions(ctx context.Context, mediaType string, statusFilter models.SuggestionStatus, limit int, offset int) ([]*models.MediaSuggestion, error)
+	// GetPendingMediaSuggestions retrieves a list of pending suggestions for a specific media type.
+	GetPendingMediaSuggestions(ctx context.Context, mediaType string, limit int) ([]*models.MediaSuggestion, error)
+	// UpdateMediaSuggestionStatus updates the status of an existing suggestion.
+	UpdateMediaSuggestionStatus(ctx context.Context, id string, status models.SuggestionStatus) error
+	// DeleteMediaSuggestion removes a suggestion from the database.
+	DeleteMediaSuggestion(ctx context.Context, id string) error
+	// CountPendingMediaSuggestions counts pending suggestions for a specific media type.
+	CountPendingMediaSuggestions(ctx context.Context, mediaType string) (int, error)
 }

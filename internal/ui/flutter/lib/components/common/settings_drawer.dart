@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:path/path.dart' as path;
 import 'continuous_playback_switch.dart';
 import '../../services/llm_downloader_service.dart';
-import '../../services/llama_service.dart';
 import '../../services/model_constants.dart';
 
 /// A widget that displays the settings drawer overlay.
@@ -23,7 +22,6 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
   bool _continuousPlayback = false;
   bool _isDownloadingModel = false;
   bool _hasModel = false;
-  bool _isRunningLLM = false;
 
   @override
   void initState() {
@@ -139,68 +137,6 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
     }
   }
 
-  /// Test the LLM functionality
-  Future<void> _testLLM() async {
-    if (_isRunningLLM) return;
-
-    setState(() {
-      _isRunningLLM = true;
-    });
-
-    try {
-      final modelPath = await LlamaService.getModelPath(modelFileName: kLlamaModelFileName);
-
-      // Initialize LLM with toast callback
-      final llamaService = LlamaService();
-      final success = await llamaService.initialize(modelPath,
-          toastCallback: (message, {bool isError = false}) {
-        _showToast(message, isError: isError);
-      });
-
-      if (success) {
-        // Send a simple prompt to test with minimal tokens needed
-        final response = await llamaService.processPrompt(
-          r'''
-Below is a JSON Schema. Produce exactly one JSON object that _validates_ against it—no extra keys, no wrapping in text or markdown.
-
-Schema:
-{
-  "type": "object",
-  "properties": {
-    "title":     { "type": "string" },
-    "artist":    { "type": "string" },
-    "album":     { "type": "string" },
-    "reasoning": { "type": "string", "maxLength": 80 }
-  },
-  "required": ["title","artist","album","reasoning"],
-  "additionalProperties": false
-}
-
-### Instruction:
-Generate one song recommendation that matches the schema.
-Your reasoning must be a single sentence, under 80 characters, and not repeat itself.
-
-### Response:
-''',
-        );
-        print("Generated response: $response");
-        // Note: The service will handle showing toast messages for the results
-        // through the callback we provided
-      } else {
-        _showToast("Failed to initialize LLM", isError: true);
-      }
-    } catch (e) {
-      _showToast("Error running LLM: $e", isError: true);
-    } finally {
-      // Check if widget is still mounted before calling setState
-      if (mounted) {
-        setState(() {
-          _isRunningLLM = false;
-        });
-      }
-    }
-  }
-
   /// Show a toast message to the user
   void _showToast(String message, {bool isError = false}) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -305,37 +241,6 @@ Your reasoning must be a single sentence, under 80 characters, and not repeat it
                                 ],
                               )
                             : Text(_hasModel ? 'Installed' : 'Install Model'),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        onPressed: !_hasModel || _isRunningLLM ? null : _testLLM,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF7B68EE),
-                          foregroundColor: Colors.white,
-                          disabledBackgroundColor: Colors.grey.shade700,
-                          disabledForegroundColor: Colors.grey.shade400,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                        ),
-                        child: _isRunningLLM
-                            ? const Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  SizedBox(
-                                    width: 16,
-                                    height: 16,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: Colors.white,
-                                    ),
-                                  ),
-                                  SizedBox(width: 8),
-                                  Text('Running...'),
-                                ],
-                              )
-                            : const Text('Test LLM Integration'),
                       ),
                     ),
                   ],

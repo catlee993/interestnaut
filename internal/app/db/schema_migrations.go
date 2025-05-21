@@ -1,7 +1,7 @@
 package db
 
 // SchemaVersion tracks the current schema version
-const SchemaVersion = 1
+const SchemaVersion = 2
 
 // Schema migrations as constants
 const (
@@ -193,6 +193,34 @@ const (
 	CREATE INDEX IF NOT EXISTS idx_constraints_media ON constraints(media);
 	`
 
+	// RecommendationsTableSchema creates the recommendations table
+	RecommendationsTableSchema = `
+	CREATE TABLE IF NOT EXISTS recommendations (
+		id TEXT PRIMARY KEY, -- Intended for UUIDs
+		query TEXT NOT NULL,
+		media_type TEXT NOT NULL,
+		title TEXT,
+		artist TEXT,
+		album TEXT,
+		cover_art_url TEXT,
+		description TEXT,
+		wiki_url TEXT,
+		wikidata_id TEXT,
+		bot_reasoning TEXT,
+		status TEXT NOT NULL CHECK (status IN ('pending', 'skipped', 'liked', 'disliked', 'added')),
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	);
+	CREATE INDEX IF NOT EXISTS idx_recommendations_media_type_status ON recommendations(media_type, status);
+	CREATE INDEX IF NOT EXISTS idx_recommendations_wikidata_id ON recommendations(wikidata_id);
+	CREATE TRIGGER IF NOT EXISTS trigger_recommendations_updated_at
+	AFTER UPDATE ON recommendations
+	FOR EACH ROW
+	BEGIN
+		UPDATE recommendations SET updated_at = CURRENT_TIMESTAMP WHERE id = OLD.id;
+	END;
+	`
+
 	// SchemaVersionTableSchema creates a table to track schema versions
 	SchemaVersionTableSchema = `
 	CREATE TABLE IF NOT EXISTS schema_version (
@@ -223,4 +251,5 @@ var AllMigrations = []string{
 	ShowSuggestionsTableSchema,
 	VideoGameSuggestionsTableSchema,
 	ConstraintsTableSchema,
+	RecommendationsTableSchema,
 }

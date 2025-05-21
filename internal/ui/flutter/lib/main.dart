@@ -2,41 +2,26 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:ffi' as ffi;
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
 import 'package:window_size/window_size.dart' as window_package;
 
 import 'theme.dart';
 import 'services/go_bindings.dart';
 import 'services/ffi_init.dart';
+import 'services/llama_service.dart';
+import 'services/recommendation_service.dart';
+import 'services/model_constants.dart';
 import 'components/common/media_header.dart';
 import 'components/music/music_section.dart';
 import 'components/music/search/search_section.dart';
 import 'components/music/spotify_service.dart';
-import 'models.dart'; // Import models to get the Track class
-// Add this import
+import 'models.dart';
 
 /// Entry point for the Flutter app
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
-  // Initialize platform channels
-  const eventBusChannel = MethodChannel('com.interestnaut.eventbus');
-  
-  // Set up server event streams
-  // try {
-  //   final serverPort = await eventBusChannel.invokeMethod<int>('initializeEventBus');
-  //   if (serverPort != null) {
-  //     debugPrint('Connected to event bus on port $serverPort');
-  //     debugPrint('Event bus initialized and all event subscriptions active');
-  //   } else {
-  //     debugPrint('Failed to initialize event bus: No port returned');
-  //   }
-  // } catch (e) {
-  //   debugPrint('Error initializing event bus: $e');
-  //   // Continue without event bus
-  // }
-  
-  bool ffiAvailable = false;
+  bool goFfiAvailable = false;
   
   try {
     // Try to initialize FFI, but don't stop the app if it fails
@@ -56,9 +41,9 @@ Future<void> main() async {
       await GoBindings.initialize();
       debugPrint('Dart: GoBindings.initialize() complete. Status: ${GoBindings.ffiAvailable}');
       
-      ffiAvailable = GoBindings.ffiAvailable;
+      goFfiAvailable = GoBindings.ffiAvailable;
       
-      if (ffiAvailable) {
+      if (goFfiAvailable) {
         // Register shutdown hooks only if FFI is available
         registerShutdownHooks();
         
@@ -74,6 +59,42 @@ Future<void> main() async {
     debugPrint('Error initializing FFI: $e');
     // Continue anyway, the app will handle missing FFI gracefully
   }
+  
+  // --- Initialize LlamaService ---
+  final llamaService = LlamaService();
+  bool llamaInitialized = false;
+  
+  // Attempt to initialize LlamaService only if Go FFI is available, 
+  // if model path discovery or other parts depend on it.
+  // For now, let's assume getModelPath might need FFI or is better to group logically.
+  if (goFfiAvailable) { // Or if getModelPath is independent, remove this outer if for llama init
+    try {
+      final modelPath = await LlamaService.getModelPath(modelFileName: kLlamaModelFileName);
+      if (modelPath.isNotEmpty) {
+        await llamaService.initialize(
+          modelPath,
+          toastCallback: (message, {isError = false}) {
+            debugPrint('LlamaService Toast: $message (Error: $isError)');
+            // TODO: Implement a way to show these toasts in the UI if desired
+          },
+        );
+        llamaInitialized = llamaService.isRunning;
+        debugPrint('LlamaService initialized: $llamaInitialized');
+      } else {
+        debugPrint('LlamaService: Model path not found or empty for $kLlamaModelFileName.');
+      }
+    } catch (e) {
+      debugPrint('Error initializing LlamaService: $e');
+    }
+  } else {
+    debugPrint('Skipping LlamaService initialization because Go FFI is not available.');
+  }
+
+  // --- Initialize RecommendationBindings and RecommendationService ---
+  // Assuming RecommendationBindings can be instantiated directly.
+  // If it's a static class or part of GoBindings, adjust accordingly.
+  final recommendationBindings = RecommendationBindings(); 
+  final recommendationService = RecommendationService(llamaService, recommendationBindings);
   
   // Set window size for desktop platforms
   if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
@@ -92,7 +113,37 @@ Future<void> main() async {
   
   // The app will now run even if FFI initialization fails
   // This allows the Dart-only SpotifyService to work independently
-  runApp(const MyApp());
+  runApp(
+    MultiProvider(
+      providers: [
+        // Provide LlamaService, RecommendationService, etc.
+        Provider.value(value: llamaService),
+        // RecommendationBindings might not need to be provided if only RecommendationService uses it.
+        // Provider.value(value: recommendationBindings), 
+        ChangeNotifierProvider.value(value: recommendationService),
+        // If SpotifyService needs to be a provider:
+        // ChangeNotifierProvider(create: (_) => SpotifyService()), 
+      ],
+      child: const MyApp(),
+    ),
+  );
+
+  // --- Post-runApp async initialization for RecommendationService ---
+  if (llamaInitialized && goFfiAvailable) {
+    Future.microtask(() async {
+      try {
+        debugPrint('Starting RecommendationService.initializeAndPrefillQueues...');
+        await recommendationService.initializeAndPrefillQueues();
+        debugPrint('RecommendationService.initializeAndPrefillQueues completed.');
+      } catch (e) {
+        debugPrint('Error during recommendationService.initializeAndPrefillQueues: $e');
+        // Optionally, set an error state in RecommendationService or show a global error
+      }
+    });
+  } else {
+    debugPrint('Skipping RecommendationService.initializeAndPrefillQueues due to initialization failures (Llama: $llamaInitialized, GoFFI: $goFfiAvailable).');
+    // User should be informed that recommendations might be unavailable.
+  }
 }
 
 /// Register hooks to signal Go app to shut down
@@ -135,6 +186,10 @@ class MyApp extends StatelessWidget {
       title: 'Interestnaut',
       theme: AppTheme.theme,
       debugShowCheckedModeBanner: false,
+      // Access services using Provider.of<ServiceName>(context) or context.watch/read<ServiceName>()
+      // For example, in a widget's build method or event handler:
+      // final recService = context.read<RecommendationService>();
+      // recService.ensureSuggestionQueue('music');
       home: const InterestnautApp(),
     );
   }
