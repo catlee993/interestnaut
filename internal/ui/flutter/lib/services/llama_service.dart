@@ -1,14 +1,104 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:isolate';
-import 'dart:math';
-import 'package:flutter/foundation.dart';
-import 'package:llama_cpp_dart/llama_cpp_dart.dart';
+import 'dart:convert';  
+import 'package:flutter/material.dart';
 import 'package:path/path.dart' as path;
+import 'dart:math';
 import 'package:path_provider/path_provider.dart';
+import 'package:llama_cpp_dart/llama_cpp_dart.dart';
+import 'package:logging/logging.dart';
 import 'model_constants.dart';
 
+/// Custom Llama2 chat format
+class Llama2ChatFormat extends PromptFormat {
+  Llama2ChatFormat()
+      : super(
+          PromptFormatType.raw,
+          inputSequence: "[INST]",
+          outputSequence: "[/INST]",
+          systemSequence: "<<SYS>>",
+          stopSequence: "</s>",
+        );
+}
+
+/// Custom Llama3 chat format
+class Llama3ChatFormat extends PromptFormat {
+  Llama3ChatFormat()
+      : super(
+          PromptFormatType.raw,
+          inputSequence: "Assistant\n",
+          outputSequence: "User\n",
+          systemSequence: "System\n",
+          stopSequence: "</s>",
+        );
+}
+
+/// A helper class to manage token generation in a non-blocking way
+class LlamaTokenStream {
+  final Llama llm;
+  final String prompt;
+  final StreamController<String> controller = StreamController<String>();
+  
+  LlamaTokenStream(this.llm, this.prompt);
+  
+  /// Start token generation in microtasks
+  Future<String> generate() async {
+    final completer = Completer<String>();
+    final buffer = StringBuffer();
+    
+    try {
+      // Set the prompt first
+      llm.setPrompt(prompt);
+      
+      // Start a new microtask to process tokens without blocking the UI
+      _processNextToken(buffer, completer);
+      
+      // Return the future that will complete when all tokens are generated
+      return completer.future;
+    } catch (e) {
+      controller.addError(e);
+      completer.completeError(e);
+      return completer.future;
+    }
+  }
+  
+  /// Process the next token without blocking the UI thread
+  void _processNextToken(StringBuffer buffer, Completer<String> completer) {
+    // Schedule a microtask to allow UI to update between token generations
+    Future.microtask(() {
+      try {
+        // Try to get the next token
+        final (token, isDone) = llm.getNext();
+        
+        // Add the token to the buffer and stream
+        if (token.isNotEmpty) {
+          buffer.write(token);
+          controller.add(token);
+        }
+        
+        if (isDone) {
+          // Generation is complete
+          controller.close();
+          completer.complete(buffer.toString());
+        } else {
+          // Schedule the next token generation
+          _processNextToken(buffer, completer);
+        }
+      } catch (e) {
+        // Handle errors
+        controller.addError(e);
+        completer.completeError(e);
+        controller.close();
+      }
+    });
+  }
+  
+  /// Get the stream of tokens
+  Stream<String> get stream => controller.stream;
+}
+
 /// Service to handle LLM inferencing using llama_cpp_dart
+/// This provides a direct interface to the llama.cpp library through FFI
 class LlamaService {
   /// Singleton instance
   static final LlamaService _instance = LlamaService._internal();
@@ -31,14 +121,14 @@ class LlamaService {
   /// Flag to track if initialization is in progress
   bool _isInitializing = false;
   
-  /// Isolate reference
-  Isolate? _llamaIsolate;
+  /// The underlying LLM model parent (manages isolate communication)
+  LlamaParent? _llamaParent;
   
-  /// SendPort for communicating with the isolate
-  SendPort? _isolateSendPort;
+  /// Current completer for the prompt being processed
+  Completer<String>? _currentPromptCompleter;
   
-  /// ReceivePort for receiving messages from the isolate
-  ReceivePort? _receivePort;
+  /// Logger instance
+  final Logger _logger = Logger('LlamaService');
   
   /// Factory constructor
   factory LlamaService() {
@@ -97,42 +187,140 @@ class LlamaService {
     try {
       _showToast('Initializing LLM with model: ${path.basename(modelPath)}');
       
+      // Check if model exists first
+      final modelFile = File(modelPath);
+      if (!await modelFile.exists()) {
+        _showToast('Model not found at $modelPath', isError: true);
+        _initCompleter?.complete();
+        return false;
+      }
+
+      // Try several approaches to find the dynamic library
+      String? libraryPath;
+
+      // Approach 1: Try to find the library relative to the project root
+      try {
+        // Get the project root directory
+        final projectRootDir = await _findProjectRoot();
+        if (projectRootDir != null) {
+          final devLibPath = path.join(
+            projectRootDir,
+            'internal',
+            'ui',
+            'flutter',
+            'macos',
+            'Libraries',
+            'libllama.dylib'
+          );
+
+          final devLibFile = File(devLibPath);
+          if (await devLibFile.exists()) {
+            libraryPath = devLibPath;
+          }
+        }
+      } catch (e) {
+        _showToast('Error looking for library in project directory: $e');
+      }
+
+      // Approach 2: If not found, try a path relative to the model file
+      if (libraryPath == null) {
+        try {
+          final modelDir = path.dirname(modelPath);
+          final libNextToModelPath = path.join(modelDir, 'libllama.dylib');
+
+          final libFile = File(libNextToModelPath);
+          if (await libFile.exists()) {
+            _showToast('Found library next to model: $libNextToModelPath');
+            libraryPath = libNextToModelPath;
+          }
+        } catch (e) {
+          _showToast('Error looking for library next to model: $e');
+        }
+      }
+
+      // Approach 3: Fallback to system path
+      if (libraryPath == null) {
+        _showToast('Using system library path as fallback');
+        libraryPath = 'libllama.dylib';
+      }
+
+      // Set the library path
+      Llama.libraryPath = libraryPath;
+      
       // Create model parameters if not provided
       modelParams ??= ModelParams();
       
       // Set reasonable defaults for model parameters
       modelParams.vocabOnly = false;
-      modelParams.nGpuLayers = 32;  // Use more GPU layers
-      modelParams.splitMode = LlamaSplitMode.none; // Use enum instead of int
+      modelParams.nGpuLayers = 32;  
+      modelParams.splitMode = LlamaSplitMode.none; 
       modelParams.useMemorymap = true;
       modelParams.mainGpu = 0;
-      
+
       // Create context parameters
       _contextParams = ContextParams();
-      _contextParams!.nCtx = 1024;          // Reduced context size
-      _contextParams!.nBatch = 256;         // Smaller batch size
-      _contextParams!.nUbatch = 256;        // Match batch size
-      _contextParams!.nThreads = 8;         // Limited thread count
-      _contextParams!.nThreadsBatch = 8;    // Match thread count
-      _contextParams!.nPredict = 256;       // Reasonable token generation limit
-      _contextParams!.offloadKqv = true;    // Offload KQV operations to GPU
-      _contextParams!.logitsAll = false;    // Don't compute logits for all tokens
-      _contextParams!.embeddings = false;   // Don't compute embeddings
-      _contextParams!.flashAttn = true;     // Enable flash attention if available
-      _contextParams!.noPerfTimings = true; // Disable performance timings
+      _contextParams!.nCtx = 1024;         
+      _contextParams!.nBatch = 1024;
+      _contextParams!.nUbatch = 1024;
+      _contextParams!.nThreads = 8;        
+      _contextParams!.nThreadsBatch = 8;   
+      _contextParams!.nPredict = 1024;
+      _contextParams!.offloadKqv = true;   
+      _contextParams!.logitsAll = false;   
+      _contextParams!.embeddings = false;  
+      _contextParams!.flashAttn = true;    
+      _contextParams!.noPerfTimings = true; 
       _contextParams!.defragThold = 0.5;
-      
+
       // Configure sampling parameters
       final samplerParams = SamplerParams();
-      samplerParams.greedy = true;        // Non-greedy sampling
-      samplerParams.temp = 0.0;           // Higher temperature
-      samplerParams.topK = 1;             // Only consider most likely token
-      samplerParams.topP = 1.0;           // Don't filter by probability
-      samplerParams.minP = 0.5;           // No minimum probability threshold
-      
-      // Initialize the Llama model in an isolate
-      await _startLlamaInIsolate(modelPath, modelParams, _contextParams!, samplerParams);
-      
+      samplerParams.greedy = true;       
+      samplerParams.temp = 0.0;          
+      samplerParams.topK = 1;            
+      samplerParams.topP = 1.0;          
+      samplerParams.minP = 0.5;          
+      samplerParams.typical = 0.5;       
+      samplerParams.penaltyLastTokens = 1; 
+      samplerParams.penaltyRepeat = 1.0;  
+      samplerParams.penaltyFreq = 0.0;    
+      samplerParams.penaltyPresent = 0.0; 
+      samplerParams.ignoreEOS = false;    
+
+      // Create the LlamaLoad command
+      final loadCommand = LlamaLoad(
+        path: modelPath,
+        modelParams: modelParams,
+        contextParams: _contextParams!,
+        samplingParams: samplerParams,
+      );
+
+      // Initialize the isolate parent
+      _llamaParent = LlamaParent(loadCommand);
+      await _llamaParent!.init();
+
+      // Create a stream controller for response tokens
+      _responseStreamController = StreamController<String>.broadcast();
+
+      // Listen to the parent's token stream
+      _llamaParent!.stream.listen(
+        (token) {
+          // Debug: Print each token as it's generated
+          print('LlamaService: Token generated: "$token"');
+
+          // Add token to our stream controller
+          _responseStreamController?.add(token);
+        },
+        onError: (error) {
+          print('LlamaService ERROR: $error');
+          _showToast('Error from LlamaParent: $error', isError: true);
+          _responseStreamController?.addError(error);
+        },
+        onDone: () {
+          print('LlamaService: Token generation complete');
+          _showToast('Text generation complete');
+        },
+      );
+
       _showToast('LLM successfully initialized in isolate');
       _isRunning = true;
       _initCompleter?.complete();
@@ -144,199 +332,29 @@ class LlamaService {
       return false;
     }
   }
-  
-  /// Initialize the Llama model in an isolate
-  Future<void> _startLlamaInIsolate(String modelPath, ModelParams modelParams, 
-      ContextParams contextParams, SamplerParams samplerParams) async {
-    if (_isInitializing || _isRunning) return;
-    _isInitializing = true;
-    
-    try {
-      // Kill any existing isolate
-      if (_llamaIsolate != null) {
-        _llamaIsolate!.kill(priority: Isolate.immediate);
-        _llamaIsolate = null;
-      }
-      
-      // Create ports for communication
-      _receivePort = ReceivePort();
-      final exitPort = ReceivePort();
-      
-      // Prepare parameters for the isolate
-      final params = {
-        'modelPath': modelPath,
-        'modelParams': modelParams,
-        'contextParams': contextParams,
-        'samplerParams': samplerParams,
-        'sendPort': _receivePort!.sendPort,
-      };
-      
-      // Create and spawn the isolate
-      _llamaIsolate = await Isolate.spawn(
-        _llamaIsolateDirect,
-        params,
-        onExit: exitPort.sendPort,
-        onError: exitPort.sendPort,
-      );
-      
-      // Handle isolate exit
-      exitPort.listen((message) {
-        debugPrint('LLM isolate exited with message: $message');
-        _isRunning = false;
-        _isolateSendPort = null;
-        _showToast('LLM isolate terminated unexpectedly', isError: true);
-      });
-      
-      // Create a completer to track initialization
-      final portCompleter = Completer<SendPort>();
-      
-      // Set up a single listener for all messages
-      _receivePort!.listen((message) {
-        if (message is List) {
-          final messageType = message[0] as String;
-          final payload = message.length > 1 ? message[1] : null;
-          
-          switch (messageType) {
-            case 'port':
-              // Save the isolate's SendPort for future communication
-              _isolateSendPort = payload as SendPort;
-              if (!portCompleter.isCompleted) {
-                portCompleter.complete(_isolateSendPort);
-              }
-              break;
-            case 'token':
-              // Handle token from response
-              _responseStreamController?.add(payload as String);
-              break;
-            case 'done':
-              // Handle completion
-              _responseStreamController?.close();
-              break;
-            case 'error':
-              // Handle error
-              _showToast('Error from LLM: $payload', isError: true);
-              _responseStreamController?.addError(payload ?? 'Unknown error');
-              _responseStreamController?.close();
-              break;
-            case 'log':
-              // Handle log message
-              _showToast(payload as String);
-              break;
-            default:
-              _showToast('Unknown message from LLM isolate: $messageType', isError: true);
-          }
-        }
-      });
-      
-      // Wait for the port to be available
-      try {
-        await portCompleter.future.timeout(Duration(seconds: 10));
-        _isRunning = true;
-      } catch (e) {
-        throw Exception('Timed out waiting for isolate to initialize: $e');
-      }
-    } catch (e) {
-      _showToast('Error initializing Llama isolate: $e', isError: true);
-      rethrow;
-    } finally {
-      _isInitializing = false;
-    }
-  }
-  
-  /// Isolate entry point for Llama operations
-  static void _llamaIsolateDirect(Map<String, dynamic> params) {
-    final SendPort sendPort = params['sendPort'] as SendPort;
-    final String modelPath = params['modelPath'] as String;
-    final ModelParams modelParams = params['modelParams'] as ModelParams;
-    final ContextParams contextParams = params['contextParams'] as ContextParams;
-    final SamplerParams samplerParams = params['samplerParams'] as SamplerParams;
-    
-    try {
-      if (modelPath.isEmpty) {
-        sendPort.send(['error', 'Isolate received empty model path.']);
-        return;
-      }
-      
-      // Create a receive port for bidirectional communication
-      final receivePort = ReceivePort();
-      
-      // Send our SendPort back to the main isolate
-      sendPort.send(['port', receivePort.sendPort]);
-      
-      // Set up a port for receiving messages - we'll simulate the model for now
-      // Since we can't determine the proper API for llama_cpp_dart v0.0.8
-      receivePort.listen((message) async {
-        if (message is String) {
-          if (message == 'dispose') {
-            try {
-              // Just close the port since we're not actually loading a model
-              receivePort.close();
-              Isolate.exit(sendPort, 'disposed');
-            } catch (e) {
-              sendPort.send(['error', 'Error during shutdown: $e']);
-              Isolate.exit(sendPort, 'error during shutdown');
-            }
-            return;
-          }
-          
-          try {
-            // Log that we received a prompt
-            final promptMessage = 'Received prompt: ${message.substring(0, message.length > 50 ? 50 : message.length)}...';
-            sendPort.send(['log', promptMessage]);
-            
-            // Generate a simulated response that's relevant to the recommendation system
-            final mediaTypes = ['music', 'book', 'movie', 'TV show', 'podcast'];
-            final random = Random.secure();
-            final mediaType = mediaTypes[random.nextInt(mediaTypes.length)];
-            
-            // Create a relevant response for testing the recommendation system
-            final mockResponses = [
-              "I recommend checking out $mediaType: \"The $mediaType Title\" by Creator Name. It's a great choice based on your interests.",
-              "You might enjoy this $mediaType: \"Another $mediaType\" (2023) which explores themes of adventure and discovery.",
-              "Based on your preferences, I think you'd like \"Interesting $mediaType Title\" - it has elements of both classic and modern styles.",
-              "Have you considered \"Popular $mediaType\" by Famous Creator? It received excellent reviews and matches your taste profile."
-            ];
-            
-            final response = mockResponses[random.nextInt(mockResponses.length)];
-            
-            // Simulate streaming by sending one character at a time
-            for (int i = 0; i < response.length; i++) {
-              String token = response[i];
-              sendPort.send(['token', token]);
-              // Small delay to simulate realistic typing speed
-              await Future.delayed(Duration(milliseconds: 15 + random.nextInt(15)));
-            }
-            
-            // Signal completion
-            sendPort.send(['done', response]);
-          } catch (e) {
-            sendPort.send(['error', 'Error generating mock response: $e']);
-          }
-        }
-      });
-    } catch (e) {
-      sendPort.send(['error', 'Error in isolate: $e']);
-    }
-  }
-  
+
   /// Process a prompt
   Future<void> processPrompt(String text) async {
-    if (!_isRunning || _isolateSendPort == null) {
+    return processPromptWithParams(text, temperature: 0.7, topP: 0.9);
+  }
+
+  /// Process a prompt with specific generation parameters
+  Future<void> processPromptWithParams(String text, {double temperature = 0.7, double topP = 0.9}) async {
+    if (!_isRunning || _llamaParent == null) {
       _showToast('LLM service not running', isError: true);
       throw Exception('LLM service not running or not properly initialized.');
     }
-    
+
     // Ensure a stream controller is available for responses
     if (_responseStreamController == null || _responseStreamController!.isClosed) {
       _responseStreamController = StreamController<String>.broadcast();
     }
-    
+
     try {
       _showToast('Processing prompt...');
       
-      // Send the prompt to the isolate
-      _isolateSendPort!.send(text);
-      
+      // Send prompt to the isolate
+      _llamaParent!.sendPrompt(text);
     } catch (e) {
       _showToast('Error processing prompt: $e', isError: true);
       if (_responseStreamController != null && !_responseStreamController!.isClosed) {
@@ -345,21 +363,21 @@ class LlamaService {
       throw Exception('Error processing prompt: $e');
     }
   }
-  
+
   /// Generate a full response for a prompt
   Future<String> generateFullResponse(String prompt) async {
     final completer = Completer<String>();
     final buffer = StringBuffer();
     String errorMessage = "";
-    
+
     if (!_isRunning) {
       throw Exception('LLM service not running.');
     }
-    
+
     try {
       // Process the prompt
       await processPrompt(prompt);
-      
+
       // Listen to the response stream
       final subscription = responseStream?.listen(
         (token) {
@@ -377,15 +395,15 @@ class LlamaService {
           }
         }
       );
-      
+
       // Add a timeout mechanism
       Future.delayed(const Duration(seconds: 30), () {
         if (!completer.isCompleted) {
           subscription?.cancel();
           if (buffer.isEmpty) {
             completer.completeError(
-              errorMessage.isNotEmpty 
-                ? Exception(errorMessage) 
+              errorMessage.isNotEmpty
+                ? Exception(errorMessage)
                 : Exception('LLM response timed out.')
             );
           } else {
@@ -394,42 +412,302 @@ class LlamaService {
           }
         }
       });
-      
+
     } catch (e) {
       if (!completer.isCompleted) {
         completer.completeError(e);
       }
     }
-    
-    return completer.future;
+
+    final rawResponse = await completer.future;
+
+    // Extract and validate JSON from the response
+    final jsonString = extractJsonFromText(rawResponse);
+
+    if (jsonString == null) {
+      debugPrint('⚠️ Failed to extract valid JSON from LLM response');
+      debugPrint('Raw response: $rawResponse');
+
+      // Try a simple fallback approach for incomplete responses
+      final fallbackJson = attemptJsonRepair(rawResponse);
+      if (fallbackJson != null) {
+        debugPrint('✅ Repaired JSON: $fallbackJson');
+        return fallbackJson;
+      }
+
+      // If all else fails, return an error message in JSON format
+      return '{"error": "Failed to generate valid JSON response", "raw_text": "${rawResponse.replaceAll('"', '\\"').substring(0, min(100, rawResponse.length))}..."}';
+    }
+
+    return jsonString;
   }
-  
+
+  /// Helper method to extract a JSON object from a response
+  String _extractJsonObject(String response) {
+    // Check for standard JSON format with braces
+    final jsonRegex = RegExp(r'(\{(?:[^{}]|(?:\{(?:[^{}]|(?:\{[^{}]*\}))*\}))*\})');
+    final match = jsonRegex.firstMatch(response);
+    if (match != null) {
+      return match.group(0) ?? response;
+    }
+    return response;
+  }
+
+  /// Check if a string contains a complete, valid JSON object
+  bool _isValidCompletedJson(String text) {
+    try {
+      // Extract just the JSON part using regex
+      final jsonText = _extractJsonObject(text);
+
+      // Try to decode the JSON to validate it
+      jsonDecode(jsonText);
+      return true;
+    } catch (e) {
+      // Not valid JSON yet
+      return false;
+    }
+  }
+
+  /// Generate a JSON response for a structured prompt
+  /// This method adds JSON extraction and validation on top of generateFullResponse
+  Future<String> generateStructuredJsonResponse(String prompt) async {
+    // Use a lower temperature for structured output to encourage format compliance
+    final completer = Completer<String>();
+    final buffer = StringBuffer();
+    String errorMessage = "";
+    StreamSubscription? subscription;
+
+    if (!_isRunning) {
+      throw Exception('LLM service not running.');
+    }
+
+    try {
+      // Process the prompt with lower temperature for more deterministic output
+      await processPromptWithParams(prompt, temperature: 0.2, topP: 0.95);
+
+      // Listen to the response stream
+      subscription = responseStream?.listen(
+        (token) {
+          buffer.write(token);
+          
+          // Check if response contains a complete JSON object and end early if it does
+          final currentResponse = buffer.toString();
+          if (currentResponse.contains('}') && _isValidCompletedJson(currentResponse)) {
+            print('LlamaService: Found complete JSON object. Stopping generation.');
+
+            // Extract just the JSON object for the response
+            final jsonObject = _extractJsonObject(currentResponse);
+
+            if (!completer.isCompleted) {
+              completer.complete(jsonObject);
+
+              // Cancel the subscription immediately to stop token handling
+              subscription?.cancel();
+
+              // Stop the generation
+              _llamaParent?.stop().catchError((e) {
+                print('LlamaService: Error stopping generation: $e');
+              });
+            }
+          }
+        },
+        onError: (e) {
+          errorMessage = e.toString();
+          if (!completer.isCompleted) {
+            completer.completeError(e);
+          }
+        },
+        onDone: () {
+          if (!completer.isCompleted) {
+            completer.complete(buffer.toString());
+          }
+        }
+      );
+
+      // Add a timeout mechanism
+      Future.delayed(const Duration(seconds: 30), () {
+        if (!completer.isCompleted) {
+          subscription?.cancel();
+          if (buffer.isEmpty) {
+            completer.completeError(
+              errorMessage.isNotEmpty
+                ? Exception(errorMessage)
+                : Exception('LLM response timed out.')
+            );
+          } else {
+            // Return what we have so far if there's something
+            completer.complete(buffer.toString());
+          }
+        }
+      });
+
+    } catch (e) {
+      if (!completer.isCompleted) {
+        completer.completeError(e);
+      }
+    }
+
+    final rawResponse = await completer.future;
+
+    // Extract and validate JSON from the response
+    final jsonString = extractJsonFromText(rawResponse);
+
+    if (jsonString == null) {
+      debugPrint('⚠️ Failed to extract valid JSON from LLM response');
+      debugPrint('Raw response: $rawResponse');
+
+      // Try a simple fallback approach for incomplete responses
+      final fallbackJson = attemptJsonRepair(rawResponse);
+      if (fallbackJson != null) {
+        debugPrint('✅ Repaired JSON: $fallbackJson');
+        return fallbackJson;
+      }
+
+      // If all else fails, return an error message in JSON format
+      return '{"error": "Failed to generate valid JSON response", "raw_text": "${rawResponse.replaceAll('"', '\\"').substring(0, min(100, rawResponse.length))}..."}';
+    }
+
+    return jsonString;
+  }
+
+  /// Extract JSON object from a text that might contain other content
+  String? extractJsonFromText(String text) {
+    try {
+      // First try: see if the whole text is valid JSON
+      json.decode(text.trim());
+      return text.trim();
+    } catch (_) {
+      // Not valid JSON, try to extract JSON object from the text
+
+      // Look for JSON object patterns
+      final jsonMatches = RegExp(r'\{(?:[^{}]|(?:\{(?:[^{}]|(?:\{[^{}]*\}))*\}))*\}')
+          .allMatches(text)
+          .map((match) => match.group(0))
+          .toList();
+
+      // Try each match to find valid JSON
+      for (final jsonCandidate in jsonMatches) {
+        if (jsonCandidate == null) continue;
+
+        try {
+          json.decode(jsonCandidate);
+          return jsonCandidate;
+        } catch (_) {
+          // Not valid JSON, continue to the next match
+          continue;
+        }
+      }
+
+      // No valid JSON found
+      return null;
+    }
+  }
+
+  /// Attempt to repair incomplete JSON
+  String? attemptJsonRepair(String text) {
+    // Look for the start of a JSON object
+    if (!text.contains('{')) return null;
+
+    // Get the text from the first { to the end
+    final jsonStartIndex = text.indexOf('{');
+    var jsonText = text.substring(jsonStartIndex);
+
+    // Simple repairs for common cases
+
+    // Case 1: Missing closing brace
+    if (jsonText.contains('"reasoning"') &&
+        jsonText.contains('"title"') &&
+        !jsonText.endsWith('}')) {
+      // Count open and close braces
+      final openBraces = jsonText.split('{').length - 1;
+      final closeBraces = jsonText.split('}').length - 1;
+
+      // Add missing closing braces
+      if (openBraces > closeBraces) {
+        jsonText += '}' * (openBraces - closeBraces);
+        try {
+          json.decode(jsonText); // Validate it's now proper JSON
+          return jsonText;
+        } catch (_) {
+          // Still not valid, continue with other repairs
+        }
+      }
+    }
+
+    // Case 2: Trailing comma before closing brace
+    if (jsonText.contains(',}')) {
+      jsonText = jsonText.replaceAll(',}', '}');
+      try {
+        json.decode(jsonText);
+        return jsonText;
+      } catch (_) {
+        // Still not valid
+      }
+    }
+
+    return null;
+  }
+
   /// Shutdown and clean up resources
   Future<void> shutdown() async {
     if (!_isRunning) return;
-    
+
     try {
-      // Signal the isolate to clean up
-      _isolateSendPort?.send('dispose');
-      
-      // Close the receive port
-      _receivePort?.close();
-      _receivePort = null;
-      
+      // Clean up resources
+      if (_llamaParent != null) {
+        await _llamaParent!.dispose();
+        _llamaParent = null;
+      }
+
       // Close the response stream
       await _responseStreamController?.close();
       _responseStreamController = null;
-      
-      _isolateSendPort = null;
-      _llamaIsolate = null;
-      
+
       _isRunning = false;
       _showToast('LLM shutdown complete');
     } catch (e) {
       _showToast('Error during shutdown: $e', isError: true);
     }
   }
-  
+
+  @override
+  void dispose() {
+    // Ensure the isolate is disposed
+    if (_isRunning) {
+      final shutdownCompleter = Completer<void>();
+      
+      // Set a timeout for shutdown
+      Future.delayed(Duration(seconds: 5), () {
+        if (!shutdownCompleter.isCompleted) {
+          shutdownCompleter.complete();
+          _logger.warning('Timed out waiting for llama isolate to shut down');
+        }
+      });
+      
+      // Clean up resources
+      if (_llamaParent != null) {
+        _llamaParent!.dispose().then((_) {
+          _llamaParent = null;
+          if (!shutdownCompleter.isCompleted) {
+            shutdownCompleter.complete();
+          }
+        }).catchError((e) {
+          _logger.warning('Error disposing LlamaParent: $e');
+          if (!shutdownCompleter.isCompleted) {
+            shutdownCompleter.complete();
+          }
+        });
+      }
+      
+      // Wait for the isolate to be disposed
+      shutdownCompleter.future.then((_) {
+        _isRunning = false;
+        _responseStreamController?.close();
+        _responseStreamController = null;
+      });
+    }
+  }
+
   /// Show toast message
   void _showToast(String message, {bool isError = false}) {
     // Only show toast if callback exists and isn't empty
@@ -441,7 +719,7 @@ class LlamaService {
       }
     }
   }
-  
+
   /// Find the project root directory
   Future<String?> _findProjectRoot() async {
     // Start with the current directory

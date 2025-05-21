@@ -89,9 +89,35 @@ class MediaSuggestion {
       };
 
   String toPromptSummary() {
-    String summary = title ?? query;
-    if (mediaType == 'music' && artist != null) summary = '$artist - $summary';
-    return '$summary - Status: ${status.toString().split('.').last}';
+    String summary;
+    
+    // Format based on media type
+    switch (mediaType) {
+      case 'music':
+        summary = '${artist ?? "Unknown Artist"} - "${title ?? query}" (Album: ${album ?? "Unknown"})';
+        break;
+      case 'movie':
+        // Extract movie info from either structured fields or the raw query
+        final year = query.contains('(') && query.contains(')') 
+            ? RegExp(r'\((\d{4})\)').firstMatch(query)?.group(1) 
+            : null;
+        summary = '"${title ?? query}" ${year != null ? "($year)" : ""}';
+        break;
+      case 'book':
+        summary = '"${title ?? query}" by ${query.contains('by') ? query.split('by').last.trim() : "Unknown Author"}';
+        break;
+      case 'tv_show':
+        summary = 'TV Show: "${title ?? query}"';
+        break;
+      case 'video_game':
+        summary = 'Game: "${title ?? query}"';
+        break;
+      default:
+        summary = title ?? query;
+    }
+    
+    // Add status information
+    return '$summary [Status: ${status.toString().split('.').last}]';
   }
 }
 
@@ -103,7 +129,7 @@ class RecommendationService extends ChangeNotifier {
   String? _error;
 
   // New fields for proactive queue management
-  final List<String> _managedMediaTypes = ['music', 'movie', 'book']; // TODO: Make this configurable or dynamic
+  final List<String> _managedMediaTypes = ['music', 'movie', 'book', 'tv_show', 'video_game']; // TODO: Make this configurable or dynamic
   final Set<String> _activeMediaQueuesBeingFilled = {};
   String? _currentlyProcessingMediaType; // For UI feedback on which queue is active
   final int _minSuggestionsQueue = 3; // Target minimum pending suggestions
@@ -204,7 +230,7 @@ class RecommendationService extends ChangeNotifier {
         try {
           // Check if LlamaService can be initialized
           // Get the model path first
-          final modelPath = await LlamaService.getModelPath();
+          final modelPath = await LlamaService.getModelPath(modelFileName: kLlamaModelFileName);
           
           // Call initialize with correct parameters
           bool llamaInitialized = await _llamaService.initialize(
@@ -251,7 +277,7 @@ class RecommendationService extends ChangeNotifier {
           final formattedPrompt = formatPromptWithPreviousSuggestions(promptTemplate, history);
 
           debugPrint('\u{270D} Prompt for $mediaType: ${formattedPrompt.length} chars');
-          final String rawSuggestionText = await _llamaService.generateFullResponse(formattedPrompt);
+          final String rawSuggestionText = await _llamaService.generateStructuredJsonResponse(formattedPrompt);
           
           if (rawSuggestionText.trim().isEmpty) {
             debugPrint('\u{26A0} LLM returned an empty suggestion for $mediaType. Skipping this attempt.');
