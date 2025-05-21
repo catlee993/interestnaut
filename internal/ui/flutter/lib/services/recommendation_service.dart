@@ -130,6 +130,7 @@ class RecommendationService extends ChangeNotifier {
   String? _currentlyProcessingMediaType;
   bool _isLoading = false;
   String? _error;
+  bool _isInitialized = false;
   
   // Constants for queue management
   final List<String> _managedMediaTypes = ['music', 'movie', 'book', 'show', 'video_game'];
@@ -152,18 +153,129 @@ class RecommendationService extends ChangeNotifier {
   String? get error => _error;
   String? get currentlyProcessingMediaType => _currentlyProcessingMediaType;
 
+  // Initialize the service (should be called early in the app lifecycle)
+  Future<void> init() async {
+    _lastQueueCheckTime = DateTime.now();
+    _error = null;
+    
+    try {
+      // Initialize the recommendation queue in the Go backend
+      // This ensures the thread-safe worker is ready for processing requests
+      await _recommendationBindings.initQueue();
+      debugPrint('Recommendation queue initialized successfully');
+
+      // Begin background monitoring of the queue
+      _startBackgroundQueue();
+    } catch (e) {
+      _error = 'Failed to initialize recommendation service: $e';
+      debugPrint(_error);
+    }
+  }
+
+  // Initialize background queue monitoring
+  void _startBackgroundQueue() {
+    // Cancel existing timer if it exists
+    _queueMonitorTimer?.cancel();
+    
+    // Start a new timer that checks the queue status periodically
+    _queueMonitorTimer = Timer.periodic(const Duration(seconds: 30), (timer) async {
+      _lastQueueCheckTime = DateTime.now();
+      
+      // Skip if we're already processing
+      if (_isLoading) return;
+      
+      // Check and fill queues for all media types
+      try {
+        await _checkAndFillQueuesIfNeeded();
+      } catch (e) {
+        debugPrint('Error in background queue monitoring: $e');
+        _recoveryAttempts++;
+        
+        // If we've exceeded the maximum number of recovery attempts, stop trying
+        if (_recoveryAttempts >= _maxRecoveryAttempts) {
+          debugPrint('Maximum recovery attempts reached. Stopping background queue monitoring.');
+          timer.cancel();
+          _error = 'Maximum recovery attempts reached. Please restart the app.';
+          notifyListeners();
+        }
+      }
+    });
+  }
+  
+  // Check and fill queues if needed
+  Future<void> _checkAndFillQueuesIfNeeded() async {
+    // Only check queues for the selected media type or any that have fallen below threshold
+    for (final mediaType in _managedMediaTypes) {
+      final pendingCount = await _getPendingSuggestionsCount(mediaType);
+      if (pendingCount < _minSuggestionsQueue) {
+        debugPrint('Queue for $mediaType is below threshold. Filling...');
+        await _fillSuggestionQueue(mediaType);
+      }
+    }
+  }
+  
+  // Get the count of pending suggestions for a specific media type
+  Future<int> _getPendingSuggestionsCount(String mediaType) async {
+    try {
+      return await _recommendationBindings.getPendingSuggestionsCount(mediaType);
+    } catch (e) {
+      debugPrint('Error getting pending suggestions count: $e');
+      return 0; // Return 0 on error to trigger refill
+    }
+  }
+  
+  // Fill the suggestion queue for a specific media type
+  Future<void> _fillSuggestionQueue(String mediaType) async {
+    // Skip if we're already processing this media type
+    if (_currentlyProcessingMediaType == mediaType || _activeMediaQueuesBeingFilled.contains(mediaType)) {
+      debugPrint('Already processing $mediaType. Skipping fill request.');
+      return;
+    }
+    
+    _activeMediaQueuesBeingFilled.add(mediaType);
+    _currentlyProcessingMediaType = mediaType;
+    notifyListeners();
+    
+    try {
+      // Get current count of pending suggestions
+      final pendingCount = await _getPendingSuggestionsCount(mediaType);
+      final neededSuggestions = _minSuggestionsQueue - pendingCount;
+      
+      if (neededSuggestions <= 0) {
+        debugPrint('Queue for $mediaType is already filled.');
+        return;
+      }
+      
+      debugPrint('Filling queue for $mediaType with $neededSuggestions suggestions...');
+      
+      // Here we would trigger a call to the LLM to generate new suggestions,
+      // but for now we'll just log that we would do this
+      debugPrint('Would generate $neededSuggestions new $mediaType suggestions here.');
+      
+      // Simulate some processing time
+      await Future.delayed(const Duration(milliseconds: 500));
+      
+    } catch (e) {
+      debugPrint('Error filling suggestion queue for $mediaType: $e');
+    } finally {
+      _activeMediaQueuesBeingFilled.remove(mediaType);
+      _currentlyProcessingMediaType = null;
+      notifyListeners();
+    }
+  }
+
   // --- Initialization and Proactive Queue Management ---
 
   Future<void> initializeAndPrefillQueues() async {
-    if (_isLoading && _activeMediaQueuesBeingFilled.isNotEmpty) {
-      debugPrint('Initialization or prefill already in progress.');
-      return;
-    }
-    _isLoading = true;
-    _error = null;
-    notifyListeners();
-
+    if (_isInitialized) return;
+    
     try {
+      // First initialize the thread-safe queue to prevent FFI crashes
+      await init();
+      
+      _isInitialized = true;
+      debugPrint('Recommendation service initialized');
+      
       // 1. Clear local cache and fetch ALL existing suggestions for managed types from DB.
       _suggestions.clear();
       for (final mediaType in _managedMediaTypes) {

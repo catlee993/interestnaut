@@ -129,7 +129,10 @@ func InitializeFFIBridge(storagePathC *C.char) *C.char {
 			return C.CString("{\"error\": \"Failed to initialize recommendation service\"}")
 		}
 		log.Println("SUCCESS: recommendationService initialized directly.")
-
+		
+		// Initialize the recommendation queue on a separate thread
+		initRecommendationQueue()
+		
 		ffiInitialized = true
 	}
 
@@ -182,53 +185,42 @@ func FreeString(s *C.char) {
 //}
 
 func ensureRecommendationServiceInitialized() bool {
+	dbMutex.Lock()
+	defer dbMutex.Unlock()
+
 	if recommendationService != nil {
 		return true
 	}
-	log.Println("Recommendation service not initialized. Creating it now...")
 
-	// Initialize core services if needed
 	if db.DB == nil {
-		// Get appropriate database file path
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			log.Printf("CRITICAL: Failed to get user home directory: %v", err)
-			return false
-		}
-		appDataDir := filepath.Join(homeDir, ".interestnaut")
-
-		// Create app data directory if it doesn't exist
-		if err := os.MkdirAll(appDataDir, 0755); err != nil {
-			log.Printf("CRITICAL: Failed to create app data directory: %v", err)
-			return false
-		}
-
-		dbPath := filepath.Join(appDataDir, "interestnaut.db")
-		log.Printf("Using database path: %s", dbPath)
-
-		err = db.InitDB(dbPath)
-		if err != nil {
-			log.Printf("CRITICAL: Failed to initialize SQLite client: %v", err)
-			return false
-		}
+		log.Println("Cannot initialize recommendation service: database not initialized")
+		return false
 	}
 
-	if wikidataClient == nil {
-		wikidataClient = wikidata.NewClient(userAgent)
-	}
+	// Initialize Wikidata client
+	wikidataClient := wikidata.NewClient("interestnaut")
 
-	if wikipediaClient == nil {
-		wikipediaClient = wikipedia.NewClient(userAgent)
-	}
 
+	// Initialize Wikipedia client
+	wikipediaClient = wikipedia.NewClient("interestnaut")
+
+	// Create and initialize the recommendation service
 	recommendationService = recommendations.NewService(db.DB, wikidataClient, wikipediaClient)
-	if recommendationService != nil {
-		log.Println("SUCCESS: recommendationService initialized on-demand.")
-		return true
-	}
+	log.Println("Recommendation service initialized")
+	
+	// Initialize the recommendation queue on a separate thread
+	initRecommendationQueue()
+	
+	return true
+}
 
-	log.Println("CRITICAL: Failed to initialize recommendation service on-demand.")
-	return false
+func initRecommendationQueue() {
+	if recommendationService != nil {
+		recommendations.InitRecommendationQueue(recommendationService)
+		log.Println("Recommendation queue initialized in FFI bindings")
+	} else {
+		log.Println("Cannot initialize recommendation queue: service not initialized")
+	}
 }
 
 //export Music_InitiateSpotifyAuth
@@ -282,24 +274,35 @@ func initSafeSignalHandlers() {
 
 //export Recommendation_FindAndSaveSuggestion
 func Recommendation_FindAndSaveSuggestion(rawQueryC *C.char, mediaTypeC *C.char, botReasoningC *C.char) *C.char {
+	// Ensure service is initialized (this will also initialize the queue)
 	if !ensureRecommendationServiceInitialized() {
 		return returnJSON(map[string]string{"error": "Recommendation service not initialized"})
 	}
 
+	// Safe conversion of C strings to Go strings - this is fast and non-blocking
 	rawQuery := C.GoString(rawQueryC)
 	mediaType := C.GoString(mediaTypeC)
 	botReasoning := C.GoString(botReasoningC)
 
-	// Set up proper signal handling before DB operations
-	dbMutex.Lock()
-	initSafeSignalHandlers()
-	defer dbMutex.Unlock()
-	
-	suggestion, err := recommendationService.FindAndSaveSuggestion(context.Background(), rawQuery, mediaType, botReasoning)
+	// Enqueue the request - this is non-blocking and safe to call from any thread
+	requestID := recommendations.EnqueueRecommendationRequest(rawQuery, mediaType, botReasoning)
+	if requestID == "" {
+		return returnJSON(map[string]string{"error": "Failed to enqueue recommendation request (queue full)"})
+	}
+
+	// Wait for the result with a reasonable timeout (30 seconds)
+	result, err := recommendations.GetRecommendationResult(requestID, 30000)
 	if err != nil {
 		return processError(err)
 	}
-	return returnJSON(suggestion)
+	
+	// If no result was returned within the timeout
+	if result == nil {
+		return returnJSON(map[string]string{"error": "Timed out waiting for recommendation processing"})
+	}
+	
+	// Return the result as JSON
+	return returnJSON(result)
 }
 
 //export Recommendation_GetAllSuggestions
@@ -377,4 +380,17 @@ func Recommendation_GetPendingSuggestionsCount(mediaTypeC *C.char) *C.char {
 		return processError(err)
 	}
 	return returnJSON(map[string]int{"count": count})
+}
+
+//export Recommendation_InitQueue
+func Recommendation_InitQueue() *C.char {
+	if !ensureRecommendationServiceInitialized() {
+		return returnJSON(map[string]string{"error": "Recommendation service not initialized"})
+	}
+	
+	// The queue should already be initialized by ensureRecommendationServiceInitialized,
+	// but we'll call it explicitly here to be safe
+	initRecommendationQueue()
+	
+	return returnJSON(map[string]string{"status": "success", "message": "Recommendation queue initialized"})
 }

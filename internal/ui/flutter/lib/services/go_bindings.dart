@@ -175,6 +175,14 @@ class RecommendationBindings {
     }
   }
 
+  /// Initialize the thread-safe recommendation queue in the Go backend
+  Future<void> initQueue() async {
+    await _ensureInitialized();
+    final resultJson = await _ffi.initQueue();
+    FFIBindingBase.checkForError(resultJson);
+    // No return value needed, the method just initializes the queue
+  }
+
   Future<MediaSuggestion> findAndSaveSuggestion(String rawSuggestion, String mediaType, String llmReasoning) async {
     await _ensureInitialized();
     final resultJson = await _ffi.findAndSaveSuggestion(rawSuggestion, mediaType, llmReasoning);

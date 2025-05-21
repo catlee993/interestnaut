@@ -8,6 +8,9 @@ import 'ffi_init.dart';   // Provides FFIInitializer.dylib
 typedef _FindAndSaveSuggestionNative = ffi.Pointer<Utf8> Function(ffi.Pointer<Utf8> rawQuery, ffi.Pointer<Utf8> mediaType, ffi.Pointer<Utf8> botReasoning);
 typedef _FindAndSaveSuggestionDart = ffi.Pointer<Utf8> Function(ffi.Pointer<Utf8> rawQuery, ffi.Pointer<Utf8> mediaType, ffi.Pointer<Utf8> botReasoning);
 
+typedef _InitQueueNative = ffi.Pointer<Utf8> Function();
+typedef _InitQueueDart = ffi.Pointer<Utf8> Function();
+
 typedef _GetAllSuggestionsNative = ffi.Pointer<Utf8> Function(ffi.Pointer<Utf8> mediaType, ffi.Pointer<Utf8> statusFilter, ffi.Int32 limit, ffi.Int32 offset);
 typedef _GetAllSuggestionsDart = ffi.Pointer<Utf8> Function(ffi.Pointer<Utf8> mediaType, ffi.Pointer<Utf8> statusFilter, int limit, int offset);
 
@@ -23,9 +26,14 @@ class RecommendationFFI extends FFIBindingBase {
   late final _GetAllSuggestionsDart _getAllSuggestions;
   late final _UpdateSuggestionStatusDart _updateSuggestionStatus;
   late final _GetPendingSuggestionsCountDart _getPendingSuggestionsCount;
+  late final _InitQueueDart _initQueue;
 
   RecommendationFFI() {
     FFIBindingBase.checkInitialized(); // Ensure FFI is up
+
+    _initQueue = FFIInitializer.dylib
+        .lookup<ffi.NativeFunction<_InitQueueNative>>('Recommendation_InitQueue')
+        .asFunction<_InitQueueDart>();
 
     _findAndSaveSuggestion = FFIInitializer.dylib
         .lookup<ffi.NativeFunction<_FindAndSaveSuggestionNative>>('Recommendation_FindAndSaveSuggestion')
@@ -47,6 +55,17 @@ class RecommendationFFI extends FFIBindingBase {
   // --- Raw FFI call wrappers ---
   // These methods handle the Pointer<Utf8> conversions and call the Go functions.
   // They return the raw JSON string pointer, which will be parsed by the calling XxxBindings class.
+
+  // Initialize the recommendation queue
+  // This should be called as early as possible in the application lifecycle
+  Future<Map<String, dynamic>> initQueue() async {
+    try {
+      final resultPtr = _initQueue();
+      return FFIBindingBase.parseJSONFromPtr(resultPtr.cast<ffi.Char>()) as Map<String, dynamic>;
+    } catch (e) {
+      return {'error': 'Failed to initialize queue: $e'};
+    }
+  }
 
   Future<Map<String, dynamic>> findAndSaveSuggestion(String rawQuery, String mediaType, String botReasoning) async {
     final rawQueryPtr = rawQuery.toNativeUtf8();
