@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:interestnaut/services/llama_service.dart';
 import 'package:interestnaut/services/go_bindings.dart';
@@ -125,14 +126,24 @@ class RecommendationService extends ChangeNotifier {
   final LlamaService _llamaService;
   final RecommendationBindings _recommendationBindings;
   final List<MediaSuggestion> _suggestions = [];
-  bool _isLoading = false; // Global loading indicator
-  String? _error;
-
-  // New fields for proactive queue management
-  final List<String> _managedMediaTypes = ['music', 'movie', 'book', 'tv_show', 'video_game']; // TODO: Make this configurable or dynamic
   final Set<String> _activeMediaQueuesBeingFilled = {};
-  String? _currentlyProcessingMediaType; // For UI feedback on which queue is active
-  final int _minSuggestionsQueue = 3; // Target minimum pending suggestions
+  String? _currentlyProcessingMediaType;
+  bool _isLoading = false;
+  String? _error;
+  
+  // Constants for queue management
+  final List<String> _managedMediaTypes = ['music', 'movie', 'book', 'tv_show', 'video_game'];
+  final int _minSuggestionsQueue = 3;
+  final int _maxErrorsPerRun = 3;  // Maximum number of errors allowed in a single queue fill run
+  
+  // Queue monitoring state
+  DateTime? _lastQueueCheckTime;
+  Timer? _queueMonitorTimer;
+  int _recoveryAttempts = 0;
+  final int _maxRecoveryAttempts = 5;
+
+  // Currently selected media type for the UI
+  String? _selectedMediaType;
 
   RecommendationService(this._llamaService, this._recommendationBindings);
 
@@ -171,13 +182,15 @@ class RecommendationService extends ChangeNotifier {
       notifyListeners();
 
       // 2. For each media type, ensure its PENDING queue is at the minimum.
-      for (final mediaType in _managedMediaTypes) {
+      // Priority order from most reliable to least reliable based on error logs
+      final priorityOrder = ['music', 'movie', 'book', 'tv_show', 'video_game'];
+      for (final mediaType in priorityOrder) {
+        if (!_managedMediaTypes.contains(mediaType)) continue;
         debugPrint('Ensuring suggestion queue for $mediaType post-initialization...');
         // We await each call to process media types sequentially for LLM calls.
         await ensureSuggestionQueue(mediaType);
       }
       debugPrint('Initial prefill of all media type queues completed.');
-
     } catch (e) {
       _error = 'Failed during initial suggestion prefill: $e';
       debugPrint(_error);
@@ -195,6 +208,15 @@ class RecommendationService extends ChangeNotifier {
 
   // Renamed from fetchInitialSuggestions and functionality merged into initializeAndPrefillQueues & ensureSuggestionQueue
   // Future<void> fetchInitialSuggestions(String mediaType, {String statusFilter = ''}) async { ... }
+
+  // Helper method to convert media types for Wikidata
+  String _mapMediaTypeForWikidata(String mediaType) {
+    switch (mediaType) {
+      case 'tv_show': return 'tv';  // Map to the format expected by Wikidata
+      case 'video_game': return 'game';  // Map to the format expected by Wikidata
+      default: return mediaType;  // Keep others as is
+    }
+  }
 
   Future<void> ensureSuggestionQueue(String mediaType) async {
     if (!_managedMediaTypes.contains(mediaType)) {
@@ -217,6 +239,9 @@ class RecommendationService extends ChangeNotifier {
 
     String? loopError;
     bool madeChangesThisRun = false;
+    
+    // Record queue check time
+    _lastQueueCheckTime = DateTime.now();
 
     try {
       int currentPendingCount = _suggestions
@@ -262,6 +287,10 @@ class RecommendationService extends ChangeNotifier {
         }
 
         debugPrint('\u{1F504} Generating new suggestion for $mediaType. Current pending: $currentPendingCount');
+        
+        // Initialize/reset error counter for this run
+        int errorCount = 0;
+        
         try {
           // Get the appropriate prompt template for the media type
           final promptTemplate = getPromptTemplateForMediaType(mediaType);
@@ -277,12 +306,49 @@ class RecommendationService extends ChangeNotifier {
           final formattedPrompt = formatPromptWithPreviousSuggestions(promptTemplate, history);
 
           debugPrint('\u{270D} Prompt for $mediaType: ${formattedPrompt.length} chars');
-          final String rawSuggestionText = await _llamaService.generateStructuredJsonResponse(formattedPrompt);
+          
+          // Set a timeout for the LLM response
+          final completer = Completer<String>();
+          bool isCompleted = false;
+          
+          // Set up a timeout to cancel if it takes too long
+          final timeout = Timer(Duration(seconds: 60), () {
+            if (!isCompleted) {
+              isCompleted = true;
+              completer.completeError('Timeout: LLM response took too long');
+            }
+          });
+          
+          // Start the LLM generation
+          _llamaService.generateStructuredJsonResponse(formattedPrompt)
+            .then((value) {
+              if (!isCompleted) {
+                isCompleted = true;
+                completer.complete(value);
+              }
+            })
+            .catchError((error) {
+              if (!isCompleted) {
+                isCompleted = true;
+                completer.completeError(error);
+              }
+            });
+            
+          String rawSuggestionText;
+          try {
+            rawSuggestionText = await completer.future;
+            timeout.cancel();
+          } catch (timeoutError) {
+            debugPrint('\u{26A0} LLM generation timed out for $mediaType. Terminating attempt.');
+            timeout.cancel();
+            // Since timeout occurred, break the entire loop
+            break;
+          }
           
           if (rawSuggestionText.trim().isEmpty) {
             debugPrint('\u{26A0} LLM returned an empty suggestion for $mediaType. Skipping this attempt.');
             // Small delay before continuing to avoid rapid retries
-            await Future.delayed(const Duration(milliseconds: 500));
+            await Future.delayed(Duration(milliseconds: 500));
             continue;
           }
           
@@ -290,19 +356,40 @@ class RecommendationService extends ChangeNotifier {
           String llmReasoning = 'Suggested by LLM based on general knowledge and previous interactions.';
 
           debugPrint('\u{1F50D} Finding and saving suggestion via Go FFI...');
-          final newSuggestion = await _recommendationBindings.findAndSaveSuggestion(
-            rawSuggestionText.trim(),
-            mediaType,
-            llmReasoning,
-          );
           
-          // Add to local cache if not already present (should be new from DB)
-          if (!_suggestions.any((s) => s.id == newSuggestion.id)) {
+          try {
+            // Use the mapped media type for the Wikidata query
+            final wikidataMediaType = _mapMediaTypeForWikidata(mediaType);
+            
+            final newSuggestion = await _recommendationBindings.findAndSaveSuggestion(
+              rawSuggestionText.trim(),
+              wikidataMediaType,
+              llmReasoning,
+            );
+            
+            // Add to local cache if not already present (should be new from DB)
+            if (!_suggestions.any((s) => s.id == newSuggestion.id)) {
               _suggestions.add(newSuggestion);
               madeChangesThisRun = true;
               debugPrint('\u{2705} Added new suggestion ${newSuggestion.id} for $mediaType: "${newSuggestion.title ?? newSuggestion.query}"');
-          } else {
+              
+              // Reset error count on success
+              errorCount = 0;
+              _recoveryAttempts = 0;
+            } else {
               debugPrint('\u{26A0} Suggestion ${newSuggestion.id} for $mediaType already in local cache. This might be unexpected.');
+            }
+          } catch (ffiFindError) {
+            debugPrint('\u{274C} Error in FFI findAndSaveSuggestion for $mediaType: $ffiFindError');
+            errorCount++;
+            if (errorCount >= _maxErrorsPerRun) {
+              debugPrint('\u{26A0} Multiple FFI errors encountered ($errorCount). Breaking loop for now.');
+              loopError = 'Failed to process suggestions via Go FFI: $ffiFindError';
+              break;
+            }
+            // Add a delay before the next attempt
+            await Future.delayed(Duration(seconds: 2));
+            continue;
           }
           
           currentPendingCount = _suggestions
