@@ -1,9 +1,12 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:ffi' as ffi;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:window_size/window_size.dart' as window_package;
+import 'package:path_provider/path_provider.dart';
+import 'package:ffi/ffi.dart';
 
 import 'theme.dart';
 import 'services/go_bindings.dart';
@@ -28,14 +31,30 @@ Future<void> main() async {
     await FFIInitializer.initialize();
     debugPrint('FFI initialized successfully');
     
+    // Get application support directory for storage
+    final appDir = await getApplicationSupportDirectory();
+    final storagePath = appDir.path;
+    debugPrint('Using Flutter storage path: $storagePath');
+
     // Try to initialize Go bindings
     try {
       final goInitFFIBridge =
-      FFIInitializer.dylib.lookupFunction<ffi.Void Function(),
-          void Function()>('InitializeFFIBridge');
+      FFIInitializer.dylib.lookupFunction<ffi.Pointer<ffi.Char> Function(ffi.Pointer<ffi.Char>),
+          ffi.Pointer<ffi.Char> Function(ffi.Pointer<ffi.Char>)>('InitializeFFIBridge');
       debugPrint('Dart: Calling Go InitializeFFIBridge()...');
-      goInitFFIBridge();
-      debugPrint('Dart: Go InitializeFFIBridge() called successfully.');
+      
+      // Convert Dart string to C string
+      final storagePathC = storagePath.toNativeUtf8().cast<ffi.Char>();
+      
+      // Call the function with the storage path
+      final resultPtr = goInitFFIBridge(storagePathC);
+      
+      // Free the C string after use
+      calloc.free(storagePathC);
+      
+      // Parse the result (optional)
+      final result = resultPtr.cast<Utf8>().toDartString();
+      debugPrint('Dart: Go InitializeFFIBridge() called successfully. Result: $result');
       
       // Initialize GoBindings (Dart wrapper for FFI calls)
       await GoBindings.initialize();

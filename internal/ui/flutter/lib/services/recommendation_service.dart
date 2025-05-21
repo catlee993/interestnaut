@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:interestnaut/services/llama_service.dart';
 import 'package:interestnaut/services/go_bindings.dart';
+import 'package:interestnaut/services/model_constants.dart';
 
 // --- Data Models ---
 
@@ -162,6 +163,7 @@ class RecommendationService extends ChangeNotifier {
         _currentlyProcessingMediaType = null;
       }
       notifyListeners();
+      debugPrint('Finished initializing and prefilling queues.');
     }
   }
 
@@ -196,37 +198,72 @@ class RecommendationService extends ChangeNotifier {
           .length;
       debugPrint('Queue for $mediaType: $currentPendingCount pending, target $_minSuggestionsQueue.');
 
+      // Check LlamaService state before entering the loop
+      if (!_llamaService.isRunning) {
+        debugPrint('\u{26A0} LlamaService not running - attempting initialization');
+        try {
+          // Check if LlamaService can be initialized
+          // Get the model path first
+          final modelPath = await LlamaService.getModelPath();
+          
+          // Call initialize with correct parameters
+          bool llamaInitialized = await _llamaService.initialize(
+            modelPath,
+            toastCallback: (msg, {isError = false}) {
+              debugPrint('LLAMA init: $msg${isError ? " (ERROR)" : ""}');
+            }
+          );
+          
+          if (llamaInitialized) {
+            debugPrint('\u{2705} Successfully initialized LlamaService');
+          } else {
+            loopError = 'Failed to initialize LlamaService. Cannot generate suggestions.';
+            debugPrint('\u{274C} $loopError');
+            return; // Exit early
+          }
+        } catch (e) {
+          loopError = 'Error initializing LlamaService: $e';
+          debugPrint('\u{274C} $loopError');
+          return; // Exit early
+        }
+      }
+
       while (currentPendingCount < _minSuggestionsQueue) {
         if (!_llamaService.isRunning) {
           loopError = 'LlamaService not running. Cannot generate suggestions for $mediaType.';
-          debugPrint(loopError);
+          debugPrint('\u{274C} $loopError');
           break; 
         }
 
-        debugPrint('Generating new suggestion for $mediaType. Current pending: $currentPendingCount');
+        debugPrint('\u{1F504} Generating new suggestion for $mediaType. Current pending: $currentPendingCount');
         try {
-          String prompt = 'Suggest one specific item (e.g., song title, movie title, book title) in the category of $mediaType.';
+          // Get the appropriate prompt template for the media type
+          final promptTemplate = getPromptTemplateForMediaType(mediaType);
+            
+          // Get previous suggestions for this media type to inform the LLM
           final history = _suggestions
               .where((s) => s.mediaType == mediaType) 
               .map((s) => s.toPromptSummary())
-              .take(5) 
+              .take(10) // Show the last 10 suggestions to provide more context
               .toList();
+                
+          // Format the prompt with previous suggestions
+          final formattedPrompt = formatPromptWithPreviousSuggestions(promptTemplate, history);
 
-          if (history.isNotEmpty) {
-            prompt += '\n\nPreviously suggested for $mediaType (and their status):\n${history.join('\n')}';
-          }
-          prompt += '\n\nYour new, unique suggestion for $mediaType:';
-
-          final String rawSuggestionText = await _llamaService.generateFullResponse(prompt);
+          debugPrint('\u{270D} Prompt for $mediaType: ${formattedPrompt.length} chars');
+          final String rawSuggestionText = await _llamaService.generateFullResponse(formattedPrompt);
           
           if (rawSuggestionText.trim().isEmpty) {
-            debugPrint('LLM returned an empty suggestion for $mediaType. Skipping this attempt.');
-            // Potentially break or continue after a delay if this happens often
-            await Future.delayed(const Duration(milliseconds: 500)); // Small delay before retry
+            debugPrint('\u{26A0} LLM returned an empty suggestion for $mediaType. Skipping this attempt.');
+            // Small delay before continuing to avoid rapid retries
+            await Future.delayed(const Duration(milliseconds: 500));
             continue;
           }
+          
+          debugPrint('\u{2705} Generated suggestion for $mediaType: "${rawSuggestionText.trim()}"');
           String llmReasoning = 'Suggested by LLM based on general knowledge and previous interactions.';
 
+          debugPrint('\u{1F50D} Finding and saving suggestion via Go FFI...');
           final newSuggestion = await _recommendationBindings.findAndSaveSuggestion(
             rawSuggestionText.trim(),
             mediaType,
@@ -237,9 +274,9 @@ class RecommendationService extends ChangeNotifier {
           if (!_suggestions.any((s) => s.id == newSuggestion.id)) {
               _suggestions.add(newSuggestion);
               madeChangesThisRun = true;
-              debugPrint('Added new suggestion ${newSuggestion.id} for $mediaType: "${newSuggestion.title ?? newSuggestion.query}"');
+              debugPrint('\u{2705} Added new suggestion ${newSuggestion.id} for $mediaType: "${newSuggestion.title ?? newSuggestion.query}"');
           } else {
-              debugPrint('Suggestion ${newSuggestion.id} for $mediaType already in local cache. This might be unexpected.');
+              debugPrint('\u{26A0} Suggestion ${newSuggestion.id} for $mediaType already in local cache. This might be unexpected.');
           }
           
           currentPendingCount = _suggestions
@@ -250,17 +287,19 @@ class RecommendationService extends ChangeNotifier {
              notifyListeners(); // Notify after each successful addition for UI responsiveness
              madeChangesThisRun = false; // Reset for next potential addition in loop
           }
-
         } catch (e) {
-          loopError = 'Failed to generate new suggestion for $mediaType: $e';
-          debugPrint(loopError);
-          break; 
+          debugPrint('\u{274C} Error generating suggestion for $mediaType: $e');
+          // Save error to provide feedback but don't stop trying for minimum queue
+          loopError = 'Failed to generate a suggestion for $mediaType: $e';
+          // Break out of the loop if we encounter an error to avoid too many rapid failures
+          break;
         }
       }
+      debugPrint('${loopError == null ? "\u{2705}" : "\u{26A0}"} Queue processing for $mediaType completed ${loopError == null ? "successfully" : "with errors"}. Current pending count: $currentPendingCount');
     } catch (e) {
       // Catch errors from initial count or other unexpected issues within the try block for the media type
       loopError = 'Error during suggestion queue processing for $mediaType: $e';
-      debugPrint(loopError);
+      debugPrint('\u{274C} $loopError');
     }
     finally {
       _activeMediaQueuesBeingFilled.remove(mediaType);

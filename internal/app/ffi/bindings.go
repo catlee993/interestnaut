@@ -48,30 +48,37 @@ func init() {
 }
 
 //export InitializeFFIBridge
-func InitializeFFIBridge() *C.char {
+func InitializeFFIBridge(storagePathC *C.char) *C.char {
 	log.Println("InitializeFFIBridge called from Dart")
 
 	// Create and initialize services here rather than waiting for Initialize call
 	if !ffiInitialized {
-		// Get appropriate database file path
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			log.Printf("CRITICAL: Failed to get user home directory: %v", err)
-			return C.CString("{\"error\": \"Failed to get user home directory: " + err.Error() + "\"}")
+		// Get the storage path from Flutter instead of using a hardcoded path
+		storagePath := C.GoString(storagePathC)
+		if storagePath == "" {
+			// Fallback to default path if no path provided
+			homeDir, err := os.UserHomeDir()
+			if err != nil {
+				log.Printf("CRITICAL: Failed to get user home directory: %v", err)
+				return C.CString("{\"error\": \"Failed to get user home directory: " + err.Error() + "\"}")
+			}
+			storagePath = filepath.Join(homeDir, ".interestnaut")
+			log.Printf("Using default storage path: %s", storagePath)
+		} else {
+			log.Printf("Using Flutter-provided storage path: %s", storagePath)
 		}
-		appDataDir := filepath.Join(homeDir, ".interestnaut")
 
 		// Create app data directory if it doesn't exist
-		if err := os.MkdirAll(appDataDir, 0755); err != nil {
-			log.Printf("CRITICAL: Failed to create app data directory: %v", err)
+		if err := os.MkdirAll(storagePath, 0755); err != nil {
+			log.Printf("CRITICAL: Failed to create app storage directory: %v", err)
 			return C.CString("{\"error\": \"Failed to create app directory: " + err.Error() + "\"}")
 		}
 
-		dbPath := filepath.Join(appDataDir, "interestnaut.db")
+		dbPath := filepath.Join(storagePath, "interestnaut.db")
 		log.Printf("Using database path: %s", dbPath)
 
 		// Initialize DB
-		err = db.InitDB(dbPath)
+		err := db.InitDB(dbPath)
 		if err != nil {
 			log.Printf("CRITICAL: Failed to initialize database: %v", err)
 			return C.CString("{\"error\": \"Failed to initialize SQLite: " + err.Error() + "\"}")
