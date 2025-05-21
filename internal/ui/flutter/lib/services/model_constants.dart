@@ -13,150 +13,120 @@ const String kModelsDirectoryName = "models";
 
 /// Music recommendation prompt template
 const String kMusicPromptTemplate = r'''
-[SYSTEM: You are a specialized recommendation system that ONLY suggests music. You must output a valid JSON object matching the requested schema. NEVER suggest any other media type like books, movies, TV shows, podcasts, or video games.]
-
-I need specifically a MUSIC recommendation - not a book, movie, TV show, podcast, or video game.
-
 Below is a JSON Schema. Produce exactly one JSON object that _validates_ against it—no extra keys, no wrapping in text or markdown.
-Verify this song exists through wikipedia.
+
 Schema:
 {
   "type": "object",
   "properties": {
-    "title":  { "type": "string" },
-    "artist": { "type": "string" },
-    "album":  { "type": "string" },
-    "reasoning": { "type": "string" }
+    "title":     { "type": "string" },
+    "artist":    { "type": "string" },
+    "album":     { "type": "string" },
+    "reasoning": { "type": "string", "maxLength": 80 }
   },
   "required": ["title","artist","album","reasoning"],
   "additionalProperties": false
 }
 
-### Previous Suggestions:
-%PREVIOUS_SUGGESTIONS%
-
 ### Instruction:
-Generate one SONG recommendation that matches the schema. It must be different from previous suggestions and must be an actual song by a real artist. Do not include extra text, only output the JSON object.
+Generate one song recommendation that matches the schema.
+Your reasoning must be a single sentence, under 80 characters, and not repeat itself.
 
 ### Response:
 ''';
 
 /// Movie recommendation prompt template
 const String kMoviePromptTemplate = r'''
-[SYSTEM: You are a specialized recommendation system that ONLY suggests movies. You must output a valid JSON object matching the requested schema. NEVER suggest any other media type like books, music, TV shows, podcasts, or video games.]
-
-I need specifically a MOVIE recommendation - not a book, song, TV show, podcast, or video game.
-
 Below is a JSON Schema. Produce exactly one JSON object that _validates_ against it—no extra keys, no wrapping in text or markdown.
-Verify this movie exists through wikipedia.
+
 Schema:
 {
   "type": "object",
   "properties": {
-    "title":  { "type": "string" },
-    "director": { "type": "string" },
-    "year": { "type": "string" },
-    "reasoning": { "type": "string" }
+    "title":     { "type": "string" },
+    "director":  { "type": "string" },
+    "year":      { "type": "string" },
+    "reasoning": { "type": "string", "maxLength": 80 }
   },
   "required": ["title","director","year","reasoning"],
   "additionalProperties": false
 }
 
-### Previous Suggestions:
-%PREVIOUS_SUGGESTIONS%
-
 ### Instruction:
-Generate one MOVIE recommendation that matches the schema. It must be different from previous suggestions and must be an actual movie by a real director. Do not include extra text, only output the JSON object.
+Generate one movie recommendation that matches the schema.
+Your reasoning must be a single sentence, under 80 characters, and not repeat itself.
 
 ### Response:
 ''';
 
 /// Book recommendation prompt template
 const String kBookPromptTemplate = r'''
-[SYSTEM: You are a specialized recommendation system that ONLY suggests books. You must output a valid JSON object matching the requested schema. NEVER suggest any other media type like movies, music, TV shows, podcasts, or video games.]
-
-I need specifically a BOOK recommendation - not a movie, song, TV show, podcast, or video game.
-
 Below is a JSON Schema. Produce exactly one JSON object that _validates_ against it—no extra keys, no wrapping in text or markdown.
-Verify this book exists through wikipedia.
+
 Schema:
 {
   "type": "object",
   "properties": {
-    "title":  { "type": "string" },
-    "author": { "type": "string" },
-    "year": { "type": "string" },
-    "reasoning": { "type": "string" }
+    "title":     { "type": "string" },
+    "author":    { "type": "string" },
+    "year":      { "type": "string" },
+    "reasoning": { "type": "string", "maxLength": 80 }
   },
   "required": ["title","author","year","reasoning"],
   "additionalProperties": false
 }
 
-### Previous Suggestions:
-%PREVIOUS_SUGGESTIONS%
-
 ### Instruction:
-Generate one BOOK recommendation that matches the schema. It must be different from previous suggestions and must be an actual book by a real author. Do not include extra text, only output the JSON object.
+Generate one book recommendation that matches the schema.
+Your reasoning must be a single sentence, under 80 characters, and not repeat itself.
 
 ### Response:
 ''';
 
 /// TV Show recommendation prompt template
 const String kTVShowPromptTemplate = r'''
-[SYSTEM: You are a specialized recommendation system that ONLY suggests TV shows. You must output a valid JSON object matching the requested schema. NEVER suggest any other media type like books, movies, music, podcasts, or video games.]
-
-I need specifically a TV SHOW recommendation - not a book, movie, song, podcast, or video game.
-
 Below is a JSON Schema. Produce exactly one JSON object that _validates_ against it—no extra keys, no wrapping in text or markdown.
-Verify this TV show exists through wikipedia.
+
 Schema:
 {
   "type": "object",
   "properties": {
-    "title":  { "type": "string" },
-    "network": { "type": "string" },
-    "year": { "type": "string" },
-    "reasoning": { "type": "string" }
+    "title":     { "type": "string" },
+    "network":   { "type": "string" },
+    "year":      { "type": "string" },
+    "reasoning": { "type": "string", "maxLength": 80 }
   },
   "required": ["title","network","year","reasoning"],
   "additionalProperties": false
 }
 
-### Previous Suggestions:
-%PREVIOUS_SUGGESTIONS%
-
 ### Instruction:
-Generate one TV SHOW recommendation that matches the schema. It must be different from previous suggestions and must be an actual TV show from a real network or streaming platform. Do not include extra text, only output the JSON object.
+Generate one TV show recommendation that matches the schema.
+Your reasoning must be a single sentence, under 80 characters, and not repeat itself.
 
 ### Response:
 ''';
 
 /// Video Game recommendation prompt template
 const String kVideoGamePromptTemplate = r'''
-[SYSTEM: You are a specialized recommendation system that ONLY suggests video games. You must output a valid JSON object matching the requested schema. NEVER suggest any other media type like books, movies, TV shows, podcasts, or music.]
-
-I need specifically a VIDEO GAME recommendation - not a book, movie, song, TV show, or podcast.
-
 Below is a JSON Schema. Produce exactly one JSON object that _validates_ against it—no extra keys, no wrapping in text or markdown.
-Verify this video game exists through wikipedia.
+
 Schema:
 {
   "type": "object",
   "properties": {
-    "title":  { "type": "string" },
+    "title":     { "type": "string" },
     "developer": { "type": "string" },
-    "year": { "type": "string" },
-    "reasoning": { "type": "string" }
+    "year":      { "type": "string" },
+    "reasoning": { "type": "string", "maxLength": 80 }
   },
   "required": ["title","developer","year","reasoning"],
   "additionalProperties": false
 }
 
-### Previous Suggestions:
-%PREVIOUS_SUGGESTIONS%
-
 ### Instruction:
-Generate one VIDEO GAME recommendation that matches the schema. It must be different from previous suggestions and must be an actual video game by a real developer. Do not include extra text, only output the JSON object.
+Generate one video game recommendation that matches the schema.
+Your reasoning must be a single sentence, under 80 characters, and not repeat itself.
 
 ### Response:
 ''';
@@ -188,9 +158,15 @@ String getPromptTemplateForMediaType(String mediaType) {
 /// Format a prompt template with previous suggestions
 String formatPromptWithPreviousSuggestions(String template, List<String> previousSuggestions) {
   if (previousSuggestions.isEmpty) {
-    return template.replaceAll('%PREVIOUS_SUGGESTIONS%', 'No previous suggestions.');
+    return template;
   } else {
-    final formattedSuggestions = previousSuggestions.join('\n');
-    return template.replaceAll('%PREVIOUS_SUGGESTIONS%', formattedSuggestions);
+    final formattedSuggestions = previousSuggestions.join('\n\n');
+    final previousSuggestionsSection = '''
+### Previous Suggestions:
+$formattedSuggestions
+
+''';
+    // Insert before the Instruction section
+    return template.replaceFirst('### Instruction:', '$previousSuggestionsSection### Instruction:');
   }
 }

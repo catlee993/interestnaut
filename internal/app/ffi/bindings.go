@@ -2,6 +2,38 @@ package ffi
 
 /*
 #include <stdlib.h>
+#include <signal.h>
+
+// Setup proper signal handling for SQLite operations
+static void setup_safe_signal_handlers() {
+    struct sigaction sa;
+    sa.sa_handler = SIG_DFL;  // Default handler
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_ONSTACK;  // Critical flag for Go compatibility
+
+    // Set up handlers for the signals that might be intercepted
+    sigaction(SIGILL, &sa, NULL);
+    sigaction(SIGBUS, &sa, NULL);
+    sigaction(SIGSEGV, &sa, NULL);
+    sigaction(SIGABRT, &sa, NULL);
+}
+
+// Setup proper signal handling globally at init time
+static void setup_global_signal_handlers() {
+    struct sigaction sa;
+    sa.sa_handler = SIG_DFL;  // Default handler
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_ONSTACK;  // Critical flag for Go compatibility
+
+    // Set up handlers for all signals that might be intercepted
+    sigaction(SIGILL, &sa, NULL);
+    sigaction(SIGBUS, &sa, NULL);
+    sigaction(SIGSEGV, &sa, NULL);
+    sigaction(SIGABRT, &sa, NULL);
+    sigaction(SIGUSR1, &sa, NULL); // Signal 16 (SIGUSR1)
+    sigaction(SIGUSR2, &sa, NULL);
+    sigaction(SIGPIPE, &sa, NULL);
+}
 */
 import "C"
 import (
@@ -9,7 +41,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"interestnaut/internal/app/db" // Add direct DB import
-	"interestnaut/internal/app/eventbus"
 	"interestnaut/internal/app/models"
 	"interestnaut/internal/app/recommendations"
 	"interestnaut/internal/app/spotify"
@@ -19,7 +50,6 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
-	"time"
 	"unsafe"
 )
 
@@ -36,6 +66,7 @@ var (
 	exitWaitGroup sync.WaitGroup
 
 	ffiInitialized bool // Flag to ensure Initialize is called only once
+	dbMutex        sync.Mutex // Mutex to protect database operations
 )
 
 // User agent to use for API requests
@@ -43,8 +74,10 @@ const userAgent = "Interestnaut/1.0"
 
 // init function for the FFI package. This will run when the dylib is loaded.
 func init() {
+	// Set up global signal handlers
+	C.setup_global_signal_handlers()
+	
 	log.Println("FFI package init() called - dylib loaded.")
-	eventbus.StartEventServer()
 }
 
 //export InitializeFFIBridge
@@ -98,47 +131,10 @@ func InitializeFFIBridge(storagePathC *C.char) *C.char {
 		log.Println("SUCCESS: recommendationService initialized directly.")
 
 		ffiInitialized = true
-		startExitWatcher()
 	}
 
 	// Return success message
 	return C.CString("{\"status\": \"FFI bridge initialized successfully\"}")
-}
-
-// Start a goroutine to watch for exit signals
-func startExitWatcher() {
-	exitWaitGroup.Add(1)
-	go func() {
-		defer exitWaitGroup.Done()
-		<-exitChan
-		log.Println("Exit signal received, shutting down Go process")
-
-		// Allow some time for cleanup
-		time.Sleep(time.Second)
-		os.Exit(0)
-	}()
-}
-
-//export SignalShutdown
-func SignalShutdown() {
-	log.Println("Shutdown signal received from Flutter")
-	close(exitChan)
-
-	// Wait for exit watcher to complete (with timeout)
-	waitChan := make(chan struct{})
-	go func() {
-		exitWaitGroup.Wait()
-		close(waitChan)
-	}()
-
-	select {
-	case <-waitChan:
-		// Normal exit
-	case <-time.After(3 * time.Second):
-		// Forced exit after timeout
-		log.Println("Exit timeout, forcing termination")
-		os.Exit(0)
-	}
 }
 
 // Helper function to handle C string return values
@@ -176,14 +172,14 @@ func FreeString(s *C.char) {
 // FFI glue for Flutter event bus contract
 //
 //export EventBusInit
-func EventBusInit() C.int64_t {
-	return C.int64_t(eventbus.StartEventServer())
-}
+//func EventBusInit() C.int64_t {
+//	return C.int64_t(eventbus.StartEventServer())
+//}
 
 //export EventBusShutdown
-func EventBusShutdown() {
-	// No-op for now, but symbol required for FFI contract
-}
+//func EventBusShutdown() {
+//	// No-op for now, but symbol required for FFI contract
+//}
 
 func ensureRecommendationServiceInitialized() bool {
 	if recommendationService != nil {
@@ -276,6 +272,12 @@ func initiateSpotifyAuth(port int) error {
 	return nil
 }
 
+// initSafeSignalHandlers ensures signals are properly handled for SQLite operations
+func initSafeSignalHandlers() {
+	// Set up signal handlers with SA_ONSTACK flag
+	C.setup_safe_signal_handlers()
+}
+
 // Recommendation FFI Functions
 
 //export Recommendation_FindAndSaveSuggestion
@@ -288,6 +290,11 @@ func Recommendation_FindAndSaveSuggestion(rawQueryC *C.char, mediaTypeC *C.char,
 	mediaType := C.GoString(mediaTypeC)
 	botReasoning := C.GoString(botReasoningC)
 
+	// Set up proper signal handling before DB operations
+	dbMutex.Lock()
+	initSafeSignalHandlers()
+	defer dbMutex.Unlock()
+	
 	suggestion, err := recommendationService.FindAndSaveSuggestion(context.Background(), rawQuery, mediaType, botReasoning)
 	if err != nil {
 		return processError(err)
@@ -308,11 +315,16 @@ func Recommendation_GetAllSuggestions(mediaTypeC *C.char, statusFilterC *C.char,
 
 	var statusFilter models.SuggestionStatus
 	if statusFilterStr != "" {
-		statusFilter = models.SuggestionStatus(statusFilterStr)
 		if !models.IsValidStatus(statusFilterStr) {
-			return returnJSON(map[string]string{"error": "Invalid status filter value: " + statusFilterStr})
+			return returnJSON(map[string]string{"error": "Invalid status filter: " + statusFilterStr})
 		}
+		statusFilter = models.SuggestionStatus(statusFilterStr)
 	}
+
+	// Set up proper signal handling before DB operations
+	dbMutex.Lock()
+	initSafeSignalHandlers()
+	defer dbMutex.Unlock()
 
 	suggestions, err := recommendationService.GetAllSuggestions(context.Background(), mediaType, statusFilter, limit, offset)
 	if err != nil {
@@ -330,11 +342,16 @@ func Recommendation_UpdateSuggestionStatus(suggestionIDC *C.char, statusC *C.cha
 	suggestionID := C.GoString(suggestionIDC)
 	statusStr := C.GoString(statusC)
 
-	status := models.SuggestionStatus(statusStr)
 	if !models.IsValidStatus(statusStr) {
 		return returnJSON(map[string]string{"error": "Invalid status value: " + statusStr})
 	}
 
+	// Set up proper signal handling before DB operations
+	dbMutex.Lock()
+	initSafeSignalHandlers()
+	defer dbMutex.Unlock()
+
+	status := models.SuggestionStatus(statusStr)
 	err := recommendationService.UpdateSuggestionStatus(context.Background(), suggestionID, status)
 	if err != nil {
 		return processError(err)
@@ -349,6 +366,11 @@ func Recommendation_GetPendingSuggestionsCount(mediaTypeC *C.char) *C.char {
 	}
 
 	mediaType := C.GoString(mediaTypeC)
+
+	// Set up proper signal handling before DB operations
+	dbMutex.Lock()
+	initSafeSignalHandlers()
+	defer dbMutex.Unlock()
 
 	count, err := recommendationService.GetPendingSuggestionsCount(context.Background(), mediaType)
 	if err != nil {

@@ -246,45 +246,44 @@ class LlamaService {
 
       // Set the library path
       Llama.libraryPath = libraryPath;
-      
-      // Create model parameters if not provided
-      modelParams ??= ModelParams();
-      
-      // Set reasonable defaults for model parameters
-      modelParams.vocabOnly = false;
-      modelParams.nGpuLayers = 32;  
-      modelParams.splitMode = LlamaSplitMode.none; 
-      modelParams.useMemorymap = true;
-      modelParams.mainGpu = 0;
 
-      // Create context parameters
+      // Create a ModelParams with GPU acceleration
+      final modelParams = ModelParams();
+
+      modelParams.nGpuLayers = 26;
+      modelParams.mainGpu=0;
+
+      // No formatter for better JSON generation
+
+      // Use conservative settings to prevent freezing as per user preferences
       _contextParams = ContextParams();
-      _contextParams!.nCtx = 1024;         
-      _contextParams!.nBatch = 1024;
-      _contextParams!.nUbatch = 1024;
-      _contextParams!.nThreads = 8;        
-      _contextParams!.nThreadsBatch = 8;   
-      _contextParams!.nPredict = 1024;
-      _contextParams!.offloadKqv = true;   
-      _contextParams!.logitsAll = false;   
-      _contextParams!.embeddings = false;  
-      _contextParams!.flashAttn = true;    
-      _contextParams!.noPerfTimings = true; 
+      _contextParams!.nCtx = 2048;          // Increased context size
+      _contextParams!.nBatch = 512;         // Increased batch size
+      _contextParams!.nUbatch = 512;        // Match batch size
+      _contextParams!.nThreads = 8;         // Limited thread count
+      _contextParams!.nThreadsBatch = 8;    // Match thread count
+      _contextParams!.nPredict = 256;       // Reasonable token generation limit
+      _contextParams!.offloadKqv = true;   // Offload KQV operations to GPU
+      _contextParams!.logitsAll = false;   // Don't compute logits for all tokens
+      _contextParams!.embeddings = false;  // Don't compute embeddings
+      _contextParams!.flashAttn = true;    // Enable flash attention if available
+      _contextParams!.noPerfTimings = true; // Disable performance timings
       _contextParams!.defragThold = 0.5;
 
-      // Configure sampling parameters
+      // Configure aggressive sampling for speed
       final samplerParams = SamplerParams();
-      samplerParams.greedy = true;       
-      samplerParams.temp = 0.0;          
-      samplerParams.topK = 1;            
-      samplerParams.topP = 1.0;          
-      samplerParams.minP = 0.5;          
-      samplerParams.typical = 0.5;       
-      samplerParams.penaltyLastTokens = 1; 
-      samplerParams.penaltyRepeat = 1.0;  
-      samplerParams.penaltyFreq = 0.0;    
-      samplerParams.penaltyPresent = 0.0; 
-      samplerParams.ignoreEOS = false;    
+      samplerParams.greedy = true;         // Non-greedy sampling
+      samplerParams.temp = 0.0;            // Higher temperature
+      samplerParams.topK = 1;              // Only consider most likely token
+      samplerParams.topP = 1.0;            // Don't filter by probability
+      samplerParams.minP = 0.5;            // No minimum probability threshold
+      samplerParams.typical = 0.5;         // Disable typical sampling
+      samplerParams.penaltyLastTokens = 1; // Disable penalty window
+      samplerParams.penaltyRepeat = 1.0;   // No repeat penalty
+      samplerParams.penaltyFreq = 0.0;     // No frequency penalty
+      samplerParams.penaltyPresent = 0.0;  // No presence penalty
+      samplerParams.ignoreEOS = false;     // Allow normal EOS handling for proper completion
+
 
       // Create the LlamaLoad command
       final loadCommand = LlamaLoad(
