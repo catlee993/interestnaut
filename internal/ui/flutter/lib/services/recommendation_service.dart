@@ -132,7 +132,7 @@ class RecommendationService extends ChangeNotifier {
   String? _error;
   
   // Constants for queue management
-  final List<String> _managedMediaTypes = ['music', 'movie', 'book', 'tv_show', 'video_game'];
+  final List<String> _managedMediaTypes = ['music', 'movie', 'book', 'show', 'video_game'];
   final int _minSuggestionsQueue = 3;
   final int _maxErrorsPerRun = 3;  // Maximum number of errors allowed in a single queue fill run
   
@@ -212,7 +212,7 @@ class RecommendationService extends ChangeNotifier {
   // Helper method to convert media types for Wikidata
   String _mapMediaTypeForWikidata(String mediaType) {
     switch (mediaType) {
-      case 'tv_show': return 'tv';  // Map to the format expected by Wikidata
+      case 'tv_show': return 'show';  // Map to the format expected by Wikidata
       case 'video_game': return 'game';  // Map to the format expected by Wikidata
       default: return mediaType;  // Keep others as is
     }
