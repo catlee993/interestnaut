@@ -48,22 +48,22 @@ print_error() {
     echo -e "${RED}[✗]${NC} $1"
 }
 
-# Build for macOS - creates a shared library
+# Build for macOS - creates a dylib
 build_macos_shared() {
-    print_status "Building Go shared library for macOS..."
+    print_status "Building Go library for macOS..."
     
     # Move to the cmd/interestnaut directory
     cd "$ROOT_DIR/cmd/interestnaut"
     
     # Build Go as a shared library
-    go build -buildmode=c-shared -o "$OUTPUT_DIR/libinterestnaut.dylib" .
+    CGO_ENABLED=1 go build -buildmode=c-shared -o "$OUTPUT_DIR/libinterestnaut.dylib" .
     
     if [ $? -ne 0 ]; then
-        print_error "Failed to build Go shared library"
+        print_error "Failed to build Go library"
         exit 1
     fi
     
-    print_status "Successfully built Go shared library for macOS"
+    print_status "Successfully built Go library for macOS"
     return 0
 }
 
@@ -76,7 +76,7 @@ build_ios_static() {
     
     # Build for iOS arm64
     CGO_ENABLED=1 GOOS=ios GOARCH=arm64 \
-    go build -buildmode=c-archive -o "$OUTPUT_DIR/libinterestnaut_arm64.a" .
+    go build -o "$OUTPUT_DIR/libinterestnaut_arm64.a" .
     
     if [ $? -ne 0 ]; then
         print_error "Failed to build Go static library for iOS arm64"
@@ -89,19 +89,23 @@ build_ios_static() {
 
 # Deploy the shared library to the Flutter app for macOS
 bundle_macos() {
-    print_status "Building and deploying Go shared library for macOS..."
+    print_status "Building and deploying Go library for macOS..."
     
-    # Build the macOS shared library
+    # Build the macOS library
     build_macos_shared
     
     # Create the macOS dev directory if it doesn't exist
     mkdir -p "$MACOS_DEV_DIR"
     
-    # Copy the shared library to the development directory
+    # Copy the library to the development directory
     cp "$OUTPUT_DIR/libinterestnaut.dylib" "$MACOS_DEV_DIR/"
-    cp "$OUTPUT_DIR/libinterestnaut.h" "$MACOS_DEV_DIR/"
     
-    print_status "Go shared library deployed to dev directory: $MACOS_DEV_DIR"
+    # IMPORTANT: Also copy directly to Flutter root directory
+    # This is where Flutter is actually looking for the library during development
+    cp "$OUTPUT_DIR/libinterestnaut.dylib" "$MACOS_FLUTTER_DIR/libinterestnaut.dylib"
+    
+    print_status "Go library deployed to dev directory: $MACOS_DEV_DIR"
+    print_status "Go library also deployed to Flutter root: $MACOS_FLUTTER_DIR/libinterestnaut.dylib"
     
     # Check if there's a built app bundle to deploy to
     for bundle_path in "${MACOS_BUNDLE_PATHS[@]}"; do
@@ -124,7 +128,6 @@ bundle_ios() {
     # Copy the static library and header to the iOS project
     mkdir -p "$IOS_DEV_DIR/Frameworks"
     cp "$OUTPUT_DIR/libinterestnaut_arm64.a" "$IOS_DEV_DIR/Frameworks/"
-    cp "$OUTPUT_DIR/libinterestnaut.h" "$IOS_DEV_DIR/Frameworks/"
     
     print_status "Go static library deployed to: $IOS_DEV_DIR/Frameworks/"
 }

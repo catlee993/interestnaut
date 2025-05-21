@@ -7,8 +7,8 @@ import (
 
 	"interestnaut/internal/app/db"
 	"interestnaut/internal/app/models"
-	"interestnaut/internal/app/wikipedia"
 	"interestnaut/internal/app/wikidata"
+	"interestnaut/internal/app/wikipedia"
 
 	"github.com/pkg/errors"
 )

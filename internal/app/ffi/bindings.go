@@ -7,12 +7,12 @@ import "C"
 import (
 	"context"
 	"encoding/json"
-	"interestnaut/internal/app/bindings" // Only for Music, should be refactored later
-	"interestnaut/internal/app/db"       // Add direct DB import
+	"fmt"
+	"interestnaut/internal/app/db" // Add direct DB import
 	"interestnaut/internal/app/eventbus"
 	"interestnaut/internal/app/models"
 	"interestnaut/internal/app/recommendations"
-	"interestnaut/internal/app/session"
+	"interestnaut/internal/app/spotify"
 	"interestnaut/internal/app/wikidata"  // Add direct Wikidata import
 	"interestnaut/internal/app/wikipedia" // Add direct Wikipedia import
 	"log"
@@ -25,11 +25,7 @@ import (
 
 // Global instances of our bindings to avoid recreating them
 var (
-	musicBindings         *bindings.Music
 	recommendationService *recommendations.Service // Using recommendations.Service
-
-	// Legacy central manager - deprecated but kept for musicBindings temporarily
-	centralManager session.CentralManager
 
 	// Direct service dependencies
 	wikidataClient  *wikidata.Client
@@ -100,76 +96,6 @@ func InitializeFFIBridge() *C.char {
 
 	// Return success message
 	return C.CString("{\"status\": \"FFI bridge initialized successfully\"}")
-}
-
-// Initialize is kept for backward compatibility but redirects to new initialization
-func Initialize(cm session.CentralManager) {
-	if ffiInitialized {
-		log.Println("FFI bindings already initialized, skipping.")
-		return
-	}
-
-	log.Println("WARNING: Legacy Initialize(cm) called, but we're using direct service initialization")
-
-	// Save the central manager for music only
-	centralManager = cm
-
-	// Try to initialize the recommendation service
-	if db.DB == nil {
-		// Get appropriate database file path
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			log.Printf("CRITICAL: Failed to get user home directory: %v", err)
-			return
-		}
-		appDataDir := filepath.Join(homeDir, ".interestnaut")
-
-		// Create app data directory if it doesn't exist
-		if err := os.MkdirAll(appDataDir, 0755); err != nil {
-			log.Printf("CRITICAL: Failed to create app data directory: %v", err)
-			return
-		}
-
-		dbPath := filepath.Join(appDataDir, "interestnaut.db")
-		log.Printf("Using database path: %s", dbPath)
-
-		err = db.InitDB(dbPath)
-		if err != nil {
-			log.Printf("CRITICAL: Failed to initialize SQLite client: %v", err)
-			return
-		}
-	}
-
-	if wikidataClient == nil {
-		wikidataClient = wikidata.NewClient(userAgent)
-	}
-
-	if wikipediaClient == nil {
-		wikipediaClient = wikipedia.NewClient(userAgent)
-	}
-
-	recommendationService = recommendations.NewService(db.DB, wikidataClient, wikipediaClient)
-	if recommendationService == nil {
-		log.Println("CRITICAL: recommendationService is NIL after NewService call!")
-	} else {
-		log.Println("SUCCESS: recommendationService initialized through compatibility layer.")
-	}
-
-	// Keep initializing music for now
-	log.Println("Attempting to initialize musicBindings...")
-	if cm != nil {
-		musicBindings = bindings.NewMusicBinder(context.Background(), cm, "3bb48a30577342869a9ffcb176dee7d2")
-		if musicBindings == nil {
-			log.Println("CRITICAL: musicBindings is NIL after NewMusicBinder call!")
-		} else {
-			log.Println("SUCCESS: musicBindings initialized.")
-		}
-	} else {
-		log.Println("WARNING: cm is nil, skipping musicBindings initialization")
-	}
-
-	ffiInitialized = true
-	startExitWatcher()
 }
 
 // Start a goroutine to watch for exit signals
@@ -252,36 +178,6 @@ func EventBusShutdown() {
 	// No-op for now, but symbol required for FFI contract
 }
 
-func ensureMusicBindingsInitialized() bool {
-	if musicBindings != nil {
-		return true
-	}
-
-	log.Println("Music bindings not initialized, attempting to initialize...")
-
-	// Create a central manager if needed
-	if centralManager == nil {
-		ctx := context.Background()
-		cm, err := session.NewCentralManager(ctx, session.DefaultUserID)
-		if err != nil {
-			log.Printf("Failed to create central manager: %v", err)
-			return false
-		}
-		centralManager = cm
-	}
-
-	// Initialize music bindings
-	musicBindings = bindings.NewMusicBinder(context.Background(), centralManager, "3bb48a30577342869a9ffcb176dee7d2")
-
-	if musicBindings == nil {
-		log.Println("CRITICAL: Failed to initialize music bindings")
-		return false
-	}
-
-	log.Println("Music bindings initialized successfully on-demand")
-	return true
-}
-
 func ensureRecommendationServiceInitialized() bool {
 	if recommendationService != nil {
 		return true
@@ -336,13 +232,8 @@ func ensureRecommendationServiceInitialized() bool {
 func Music_InitiateSpotifyAuth(port C.int) *C.char {
 	var result *C.char
 
-	if !ensureMusicBindingsInitialized() {
-		result = C.CString("{\"error\": \"Failed to initialize music bindings\"}")
-		return result
-	}
-
 	// Call the simplified version that just opens the browser, passing the port
-	err := musicBindings.InitiateSpotifyAuth(int(port))
+	err := initiateSpotifyAuth(int(port))
 	if err != nil {
 		log.Printf("Music_InitiateSpotifyAuth failed: %v", err)
 		errorJson, _ := json.Marshal(map[string]interface{}{
@@ -355,6 +246,27 @@ func Music_InitiateSpotifyAuth(port C.int) *C.char {
 	// Return success message
 	result = C.CString("{\"status\": \"Spotify auth initiated successfully\"}")
 	return result
+}
+
+func initiateSpotifyAuth(port int) error {
+	log.Printf("Explicitly initiating Spotify authentication flow with port %d", port)
+
+	// Validate that the port is one of the registered ports
+	if !spotify.IsRegisteredPort(port) {
+		return fmt.Errorf("port %d is not registered in the Spotify Developer Dashboard", port)
+	}
+
+	// Open the browser with the auth URL but don't set up a server or handle callback
+	err := spotify.OpenSpotifyAuthBrowser(context.Background(), port)
+	if err != nil {
+		log.Printf("ERROR: Failed to open Spotify auth browser: %v", err)
+		return err
+	}
+
+	log.Println("Browser opened with Spotify auth URL - Flutter will handle the callback")
+
+	// No need to return anything, the code verifier is stored in the spotify package
+	return nil
 }
 
 // Recommendation FFI Functions
