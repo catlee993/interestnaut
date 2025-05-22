@@ -2,7 +2,6 @@ package db
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"interestnaut/internal/app/models"
@@ -11,6 +10,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"zombiezen.com/go/sqlite"
+	"zombiezen.com/go/sqlite/sqlitex"
 )
 
 // Common errors
@@ -105,8 +106,8 @@ type VideoGame struct {
 	IsFavorite  bool
 	IsWatchlist bool
 	Platforms   []string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	CreatedAt   string
+	UpdatedAt   string
 }
 
 // Suggestion represents a suggestion entry for any media type
@@ -121,7 +122,7 @@ type Suggestion struct {
 
 // Constraint represents a constraint rule in the database
 type Constraint struct {
-	ID        uint64
+	ID        int64
 	Rule      string
 	Media     MediaType
 	CreatedAt time.Time
@@ -132,28 +133,36 @@ type Constraint struct {
 func (db *SqliteDatabase) AddMusic(music *Music) error {
 	query := `
 	INSERT INTO music (title, artist, album, album_art_url, is_favorite, is_watchlist)
-	VALUES (?, ?, ?, ?, ?, ?)
+	VALUES (:1, :2, :3, :4, :5, :6)
 	`
 
-	result, err := db.db.Exec(
-		query,
-		music.Title,
-		music.Artist,
-		music.Album,
-		music.AlbumArtURL,
-		music.IsFavorite,
-		music.IsWatchlist,
-	)
+	err := sqlitex.Execute(db.db, query, &sqlitex.ExecOptions{
+		Args: []interface{}{
+			music.Title,
+			music.Artist,
+			music.Album,
+			music.AlbumArtURL,
+			music.IsFavorite,
+			music.IsWatchlist,
+		},
+	})
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
 	}
 
-	id, err := result.LastInsertId()
+	// Get the last inserted ID
+	var lastID int64
+	err = sqlitex.Execute(db.db, "SELECT last_insert_rowid()", &sqlitex.ExecOptions{
+		ResultFunc: func(stmt *sqlite.Stmt) error {
+			lastID = stmt.ColumnInt64(0)
+			return nil
+		},
+	})
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
+		return fmt.Errorf("%w: getting last insert ID: %v", ErrDatabaseFailure, err)
 	}
 
-	music.ID = uint64(id)
+	music.ID = uint64(lastID)
 	return nil
 }
 
@@ -162,31 +171,35 @@ func (db *SqliteDatabase) GetMusic(id uint64) (*Music, error) {
 	query := `
 	SELECT id, title, artist, album, album_art_url, is_favorite, is_watchlist, created_at, updated_at
 	FROM music
-	WHERE id = ?
+	WHERE id = :1
 	`
 
 	var music Music
-	var createdAt, updatedAt string
 
-	err := db.db.QueryRow(query, id).Scan(
-		&music.ID,
-		&music.Title,
-		&music.Artist,
-		&music.Album,
-		&music.AlbumArtURL,
-		&music.IsFavorite,
-		&music.IsWatchlist,
-		&createdAt,
-		&updatedAt,
-	)
+	stmt := db.db.Prep(query)
+	defer stmt.Reset()
 
-	if err == sql.ErrNoRows {
-		return nil, ErrNotFound
-	} else if err != nil {
+	stmt.SetInt64(":1", int64(id))
+
+	if hasRow, err := stmt.Step(); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
+	} else if !hasRow {
+		return nil, ErrNotFound
 	}
 
+	music.ID = uint64(stmt.ColumnInt64(0))
+	music.Title = stmt.ColumnText(1)
+	music.Artist = stmt.ColumnText(2)
+	music.Album = stmt.ColumnText(3)
+	music.AlbumArtURL = stmt.ColumnText(4)
+	music.IsFavorite = stmt.ColumnBool(5)
+	music.IsWatchlist = stmt.ColumnBool(6)
+
+	createdAt := stmt.ColumnText(7)
+	updatedAt := stmt.ColumnText(8)
+
 	// Parse timestamps
+	var err error
 	if music.CreatedAt, err = time.Parse(time.RFC3339, createdAt); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
 	}
@@ -201,27 +214,35 @@ func (db *SqliteDatabase) GetMusic(id uint64) (*Music, error) {
 func (db *SqliteDatabase) AddBook(book *Book) error {
 	query := `
 	INSERT INTO books (title, author, cover_art_url, is_favorite, is_watchlist)
-	VALUES (?, ?, ?, ?, ?)
+	VALUES (:1, :2, :3, :4, :5)
 	`
 
-	result, err := db.db.Exec(
-		query,
-		book.Title,
-		book.Author,
-		book.CoverArtURL,
-		book.IsFavorite,
-		book.IsWatchlist,
-	)
+	err := sqlitex.Execute(db.db, query, &sqlitex.ExecOptions{
+		Args: []interface{}{
+			book.Title,
+			book.Author,
+			book.CoverArtURL,
+			book.IsFavorite,
+			book.IsWatchlist,
+		},
+	})
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
 	}
 
-	id, err := result.LastInsertId()
+	// Get the last inserted ID
+	var lastID int64
+	err = sqlitex.Execute(db.db, "SELECT last_insert_rowid()", &sqlitex.ExecOptions{
+		ResultFunc: func(stmt *sqlite.Stmt) error {
+			lastID = stmt.ColumnInt64(0)
+			return nil
+		},
+	})
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
+		return fmt.Errorf("%w: getting last insert ID: %v", ErrDatabaseFailure, err)
 	}
 
-	book.ID = uint64(id)
+	book.ID = uint64(lastID)
 	return nil
 }
 
@@ -230,30 +251,34 @@ func (db *SqliteDatabase) GetBook(id uint64) (*Book, error) {
 	query := `
 	SELECT id, title, author, cover_art_url, is_favorite, is_watchlist, created_at, updated_at
 	FROM books
-	WHERE id = ?
+	WHERE id = :1
 	`
 
 	var book Book
-	var createdAt, updatedAt string
 
-	err := db.db.QueryRow(query, id).Scan(
-		&book.ID,
-		&book.Title,
-		&book.Author,
-		&book.CoverArtURL,
-		&book.IsFavorite,
-		&book.IsWatchlist,
-		&createdAt,
-		&updatedAt,
-	)
+	stmt := db.db.Prep(query)
+	defer stmt.Reset()
 
-	if err == sql.ErrNoRows {
-		return nil, ErrNotFound
-	} else if err != nil {
+	stmt.SetInt64(":1", int64(id))
+
+	if hasRow, err := stmt.Step(); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
+	} else if !hasRow {
+		return nil, ErrNotFound
 	}
 
+	book.ID = uint64(stmt.ColumnInt64(0))
+	book.Title = stmt.ColumnText(1)
+	book.Author = stmt.ColumnText(2)
+	book.CoverArtURL = stmt.ColumnText(3)
+	book.IsFavorite = stmt.ColumnBool(4)
+	book.IsWatchlist = stmt.ColumnBool(5)
+
+	createdAt := stmt.ColumnText(6)
+	updatedAt := stmt.ColumnText(7)
+
 	// Parse timestamps
+	var err error
 	if book.CreatedAt, err = time.Parse(time.RFC3339, createdAt); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
 	}
@@ -268,28 +293,36 @@ func (db *SqliteDatabase) GetBook(id uint64) (*Book, error) {
 func (db *SqliteDatabase) AddMovie(movie *Movie) error {
 	query := `
 	INSERT INTO movies (title, director, writer, poster_url, is_favorite, is_watchlist)
-	VALUES (?, ?, ?, ?, ?, ?)
+	VALUES (:1, :2, :3, :4, :5, :6)
 	`
 
-	result, err := db.db.Exec(
-		query,
-		movie.Title,
-		movie.Director,
-		movie.Writer,
-		movie.PosterURL,
-		movie.IsFavorite,
-		movie.IsWatchlist,
-	)
+	err := sqlitex.Execute(db.db, query, &sqlitex.ExecOptions{
+		Args: []interface{}{
+			movie.Title,
+			movie.Director,
+			movie.Writer,
+			movie.PosterURL,
+			movie.IsFavorite,
+			movie.IsWatchlist,
+		},
+	})
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
 	}
 
-	id, err := result.LastInsertId()
+	// Get the last inserted ID
+	var lastID int64
+	err = sqlitex.Execute(db.db, "SELECT last_insert_rowid()", &sqlitex.ExecOptions{
+		ResultFunc: func(stmt *sqlite.Stmt) error {
+			lastID = stmt.ColumnInt64(0)
+			return nil
+		},
+	})
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
+		return fmt.Errorf("%w: getting last insert ID: %v", ErrDatabaseFailure, err)
 	}
 
-	movie.ID = uint64(id)
+	movie.ID = uint64(lastID)
 	return nil
 }
 
@@ -298,31 +331,35 @@ func (db *SqliteDatabase) GetMovie(id uint64) (*Movie, error) {
 	query := `
 	SELECT id, title, director, writer, poster_url, is_favorite, is_watchlist, created_at, updated_at
 	FROM movies
-	WHERE id = ?
+	WHERE id = :1
 	`
 
 	var movie Movie
-	var createdAt, updatedAt string
 
-	err := db.db.QueryRow(query, id).Scan(
-		&movie.ID,
-		&movie.Title,
-		&movie.Director,
-		&movie.Writer,
-		&movie.PosterURL,
-		&movie.IsFavorite,
-		&movie.IsWatchlist,
-		&createdAt,
-		&updatedAt,
-	)
+	stmt := db.db.Prep(query)
+	defer stmt.Reset()
 
-	if err == sql.ErrNoRows {
-		return nil, ErrNotFound
-	} else if err != nil {
+	stmt.SetInt64(":1", int64(id))
+
+	if hasRow, err := stmt.Step(); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
+	} else if !hasRow {
+		return nil, ErrNotFound
 	}
 
+	movie.ID = uint64(stmt.ColumnInt64(0))
+	movie.Title = stmt.ColumnText(1)
+	movie.Director = stmt.ColumnText(2)
+	movie.Writer = stmt.ColumnText(3)
+	movie.PosterURL = stmt.ColumnText(4)
+	movie.IsFavorite = stmt.ColumnBool(5)
+	movie.IsWatchlist = stmt.ColumnBool(6)
+
+	createdAt := stmt.ColumnText(7)
+	updatedAt := stmt.ColumnText(8)
+
 	// Parse timestamps
+	var err error
 	if movie.CreatedAt, err = time.Parse(time.RFC3339, createdAt); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
 	}
@@ -337,28 +374,36 @@ func (db *SqliteDatabase) GetMovie(id uint64) (*Movie, error) {
 func (db *SqliteDatabase) AddShow(show *Show) error {
 	query := `
 	INSERT INTO shows (title, director, writer, poster_url, is_favorite, is_watchlist)
-	VALUES (?, ?, ?, ?, ?, ?)
+	VALUES (:1, :2, :3, :4, :5, :6)
 	`
 
-	result, err := db.db.Exec(
-		query,
-		show.Title,
-		show.Director,
-		show.Writer,
-		show.PosterURL,
-		show.IsFavorite,
-		show.IsWatchlist,
-	)
+	err := sqlitex.Execute(db.db, query, &sqlitex.ExecOptions{
+		Args: []interface{}{
+			show.Title,
+			show.Director,
+			show.Writer,
+			show.PosterURL,
+			show.IsFavorite,
+			show.IsWatchlist,
+		},
+	})
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
 	}
 
-	id, err := result.LastInsertId()
+	// Get the last inserted ID
+	var lastID int64
+	err = sqlitex.Execute(db.db, "SELECT last_insert_rowid()", &sqlitex.ExecOptions{
+		ResultFunc: func(stmt *sqlite.Stmt) error {
+			lastID = stmt.ColumnInt64(0)
+			return nil
+		},
+	})
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
+		return fmt.Errorf("%w: getting last insert ID: %v", ErrDatabaseFailure, err)
 	}
 
-	show.ID = uint64(id)
+	show.ID = uint64(lastID)
 	return nil
 }
 
@@ -367,31 +412,35 @@ func (db *SqliteDatabase) GetShow(id uint64) (*Show, error) {
 	query := `
 	SELECT id, title, director, writer, poster_url, is_favorite, is_watchlist, created_at, updated_at
 	FROM shows
-	WHERE id = ?
+	WHERE id = :1
 	`
 
 	var show Show
-	var createdAt, updatedAt string
 
-	err := db.db.QueryRow(query, id).Scan(
-		&show.ID,
-		&show.Title,
-		&show.Director,
-		&show.Writer,
-		&show.PosterURL,
-		&show.IsFavorite,
-		&show.IsWatchlist,
-		&createdAt,
-		&updatedAt,
-	)
+	stmt := db.db.Prep(query)
+	defer stmt.Reset()
 
-	if err == sql.ErrNoRows {
-		return nil, ErrNotFound
-	} else if err != nil {
+	stmt.SetInt64(":1", int64(id))
+
+	if hasRow, err := stmt.Step(); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
+	} else if !hasRow {
+		return nil, ErrNotFound
 	}
 
+	show.ID = uint64(stmt.ColumnInt64(0))
+	show.Title = stmt.ColumnText(1)
+	show.Director = stmt.ColumnText(2)
+	show.Writer = stmt.ColumnText(3)
+	show.PosterURL = stmt.ColumnText(4)
+	show.IsFavorite = stmt.ColumnBool(5)
+	show.IsWatchlist = stmt.ColumnBool(6)
+
+	createdAt := stmt.ColumnText(7)
+	updatedAt := stmt.ColumnText(8)
+
 	// Parse timestamps
+	var err error
 	if show.CreatedAt, err = time.Parse(time.RFC3339, createdAt); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
 	}
@@ -405,57 +454,96 @@ func (db *SqliteDatabase) GetShow(id uint64) (*Show, error) {
 // AddVideoGame adds a new video game entry to the database with platforms
 func (db *SqliteDatabase) AddVideoGame(game *VideoGame) error {
 	// Begin transaction to handle both the video game and its platforms
-	tx, err := db.db.Begin()
-	if err != nil {
-		return fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
+	if err := sqlitex.Execute(db.db, "BEGIN TRANSACTION", nil); err != nil {
+		return fmt.Errorf("%w: failed to begin transaction: %v", ErrDatabaseFailure, err)
 	}
 
-	// Ensure proper rollback on error
+	// Ensure we either commit or rollback the transaction
 	defer func() {
-		if err != nil {
-			tx.Rollback()
+		// If there was a panic, roll back the transaction
+		if r := recover(); r != nil {
+			sqlitex.Execute(db.db, "ROLLBACK", nil)
+			panic(r) // Re-throw the panic
 		}
 	}()
 
 	// Insert the video game
 	query := `
 	INSERT INTO video_games (title, developer, cover_art_url, is_favorite, is_watchlist)
-	VALUES (?, ?, ?, ?, ?)
-	RETURNING id, created_at, updated_at
+	VALUES (:1, :2, :3, :4, :5)
 	`
 
-	row := tx.QueryRow(
-		query,
-		game.Title,
-		game.Developer,
-		game.CoverArtURL,
-		game.IsFavorite,
-		game.IsWatchlist,
-	)
-
-	err = row.Scan(&game.ID, &game.CreatedAt, &game.UpdatedAt)
+	err := sqlitex.Execute(db.db, query, &sqlitex.ExecOptions{
+		Args: []interface{}{
+			game.Title,
+			game.Developer,
+			game.CoverArtURL,
+			game.IsFavorite,
+			game.IsWatchlist,
+		},
+	})
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
+		sqlitex.Execute(db.db, "ROLLBACK", nil)
+		return fmt.Errorf("%w: insert video game: %v", ErrDatabaseFailure, err)
+	}
+
+	// Get the last inserted ID
+	var lastID int64
+	err = sqlitex.Execute(db.db, "SELECT last_insert_rowid()", &sqlitex.ExecOptions{
+		ResultFunc: func(stmt *sqlite.Stmt) error {
+			lastID = stmt.ColumnInt64(0)
+			return nil
+		},
+	})
+	if err != nil {
+		sqlitex.Execute(db.db, "ROLLBACK", nil)
+		return fmt.Errorf("%w: getting last insert ID: %v", ErrDatabaseFailure, err)
+	}
+
+	game.ID = uint64(lastID)
+
+	// Get created_at and updated_at timestamps
+	timestampQuery := `
+	SELECT created_at, updated_at
+	FROM video_games
+	WHERE id = :1
+	`
+	err = sqlitex.Execute(db.db, timestampQuery, &sqlitex.ExecOptions{
+		Args: []interface{}{game.ID},
+		ResultFunc: func(stmt *sqlite.Stmt) error {
+			game.CreatedAt = stmt.ColumnText(0)
+			game.UpdatedAt = stmt.ColumnText(1)
+			return nil
+		},
+	})
+	if err != nil {
+		sqlitex.Execute(db.db, "ROLLBACK", nil)
+		return fmt.Errorf("%w: getting timestamps: %v", ErrDatabaseFailure, err)
 	}
 
 	// Insert platforms if provided
 	if len(game.Platforms) > 0 {
 		platformQuery := `
-		INSERT INTO video_game_platforms (video_game_id, name)
-		VALUES (?, ?)
+		INSERT INTO video_game_platforms (video_game_id, platform)
+		VALUES (:1, :2)
 		`
 
 		for _, platform := range game.Platforms {
-			_, err = tx.Exec(platformQuery, game.ID, platform)
+			err = sqlitex.Execute(db.db, platformQuery, &sqlitex.ExecOptions{
+				Args: []interface{}{game.ID, platform},
+			})
 			if err != nil {
-				return fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
+				sqlitex.Execute(db.db, "ROLLBACK", nil)
+				return fmt.Errorf("%w: insert platform %s: %v", ErrDatabaseFailure, platform, err)
 			}
 		}
 	}
 
 	// Commit the transaction
-	if err = tx.Commit(); err != nil {
-		return fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
+	if err := sqlitex.Execute(db.db, "COMMIT", nil); err != nil {
+		// Try to roll back if commit fails
+		sqlitex.Execute(db.db, "ROLLBACK", nil)
+		return fmt.Errorf("%w: failed to commit transaction: %v", ErrDatabaseFailure, err)
 	}
 
 	return nil
@@ -463,51 +551,59 @@ func (db *SqliteDatabase) AddVideoGame(game *VideoGame) error {
 
 // GetVideoGame retrieves a video game entry by ID, including its platforms
 func (db *SqliteDatabase) GetVideoGame(id uint64) (*VideoGame, error) {
-	// Get the video game
-	gameQuery := `
+	// First, get the main video game data
+	query := `
 	SELECT id, title, developer, cover_art_url, is_favorite, is_watchlist, created_at, updated_at
 	FROM video_games
-	WHERE id = ?
+	WHERE id = :1
 	`
 
 	var game VideoGame
-	err := db.db.QueryRow(gameQuery, id).Scan(
-		&game.ID,
-		&game.Title,
-		&game.Developer,
-		&game.CoverArtURL,
-		&game.IsFavorite,
-		&game.IsWatchlist,
-		&game.CreatedAt,
-		&game.UpdatedAt,
-	)
 
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, ErrNotFound
-		}
+	stmt := db.db.Prep(query)
+	defer stmt.Reset()
+
+	stmt.SetInt64(":1", int64(id))
+
+	if hasRow, err := stmt.Step(); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
+	} else if !hasRow {
+		return nil, ErrNotFound
 	}
 
-	// Get the platforms
-	platformsQuery := `
-	SELECT name FROM video_game_platforms
-	WHERE video_game_id = ?
-	ORDER BY name
+	game.ID = uint64(stmt.ColumnInt64(0))
+	game.Title = stmt.ColumnText(1)
+	game.Developer = stmt.ColumnText(2)
+	game.CoverArtURL = stmt.ColumnText(3)
+	game.IsFavorite = stmt.ColumnBool(4)
+	game.IsWatchlist = stmt.ColumnBool(5)
+	game.CreatedAt = stmt.ColumnText(6)
+	game.UpdatedAt = stmt.ColumnText(7)
+
+	// Then, get the platforms
+	platformQuery := `
+	SELECT platform
+	FROM video_game_platforms
+	WHERE video_game_id = :1
+	ORDER BY platform
 	`
 
-	rows, err := db.db.Query(platformsQuery, id)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
-	}
-	defer rows.Close()
+	platformStmt := db.db.Prep(platformQuery)
+	defer platformStmt.Reset()
+
+	platformStmt.SetInt64(":1", int64(id))
 
 	game.Platforms = []string{}
-	for rows.Next() {
-		var platform string
-		if err := rows.Scan(&platform); err != nil {
+	for {
+		hasRow, err := platformStmt.Step()
+		if err != nil {
 			return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
 		}
+		if !hasRow {
+			break
+		}
+
+		platform := platformStmt.ColumnText(0)
 		game.Platforms = append(game.Platforms, platform)
 	}
 
@@ -543,10 +639,12 @@ func (db *SqliteDatabase) AddSuggestion(mediaID uint64, mediaType MediaType, rea
 	// Create the dynamic query
 	query := fmt.Sprintf(`
 	INSERT INTO %s (%s, reason, outcome)
-	VALUES (?, ?, ?)
+	VALUES (:1, :2, :3)
 	`, tableName, idColumn)
 
-	_, err := db.db.Exec(query, mediaID, reason, string(outcome))
+	err := sqlitex.Execute(db.db, query, &sqlitex.ExecOptions{
+		Args: []interface{}{mediaID, reason, string(outcome)},
+	})
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
 	}
@@ -575,16 +673,25 @@ func (db *SqliteDatabase) UpdateFavoriteStatus(id uint64, mediaType MediaType, i
 
 	query := fmt.Sprintf(`
 	UPDATE %s
-	SET is_favorite = ?, updated_at = CURRENT_TIMESTAMP
-	WHERE id = ?
+	SET is_favorite = :1, updated_at = CURRENT_TIMESTAMP
+	WHERE id = :2
 	`, tableName)
 
-	result, err := db.db.Exec(query, isFavorite, id)
+	err := sqlitex.Execute(db.db, query, &sqlitex.ExecOptions{
+		Args: []interface{}{isFavorite, id},
+	})
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
 	}
 
-	rowsAffected, err := result.RowsAffected()
+	// Check if any rows were affected
+	var rowsAffected int
+	err = sqlitex.Execute(db.db, "SELECT changes()", &sqlitex.ExecOptions{
+		ResultFunc: func(stmt *sqlite.Stmt) error {
+			rowsAffected = stmt.ColumnInt(0)
+			return nil
+		},
+	})
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
 	}
@@ -617,16 +724,25 @@ func (db *SqliteDatabase) UpdateWatchlistStatus(id uint64, mediaType MediaType, 
 
 	query := fmt.Sprintf(`
 	UPDATE %s
-	SET is_watchlist = ?, updated_at = CURRENT_TIMESTAMP
-	WHERE id = ?
+	SET is_watchlist = :1, updated_at = CURRENT_TIMESTAMP
+	WHERE id = :2
 	`, tableName)
 
-	result, err := db.db.Exec(query, isWatchlist, id)
+	err := sqlitex.Execute(db.db, query, &sqlitex.ExecOptions{
+		Args: []interface{}{isWatchlist, id},
+	})
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
 	}
 
-	rowsAffected, err := result.RowsAffected()
+	// Check if any rows were affected
+	var rowsAffected int
+	err = sqlitex.Execute(db.db, "SELECT changes()", &sqlitex.ExecOptions{
+		ResultFunc: func(stmt *sqlite.Stmt) error {
+			rowsAffected = stmt.ColumnInt(0)
+			return nil
+		},
+	})
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
 	}
@@ -642,10 +758,12 @@ func (db *SqliteDatabase) UpdateWatchlistStatus(id uint64, mediaType MediaType, 
 func (db *SqliteDatabase) AddConstraint(rule string, mediaType MediaType) error {
 	query := `
 	INSERT INTO constraints (rule, media)
-	VALUES (?, ?)
+	VALUES (:1, :2)
 	`
 
-	_, err := db.db.Exec(query, rule, string(mediaType))
+	err := sqlitex.Execute(db.db, query, &sqlitex.ExecOptions{
+		Args: []interface{}{rule, string(mediaType)},
+	})
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
 	}
@@ -658,41 +776,44 @@ func (db *SqliteDatabase) GetConstraintsByMediaType(mediaType MediaType) ([]*Con
 	query := `
 	SELECT id, rule, media, created_at, updated_at
 	FROM constraints
-	WHERE media = ? OR media = 'global'
+	WHERE media = :1 OR media = 'global'
 	`
 
-	rows, err := db.db.Query(query, mediaType)
+	var constraints []*Constraint
+
+	err := sqlitex.Execute(db.db, query, &sqlitex.ExecOptions{
+		Args: []interface{}{string(mediaType)},
+		ResultFunc: func(stmt *sqlite.Stmt) error {
+			var constraint Constraint
+
+			constraint.ID = stmt.ColumnInt64(0)
+			constraint.Rule = stmt.ColumnText(1)
+			constraint.Media = MediaType(stmt.ColumnText(2))
+
+			createdAt := stmt.ColumnText(3)
+			updatedAt := stmt.ColumnText(4)
+
+			var err error
+			// Parse timestamps
+			if constraint.CreatedAt, err = time.Parse(time.RFC3339, createdAt); err != nil {
+				// Try parsing without RFC3339 for older sqlite versions that might not store it perfectly
+				if constraint.CreatedAt, err = time.Parse("2006-01-02 15:04:05-07:00", createdAt); err != nil {
+					log.Printf("WARN: Could not parse constraint.CreatedAt timestamp '%s': %v", createdAt, err)
+				}
+			}
+			if constraint.UpdatedAt, err = time.Parse(time.RFC3339, updatedAt); err != nil {
+				if constraint.UpdatedAt, err = time.Parse("2006-01-02 15:04:05-07:00", updatedAt); err != nil {
+					log.Printf("WARN: Could not parse constraint.UpdatedAt timestamp '%s': %v", updatedAt, err)
+				}
+			}
+
+			constraints = append(constraints, &constraint)
+			return nil
+		},
+	})
+
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
-	}
-	defer rows.Close()
-
-	var constraints []*Constraint
-	for rows.Next() {
-		var constraint Constraint
-		var createdAt, updatedAt string
-		if err := rows.Scan(
-			&constraint.ID,
-			&constraint.Rule,
-			&constraint.Media,
-			&createdAt,
-			&updatedAt,
-		); err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
-		}
-		// Parse timestamps
-		if constraint.CreatedAt, err = time.Parse(time.RFC3339, createdAt); err != nil {
-			// Try parsing without RFC3339 for older sqlite versions that might not store it perfectly
-			if constraint.CreatedAt, err = time.Parse("2006-01-02 15:04:05-07:00", createdAt); err != nil {
-				log.Printf("WARN: Could not parse constraint.CreatedAt timestamp '%s': %v", createdAt, err)
-			}
-		}
-		if constraint.UpdatedAt, err = time.Parse(time.RFC3339, updatedAt); err != nil {
-			if constraint.UpdatedAt, err = time.Parse("2006-01-02 15:04:05-07:00", updatedAt); err != nil {
-				log.Printf("WARN: Could not parse constraint.UpdatedAt timestamp '%s': %v", updatedAt, err)
-			}
-		}
-		constraints = append(constraints, &constraint)
 	}
 
 	return constraints, nil
@@ -711,75 +832,54 @@ func (db *SqliteDatabase) SaveMediaSuggestion(ctx context.Context, s *models.Med
 	now := time.Now()
 	s.UpdatedAt = &now
 
-	query := `
-	INSERT INTO recommendations (id, query, media_type, title, artist, album, cover_art_url, description, wiki_url, wikidata_id, bot_reasoning, status, created_at, updated_at)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	ON CONFLICT(id) DO UPDATE SET
-		query = excluded.query,
-		media_type = excluded.media_type,
-		title = excluded.title,
-		artist = excluded.artist,
-		album = excluded.album,
-		cover_art_url = excluded.cover_art_url,
-		description = excluded.description,
-		wiki_url = excluded.wiki_url,
-		wikidata_id = excluded.wikidata_id,
-		bot_reasoning = excluded.bot_reasoning,
-		status = excluded.status,
-		updated_at = excluded.updated_at
-	`
-	// If it's a new record, use its own CreatedAt. If updating, keep original CreatedAt.
-	// The ON CONFLICT clause for SQLite doesn't easily allow preserving created_at on update while setting it on insert.
-	// So, if it's not new, we fetch current created_at first, or rely on the fact that we don't list created_at in the SET part for updates (but excluded.updated_at handles this example).
-	// For simplicity and because the trigger handles updated_at, we can simplify the insert.
-	// The trigger will update `updated_at` so we don't strictly need to set it in the query, but it's good practice.
-
-	// For created_at, if it's an update, we want to preserve the original creation time.
-	// The current UPSERT logic will use `excluded.created_at` if it's an update, which is not what we want.
-	// We'll handle this by setting `created_at` only on `INSERT` and not touching it on `UPDATE`.
-
-	var stmt *sql.Stmt
 	var err error
 
 	if isNew {
-		query = `
+		query := `
 		INSERT INTO recommendations (id, query, media_type, title, artist, album, cover_art_url, description, wiki_url, wikidata_id, bot_reasoning, status, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (:1, :2, :3, :4, :5, :6, :7, :8, :9, :10, :11, :12, :13, :14)
 		`
-		stmt, err = db.db.PrepareContext(ctx, query)
+
+		err = sqlitex.Execute(db.db, query, &sqlitex.ExecOptions{
+			Args: []interface{}{
+				s.ID, s.Query, s.MediaType, s.Title, s.Artist, s.Album, s.CoverArtURL,
+				s.Description, s.WikiURL, s.WikidataID, s.BotReasoning, string(s.Status),
+				s.CreatedAt.Format(time.RFC3339), s.UpdatedAt.Format(time.RFC3339),
+			},
+		})
 		if err != nil {
-			return fmt.Errorf("%w: preparing insert: %v", ErrDatabaseFailure, err)
+			return fmt.Errorf("%w: executing insert suggestion: %v", ErrDatabaseFailure, err)
 		}
-		defer stmt.Close()
-		_, err = stmt.ExecContext(ctx, s.ID, s.Query, s.MediaType, s.Title, s.Artist, s.Album, s.CoverArtURL, s.Description, s.WikiURL, s.WikidataID, s.BotReasoning, s.Status, s.CreatedAt, s.UpdatedAt)
 	} else {
-		query = `
+		query := `
 		UPDATE recommendations SET
-			query = ?,
-			media_type = ?,
-			title = ?,
-			artist = ?,
-			album = ?,
-			cover_art_url = ?,
-			description = ?,
-			wiki_url = ?,
-			wikidata_id = ?,
-			bot_reasoning = ?,
-			status = ?,
-			updated_at = ? 
-		WHERE id = ?
+			query = :1,
+			media_type = :2,
+			title = :3,
+			artist = :4,
+			album = :5,
+			cover_art_url = :6,
+			description = :7,
+			wiki_url = :8,
+			wikidata_id = :9,
+			bot_reasoning = :10,
+			status = :11,
+			updated_at = :12 
+		WHERE id = :13
 		` // created_at is not updated
-		stmt, err = db.db.PrepareContext(ctx, query)
+
+		err = sqlitex.Execute(db.db, query, &sqlitex.ExecOptions{
+			Args: []interface{}{
+				s.Query, s.MediaType, s.Title, s.Artist, s.Album, s.CoverArtURL,
+				s.Description, s.WikiURL, s.WikidataID, s.BotReasoning, string(s.Status),
+				s.UpdatedAt.Format(time.RFC3339), s.ID,
+			},
+		})
 		if err != nil {
-			return fmt.Errorf("%w: preparing update: %v", ErrDatabaseFailure, err)
+			return fmt.Errorf("%w: executing update suggestion: %v", ErrDatabaseFailure, err)
 		}
-		defer stmt.Close()
-		_, err = stmt.ExecContext(ctx, s.Query, s.MediaType, s.Title, s.Artist, s.Album, s.CoverArtURL, s.Description, s.WikiURL, s.WikidataID, s.BotReasoning, s.Status, s.UpdatedAt, s.ID)
 	}
 
-	if err != nil {
-		return fmt.Errorf("%w: executing insert/update suggestion: %v", ErrDatabaseFailure, err)
-	}
 	return nil
 }
 
@@ -788,51 +888,104 @@ func (db *SqliteDatabase) GetMediaSuggestionByID(ctx context.Context, id string)
 	query := `
 	SELECT id, query, media_type, title, artist, album, cover_art_url, description, wiki_url, wikidata_id, bot_reasoning, status, created_at, updated_at
 	FROM recommendations
-	WHERE id = ?
+	WHERE id = :1
 	`
-	row := db.db.QueryRowContext(ctx, query, id)
-	var s models.MediaSuggestion
-	var createdAtStr string
-	var updatedAtStr sql.NullString // updated_at can be NULL if using older sqlite versions or if not set by trigger initially
 
-	err := row.Scan(
-		&s.ID, &s.Query, &s.MediaType,
-		&s.Title, &s.Artist, &s.Album, &s.CoverArtURL,
-		&s.Description, &s.WikiURL, &s.WikidataID, &s.BotReasoning,
-		&s.Status, &createdAtStr, &updatedAtStr,
-	)
+	stmt := db.db.Prep(query)
+	defer stmt.Reset()
 
-	if err == sql.ErrNoRows {
-		return nil, ErrNotFound
-	} else if err != nil {
-		return nil, fmt.Errorf("%w: scanning suggestion: %v", ErrDatabaseFailure, err)
-	}
+	stmt.SetText(":1", id)
 
-	s.CreatedAt, err = time.Parse(time.RFC3339, createdAtStr) 
+	hasRow, err := stmt.Step()
 	if err != nil {
-        // Fallback for different timestamp formats that might be in the DB
-        s.CreatedAt, err = time.Parse("2006-01-02 15:04:05-07:00", createdAtStr)
-        if err != nil {
-            s.CreatedAt, err = time.Parse("2006-01-02T15:04:05Z", createdAtStr) // ISO8601 UTC
-             if err != nil {
-                log.Printf("WARN: Could not parse GetMediaSuggestionByID.CreatedAt timestamp '%s': %v", createdAtStr, err)
-             }
-        }
+		return nil, fmt.Errorf("%w: querying suggestion: %v", ErrDatabaseFailure, err)
 	}
-	if updatedAtStr.Valid {
-		updatedAt, parseErr := time.Parse(time.RFC3339, updatedAtStr.String)
-        if parseErr != nil {
-            updatedAt, parseErr = time.Parse("2006-01-02 15:04:05-07:00", updatedAtStr.String)
-            if parseErr != nil {
-                updatedAt, parseErr = time.Parse("2006-01-02T15:04:05Z", updatedAtStr.String)
-                if parseErr != nil {
-                     log.Printf("WARN: Could not parse GetMediaSuggestionByID.UpdatedAt timestamp '%s': %v", updatedAtStr.String, parseErr)
-                }
-            }
-        }
-        if parseErr == nil {
-            s.UpdatedAt = &updatedAt
-        }
+	if !hasRow {
+		return nil, ErrNotFound
+	}
+
+	var s models.MediaSuggestion
+
+	s.ID = stmt.ColumnText(0)
+	s.Query = stmt.ColumnText(1)
+	s.MediaType = stmt.ColumnText(2)
+
+	// Handle potential NULL values for string pointer fields
+	if !stmt.ColumnIsNull(3) {
+		title := stmt.ColumnText(3)
+		s.Title = &title
+	}
+	
+	if !stmt.ColumnIsNull(4) {
+		artist := stmt.ColumnText(4)
+		s.Artist = &artist
+	}
+	
+	if !stmt.ColumnIsNull(5) {
+		album := stmt.ColumnText(5)
+		s.Album = &album
+	}
+	
+	if !stmt.ColumnIsNull(6) {
+		coverArtURL := stmt.ColumnText(6)
+		s.CoverArtURL = &coverArtURL
+	}
+	
+	if !stmt.ColumnIsNull(7) {
+		description := stmt.ColumnText(7)
+		s.Description = &description
+	}
+	
+	if !stmt.ColumnIsNull(8) {
+		wikiURL := stmt.ColumnText(8)
+		s.WikiURL = &wikiURL
+	}
+	
+	if !stmt.ColumnIsNull(9) {
+		wikidataID := stmt.ColumnText(9)
+		s.WikidataID = &wikidataID
+	}
+	
+	if !stmt.ColumnIsNull(10) {
+		botReasoning := stmt.ColumnText(10)
+		s.BotReasoning = &botReasoning
+	}
+	
+	s.Status = models.SuggestionStatus(stmt.ColumnText(11))
+
+	createdAtStr := stmt.ColumnText(12)
+	var updatedAtStr string
+	if !stmt.ColumnIsNull(13) {
+		updatedAtStr = stmt.ColumnText(13)
+	}
+
+	var parseErr error
+	s.CreatedAt, parseErr = time.Parse(time.RFC3339, createdAtStr)
+	if parseErr != nil {
+		// Fallback for different timestamp formats that might be in the DB
+		s.CreatedAt, parseErr = time.Parse("2006-01-02 15:04:05-07:00", createdAtStr)
+		if parseErr != nil {
+			s.CreatedAt, parseErr = time.Parse("2006-01-02T15:04:05Z", createdAtStr) // ISO8601 UTC
+			if parseErr != nil {
+				log.Printf("WARN: Could not parse GetMediaSuggestionByID.CreatedAt timestamp '%s': %v", createdAtStr, parseErr)
+			}
+		}
+	}
+
+	if updatedAtStr != "" {
+		updatedAt, parseErr := time.Parse(time.RFC3339, updatedAtStr)
+		if parseErr != nil {
+			updatedAt, parseErr = time.Parse("2006-01-02 15:04:05-07:00", updatedAtStr)
+			if parseErr != nil {
+				updatedAt, parseErr = time.Parse("2006-01-02T15:04:05Z", updatedAtStr)
+				if parseErr != nil {
+					log.Printf("WARN: Could not parse GetMediaSuggestionByID.UpdatedAt timestamp '%s': %v", updatedAtStr, parseErr)
+				}
+			}
+		}
+		if parseErr == nil {
+			s.UpdatedAt = &updatedAt
+		}
 	}
 
 	return &s, nil
@@ -849,12 +1002,12 @@ func (db *SqliteDatabase) GetAllMediaSuggestions(ctx context.Context, mediaType 
 
 	conditions := []string{}
 	if mediaType != "" {
-		conditions = append(conditions, "media_type = ?")
+		conditions = append(conditions, "media_type = :1")
 		args = append(args, mediaType)
 	}
 	if statusFilter != "" {
-		conditions = append(conditions, "status = ?")
-		args = append(args, statusFilter)
+		conditions = append(conditions, "status = :2")
+		args = append(args, string(statusFilter))
 	}
 
 	if len(conditions) > 0 {
@@ -865,60 +1018,132 @@ func (db *SqliteDatabase) GetAllMediaSuggestions(ctx context.Context, mediaType 
 	queryBuilder.WriteString(" ORDER BY created_at DESC")
 
 	if limit > 0 {
-		queryBuilder.WriteString(" LIMIT ?")
+		queryBuilder.WriteString(" LIMIT :3")
 		args = append(args, limit)
 	}
 	if offset > 0 {
-		queryBuilder.WriteString(" OFFSET ?")
+		queryBuilder.WriteString(" OFFSET :4")
 		args = append(args, offset)
 	}
 
-	rows, err := db.db.QueryContext(ctx, queryBuilder.String(), args...)
-	if err != nil {
-		return nil, fmt.Errorf("%w: querying suggestions: %v", ErrDatabaseFailure, err)
+	query := queryBuilder.String()
+	stmt := db.db.Prep(query)
+	defer stmt.Reset()
+
+	// Bind parameters
+	for i, arg := range args {
+		switch v := arg.(type) {
+		case string:
+			stmt.SetText(fmt.Sprintf(":%d", i+1), v)
+		case int:
+			stmt.SetInt64(fmt.Sprintf(":%d", i+1), int64(v))
+		case int64:
+			stmt.SetInt64(fmt.Sprintf(":%d", i+1), v)
+		case bool:
+			stmt.SetBool(fmt.Sprintf(":%d", i+1), v)
+		case []byte:
+			stmt.SetBytes(fmt.Sprintf(":%d", i+1), v)
+		default:
+			stmt.SetText(fmt.Sprintf(":%d", i+1), fmt.Sprintf("%v", v))
+		}
 	}
-	defer rows.Close()
 
 	var suggestions []*models.MediaSuggestion
-	for rows.Next() {
-		var s models.MediaSuggestion
-		var createdAtStr string
-		var updatedAtStr sql.NullString
-		if err := rows.Scan(
-			&s.ID, &s.Query, &s.MediaType,
-			&s.Title, &s.Artist, &s.Album, &s.CoverArtURL,
-			&s.Description, &s.WikiURL, &s.WikidataID, &s.BotReasoning,
-			&s.Status, &createdAtStr, &updatedAtStr,
-		); err != nil {
-			return nil, fmt.Errorf("%w: scanning suggestion in GetAll: %v", ErrDatabaseFailure, err)
-		}
-		s.CreatedAt, err = time.Parse(time.RFC3339, createdAtStr)
+
+	for {
+		hasRow, err := stmt.Step()
 		if err != nil {
-            s.CreatedAt, err = time.Parse("2006-01-02 15:04:05-07:00", createdAtStr)
-            if err != nil {
-                s.CreatedAt, err = time.Parse("2006-01-02T15:04:05Z", createdAtStr)
-                if err != nil {
-    			    log.Printf("WARN: Could not parse GetAllMediaSuggestions.CreatedAt timestamp '%s': %v", createdAtStr, err)
-                }
-            }
+			return nil, fmt.Errorf("%w: querying suggestions: %v", ErrDatabaseFailure, err)
 		}
-		if updatedAtStr.Valid {
-			updatedAt, parseErr := time.Parse(time.RFC3339, updatedAtStr.String)
-            if parseErr != nil {
-                updatedAt, parseErr = time.Parse("2006-01-02 15:04:05-07:00", updatedAtStr.String)
-                if parseErr != nil {
-                    updatedAt, parseErr = time.Parse("2006-01-02T15:04:05Z", updatedAtStr.String)
-                    if parseErr != nil {
-                        log.Printf("WARN: Could not parse GetAllMediaSuggestions.UpdatedAt timestamp '%s': %v", updatedAtStr.String, parseErr)
-                    }
-                }
-            }
-            if parseErr == nil {
-			    s.UpdatedAt = &updatedAt
-            }
+		if !hasRow {
+			break
 		}
+
+		var s models.MediaSuggestion
+		s.ID = stmt.ColumnText(0)
+		s.Query = stmt.ColumnText(1)
+		s.MediaType = stmt.ColumnText(2)
+
+		// Handle potential NULL values for string pointer fields
+		if !stmt.ColumnIsNull(3) {
+			title := stmt.ColumnText(3)
+			s.Title = &title
+		}
+		
+		if !stmt.ColumnIsNull(4) {
+			artist := stmt.ColumnText(4)
+			s.Artist = &artist
+		}
+		
+		if !stmt.ColumnIsNull(5) {
+			album := stmt.ColumnText(5)
+			s.Album = &album
+		}
+		
+		if !stmt.ColumnIsNull(6) {
+			coverArtURL := stmt.ColumnText(6)
+			s.CoverArtURL = &coverArtURL
+		}
+		
+		if !stmt.ColumnIsNull(7) {
+			description := stmt.ColumnText(7)
+			s.Description = &description
+		}
+		
+		if !stmt.ColumnIsNull(8) {
+			wikiURL := stmt.ColumnText(8)
+			s.WikiURL = &wikiURL
+		}
+		
+		if !stmt.ColumnIsNull(9) {
+			wikidataID := stmt.ColumnText(9)
+			s.WikidataID = &wikidataID
+		}
+		
+		if !stmt.ColumnIsNull(10) {
+			botReasoning := stmt.ColumnText(10)
+			s.BotReasoning = &botReasoning
+		}
+		
+		s.Status = models.SuggestionStatus(stmt.ColumnText(11))
+
+		createdAtStr := stmt.ColumnText(12)
+		var updatedAtStr string
+		if !stmt.ColumnIsNull(13) {
+			updatedAtStr = stmt.ColumnText(13)
+		}
+
+		var parseErr error
+		s.CreatedAt, parseErr = time.Parse(time.RFC3339, createdAtStr)
+		if parseErr != nil {
+			s.CreatedAt, parseErr = time.Parse("2006-01-02 15:04:05-07:00", createdAtStr)
+			if parseErr != nil {
+				s.CreatedAt, parseErr = time.Parse("2006-01-02T15:04:05Z", createdAtStr)
+				if parseErr != nil {
+					log.Printf("WARN: Could not parse GetAllMediaSuggestions.CreatedAt timestamp '%s': %v", createdAtStr, parseErr)
+				}
+			}
+		}
+
+		if updatedAtStr != "" {
+			updatedAt, parseErr := time.Parse(time.RFC3339, updatedAtStr)
+			if parseErr != nil {
+				updatedAt, parseErr = time.Parse("2006-01-02 15:04:05-07:00", updatedAtStr)
+				if parseErr != nil {
+					updatedAt, parseErr = time.Parse("2006-01-02T15:04:05Z", updatedAtStr)
+					if parseErr != nil {
+						log.Printf("WARN: Could not parse GetAllMediaSuggestions.UpdatedAt timestamp '%s': %v", updatedAtStr, parseErr)
+					}
+				}
+			}
+			if parseErr == nil {
+				s.UpdatedAt = &updatedAt
+			}
+		}
+
 		suggestions = append(suggestions, &s)
 	}
+
 	return suggestions, nil
 }
 
@@ -929,44 +1154,56 @@ func (db *SqliteDatabase) GetPendingMediaSuggestions(ctx context.Context, mediaT
 
 // UpdateMediaSuggestionStatus updates the status of an existing suggestion.
 func (db *SqliteDatabase) UpdateMediaSuggestionStatus(ctx context.Context, id string, status models.SuggestionStatus) error {
-	query := `UPDATE recommendations SET status = ?, updated_at = ? WHERE id = ?`
-	stmt, err := db.db.PrepareContext(ctx, query)
-	if err != nil {
-		return fmt.Errorf("%w: preparing update status: %v", ErrDatabaseFailure, err)
-	}
-	defer stmt.Close()
+	query := `
+	UPDATE recommendations
+	SET status = :1, updated_at = :2
+	WHERE id = :3
+	`
 
-	result, err := stmt.ExecContext(ctx, status, time.Now(), id)
-	if err != nil {
-		return fmt.Errorf("%w: executing update status: %v", ErrDatabaseFailure, err)
+	now := time.Now().Format(time.RFC3339)
+
+	stmt := db.db.Prep(query)
+	defer stmt.Reset()
+
+	stmt.SetText(":1", string(status))
+	stmt.SetText(":2", now)
+	stmt.SetText(":3", id)
+
+	if _, err := stmt.Step(); err != nil {
+		return fmt.Errorf("%w: updating suggestion status: %v", ErrDatabaseFailure, err)
 	}
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("%w: getting rows affected: %v", ErrDatabaseFailure, err)
-	}
-	if rowsAffected == 0 {
-		return ErrNotFound
-	}
+
 	return nil
 }
 
-// DeleteMediaSuggestion removes a suggestion from the database.
+// DeleteMediaSuggestion deletes a media suggestion by ID.
 func (db *SqliteDatabase) DeleteMediaSuggestion(ctx context.Context, id string) error {
-	query := `DELETE FROM recommendations WHERE id = ?`
-	stmt, err := db.db.PrepareContext(ctx, query)
-	if err != nil {
-		return fmt.Errorf("%w: preparing delete suggestion: %v", ErrDatabaseFailure, err)
-	}
-	defer stmt.Close()
+	query := `
+	DELETE FROM recommendations
+	WHERE id = :1
+	`
 
-	result, err := stmt.ExecContext(ctx, id)
-	if err != nil {
+	stmt := db.db.Prep(query)
+	defer stmt.Reset()
+
+	stmt.SetText(":1", id)
+
+	if _, err := stmt.Step(); err != nil {
 		return fmt.Errorf("%w: executing delete suggestion: %v", ErrDatabaseFailure, err)
 	}
-	rowsAffected, err := result.RowsAffected()
+
+	// Check if the delete affected any rows
+	var rowsAffected int
+	err := sqlitex.Execute(db.db, "SELECT changes()", &sqlitex.ExecOptions{
+		ResultFunc: func(stmt *sqlite.Stmt) error {
+			rowsAffected = stmt.ColumnInt(0)
+			return nil
+		},
+	})
 	if err != nil {
-		return fmt.Errorf("%w: getting rows affected on delete: %v", ErrDatabaseFailure, err)
+		return fmt.Errorf("%w: checking rows affected on delete: %v", ErrDatabaseFailure, err)
 	}
+
 	if rowsAffected == 0 {
 		return ErrNotFound // Or just return nil if not finding it is acceptable
 	}
@@ -975,11 +1212,26 @@ func (db *SqliteDatabase) DeleteMediaSuggestion(ctx context.Context, id string) 
 
 // CountPendingMediaSuggestions counts pending suggestions for a specific media type.
 func (db *SqliteDatabase) CountPendingMediaSuggestions(ctx context.Context, mediaType string) (int, error) {
-	query := `SELECT COUNT(*) FROM recommendations WHERE media_type = ? AND status = ?`
-	var count int
-	err := db.db.QueryRowContext(ctx, query, mediaType, models.StatusPending).Scan(&count)
+	query := `
+	SELECT COUNT(*)
+	FROM recommendations
+	WHERE media_type = :1 AND status = :2
+	`
+
+	stmt := db.db.Prep(query)
+	defer stmt.Reset()
+
+	stmt.SetText(":1", mediaType)
+	stmt.SetText(":2", string(models.StatusPending))
+
+	hasRow, err := stmt.Step()
 	if err != nil {
 		return 0, fmt.Errorf("%w: counting pending suggestions: %v", ErrDatabaseFailure, err)
 	}
+	if !hasRow {
+		return 0, fmt.Errorf("%w: no rows returned for count query", ErrDatabaseFailure)
+	}
+
+	count := stmt.ColumnInt(0)
 	return count, nil
 }

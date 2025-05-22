@@ -1,7 +1,6 @@
 package db
 
 import (
-	"database/sql"
 	"context"
 
 	"interestnaut/internal/app/models"
@@ -39,9 +38,6 @@ type Database interface {
 	GetAllSuggestions(options SearchOptions) ([]*Suggestion, error)
 	GetAllConstraints() ([]*Constraint, error)
 	CountItems(tableName string, onlyFavorites, onlyWatchlist bool) (int, error)
-	
-	// Transaction support
-	BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error)
 	
 	// Schema management
 	GetSchemaVersion() (int, error)

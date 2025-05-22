@@ -369,6 +369,10 @@ class LlamaService {
     final buffer = StringBuffer();
     String errorMessage = "";
     StreamSubscription<String>? subscription;
+    Timer? tokenTimeoutTimer;
+    bool isGenerating = false;
+    int tokenCount = 0;
+    DateTime lastTokenTime = DateTime.now();
 
     if (!_isRunning) {
       throw Exception('LLM service not running.');
@@ -378,10 +382,110 @@ class LlamaService {
       // Process the prompt
       await processPrompt(prompt);
 
-      // Listen to the response stream
+      // Start a timer to check for token generation timeout
+      tokenTimeoutTimer = Timer.periodic(Duration(milliseconds: 500), (timer) {
+        final timeSinceLastToken = DateTime.now().difference(lastTokenTime).inSeconds;
+        final currentLength = buffer.length;
+        
+        // Check for timeout conditions:
+        // 1. No tokens received for 10+ seconds (after generation started)
+        // 2. Response exceeds 1000 characters
+        if ((isGenerating && timeSinceLastToken >= 10) || currentLength > 1000) {
+          if (isGenerating && timeSinceLastToken >= 10) {
+            debugPrint('LlamaService: Token generation timeout after $timeSinceLastToken seconds - assuming generation is complete (received $tokenCount tokens total)');
+          } else if (currentLength > 1000) {
+            debugPrint('LlamaService: Response exceeded 1000 characters - truncating to avoid excessive generation');
+          }
+          
+          isGenerating = false;
+          timer.cancel();
+          
+          // Don't complete immediately - give a brief moment for any pending tokens
+          // to arrive in the buffer before we extract the JSON
+          Future.delayed(Duration(milliseconds: 300), () {
+            // Extract the final JSON if not already completed
+            if (!completer.isCompleted) {
+              final finalText = buffer.toString();
+              final extractedJson = extractJsonFromText(finalText);
+              if (extractedJson != null && _isJsonObjectComplete(extractedJson)) {
+                completer.complete(extractedJson);
+              } else {
+                // Try repair as last resort only if the text has all required properties
+                final repairedJson = attemptJsonRepair(finalText);
+                if (repairedJson != null && _isJsonObjectComplete(repairedJson)) {
+                  debugPrint('Successfully repaired JSON: $repairedJson');
+                  completer.complete(repairedJson);
+                } else {
+                  // Don't return invalid JSON to prevent backend errors
+                  debugPrint('⚠️ Failed to extract valid JSON from LLM response');
+                  debugPrint('Raw response: \n$finalText');
+                  completer.completeError(Exception('Failed to generate valid JSON response'));
+                }
+              }
+              
+              // Cancel the subscription to stop token handling
+              subscription?.cancel();
+              
+              // Stop the generation
+              _llamaParent?.stop().catchError((e) {
+                debugPrint('LlamaService: Error stopping generation: $e');
+              });
+            }
+          });
+        }
+      });
+
+      // Create stream subscription for receiving tokens
       subscription = responseStream?.listen(
         (token) {
+          // Only process tokens if we're still generating
+          // This prevents processing tokens after timeout
+          if (!isGenerating && completer.isCompleted) {
+            debugPrint('LlamaService: Received token after completion: "$token" (ignored)');
+            return;
+          }
+          
           buffer.write(token);
+          tokenCount++;
+          final now = DateTime.now();
+          final timeSinceLastToken = now.difference(lastTokenTime).inMilliseconds;
+          debugPrint('LlamaService: Token generated: "$token" ($timeSinceLastToken ms since last token)');
+          lastTokenTime = now;
+          isGenerating = true;
+          
+          // Check for end of generation tokens
+          final currentText = buffer.toString();
+          if (isGenerating && (
+              currentText.endsWith('"}') ||
+              currentText.contains('}\n'))) {
+            
+            debugPrint('LlamaService: Potential end of generation detected');
+            
+            // Extract JSON from the complete text
+            final extractedJson = extractJsonFromText(currentText);
+            if (extractedJson != null && _isJsonObjectComplete(extractedJson)) {
+              debugPrint('LlamaService: Found complete JSON object, stopping generation');
+              
+              // Stop processing immediately
+              isGenerating = false;
+              tokenTimeoutTimer?.cancel();
+              
+              if (!completer.isCompleted) {
+                completer.complete(extractedJson);
+              }
+              
+              // Cancel the subscription and stop generation
+              subscription?.cancel();
+              
+              // Stop the generation
+              _llamaParent?.stop().catchError((e) {
+                debugPrint('LlamaService: Error stopping generation: $e');
+              });
+              
+              // Return early to prevent further processing
+              return;
+            }
+          }
         },
         onError: (e) {
           errorMessage = e.toString();
@@ -390,29 +494,200 @@ class LlamaService {
           }
         },
         onDone: () {
+          tokenTimeoutTimer?.cancel();
+          
           if (!completer.isCompleted) {
-            completer.complete(buffer.toString());
+            // Try to extract JSON from the full response
+            final extractedJson = extractJsonFromText(buffer.toString());
+            if (extractedJson != null && _isJsonObjectComplete(extractedJson)) {
+              completer.complete(extractedJson);
+            } else {
+              // Return what we have, it will be handled by the fallback logic
+              completer.complete(buffer.toString());
+            }
           }
         }
       );
+    } catch (e) {
+      if (!completer.isCompleted) {
+        completer.completeError(e);
+      }
+    }
 
-      // Add a timeout mechanism
-      Future.delayed(const Duration(seconds: 30), () {
-        if (!completer.isCompleted) {
-          subscription?.cancel();
-          if (buffer.isEmpty) {
-            completer.completeError(
-              errorMessage.isNotEmpty
-                ? Exception(errorMessage)
-                : Exception('LLM response timed out.')
-            );
-          } else {
-            // Return what we have so far if there's something
-            completer.complete(buffer.toString());
+    final rawResponse = await completer.future;
+
+    // Extract and validate JSON from the response
+    final jsonString = extractJsonFromText(rawResponse);
+
+    if (jsonString == null) {
+      debugPrint('⚠️ Failed to extract valid JSON from LLM response');
+      debugPrint('Raw response: $rawResponse');
+
+      // Try a simple fallback approach for incomplete responses
+      final fallbackJson = attemptJsonRepair(rawResponse);
+      if (fallbackJson != null) {
+        debugPrint('✅ Repaired JSON: $fallbackJson');
+        return fallbackJson;
+      }
+
+      // If all else fails, return an error message in JSON format
+      return '{"error": "Failed to generate valid JSON response", "raw_text": "${rawResponse.replaceAll('"', '\\"').substring(0, min(100, rawResponse.length))}..."}';
+    }
+
+    return jsonString;
+  }
+
+  /// Generate a JSON response for a structured prompt
+  /// This method adds JSON extraction and validation on top of generateFullResponse
+  Future<String> generateStructuredJsonResponse(String prompt) async {
+    // Use a lower temperature for structured output to encourage format compliance
+    final completer = Completer<String>();
+    final buffer = StringBuffer();
+    String errorMessage = "";
+    StreamSubscription<String>? subscription;
+    Timer? tokenTimeoutTimer;
+    bool isGenerating = false;
+    int tokenCount = 0;
+    DateTime lastTokenTime = DateTime.now();
+
+    if (!_isRunning) {
+      throw Exception('LLM service not running.');
+    }
+
+    try {
+      // Process the prompt with lower temperature for more deterministic output
+      await processPromptWithParams(prompt, temperature: 0.2, topP: 0.95);
+
+      // Start a timer to check for token generation timeout
+      tokenTimeoutTimer = Timer.periodic(Duration(milliseconds: 500), (timer) {
+        final timeSinceLastToken = DateTime.now().difference(lastTokenTime).inSeconds;
+        final currentLength = buffer.length;
+        
+        // Check for timeout conditions:
+        // 1. No tokens received for 10+ seconds (after generation started)
+        // 2. Response exceeds 1000 characters
+        if ((isGenerating && timeSinceLastToken >= 10) || currentLength > 1000) {
+          if (isGenerating && timeSinceLastToken >= 10) {
+            debugPrint('LlamaService: Token generation timeout after $timeSinceLastToken seconds - assuming generation is complete (received $tokenCount tokens total)');
+          } else if (currentLength > 1000) {
+            debugPrint('LlamaService: Response exceeded 1000 characters - truncating to avoid excessive generation');
           }
+          
+          isGenerating = false;
+          timer.cancel();
+          
+          // Don't complete immediately - give a brief moment for any pending tokens
+          // to arrive in the buffer before we extract the JSON
+          Future.delayed(Duration(milliseconds: 300), () {
+            // Extract the final JSON if not already completed
+            if (!completer.isCompleted) {
+              final finalText = buffer.toString();
+              final extractedJson = extractJsonFromText(finalText);
+              if (extractedJson != null && _isJsonObjectComplete(extractedJson)) {
+                completer.complete(extractedJson);
+              } else {
+                // Try repair as last resort only if the text has all required properties
+                final repairedJson = attemptJsonRepair(finalText);
+                if (repairedJson != null && _isJsonObjectComplete(repairedJson)) {
+                  debugPrint('Successfully repaired JSON: $repairedJson');
+                  completer.complete(repairedJson);
+                } else {
+                  // Don't return invalid JSON to prevent backend errors
+                  debugPrint('⚠️ Failed to extract valid JSON from LLM response');
+                  debugPrint('Raw response: \n$finalText');
+                  completer.completeError(Exception('Failed to generate valid JSON response'));
+                }
+              }
+              
+              // Cancel the subscription to stop token handling
+              subscription?.cancel();
+              
+              // Stop the generation
+              _llamaParent?.stop().catchError((e) {
+                debugPrint('LlamaService: Error stopping generation: $e');
+              });
+            }
+          });
         }
       });
 
+      // Create stream subscription for receiving tokens
+      subscription = responseStream?.listen(
+        (token) {
+          // Only process tokens if we're still generating
+          // This prevents processing tokens after timeout
+          if (!isGenerating && completer.isCompleted) {
+            debugPrint('LlamaService: Received token after completion: "$token" (ignored)');
+            return;
+          }
+          
+          buffer.write(token);
+          tokenCount++;
+          final now = DateTime.now();
+          final timeSinceLastToken = now.difference(lastTokenTime).inMilliseconds;
+          debugPrint('LlamaService: Token generated: "$token" ($timeSinceLastToken ms since last token)');
+          lastTokenTime = now;
+          isGenerating = true;
+          
+          // Check for end of generation tokens
+          final currentText = buffer.toString();
+          if (isGenerating && (
+              currentText.contains("<///>") ||
+              currentText.endsWith('"}') || 
+              currentText.endsWith('"}]') || 
+              currentText.endsWith('}\n') ||
+              currentText.endsWith('</s>') ||
+              currentText.contains('}\n'))) {
+            
+            debugPrint('LlamaService: Potential end of generation detected');
+            
+            // Extract JSON from the complete text
+            final extractedJson = extractJsonFromText(currentText);
+            if (extractedJson != null && _isJsonObjectComplete(extractedJson)) {
+              debugPrint('LlamaService: Found complete JSON object, stopping generation');
+              
+              // Stop processing immediately
+              isGenerating = false;
+              tokenTimeoutTimer?.cancel();
+              
+              if (!completer.isCompleted) {
+                completer.complete(extractedJson);
+              }
+              
+              // Cancel the subscription and stop generation
+              subscription?.cancel();
+              
+              // Stop the generation
+              _llamaParent?.stop().catchError((e) {
+                debugPrint('LlamaService: Error stopping generation: $e');
+              });
+              
+              // Return early to prevent further processing
+              return;
+            }
+          }
+        },
+        onError: (e) {
+          errorMessage = e.toString();
+          if (!completer.isCompleted) {
+            completer.completeError(e);
+          }
+        },
+        onDone: () {
+          tokenTimeoutTimer?.cancel();
+          
+          if (!completer.isCompleted) {
+            // Try to extract JSON from the full response
+            final extractedJson = extractJsonFromText(buffer.toString());
+            if (extractedJson != null && _isJsonObjectComplete(extractedJson)) {
+              completer.complete(extractedJson);
+            } else {
+              // Return what we have, it will be handled by the fallback logic
+              completer.complete(buffer.toString());
+            }
+          }
+        }
+      );
     } catch (e) {
       if (!completer.isCompleted) {
         completer.completeError(e);
@@ -468,108 +743,6 @@ class LlamaService {
     }
   }
 
-  /// Generate a JSON response for a structured prompt
-  /// This method adds JSON extraction and validation on top of generateFullResponse
-  Future<String> generateStructuredJsonResponse(String prompt) async {
-    // Use a lower temperature for structured output to encourage format compliance
-    final completer = Completer<String>();
-    final buffer = StringBuffer();
-    String errorMessage = "";
-    StreamSubscription<String>? subscription;
-
-    if (!_isRunning) {
-      throw Exception('LLM service not running.');
-    }
-
-    try {
-      // Process the prompt with lower temperature for more deterministic output
-      await processPromptWithParams(prompt, temperature: 0.2, topP: 0.95);
-
-      // Listen to the response stream
-      subscription = responseStream?.listen(
-        (token) {
-          buffer.write(token);
-          
-          // Check if response contains a complete JSON object and end early if it does
-          final currentResponse = buffer.toString();
-          if (currentResponse.contains('}') && _isValidCompletedJson(currentResponse)) {
-            print('LlamaService: Found complete JSON object. Stopping generation.');
-
-            // Extract just the JSON object for the response
-            final jsonObject = _extractJsonObject(currentResponse);
-
-            if (!completer.isCompleted) {
-              completer.complete(jsonObject);
-
-              // Cancel the subscription immediately to stop token handling
-              subscription?.cancel();
-
-              // Stop the generation
-              _llamaParent?.stop().catchError((e) {
-                print('LlamaService: Error stopping generation: $e');
-              });
-            }
-          }
-        },
-        onError: (e) {
-          errorMessage = e.toString();
-          if (!completer.isCompleted) {
-            completer.completeError(e);
-          }
-        },
-        onDone: () {
-          if (!completer.isCompleted) {
-            completer.complete(buffer.toString());
-          }
-        }
-      );
-
-      // Add a timeout mechanism
-      Future.delayed(const Duration(seconds: 30), () {
-        if (!completer.isCompleted) {
-          subscription?.cancel();
-          if (buffer.isEmpty) {
-            completer.completeError(
-              errorMessage.isNotEmpty
-                ? Exception(errorMessage)
-                : Exception('LLM response timed out.')
-            );
-          } else {
-            // Return what we have so far if there's something
-            completer.complete(buffer.toString());
-          }
-        }
-      });
-
-    } catch (e) {
-      if (!completer.isCompleted) {
-        completer.completeError(e);
-      }
-    }
-
-    final rawResponse = await completer.future;
-
-    // Extract and validate JSON from the response
-    final jsonString = extractJsonFromText(rawResponse);
-
-    if (jsonString == null) {
-      debugPrint('⚠️ Failed to extract valid JSON from LLM response');
-      debugPrint('Raw response: $rawResponse');
-
-      // Try a simple fallback approach for incomplete responses
-      final fallbackJson = attemptJsonRepair(rawResponse);
-      if (fallbackJson != null) {
-        debugPrint('✅ Repaired JSON: $fallbackJson');
-        return fallbackJson;
-      }
-
-      // If all else fails, return an error message in JSON format
-      return '{"error": "Failed to generate valid JSON response", "raw_text": "${rawResponse.replaceAll('"', '\\"').substring(0, min(100, rawResponse.length))}..."}';
-    }
-
-    return jsonString;
-  }
-
   /// Extract JSON object from a text that might contain other content
   String? extractJsonFromText(String text) {
     try {
@@ -603,49 +776,103 @@ class LlamaService {
     }
   }
 
-  /// Attempt to repair incomplete JSON
+  /// Attempts to repair malformed JSON by finding the most complete JSON object
+  /// and adding missing closing braces or quotes
   String? attemptJsonRepair(String text) {
-    // Look for the start of a JSON object
-    if (!text.contains('{')) return null;
-
-    // Get the text from the first { to the end
-    final jsonStartIndex = text.indexOf('{');
-    var jsonText = text.substring(jsonStartIndex);
-
-    // Simple repairs for common cases
-
-    // Case 1: Missing closing brace
-    if (jsonText.contains('"reasoning"') &&
-        jsonText.contains('"title"') &&
-        !jsonText.endsWith('}')) {
-      // Count open and close braces
-      final openBraces = jsonText.split('{').length - 1;
-      final closeBraces = jsonText.split('}').length - 1;
-
-      // Add missing closing braces
-      if (openBraces > closeBraces) {
-        jsonText += '}' * (openBraces - closeBraces);
-        try {
-          json.decode(jsonText); // Validate it's now proper JSON
-          return jsonText;
-        } catch (_) {
-          // Still not valid, continue with other repairs
+    try {
+      // First try to find a JSON object pattern
+      final jsonMatches = RegExp(r'\{(?:[^{}]|(?:\{(?:[^{}]|(?:\{[^{}]*\}))*\}))*\}')
+          .allMatches(text)
+          .map((match) => match.group(0))
+          .toList();
+      
+      if (jsonMatches.isNotEmpty) {
+        // Try the largest match first
+        jsonMatches.sort((a, b) => b!.length.compareTo(a!.length));
+        for (final match in jsonMatches) {
+          try {
+            // See if this is valid JSON
+            json.decode(match!);
+            return match;
+          } catch (_) {
+            // Not valid, continue
+          }
         }
       }
-    }
-
-    // Case 2: Trailing comma before closing brace
-    if (jsonText.contains(',}')) {
-      jsonText = jsonText.replaceAll(',}', '}');
-      try {
-        json.decode(jsonText);
-        return jsonText;
-      } catch (_) {
-        // Still not valid
+      
+      // Try to extract any partial JSON object
+      final partialMatch = RegExp(r'\{[^{]*').firstMatch(text)?.group(0);
+      if (partialMatch != null && partialMatch.length > 5) {
+        // Count open and closed braces to add missing ones
+        final openBraces = '{'.allMatches(partialMatch).length;
+        final closeBraces = '}'.allMatches(partialMatch).length;
+        final missingBraces = openBraces - closeBraces;
+        
+        // Count open and closed quotes to see if we need to balance quotes
+        final quotes = '"'.allMatches(partialMatch).length;
+        final isOddQuotes = quotes % 2 != 0;
+        
+        // Try to repair the JSON by adding missing closing elements
+        String repaired = partialMatch;
+        
+        // If last field is incomplete, try to complete it
+        if (isOddQuotes) {
+          repaired += '"';
+        }
+        
+        // Close any object that was started but not finished
+        if (missingBraces > 0) {
+          repaired += ''.padRight(missingBraces, '}');
+        }
+        
+        // Validate the repaired JSON
+        try {
+          json.decode(repaired);
+          return repaired;
+        } catch (_) {
+          // Repair failed
+        }
       }
+      
+      return null;
+    } catch (e) {
+      debugPrint('Error attempting to repair JSON: $e');
+      return null;
     }
+  }
 
-    return null;
+  /// Check if a JSON object appears to be complete with all required fields
+  bool _isJsonObjectComplete(String jsonString) {
+    try {
+      final jsonObj = json.decode(jsonString);
+      
+      // For our use case, validate that it has all required fields for a recommendation
+      if (jsonObj is Map<String, dynamic>) {
+        // At minimum, we need a title and some form of description/reasoning
+        final hasTitle = jsonObj.containsKey('title') && 
+                        jsonObj['title'] != null && 
+                        jsonObj['title'].toString().trim().isNotEmpty;
+                        
+        final hasReasoning = jsonObj.containsKey('reasoning') && 
+                            jsonObj['reasoning'] != null && 
+                            jsonObj['reasoning'].toString().trim().length > 10;
+        
+        // Simpler validation: just check for title and some form of description
+        if (hasTitle && hasReasoning) {
+          debugPrint('JSON validation passed: has title and reasoning');
+          return true;
+        } else {
+          if (!hasTitle) debugPrint('JSON validation failed: missing title');
+          if (!hasReasoning) debugPrint('JSON validation failed: missing or insufficient reasoning');
+          return false;
+        }
+      }
+      
+      return false;
+    } catch (e) {
+      debugPrint('Error validating JSON completeness: $e');
+      return false;
+    }
   }
 
   /// Shutdown and clean up resources

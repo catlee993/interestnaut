@@ -10,7 +10,7 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/wailsapp/wails/v2 v2.10.1
 	github.com/zalando/go-keyring v0.2.6
-	modernc.org/sqlite v1.37.1
+	zombiezen.com/go/sqlite v1.4.0
 )
 
 require (
@@ -47,6 +47,7 @@ require (
 	modernc.org/libc v1.65.7 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
+	modernc.org/sqlite v1.33.1 // indirect
 )
 
 // replace github.com/wailsapp/bindings/v2 v2.10.1 => /Users/catastrophe/go/pkg/mod

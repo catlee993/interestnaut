@@ -4,35 +4,17 @@ package ffi
 #include <stdlib.h>
 #include <signal.h>
 
-// Setup proper signal handling for SQLite operations
-static void setup_safe_signal_handlers() {
-    struct sigaction sa;
-    sa.sa_handler = SIG_DFL;  // Default handler
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = SA_ONSTACK;  // Critical flag for Go compatibility
+// We need to modify our signal handling approach to avoid conflicts with Go runtime
+// Instead of handling signals ourselves, we'll use Go's signal handling
 
-    // Set up handlers for the signals that might be intercepted
-    sigaction(SIGILL, &sa, NULL);
-    sigaction(SIGBUS, &sa, NULL);
-    sigaction(SIGSEGV, &sa, NULL);
-    sigaction(SIGABRT, &sa, NULL);
+// This is a no-op function that will be called from Go
+static void setup_safe_signal_handlers() {
+    // Do nothing - Go will handle signals properly
 }
 
-// Setup proper signal handling globally at init time
+// This is a no-op function that will be called from Go
 static void setup_global_signal_handlers() {
-    struct sigaction sa;
-    sa.sa_handler = SIG_DFL;  // Default handler
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = SA_ONSTACK;  // Critical flag for Go compatibility
-
-    // Set up handlers for all signals that might be intercepted
-    sigaction(SIGILL, &sa, NULL);
-    sigaction(SIGBUS, &sa, NULL);
-    sigaction(SIGSEGV, &sa, NULL);
-    sigaction(SIGABRT, &sa, NULL);
-    sigaction(SIGUSR1, &sa, NULL); // Signal 16 (SIGUSR1)
-    sigaction(SIGUSR2, &sa, NULL);
-    sigaction(SIGPIPE, &sa, NULL);
+    // Do nothing - Go will handle signals properly
 }
 */
 import "C"
@@ -74,8 +56,8 @@ const userAgent = "Interestnaut/1.0"
 
 // init function for the FFI package. This will run when the dylib is loaded.
 func init() {
-	// Set up global signal handlers
-	C.setup_global_signal_handlers()
+	// Let Go runtime handle signals instead of setting up custom handlers
+	// C.setup_global_signal_handlers() - removed to prevent signal conflicts
 
 	log.Println("FFI package init() called - dylib loaded.")
 }
@@ -110,34 +92,89 @@ func InitializeFFIBridge(storagePathC *C.char) *C.char {
 		dbPath := filepath.Join(storagePath, "interestnaut.db")
 		log.Printf("Using database path: %s", dbPath)
 
-		// Initialize DB
-		err := db.InitDB(dbPath)
-		if err != nil {
-			log.Printf("CRITICAL: Failed to initialize database: %v", err)
-			return C.CString("{\"error\": \"Failed to initialize SQLite: " + err.Error() + "\"}")
-		}
-
 		// Initialize API clients with proper user agent
 		wikidataClient = wikidata.NewClient(userAgent)
 		wikipediaClient = wikipedia.NewClient(userAgent)
 
-		// Initialize recommendation service directly without central manager
-		// using the global db.DB instance
-		recommendationService = recommendations.NewService(db.DB, wikidataClient, wikipediaClient)
-		if recommendationService == nil {
-			log.Println("CRITICAL: recommendationService is NIL after NewService call!")
-			return C.CString("{\"error\": \"Failed to initialize recommendation service\"}")
-		}
-		log.Println("SUCCESS: recommendationService initialized directly.")
-
-		// Initialize the recommendation queue on a separate thread
+		// Initialize the recommendation queue FIRST, before any DB operations
+		// This ensures the worker thread is locked and ready for signal-sensitive operations
 		initRecommendationQueue()
 
+		// Create a channel to receive the DB initialization result
+		dbInitCh := make(chan error, 1)
+
+		// Enqueue a special request to initialize the database on the locked worker thread
+		initRequestID := recommendations.EnqueueDBInitRequest(dbPath, dbInitCh)
+
+		// DO NOT WAIT for initialization to complete - return immediately with the request ID
+		// The Flutter app will need to poll for completion using Recommendation_GetInitResult
 		ffiInitialized = true
+
+		return returnJSON(map[string]interface{}{
+			"status":     "initializing",
+			"message":    "FFI bridge initialization started, database setup in progress",
+			"request_id": initRequestID,
+		})
 	}
 
-	// Return success message
-	return C.CString("{\"status\": \"FFI bridge initialized successfully\"}")
+	// Return success message if already initialized
+	return C.CString("{\"status\": \"already_initialized\", \"message\": \"FFI bridge was already initialized\"}")
+}
+
+//export Recommendation_GetInitResult
+func Recommendation_GetInitResult(requestIDC *C.char) *C.char {
+	requestID := C.GoString(requestIDC)
+
+	// Get the DB initialization result with a non-blocking check (timeoutMs=0)
+	completed, err := recommendations.GetDBInitResult(requestID, 0)
+
+	// If there was an error during initialization
+	if err != nil {
+		// If the error is that the initialization is still in progress,
+		// return a "pending" status
+		if err.Error() == "request is still processing" {
+			return returnJSON(map[string]string{
+				"request_id": requestID,
+				"status":     "pending",
+				"message":    "Database initialization is still in progress",
+			})
+		}
+
+		// Otherwise, there was a real error during initialization
+		return returnJSON(map[string]string{
+			"status":  "error",
+			"message": fmt.Sprintf("Database initialization failed: %v", err),
+		})
+	}
+
+	// If initialization completed successfully
+	if completed {
+		// Now that database is initialized, create the recommendation service
+		// and update the worker with the service
+		if recommendationService == nil {
+			recommendationService = createRecommendationService()
+			if recommendationService != nil {
+				// Update the worker to use this service for all future operations
+				recommendations.UpdateWorkerService(recommendationService)
+			} else {
+				return returnJSON(map[string]string{
+					"status":  "error",
+					"message": "Database initialized but failed to create recommendation service",
+				})
+			}
+		}
+
+		return returnJSON(map[string]string{
+			"status":  "ready",
+			"message": "Database initialized successfully and service is ready",
+		})
+	}
+
+	// This should never happen, but just in case
+	return returnJSON(map[string]string{
+		"status":  "unknown",
+		"message": "Unknown state in database initialization",
+	})
 }
 
 // Helper function to handle C string return values
@@ -197,14 +234,13 @@ func ensureRecommendationServiceInitialized() bool {
 		return false
 	}
 
-	// Initialize Wikidata client
-	wikidataClient := wikidata.NewClient("interestnaut")
-
 	// Initialize Wikipedia client
-	wikipediaClient = wikipedia.NewClient("interestnaut")
+	if wikipediaClient == nil {
+		wikipediaClient = wikipedia.NewClient("interestnaut")
+	}
 
 	// Create and initialize the recommendation service
-	recommendationService = recommendations.NewService(db.DB, wikidataClient, wikipediaClient)
+	recommendationService = createRecommendationService()
 	log.Println("Recommendation service initialized")
 
 	// Initialize the recommendation queue on a separate thread
@@ -213,13 +249,34 @@ func ensureRecommendationServiceInitialized() bool {
 	return true
 }
 
+// initRecommendationQueue sets up the recommendation worker queue
 func initRecommendationQueue() {
-	if recommendationService != nil {
-		recommendations.InitRecommendationQueue(recommendationService)
-		log.Println("Recommendation queue initialized in FFI bindings")
-	} else {
-		log.Println("Cannot initialize recommendation queue: service not initialized")
+	log.Println("Initializing recommendation queue...")
+
+	// Initialize the recommendation queue
+	// This queue uses a worker thread that's permanently locked with runtime.LockOSThread()
+	// to ensure all signal-sensitive operations (HTTP, JSON, SQLite) run on a prepared thread
+	recommendations.InitRecommendationQueue(nil) // Pass nil service, it will be set later
+	log.Println("Recommendation queue initialized successfully")
+}
+
+// createRecommendationService creates a recommendation service with our direct connection
+// IMPORTANT: This MUST be called after database is initialized via the queue
+func createRecommendationService() *recommendations.Service {
+	log.Println("Creating recommendation service...")
+
+	// Create the service using the global DB instance
+	// DB is a global variable in the db package that implements the Database interface
+	if db.DB == nil {
+		log.Println("ERROR: db.DB is nil - database not properly initialized")
+		return nil
 	}
+
+	// Create and return the service with all required dependencies
+	service := recommendations.NewService(db.DB, wikidataClient, wikipediaClient)
+
+	log.Println("Recommendation service created successfully")
+	return service
 }
 
 //export Music_InitiateSpotifyAuth
@@ -265,42 +322,73 @@ func initiateSpotifyAuth(port int) error {
 
 // initSafeSignalHandlers ensures signals are properly handled for SQLite operations
 func initSafeSignalHandlers() {
-	// Set up signal handlers with SA_ONSTACK flag
-	C.setup_safe_signal_handlers()
+	// Let Go runtime handle signals instead
+	// C.setup_safe_signal_handlers() - removed to prevent signal conflicts
+
+	// Note: We're letting Go's runtime handle signals to avoid conflicts
+	// with the mixed Go/C/Dart environment
 }
 
 // Recommendation FFI Functions
 
 //export Recommendation_FindAndSaveSuggestion
 func Recommendation_FindAndSaveSuggestion(rawQueryC *C.char, mediaTypeC *C.char, botReasoningC *C.char) *C.char {
-	// Set up proper signal handling before DB operations
-	initSafeSignalHandlers()
-
 	// Ensure service is initialized (this will also initialize the queue)
 	if !ensureRecommendationServiceInitialized() {
 		return returnJSON(map[string]string{"error": "Recommendation service not initialized"})
 	}
 
-	// Safe conversion of C strings to Go strings - this is fast and non-blocking
+	// Safe conversion of parameters - non-blocking
 	rawQuery := C.GoString(rawQueryC)
 	mediaType := C.GoString(mediaTypeC)
 	botReasoning := C.GoString(botReasoningC)
 
-	// Enqueue the request - this is non-blocking and safe to call from any thread
+	// Create a request ID for this operation
 	requestID := recommendations.EnqueueRecommendationRequest(rawQuery, mediaType, botReasoning)
 	if requestID == "" {
 		return returnJSON(map[string]string{"error": "Failed to enqueue recommendation request (queue full)"})
 	}
 
-	// Wait for the result with a reasonable timeout (30 seconds)
-	result, err := recommendations.GetRecommendationResult(requestID, 30000)
+	// Return the request ID immediately instead of waiting for the result
+	// Flutter will need to call Recommendation_GetSuggestionResult later to get the actual result
+	return returnJSON(map[string]string{
+		"request_id": requestID,
+		"status":     "processing",
+		"message":    "Recommendation request queued successfully",
+	})
+}
+
+//export Recommendation_GetSuggestionResult
+func Recommendation_GetSuggestionResult(requestIDC *C.char, timeoutMsC C.int) *C.char {
+	requestID := C.GoString(requestIDC)
+
+	// Always use non-blocking mode (timeoutMs=0) to prevent blocking the Flutter thread
+	// The timeoutMs parameter is ignored to ensure we never block
+
+	// Get the result with the specified timeout
+	suggestion, err := recommendations.GetRecommendationResult(requestID, 0)
 	if err != nil {
+		// Check if the request is still processing
+		if err.Error() == "request is still processing" {
+			return returnJSON(map[string]string{
+				"request_id": requestID,
+				"status":     "pending",
+				"message":    "Request is still being processed",
+			})
+		}
 		return processError(err)
 	}
 
-	// If no result was returned within the timeout
-	if result == nil {
-		return returnJSON(map[string]string{"error": "Timed out waiting for recommendation processing"})
+	// Convert the suggestion to JSON
+	result := map[string]interface{}{
+		"id":            suggestion.ID,
+		"title":         suggestion.Title,
+		"description":   suggestion.Description,
+		"media_type":    suggestion.MediaType,
+		"status":        string(suggestion.Status),
+		"created_at":    suggestion.CreatedAt,
+		"query":         suggestion.Query,
+		"bot_reasoning": suggestion.BotReasoning,
 	}
 
 	// Return the result as JSON
@@ -318,24 +406,64 @@ func Recommendation_GetAllSuggestions(mediaTypeC *C.char, statusFilterC *C.char,
 	limit := int(limitC)
 	offset := int(offsetC)
 
+	// Default status filter is empty (all statuses)
 	var statusFilter models.SuggestionStatus
 	if statusFilterStr != "" {
-		if !models.IsValidStatus(statusFilterStr) {
-			return returnJSON(map[string]string{"error": "Invalid status filter: " + statusFilterStr})
-		}
 		statusFilter = models.SuggestionStatus(statusFilterStr)
 	}
 
-	// Set up proper signal handling before DB operations
-	dbMutex.Lock()
-	initSafeSignalHandlers()
-	defer dbMutex.Unlock()
+	// Create a request ID for this operation
+	requestID := recommendations.EnqueueGetAllSuggestionsRequest(mediaType, statusFilter, limit, offset)
+	if requestID == "" {
+		return returnJSON(map[string]string{"error": "Failed to enqueue GetAllSuggestions request (queue full)"})
+	}
 
-	suggestions, err := recommendationService.GetAllSuggestions(context.Background(), mediaType, statusFilter, limit, offset)
+	// Return the request ID immediately
+	return returnJSON(map[string]string{
+		"request_id": requestID,
+		"status":     "processing",
+		"message":    "GetAllSuggestions request queued successfully",
+	})
+}
+
+//export Recommendation_GetAllSuggestionsResult
+func Recommendation_GetAllSuggestionsResult(requestIDC *C.char, timeoutMsC C.int) *C.char {
+	requestID := C.GoString(requestIDC)
+
+	// Always use non-blocking mode (timeoutMs=0) to prevent blocking the Flutter thread
+	// The timeoutMs parameter is ignored to ensure we never block
+
+	// Get the result with the specified timeout
+	suggestions, err := recommendations.GetGetAllSuggestionsResult(requestID, 0)
 	if err != nil {
+		// Check if the request is still processing
+		if err.Error() == "request is still processing" {
+			return returnJSON(map[string]string{
+				"request_id": requestID,
+				"status":     "pending",
+				"message":    "Request is still being processed",
+			})
+		}
 		return processError(err)
 	}
-	return returnJSON(suggestions)
+
+	// Convert the suggestions to a JSON-friendly format
+	result := make([]map[string]interface{}, len(suggestions))
+	for i, suggestion := range suggestions {
+		result[i] = map[string]interface{}{
+			"id":            suggestion.ID,
+			"title":         suggestion.Title,
+			"description":   suggestion.Description,
+			"media_type":    suggestion.MediaType,
+			"status":        string(suggestion.Status),
+			"created_at":    suggestion.CreatedAt,
+			"query":         suggestion.Query,
+			"bot_reasoning": suggestion.BotReasoning,
+		}
+	}
+
+	// Return the result as JSON
+	return returnJSON(result)
 }
 
 //export Recommendation_UpdateSuggestionStatus
@@ -351,17 +479,55 @@ func Recommendation_UpdateSuggestionStatus(suggestionIDC *C.char, statusC *C.cha
 		return returnJSON(map[string]string{"error": "Invalid status value: " + statusStr})
 	}
 
-	// Set up proper signal handling before DB operations
-	dbMutex.Lock()
-	initSafeSignalHandlers()
-	defer dbMutex.Unlock()
-
 	status := models.SuggestionStatus(statusStr)
-	err := recommendationService.UpdateSuggestionStatus(context.Background(), suggestionID, status)
+
+	// Create a request ID for this operation
+	requestID := recommendations.EnqueueUpdateStatusRequest(suggestionID, status)
+	if requestID == "" {
+		return returnJSON(map[string]string{"error": "Failed to enqueue UpdateStatus request (queue full)"})
+	}
+
+	// Return the request ID immediately
+	return returnJSON(map[string]string{
+		"request_id": requestID,
+		"status":     "processing",
+		"message":    "UpdateStatus request queued successfully",
+	})
+}
+
+//export Recommendation_UpdateSuggestionStatusResult
+func Recommendation_UpdateSuggestionStatusResult(requestIDC *C.char, timeoutMsC C.int) *C.char {
+	requestID := C.GoString(requestIDC)
+
+	// Always use non-blocking mode (timeoutMs=0) to prevent blocking the Flutter thread
+	// The timeoutMs parameter is ignored to ensure we never block
+
+	// Get the result with the specified timeout
+	processed, err := recommendations.GetUpdateStatusResult(requestID, 0)
 	if err != nil {
+		// Check if the request is still processing
+		if err.Error() == "request is still processing" {
+			return returnJSON(map[string]string{
+				"request_id": requestID,
+				"status":     "pending",
+				"message":    "Request is still being processed",
+			})
+		}
 		return processError(err)
 	}
-	return returnJSON(map[string]string{"status": "success"})
+
+	// If the request was processed successfully
+	if processed {
+		return returnJSON(map[string]string{
+			"success": "true",
+			"message": "Status updated successfully",
+		})
+	} else {
+		return returnJSON(map[string]string{
+			"success": "false",
+			"message": "Failed to update status",
+		})
+	}
 }
 
 //export Recommendation_GetPendingSuggestionsCount
@@ -372,27 +538,43 @@ func Recommendation_GetPendingSuggestionsCount(mediaTypeC *C.char) *C.char {
 
 	mediaType := C.GoString(mediaTypeC)
 
-	// Set up proper signal handling before DB operations
-	dbMutex.Lock()
-	initSafeSignalHandlers()
-	defer dbMutex.Unlock()
-
-	count, err := recommendationService.GetPendingSuggestionsCount(context.Background(), mediaType)
-	if err != nil {
-		return processError(err)
+	// Create a request ID for this operation
+	requestID := recommendations.EnqueueGetPendingCountRequest(mediaType)
+	if requestID == "" {
+		return returnJSON(map[string]string{"error": "Failed to enqueue GetPendingCount request (queue full)"})
 	}
-	return returnJSON(map[string]int{"count": count})
+
+	// Return the request ID immediately
+	return returnJSON(map[string]string{
+		"request_id": requestID,
+		"status":     "processing",
+		"message":    "GetPendingCount request queued successfully",
+	})
 }
 
-//export Recommendation_InitQueue
-func Recommendation_InitQueue() *C.char {
-	if !ensureRecommendationServiceInitialized() {
-		return returnJSON(map[string]string{"error": "Recommendation service not initialized"})
+//export Recommendation_GetPendingSuggestionsCountResult
+func Recommendation_GetPendingSuggestionsCountResult(requestIDC *C.char, timeoutMsC C.int) *C.char {
+	requestID := C.GoString(requestIDC)
+
+	// Always use non-blocking mode (timeoutMs=0) to prevent blocking the Flutter thread
+	// The timeoutMs parameter is ignored to ensure we never block
+
+	// Get the result with the specified timeout
+	count, err := recommendations.GetPendingCountResult(requestID, 0)
+	if err != nil {
+		// If the error is that the request is still processing, return a pending status
+		if err.Error() == "request is still processing" {
+			return returnJSON(map[string]string{
+				"request_id": requestID,
+				"status":     "pending",
+				"message":    "Request is still being processed",
+			})
+		}
+		return processError(err)
 	}
 
-	// The queue should already be initialized by ensureRecommendationServiceInitialized,
-	// but we'll call it explicitly here to be safe
-	initRecommendationQueue()
-
-	return returnJSON(map[string]string{"status": "success", "message": "Recommendation queue initialized"})
+	// Return the result as JSON
+	return returnJSON(map[string]interface{}{
+		"count": count,
+	})
 }

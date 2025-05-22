@@ -1,19 +1,20 @@
 package db
 
 import (
-	"database/sql"
 	"fmt"
 	"strings"
 	"time"
-	"context"
+
+	"zombiezen.com/go/sqlite"
+	"zombiezen.com/go/sqlite/sqlitex"
 )
 
 // SearchOptions contains options for filtering and pagination
 type SearchOptions struct {
-	Limit      int
-	Offset     int
-	SortBy     string
-	SortOrder  string // "ASC" or "DESC"
+	Limit         int
+	Offset        int
+	SortBy        string
+	SortOrder     string // "ASC" or "DESC"
 	OnlyFavorites bool
 	OnlyWatchlist bool
 }
@@ -38,24 +39,24 @@ func (db *SqliteDatabase) SearchMusic(searchTerm string, options SearchOptions) 
 	if options.OnlyWatchlist {
 		whereClause += " AND is_watchlist = 1"
 	}
-	
+
 	// Validate sort column to prevent SQL injection
 	validSortColumns := map[string]bool{
-		"id": true, "title": true, "artist": true, "album": true, 
+		"id": true, "title": true, "artist": true, "album": true,
 		"created_at": true, "updated_at": true,
 	}
-	
+
 	sortBy := "title"
 	if validSortColumns[options.SortBy] {
 		sortBy = options.SortBy
 	}
-	
+
 	// Validate sort order to prevent SQL injection
 	sortOrder := "ASC"
 	if strings.ToUpper(options.SortOrder) == "DESC" {
 		sortOrder = "DESC"
 	}
-	
+
 	query := fmt.Sprintf(`
 		SELECT id, title, artist, album, album_art_url, is_favorite, is_watchlist, created_at, updated_at
 		FROM music
@@ -63,55 +64,55 @@ func (db *SqliteDatabase) SearchMusic(searchTerm string, options SearchOptions) 
 		ORDER BY %s %s
 		LIMIT ? OFFSET ?
 	`, whereClause, sortBy, sortOrder)
-	
+
 	// Use ? for all parameters including LIKE patterns
 	searchPattern := "%" + searchTerm + "%"
-	
-	rows, err := db.db.Query(
-		query,
-		searchPattern, searchPattern, searchPattern,
-		options.Limit, options.Offset,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
-	}
-	defer rows.Close()
-	
+
+	stmt := db.db.Prep(query)
+	defer stmt.Reset()
+
+	// Bind parameters
+	stmt.SetText(":1", searchPattern)
+	stmt.SetText(":2", searchPattern)
+	stmt.SetText(":3", searchPattern)
+	stmt.SetInt64(":4", int64(options.Limit))
+	stmt.SetInt64(":5", int64(options.Offset))
+
 	var results []*Music
-	var createdAt, updatedAt string
-	
-	for rows.Next() {
-		music := &Music{}
-		err := rows.Scan(
-			&music.ID,
-			&music.Title,
-			&music.Artist,
-			&music.Album,
-			&music.AlbumArtURL,
-			&music.IsFavorite,
-			&music.IsWatchlist,
-			&createdAt,
-			&updatedAt,
-		)
+
+	for {
+		hasRow, err := stmt.Step()
 		if err != nil {
 			return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
 		}
-		
+		if !hasRow {
+			break
+		}
+
+		music := &Music{}
+		music.ID = uint64(stmt.ColumnInt64(0))
+		music.Title = stmt.ColumnText(1)
+		music.Artist = stmt.ColumnText(2)
+		music.Album = stmt.ColumnText(3)
+		music.AlbumArtURL = stmt.ColumnText(4)
+		music.IsFavorite = stmt.ColumnBool(5)
+		music.IsWatchlist = stmt.ColumnBool(6)
+
 		// Parse timestamps
-		if music.CreatedAt, err = time.Parse(time.RFC3339, createdAt); err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
+		createdAt := stmt.ColumnText(7)
+		updatedAt := stmt.ColumnText(8)
+
+		var err2 error
+		if music.CreatedAt, err2 = time.Parse(time.RFC3339, createdAt); err2 != nil {
+			return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err2)
 		}
-		if music.UpdatedAt, err = time.Parse(time.RFC3339, updatedAt); err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
+		if music.UpdatedAt, err2 = time.Parse(time.RFC3339, updatedAt); err2 != nil {
+			return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err2)
 		}
-		
+
 		results = append(results, music)
 	}
-	
-	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
-	}
-	
+
 	return results, nil
 }
 
@@ -137,24 +138,24 @@ func (db *SqliteDatabase) SearchBooks(searchTerm string, options SearchOptions) 
 	if options.OnlyWatchlist {
 		whereClause += " AND is_watchlist = 1"
 	}
-	
+
 	// Validate sort column to prevent SQL injection
 	validSortColumns := map[string]bool{
-		"id": true, "title": true, "author": true, 
+		"id": true, "title": true, "author": true,
 		"created_at": true, "updated_at": true,
 	}
-	
+
 	sortBy := "title"
 	if validSortColumns[options.SortBy] {
 		sortBy = options.SortBy
 	}
-	
+
 	// Validate sort order
 	sortOrder := "ASC"
 	if strings.ToUpper(options.SortOrder) == "DESC" {
 		sortOrder = "DESC"
 	}
-	
+
 	query := fmt.Sprintf(`
 		SELECT id, title, author, cover_art_url, is_favorite, is_watchlist, created_at, updated_at
 		FROM books
@@ -162,54 +163,53 @@ func (db *SqliteDatabase) SearchBooks(searchTerm string, options SearchOptions) 
 		ORDER BY %s %s
 		LIMIT ? OFFSET ?
 	`, whereClause, sortBy, sortOrder)
-	
+
 	// Use ? for all parameters including LIKE patterns
 	searchPattern := "%" + searchTerm + "%"
-	
-	rows, err := db.db.Query(
-		query, 
-		searchPattern, searchPattern, 
-		options.Limit, options.Offset,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
-	}
-	defer rows.Close()
-	
+
+	stmt := db.db.Prep(query)
+	defer stmt.Reset()
+
+	// Bind parameters
+	stmt.SetText(":1", searchPattern)
+	stmt.SetText(":2", searchPattern)
+	stmt.SetInt64(":3", int64(options.Limit))
+	stmt.SetInt64(":4", int64(options.Offset))
+
 	var results []*Book
-	var createdAt, updatedAt string
-	
-	for rows.Next() {
-		book := &Book{}
-		err := rows.Scan(
-			&book.ID,
-			&book.Title,
-			&book.Author,
-			&book.CoverArtURL,
-			&book.IsFavorite,
-			&book.IsWatchlist,
-			&createdAt,
-			&updatedAt,
-		)
+
+	for {
+		hasRow, err := stmt.Step()
 		if err != nil {
 			return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
 		}
-		
+		if !hasRow {
+			break
+		}
+
+		book := &Book{}
+		book.ID = uint64(stmt.ColumnInt64(0))
+		book.Title = stmt.ColumnText(1)
+		book.Author = stmt.ColumnText(2)
+		book.CoverArtURL = stmt.ColumnText(3)
+		book.IsFavorite = stmt.ColumnBool(4)
+		book.IsWatchlist = stmt.ColumnBool(5)
+
 		// Parse timestamps
-		if book.CreatedAt, err = time.Parse(time.RFC3339, createdAt); err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
+		createdAt := stmt.ColumnText(6)
+		updatedAt := stmt.ColumnText(7)
+
+		var err2 error
+		if book.CreatedAt, err2 = time.Parse(time.RFC3339, createdAt); err2 != nil {
+			return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err2)
 		}
-		if book.UpdatedAt, err = time.Parse(time.RFC3339, updatedAt); err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
+		if book.UpdatedAt, err2 = time.Parse(time.RFC3339, updatedAt); err2 != nil {
+			return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err2)
 		}
-		
+
 		results = append(results, book)
 	}
-	
-	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
-	}
-	
+
 	return results, nil
 }
 
@@ -221,32 +221,40 @@ func (db *SqliteDatabase) GetFavoriteBooks(options SearchOptions) ([]*Book, erro
 
 // SearchMovies searches for movies with the given term
 func (db *SqliteDatabase) SearchMovies(searchTerm string, options SearchOptions) ([]*Movie, error) {
-	// Build the query with proper sorting and filtering
-	whereClause := "WHERE (title LIKE ? OR director LIKE ? OR writer LIKE ?)"
+	// Start with a base WHERE clause for the search term
+	whereClause := `WHERE (
+		title LIKE ? OR
+		director LIKE ? OR
+		writer LIKE ?
+	)`
+
+	// Add favorite filter if requested
 	if options.OnlyFavorites {
 		whereClause += " AND is_favorite = 1"
 	}
+
+	// Add watchlist filter if requested
 	if options.OnlyWatchlist {
 		whereClause += " AND is_watchlist = 1"
 	}
-	
+
 	// Validate sort column to prevent SQL injection
 	validSortColumns := map[string]bool{
 		"id": true, "title": true, "director": true, "writer": true,
 		"created_at": true, "updated_at": true,
 	}
-	
+
 	sortBy := "title"
 	if validSortColumns[options.SortBy] {
 		sortBy = options.SortBy
 	}
-	
+
 	// Validate sort order
 	sortOrder := "ASC"
 	if strings.ToUpper(options.SortOrder) == "DESC" {
 		sortOrder = "DESC"
 	}
-	
+
 	query := fmt.Sprintf(`
 		SELECT id, title, director, writer, poster_url, is_favorite, is_watchlist, created_at, updated_at
 		FROM movies
@@ -254,86 +262,87 @@ func (db *SqliteDatabase) SearchMovies(searchTerm string, options SearchOptions)
 		ORDER BY %s %s
 		LIMIT ? OFFSET ?
 	`, whereClause, sortBy, sortOrder)
-	
+
 	// Use ? for all parameters including LIKE patterns
 	searchPattern := "%" + searchTerm + "%"
-	
-	rows, err := db.db.Query(
-		query, 
-		searchPattern, searchPattern, searchPattern, 
-		options.Limit, options.Offset,
-	)
+
+	var results []*Movie
+
+	err := sqlitex.Execute(db.db, query, &sqlitex.ExecOptions{
+		Args: []interface{}{
+			searchPattern, searchPattern, searchPattern,
+			options.Limit, options.Offset,
+		},
+		ResultFunc: func(stmt *sqlite.Stmt) error {
+			movie := &Movie{}
+			movie.ID = uint64(stmt.ColumnInt64(0))
+			movie.Title = stmt.ColumnText(1)
+			movie.Director = stmt.ColumnText(2)
+			movie.Writer = stmt.ColumnText(3)
+			movie.PosterURL = stmt.ColumnText(4)
+			movie.IsFavorite = stmt.ColumnInt(5) != 0
+			movie.IsWatchlist = stmt.ColumnInt(6) != 0
+
+			createdAt := stmt.ColumnText(7)
+			updatedAt := stmt.ColumnText(8)
+
+			// Parse timestamps
+			var err error
+			if movie.CreatedAt, err = time.Parse(time.RFC3339, createdAt); err != nil {
+				return fmt.Errorf("parse created_at: %v", err)
+			}
+			if movie.UpdatedAt, err = time.Parse(time.RFC3339, updatedAt); err != nil {
+				return fmt.Errorf("parse updated_at: %v", err)
+			}
+
+			results = append(results, movie)
+			return nil
+		},
+	})
+
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
 	}
-	defer rows.Close()
-	
-	var results []*Movie
-	var createdAt, updatedAt string
-	
-	for rows.Next() {
-		movie := &Movie{}
-		err := rows.Scan(
-			&movie.ID,
-			&movie.Title,
-			&movie.Director,
-			&movie.Writer,
-			&movie.PosterURL,
-			&movie.IsFavorite,
-			&movie.IsWatchlist,
-			&createdAt,
-			&updatedAt,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
-		}
-		
-		// Parse timestamps
-		if movie.CreatedAt, err = time.Parse(time.RFC3339, createdAt); err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
-		}
-		if movie.UpdatedAt, err = time.Parse(time.RFC3339, updatedAt); err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
-		}
-		
-		results = append(results, movie)
-	}
-	
-	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
-	}
-	
+
 	return results, nil
 }
 
 // SearchShows searches for TV shows with the given term
 func (db *SqliteDatabase) SearchShows(searchTerm string, options SearchOptions) ([]*Show, error) {
-	// Build the query with proper sorting and filtering
-	whereClause := "WHERE (title LIKE ? OR director LIKE ? OR writer LIKE ?)"
+	// Start with a base WHERE clause for the search term
+	whereClause := `WHERE (
+		title LIKE ? OR
+		director LIKE ? OR
+		writer LIKE ?
+	)`
+
+	// Add favorite filter if requested
 	if options.OnlyFavorites {
 		whereClause += " AND is_favorite = 1"
 	}
+
+	// Add watchlist filter if requested
 	if options.OnlyWatchlist {
 		whereClause += " AND is_watchlist = 1"
 	}
-	
+
 	// Validate sort column to prevent SQL injection
 	validSortColumns := map[string]bool{
 		"id": true, "title": true, "director": true, "writer": true,
 		"created_at": true, "updated_at": true,
 	}
-	
+
 	sortBy := "title"
 	if validSortColumns[options.SortBy] {
 		sortBy = options.SortBy
 	}
-	
+
 	// Validate sort order
 	sortOrder := "ASC"
 	if strings.ToUpper(options.SortOrder) == "DESC" {
 		sortOrder = "DESC"
 	}
-	
+
 	query := fmt.Sprintf(`
 		SELECT id, title, director, writer, poster_url, is_favorite, is_watchlist, created_at, updated_at
 		FROM shows
@@ -341,86 +350,86 @@ func (db *SqliteDatabase) SearchShows(searchTerm string, options SearchOptions) 
 		ORDER BY %s %s
 		LIMIT ? OFFSET ?
 	`, whereClause, sortBy, sortOrder)
-	
+
 	// Use ? for all parameters including LIKE patterns
 	searchPattern := "%" + searchTerm + "%"
-	
-	rows, err := db.db.Query(
-		query, 
-		searchPattern, searchPattern, searchPattern, 
-		options.Limit, options.Offset,
-	)
+
+	var results []*Show
+
+	err := sqlitex.Execute(db.db, query, &sqlitex.ExecOptions{
+		Args: []interface{}{
+			searchPattern, searchPattern, searchPattern,
+			options.Limit, options.Offset,
+		},
+		ResultFunc: func(stmt *sqlite.Stmt) error {
+			show := &Show{}
+			show.ID = uint64(stmt.ColumnInt64(0))
+			show.Title = stmt.ColumnText(1)
+			show.Director = stmt.ColumnText(2)
+			show.Writer = stmt.ColumnText(3)
+			show.PosterURL = stmt.ColumnText(4)
+			show.IsFavorite = stmt.ColumnInt(5) != 0
+			show.IsWatchlist = stmt.ColumnInt(6) != 0
+
+			createdAt := stmt.ColumnText(7)
+			updatedAt := stmt.ColumnText(8)
+
+			// Parse timestamps
+			var err error
+			if show.CreatedAt, err = time.Parse(time.RFC3339, createdAt); err != nil {
+				return fmt.Errorf("parse created_at: %v", err)
+			}
+			if show.UpdatedAt, err = time.Parse(time.RFC3339, updatedAt); err != nil {
+				return fmt.Errorf("parse updated_at: %v", err)
+			}
+
+			results = append(results, show)
+			return nil
+		},
+	})
+
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
 	}
-	defer rows.Close()
-	
-	var results []*Show
-	var createdAt, updatedAt string
-	
-	for rows.Next() {
-		show := &Show{}
-		err := rows.Scan(
-			&show.ID,
-			&show.Title,
-			&show.Director,
-			&show.Writer,
-			&show.PosterURL,
-			&show.IsFavorite,
-			&show.IsWatchlist,
-			&createdAt,
-			&updatedAt,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
-		}
-		
-		// Parse timestamps
-		if show.CreatedAt, err = time.Parse(time.RFC3339, createdAt); err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
-		}
-		if show.UpdatedAt, err = time.Parse(time.RFC3339, updatedAt); err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
-		}
-		
-		results = append(results, show)
-	}
-	
-	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
-	}
-	
+
 	return results, nil
 }
 
 // SearchVideoGames searches for video games with the given term
 func (db *SqliteDatabase) SearchVideoGames(searchTerm string, options SearchOptions) ([]*VideoGame, error) {
-	// Build the query with proper sorting and filtering
-	whereClause := "WHERE (title LIKE ? OR developer LIKE ?)"
+	// Start with a base WHERE clause for the search term
+	whereClause := `WHERE (
+		title LIKE ? OR
+		developer LIKE ?
+	)`
+
+	// Add favorite filter if requested
 	if options.OnlyFavorites {
 		whereClause += " AND is_favorite = 1"
 	}
+
+	// Add watchlist filter if requested
 	if options.OnlyWatchlist {
 		whereClause += " AND is_watchlist = 1"
 	}
-	
+
 	// Validate sort column to prevent SQL injection
 	validSortColumns := map[string]bool{
 		"id": true, "title": true, "developer": true,
 		"created_at": true, "updated_at": true,
 	}
-	
+
 	sortBy := "title"
 	if validSortColumns[options.SortBy] {
 		sortBy = options.SortBy
 	}
-	
+
 	// Validate sort order
 	sortOrder := "ASC"
 	if strings.ToUpper(options.SortOrder) == "DESC" {
 		sortOrder = "DESC"
 	}
-	
+
 	query := fmt.Sprintf(`
 		SELECT id, title, developer, cover_art_url, is_favorite, is_watchlist, created_at, updated_at
 		FROM video_games
@@ -428,77 +437,63 @@ func (db *SqliteDatabase) SearchVideoGames(searchTerm string, options SearchOpti
 		ORDER BY %s %s
 		LIMIT ? OFFSET ?
 	`, whereClause, sortBy, sortOrder)
-	
+
 	// Use ? for all parameters including LIKE patterns
 	searchPattern := "%" + searchTerm + "%"
-	
-	rows, err := db.db.Query(
-		query, 
-		searchPattern, searchPattern, 
-		options.Limit, options.Offset,
-	)
+
+	var results []*VideoGame
+
+	err := sqlitex.Execute(db.db, query, &sqlitex.ExecOptions{
+		Args: []interface{}{
+			searchPattern, searchPattern,
+			options.Limit, options.Offset,
+		},
+		ResultFunc: func(stmt *sqlite.Stmt) error {
+			videoGame := &VideoGame{}
+			videoGame.ID = uint64(stmt.ColumnInt64(0))
+			videoGame.Title = stmt.ColumnText(1)
+			videoGame.Developer = stmt.ColumnText(2)
+			videoGame.CoverArtURL = stmt.ColumnText(3)
+			videoGame.IsFavorite = stmt.ColumnInt(4) != 0
+			videoGame.IsWatchlist = stmt.ColumnInt(5) != 0
+
+			createdAt := stmt.ColumnText(6)
+			updatedAt := stmt.ColumnText(7)
+
+			// Store timestamps as strings directly
+			videoGame.CreatedAt = createdAt
+			videoGame.UpdatedAt = updatedAt
+
+			// Get the platforms for each game
+			platformsQuery := `
+			SELECT name FROM video_game_platforms
+			WHERE video_game_id = ?
+			ORDER BY name
+			`
+
+			videoGame.Platforms = []string{}
+
+			err := sqlitex.Execute(db.db, platformsQuery, &sqlitex.ExecOptions{
+				Args: []interface{}{videoGame.ID},
+				ResultFunc: func(platformStmt *sqlite.Stmt) error {
+					platform := platformStmt.ColumnText(0)
+					videoGame.Platforms = append(videoGame.Platforms, platform)
+					return nil
+				},
+			})
+			if err != nil {
+				return fmt.Errorf("get platforms: %v", err)
+			}
+
+			results = append(results, videoGame)
+			return nil
+		},
+	})
+
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
 	}
-	defer rows.Close()
-	
-	var results []*VideoGame
-	var createdAt, updatedAt string
-	
-	for rows.Next() {
-		videoGame := &VideoGame{}
-		err := rows.Scan(
-			&videoGame.ID,
-			&videoGame.Title,
-			&videoGame.Developer,
-			&videoGame.CoverArtURL,
-			&videoGame.IsFavorite,
-			&videoGame.IsWatchlist,
-			&createdAt,
-			&updatedAt,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
-		}
-		
-		// Parse timestamps
-		if videoGame.CreatedAt, err = time.Parse(time.RFC3339, createdAt); err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
-		}
-		if videoGame.UpdatedAt, err = time.Parse(time.RFC3339, updatedAt); err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
-		}
-		
-		// Get the platforms for each game
-		platformsQuery := `
-		SELECT name FROM video_game_platforms
-		WHERE video_game_id = ?
-		ORDER BY name
-		`
-		
-		platformRows, err := db.db.Query(platformsQuery, videoGame.ID)
-		if err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
-		}
-		
-		videoGame.Platforms = []string{}
-		for platformRows.Next() {
-			var platform string
-			if err := platformRows.Scan(&platform); err != nil {
-				platformRows.Close()
-				return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
-			}
-			videoGame.Platforms = append(videoGame.Platforms, platform)
-		}
-		platformRows.Close()
-		
-		results = append(results, videoGame)
-	}
-	
-	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
-	}
-	
+
 	return results, nil
 }
 
@@ -506,7 +501,7 @@ func (db *SqliteDatabase) SearchVideoGames(searchTerm string, options SearchOpti
 func (db *SqliteDatabase) GetSuggestionsByMedia(mediaID uint64, mediaType MediaType) ([]*Suggestion, error) {
 	var tableName string
 	var idColumn string
-	
+
 	switch mediaType {
 	case MediaTypeMusic:
 		tableName = "music_suggestions"
@@ -526,51 +521,50 @@ func (db *SqliteDatabase) GetSuggestionsByMedia(mediaID uint64, mediaType MediaT
 	default:
 		return nil, fmt.Errorf("%w: invalid media type", ErrInvalidInput)
 	}
-	
+
 	query := fmt.Sprintf(`
 		SELECT id, %s, reason, outcome, created_at
 		FROM %s
 		WHERE %s = ?
 		ORDER BY created_at DESC
 	`, idColumn, tableName, idColumn)
-	
-	rows, err := db.db.Query(query, mediaID)
+
+	var suggestions []*Suggestion
+
+	err := sqlitex.Execute(db.db, query, &sqlitex.ExecOptions{
+		Args: []interface{}{mediaID},
+		ResultFunc: func(stmt *sqlite.Stmt) error {
+			suggestion := &Suggestion{}
+			suggestion.ID = uint64(stmt.ColumnInt64(0))
+			suggestion.MediaID = uint64(stmt.ColumnInt64(1))
+			suggestion.Reason = stmt.ColumnText(2)
+			outcomeStr := stmt.ColumnText(3)
+			createdAt := stmt.ColumnText(4)
+
+			suggestion.MediaType = mediaType
+			suggestion.Outcome = SuggestionOutcome(outcomeStr)
+
+			var err error
+			if suggestion.CreatedAt, err = time.Parse(time.RFC3339, createdAt); err != nil {
+				return fmt.Errorf("parse created_at: %v", err)
+			}
+
+			suggestions = append(suggestions, suggestion)
+			return nil
+		},
+	})
+
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
 	}
-	defer rows.Close()
-	
-	var suggestions []*Suggestion
-	var createdAt string
-	
-	for rows.Next() {
-		suggestion := &Suggestion{}
-		var outcomeStr string
-		
-		if err := rows.Scan(&suggestion.ID, &suggestion.MediaID, &suggestion.Reason, &outcomeStr, &createdAt); err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
-		}
-		
-		suggestion.MediaType = mediaType
-		suggestion.Outcome = SuggestionOutcome(outcomeStr)
-		if suggestion.CreatedAt, err = time.Parse(time.RFC3339, createdAt); err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
-		}
-		
-		suggestions = append(suggestions, suggestion)
-	}
-	
-	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
-	}
-	
+
 	return suggestions, nil
 }
 
 // GetAllSuggestions gets all suggestions across all media types
 func (db *SqliteDatabase) GetAllSuggestions(options SearchOptions) ([]*Suggestion, error) {
 	var suggestions []*Suggestion
-	
+
 	// We need to query each suggestions table separately and combine the results
 	mediaTypes := []MediaType{
 		MediaTypeMusic,
@@ -579,11 +573,11 @@ func (db *SqliteDatabase) GetAllSuggestions(options SearchOptions) ([]*Suggestio
 		MediaTypeShow,
 		MediaTypeVideoGame,
 	}
-	
+
 	for _, mediaType := range mediaTypes {
 		var tableName string
 		var idColumn string
-		
+
 		switch mediaType {
 		case MediaTypeMusic:
 			tableName = "music_suggestions"
@@ -601,44 +595,44 @@ func (db *SqliteDatabase) GetAllSuggestions(options SearchOptions) ([]*Suggestio
 			tableName = "video_game_suggestions"
 			idColumn = "video_game_id"
 		}
-		
+
 		query := fmt.Sprintf(`
 		SELECT id, %s, reason, outcome, created_at
 		FROM %s
 		ORDER BY created_at DESC
 		LIMIT ? OFFSET ?
 		`, idColumn, tableName)
-		
-		rows, err := db.db.Query(query, options.Limit, options.Offset)
+
+		err := sqlitex.Execute(db.db, query, &sqlitex.ExecOptions{
+			Args: []interface{}{options.Limit, options.Offset},
+			ResultFunc: func(stmt *sqlite.Stmt) error {
+				suggestion := &Suggestion{}
+				suggestion.ID = uint64(stmt.ColumnInt64(0))
+				suggestion.MediaID = uint64(stmt.ColumnInt64(1))
+				suggestion.Reason = stmt.ColumnText(2)
+				outcomeStr := stmt.ColumnText(3)
+				createdAt := stmt.ColumnText(4)
+
+				suggestion.MediaType = mediaType
+				suggestion.Outcome = SuggestionOutcome(outcomeStr)
+
+				var err error
+				if suggestion.CreatedAt, err = time.Parse(time.RFC3339, createdAt); err != nil {
+					return fmt.Errorf("parse created_at: %v", err)
+				}
+
+				suggestions = append(suggestions, suggestion)
+				return nil
+			},
+		})
+
 		if err != nil {
 			return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
 		}
-		
-		var createdAt string
-		
-		for rows.Next() {
-			suggestion := &Suggestion{}
-			var outcomeStr string
-			
-			if err := rows.Scan(&suggestion.ID, &suggestion.MediaID, &suggestion.Reason, &outcomeStr, &createdAt); err != nil {
-				rows.Close()
-				return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
-			}
-			
-			suggestion.MediaType = mediaType
-			suggestion.Outcome = SuggestionOutcome(outcomeStr)
-			if suggestion.CreatedAt, err = time.Parse(time.RFC3339, createdAt); err != nil {
-				rows.Close()
-				return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
-			}
-			
-			suggestions = append(suggestions, suggestion)
-		}
-		rows.Close()
 	}
-	
+
 	// TODO: Sort the combined results by creation date if needed
-	
+
 	return suggestions, nil
 }
 
@@ -649,35 +643,42 @@ func (db *SqliteDatabase) GetAllConstraints() ([]*Constraint, error) {
 		FROM constraints
 		ORDER BY id
 	`
-	
-	rows, err := db.db.Query(query)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
-	}
-	defer rows.Close()
-	
+
+	stmt := db.db.Prep(query)
+	defer stmt.Reset()
+
 	var constraints []*Constraint
-	var createdAt, updatedAt string
-	
-	for rows.Next() {
+
+	for {
+		hasRow, err := stmt.Step()
+		if err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
+		}
+		if !hasRow {
+			break
+		}
+
 		constraint := &Constraint{}
-		var mediaTypeStr string
-		
-		if err := rows.Scan(&constraint.ID, &constraint.Rule, &mediaTypeStr, &createdAt, &updatedAt); err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
-		}
-		
+
+		constraint.ID = stmt.ColumnInt64(0)
+		constraint.Rule = stmt.ColumnText(1)
+		mediaTypeStr := stmt.ColumnText(2)
 		constraint.Media = MediaType(mediaTypeStr)
-		if constraint.CreatedAt, err = time.Parse(time.RFC3339, createdAt); err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
+
+		createdAt := stmt.ColumnText(3)
+		updatedAt := stmt.ColumnText(4)
+
+		var err2 error
+		if constraint.CreatedAt, err2 = time.Parse(time.RFC3339, createdAt); err2 != nil {
+			return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err2)
 		}
-		if constraint.UpdatedAt, err = time.Parse(time.RFC3339, updatedAt); err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
+		if constraint.UpdatedAt, err2 = time.Parse(time.RFC3339, updatedAt); err2 != nil {
+			return nil, fmt.Errorf("%w: %v", ErrDatabaseFailure, err2)
 		}
-		
+
 		constraints = append(constraints, constraint)
 	}
-	
+
 	return constraints, nil
 }
 
@@ -691,32 +692,37 @@ func (db *SqliteDatabase) CountItems(tableName string, onlyFavorites, onlyWatchl
 	} else if onlyWatchlist {
 		whereClause = "WHERE is_watchlist = 1"
 	}
-	
+
 	query := fmt.Sprintf("SELECT COUNT(*) FROM %s %s", tableName, whereClause)
-	
-	var count int
-	err := db.db.QueryRow(query).Scan(&count)
+
+	stmt := db.db.Prep(query)
+	defer stmt.Reset()
+
+	hasRow, err := stmt.Step()
 	if err != nil {
 		return 0, fmt.Errorf("%w: %v", ErrDatabaseFailure, err)
 	}
-	
-	return count, nil
-}
+	if !hasRow {
+		return 0, fmt.Errorf("%w: no rows returned for count query", ErrDatabaseFailure)
+	}
 
-// BeginTx begins a transaction
-func (db *SqliteDatabase) BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error) {
-	return db.db.BeginTx(ctx, opts)
+	count := stmt.ColumnInt(0)
+	return count, nil
 }
 
 // GetSchemaVersion retrieves the current schema version
 func (db *SqliteDatabase) GetSchemaVersion() (int, error) {
-	var version int
-	err := db.db.QueryRow("SELECT version FROM schema_version ORDER BY id DESC LIMIT 1").Scan(&version)
+	stmt := db.db.Prep("SELECT version FROM schema_version ORDER BY id DESC LIMIT 1")
+	defer stmt.Reset()
+
+	hasRow, err := stmt.Step()
 	if err != nil {
-		if err == sql.ErrNoRows {
-			return 0, nil // No schema version found, assume 0
-		}
 		return 0, err
 	}
+	if !hasRow {
+		return 0, nil // No schema version found, assume 0
+	}
+
+	version := stmt.ColumnInt(0)
 	return version, nil
 }

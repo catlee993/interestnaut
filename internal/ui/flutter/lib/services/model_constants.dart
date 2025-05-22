@@ -30,10 +30,7 @@ Schema:
 
 ### Instruction:
 Generate one song recommendation that matches the schema.
-IMPORTANT: Keep all string fields under 80 characters - especially the reasoning field.
-Your reasoning MUST be a single sentence, STRICTLY UNDER 80 characters, and not repeat itself.
-DO NOT use more than 80 characters for the reasoning field or the response will be rejected.
-After generating the JSON, add the text "<///>" on a new line to indicate you are done.
+IMPORTANT: Your reasoning MUST be breif, STRICTLY UNDER 80 characters, and not repeat itself this is CRITICAL.
 
 ### Response:
 ''';
@@ -57,10 +54,7 @@ Schema:
 
 ### Instruction:
 Generate one movie recommendation that matches the schema.
-IMPORTANT: Keep all string fields under 80 characters - especially the reasoning field.
-Your reasoning MUST be a single sentence, STRICTLY UNDER 80 characters, and not repeat itself.
-DO NOT use more than 80 characters for the reasoning field or the response will be rejected.
-After generating the JSON, add the text "<///>" on a new line to indicate you are done.
+IMPORTANT: Your reasoning MUST be breif, STRICTLY UNDER 80 characters, and not repeat itself this is CRITICAL.
 
 ### Response:
 ''';
@@ -84,10 +78,7 @@ Schema:
 
 ### Instruction:
 Generate one book recommendation that matches the schema.
-IMPORTANT: Keep all string fields under 80 characters - especially the reasoning field.
-Your reasoning MUST be a single sentence, STRICTLY UNDER 80 characters, and not repeat itself.
-DO NOT use more than 80 characters for the reasoning field or the response will be rejected.
-After generating the JSON, add the text "<///>" on a new line to indicate you are done.
+IMPORTANT: Your reasoning MUST be breif, STRICTLY UNDER 80 characters, and not repeat itself this is CRITICAL.
 
 ### Response:
 ''';
@@ -111,10 +102,7 @@ Schema:
 
 ### Instruction:
 Generate one TV show recommendation that matches the schema.
-IMPORTANT: Keep all string fields under 80 characters - especially the reasoning field.
-Your reasoning MUST be a single sentence, STRICTLY UNDER 80 characters, and not repeat itself.
-DO NOT use more than 80 characters for the reasoning field or the response will be rejected.
-After generating the JSON, add the text "<///>" on a new line to indicate you are done.
+IMPORTANT: Your reasoning MUST be breif, STRICTLY UNDER 80 characters, and not repeat itself this is CRITICAL.
 
 ### Response:
 ''';
@@ -138,10 +126,7 @@ Schema:
 
 ### Instruction:
 Generate one video game recommendation that matches the schema.
-IMPORTANT: Keep all string fields under 80 characters - especially the reasoning field.
-Your reasoning MUST be a single sentence, STRICTLY UNDER 80 characters, and not repeat itself.
-DO NOT use more than 80 characters for the reasoning field or the response will be rejected.
-After generating the JSON, add the text "<///>" on a new line to indicate you are done.
+IMPORTANT: Your reasoning MUST be breif, STRICTLY UNDER 80 characters, and not repeat itself this is CRITICAL.
 
 ### Response:
 ''';
