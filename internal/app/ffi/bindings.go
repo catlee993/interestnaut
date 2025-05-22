@@ -65,7 +65,7 @@ var (
 	exitChan      = make(chan struct{})
 	exitWaitGroup sync.WaitGroup
 
-	ffiInitialized bool // Flag to ensure Initialize is called only once
+	ffiInitialized bool       // Flag to ensure Initialize is called only once
 	dbMutex        sync.Mutex // Mutex to protect database operations
 )
 
@@ -76,7 +76,7 @@ const userAgent = "Interestnaut/1.0"
 func init() {
 	// Set up global signal handlers
 	C.setup_global_signal_handlers()
-	
+
 	log.Println("FFI package init() called - dylib loaded.")
 }
 
@@ -129,10 +129,10 @@ func InitializeFFIBridge(storagePathC *C.char) *C.char {
 			return C.CString("{\"error\": \"Failed to initialize recommendation service\"}")
 		}
 		log.Println("SUCCESS: recommendationService initialized directly.")
-		
+
 		// Initialize the recommendation queue on a separate thread
 		initRecommendationQueue()
-		
+
 		ffiInitialized = true
 	}
 
@@ -200,17 +200,16 @@ func ensureRecommendationServiceInitialized() bool {
 	// Initialize Wikidata client
 	wikidataClient := wikidata.NewClient("interestnaut")
 
-
 	// Initialize Wikipedia client
 	wikipediaClient = wikipedia.NewClient("interestnaut")
 
 	// Create and initialize the recommendation service
 	recommendationService = recommendations.NewService(db.DB, wikidataClient, wikipediaClient)
 	log.Println("Recommendation service initialized")
-	
+
 	// Initialize the recommendation queue on a separate thread
 	initRecommendationQueue()
-	
+
 	return true
 }
 
@@ -274,6 +273,9 @@ func initSafeSignalHandlers() {
 
 //export Recommendation_FindAndSaveSuggestion
 func Recommendation_FindAndSaveSuggestion(rawQueryC *C.char, mediaTypeC *C.char, botReasoningC *C.char) *C.char {
+	// Set up proper signal handling before DB operations
+	initSafeSignalHandlers()
+
 	// Ensure service is initialized (this will also initialize the queue)
 	if !ensureRecommendationServiceInitialized() {
 		return returnJSON(map[string]string{"error": "Recommendation service not initialized"})
@@ -295,12 +297,12 @@ func Recommendation_FindAndSaveSuggestion(rawQueryC *C.char, mediaTypeC *C.char,
 	if err != nil {
 		return processError(err)
 	}
-	
+
 	// If no result was returned within the timeout
 	if result == nil {
 		return returnJSON(map[string]string{"error": "Timed out waiting for recommendation processing"})
 	}
-	
+
 	// Return the result as JSON
 	return returnJSON(result)
 }
@@ -387,10 +389,10 @@ func Recommendation_InitQueue() *C.char {
 	if !ensureRecommendationServiceInitialized() {
 		return returnJSON(map[string]string{"error": "Recommendation service not initialized"})
 	}
-	
+
 	// The queue should already be initialized by ensureRecommendationServiceInitialized,
 	// but we'll call it explicitly here to be safe
 	initRecommendationQueue()
-	
+
 	return returnJSON(map[string]string{"status": "success", "message": "Recommendation queue initialized"})
 }

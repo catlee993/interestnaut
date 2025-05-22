@@ -424,10 +424,11 @@ class RecommendationService extends ChangeNotifier {
           bool isCompleted = false;
           
           // Set up a timeout to cancel if it takes too long
-          final timeout = Timer(Duration(seconds: 60), () {
+          // Increased timeout to 120 seconds to give more time for slower models
+          final timeout = Timer(Duration(seconds: 120), () {
             if (!isCompleted) {
               isCompleted = true;
-              completer.completeError('Timeout: LLM response took too long');
+              completer.completeError('Timeout: LLM response took too long (120s)');
             }
           });
           

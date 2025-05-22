@@ -368,6 +368,7 @@ class LlamaService {
     final completer = Completer<String>();
     final buffer = StringBuffer();
     String errorMessage = "";
+    StreamSubscription<String>? subscription;
 
     if (!_isRunning) {
       throw Exception('LLM service not running.');
@@ -378,7 +379,7 @@ class LlamaService {
       await processPrompt(prompt);
 
       // Listen to the response stream
-      final subscription = responseStream?.listen(
+      subscription = responseStream?.listen(
         (token) {
           buffer.write(token);
         },
@@ -474,7 +475,7 @@ class LlamaService {
     final completer = Completer<String>();
     final buffer = StringBuffer();
     String errorMessage = "";
-    StreamSubscription? subscription;
+    StreamSubscription<String>? subscription;
 
     if (!_isRunning) {
       throw Exception('LLM service not running.');

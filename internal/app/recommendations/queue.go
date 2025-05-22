@@ -1,7 +1,28 @@
 package recommendations
 
+/*
+#include <stdlib.h>
+#include <signal.h>
+
+// Setup proper signal handling for SQLite operations
+static void setup_safe_signal_handlers() {
+    struct sigaction sa;
+    sa.sa_handler = SIG_DFL;  // Default handler
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_ONSTACK;  // Critical flag for Go compatibility
+
+    // Set up handlers for the signals that might be intercepted
+    sigaction(SIGILL, &sa, NULL);
+    sigaction(SIGBUS, &sa, NULL);
+    sigaction(SIGSEGV, &sa, NULL);
+    sigaction(SIGABRT, &sa, NULL);
+    sigaction(SIGUSR1, &sa, NULL); // Signal 16 (SIGUSR1)
+}
+*/
+import "C"
 import (
 	"context"
+	"fmt"
 	"log"
 	"runtime"
 	"sync"
@@ -26,10 +47,10 @@ type RecommendationResponse struct {
 }
 
 var (
-	requestQueue chan RecommendationRequest
-	responseMap  map[string]chan RecommendationResponse
-	responseMux  sync.RWMutex
-	workerOnce   sync.Once
+	requestQueue  chan RecommendationRequest
+	responseMap   map[string]chan RecommendationResponse
+	responseMux   sync.RWMutex
+	workerOnce    sync.Once
 	isInitialized bool
 	initMux       sync.Mutex
 )
@@ -39,18 +60,18 @@ var (
 func InitRecommendationQueue(service *Service) {
 	initMux.Lock()
 	defer initMux.Unlock()
-	
+
 	if isInitialized {
 		return
 	}
-	
+
 	requestQueue = make(chan RecommendationRequest, 100)
 	responseMap = make(map[string]chan RecommendationResponse)
-	
+
 	workerOnce.Do(func() {
 		go startRecommendationWorker(service)
 	})
-	
+
 	isInitialized = true
 	log.Println("Recommendation queue initialized")
 }
@@ -60,12 +81,12 @@ func InitRecommendationQueue(service *Service) {
 func EnqueueRecommendationRequest(rawQuery, mediaType, botReasoning string) string {
 	// Generate a unique ID for this request
 	requestID := uuid.New().String()
-	
+
 	// Create a response channel for this request
 	responseMux.Lock()
 	responseMap[requestID] = make(chan RecommendationResponse, 1)
 	responseMux.Unlock()
-	
+
 	// Create the request
 	request := RecommendationRequest{
 		ID:           requestID,
@@ -73,22 +94,22 @@ func EnqueueRecommendationRequest(rawQuery, mediaType, botReasoning string) stri
 		MediaType:    mediaType,
 		BotReasoning: botReasoning,
 	}
-	
+
 	// Try to enqueue the request, dropping it if the queue is full
 	select {
 	case requestQueue <- request:
 		log.Printf("Enqueued recommendation request %s for %s", requestID, mediaType)
 	default:
 		log.Printf("Request queue full, dropping recommendation request for %s", mediaType)
-		
+
 		// Clean up the response channel since we're not processing this request
 		responseMux.Lock()
 		delete(responseMap, requestID)
 		responseMux.Unlock()
-		
+
 		return ""
 	}
-	
+
 	return requestID
 }
 
@@ -98,16 +119,16 @@ func GetRecommendationResult(requestID string, timeoutMs int) (interface{}, erro
 	if requestID == "" {
 		return nil, nil
 	}
-	
+
 	// Get the response channel for this request
 	responseMux.RLock()
 	responseChan, exists := responseMap[requestID]
 	responseMux.RUnlock()
-	
+
 	if !exists {
 		return nil, nil
 	}
-	
+
 	// Wait for the response or timeout
 	var response RecommendationResponse
 	select {
@@ -126,11 +147,45 @@ func GetRecommendationResult(requestID string, timeoutMs int) (interface{}, erro
 func startRecommendationWorker(service *Service) {
 	// Lock this goroutine to its OS thread to satisfy Go's signal handling requirements
 	runtime.LockOSThread()
+	defer runtime.UnlockOSThread() // Ensure we unlock if we ever exit
+
+	// Set up proper signal handling for SQLite operations
+	C.setup_safe_signal_handlers()
+
 	log.Println("Recommendation worker started on locked OS thread")
-	
+
 	// Process requests from the queue
 	for request := range requestQueue {
-		processRecommendationRequest(service, request)
+		func() {
+			// Use a recover to prevent the worker from crashing
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("Recovered from panic in recommendation worker: %v", r)
+
+					// Send an error response
+					responseMux.RLock()
+					responseChan, exists := responseMap[request.ID]
+					responseMux.RUnlock()
+
+					if exists {
+						errorResponse := RecommendationResponse{
+							RequestID: request.ID,
+							Result:    nil,
+							Error:     fmt.Errorf("internal error processing recommendation: %v", r),
+						}
+
+						select {
+						case responseChan <- errorResponse:
+							log.Printf("Sent error response for request %s after panic", request.ID)
+						default:
+							log.Printf("Could not send error response for request %s after panic", request.ID)
+						}
+					}
+				}
+			}()
+
+			processRecommendationRequest(service, request)
+		}()
 	}
 }
 
@@ -139,7 +194,7 @@ func processRecommendationRequest(service *Service, request RecommendationReques
 	// Create a context with timeout for the operation
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	
+
 	// Do the actual work - finding and saving the suggestion
 	result, err := service.FindAndSaveSuggestion(
 		ctx,
@@ -147,19 +202,19 @@ func processRecommendationRequest(service *Service, request RecommendationReques
 		request.MediaType,
 		request.BotReasoning,
 	)
-	
+
 	// Create the response
 	response := RecommendationResponse{
 		RequestID: request.ID,
 		Result:    result,
 		Error:     err,
 	}
-	
+
 	// Send the response back through the channel
 	responseMux.RLock()
 	responseChan, exists := responseMap[request.ID]
 	responseMux.RUnlock()
-	
+
 	if exists {
 		select {
 		case responseChan <- response:

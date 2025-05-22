@@ -19,9 +19,9 @@ Schema:
 {
   "type": "object",
   "properties": {
-    "title":     { "type": "string" },
-    "artist":    { "type": "string" },
-    "album":     { "type": "string" },
+    "title":     { "type": "string", "maxLength": 80 },
+    "artist":    { "type": "string", "maxLength": 80 },
+    "album":     { "type": "string", "maxLength": 80 },
     "reasoning": { "type": "string", "maxLength": 80 }
   },
   "required": ["title","artist","album","reasoning"],
@@ -30,7 +30,10 @@ Schema:
 
 ### Instruction:
 Generate one song recommendation that matches the schema.
-Your reasoning must be a single sentence, under 80 characters, and not repeat itself.
+IMPORTANT: Keep all string fields under 80 characters - especially the reasoning field.
+Your reasoning MUST be a single sentence, STRICTLY UNDER 80 characters, and not repeat itself.
+DO NOT use more than 80 characters for the reasoning field or the response will be rejected.
+After generating the JSON, add the text "<///>" on a new line to indicate you are done.
 
 ### Response:
 ''';
@@ -43,8 +46,8 @@ Schema:
 {
   "type": "object",
   "properties": {
-    "title":     { "type": "string" },
-    "director":  { "type": "string" },
+    "title":     { "type": "string", "maxLength": 80 },
+    "director":  { "type": "string", "maxLength": 80 },
     "year":      { "type": "string" },
     "reasoning": { "type": "string", "maxLength": 80 }
   },
@@ -54,7 +57,10 @@ Schema:
 
 ### Instruction:
 Generate one movie recommendation that matches the schema.
-Your reasoning must be a single sentence, under 80 characters, and not repeat itself.
+IMPORTANT: Keep all string fields under 80 characters - especially the reasoning field.
+Your reasoning MUST be a single sentence, STRICTLY UNDER 80 characters, and not repeat itself.
+DO NOT use more than 80 characters for the reasoning field or the response will be rejected.
+After generating the JSON, add the text "<///>" on a new line to indicate you are done.
 
 ### Response:
 ''';
@@ -67,8 +73,8 @@ Schema:
 {
   "type": "object",
   "properties": {
-    "title":     { "type": "string" },
-    "author":    { "type": "string" },
+    "title":     { "type": "string", "maxLength": 80 },
+    "author":    { "type": "string", "maxLength": 80 },
     "year":      { "type": "string" },
     "reasoning": { "type": "string", "maxLength": 80 }
   },
@@ -78,7 +84,10 @@ Schema:
 
 ### Instruction:
 Generate one book recommendation that matches the schema.
-Your reasoning must be a single sentence, under 80 characters, and not repeat itself.
+IMPORTANT: Keep all string fields under 80 characters - especially the reasoning field.
+Your reasoning MUST be a single sentence, STRICTLY UNDER 80 characters, and not repeat itself.
+DO NOT use more than 80 characters for the reasoning field or the response will be rejected.
+After generating the JSON, add the text "<///>" on a new line to indicate you are done.
 
 ### Response:
 ''';
@@ -91,8 +100,8 @@ Schema:
 {
   "type": "object",
   "properties": {
-    "title":     { "type": "string" },
-    "network":   { "type": "string" },
+    "title":     { "type": "string", "maxLength": 80 },
+    "network":   { "type": "string", "maxLength": 80 },
     "year":      { "type": "string" },
     "reasoning": { "type": "string", "maxLength": 80 }
   },
@@ -102,7 +111,10 @@ Schema:
 
 ### Instruction:
 Generate one TV show recommendation that matches the schema.
-Your reasoning must be a single sentence, under 80 characters, and not repeat itself.
+IMPORTANT: Keep all string fields under 80 characters - especially the reasoning field.
+Your reasoning MUST be a single sentence, STRICTLY UNDER 80 characters, and not repeat itself.
+DO NOT use more than 80 characters for the reasoning field or the response will be rejected.
+After generating the JSON, add the text "<///>" on a new line to indicate you are done.
 
 ### Response:
 ''';
@@ -115,8 +127,8 @@ Schema:
 {
   "type": "object",
   "properties": {
-    "title":     { "type": "string" },
-    "developer": { "type": "string" },
+    "title":     { "type": "string", "maxLength": 80 },
+    "developer": { "type": "string", "maxLength": 80 },
     "year":      { "type": "string" },
     "reasoning": { "type": "string", "maxLength": 80 }
   },
@@ -126,7 +138,10 @@ Schema:
 
 ### Instruction:
 Generate one video game recommendation that matches the schema.
-Your reasoning must be a single sentence, under 80 characters, and not repeat itself.
+IMPORTANT: Keep all string fields under 80 characters - especially the reasoning field.
+Your reasoning MUST be a single sentence, STRICTLY UNDER 80 characters, and not repeat itself.
+DO NOT use more than 80 characters for the reasoning field or the response will be rejected.
+After generating the JSON, add the text "<///>" on a new line to indicate you are done.
 
 ### Response:
 ''';
