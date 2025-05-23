@@ -30,7 +30,8 @@ Schema:
 
 ### Instruction:
 Generate one song recommendation that matches the schema.
-IMPORTANT: Your reasoning MUST be breif, STRICTLY UNDER 80 characters, and not repeat itself this is CRITICAL.
+IMPORTANT: Keep all string fields under 80 characters - especially the reasoning field.
+80 characters is the maximum length for all string fields, THIS IS CRITICAL.
 
 ### Response:
 ''';
@@ -54,7 +55,8 @@ Schema:
 
 ### Instruction:
 Generate one movie recommendation that matches the schema.
-IMPORTANT: Your reasoning MUST be breif, STRICTLY UNDER 80 characters, and not repeat itself this is CRITICAL.
+IMPORTANT: Keep all string fields under 80 characters - especially the reasoning field.
+80 characters is the maximum length for all string fields, THIS IS CRITICAL.
 
 ### Response:
 ''';
@@ -78,7 +80,8 @@ Schema:
 
 ### Instruction:
 Generate one book recommendation that matches the schema.
-IMPORTANT: Your reasoning MUST be breif, STRICTLY UNDER 80 characters, and not repeat itself this is CRITICAL.
+IMPORTANT: Keep all string fields under 80 characters - especially the reasoning field.
+80 characters is the maximum length for all string fields, THIS IS CRITICAL.
 
 ### Response:
 ''';
@@ -102,7 +105,8 @@ Schema:
 
 ### Instruction:
 Generate one TV show recommendation that matches the schema.
-IMPORTANT: Your reasoning MUST be breif, STRICTLY UNDER 80 characters, and not repeat itself this is CRITICAL.
+IMPORTANT: Keep all string fields under 80 characters - especially the reasoning field.
+80 characters is the maximum length for all string fields, THIS IS CRITICAL.
 
 ### Response:
 ''';
@@ -126,7 +130,8 @@ Schema:
 
 ### Instruction:
 Generate one video game recommendation that matches the schema.
-IMPORTANT: Your reasoning MUST be breif, STRICTLY UNDER 80 characters, and not repeat itself this is CRITICAL.
+IMPORTANT: Keep all string fields under 80 characters - especially the reasoning field.
+80 characters is the maximum length for all string fields, THIS IS CRITICAL.
 
 ### Response:
 ''';
