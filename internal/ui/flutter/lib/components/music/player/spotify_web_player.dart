@@ -1,7 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_windows/webview_windows.dart';
 import 'package:flutter/services.dart';
 import '../../../models.dart';
 import '../spotify_service.dart';
@@ -40,37 +43,28 @@ class SpotifyWebPlayer extends StatefulWidget {
 }
 
 class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
-  late WebViewController _controller;
+  WebViewController? _controller;
+  WebviewController? _windowsController;
   String? _deviceId;
   Track? _currentTrack;
-  final bool _isPlaying = false;
   bool _isReady = false;
   Timer? _reconnectTimer;
   String _htmlContent = '';
-  final int _retryCount = 0;
-  bool _isInitialized = false;
   String? _pendingTrackUri;
-  bool _deviceLoadFailed = false;
-  int _connectRetryCount = 0;
   
   @override
   void initState() {
     super.initState();
-    _controller = WebViewController();
-    _loadHtmlFromAssets();
-    
-    // Register this instance as the active web player state
     _activeWebPlayerState = this;
-  }
-  
-  @override
-  void dispose() {
-    // Clear the global reference if this instance is the active one
-    if (_activeWebPlayerState == this) {
-      _activeWebPlayerState = null;
-    }
-    _reconnectTimer?.cancel();
-    super.dispose();
+    
+    // Load the HTML content that will be used for the WebView
+    _loadHtmlFromAssets().then((_) {
+      if (Platform.isWindows) {
+        _initializeWindowsWebView();
+      } else {
+        _initializeStandardWebView();
+      }
+    });
   }
   
   // Load the HTML content from the assets directory
@@ -79,18 +73,14 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
       // Load from the correct assets/web directory path
       const String htmlPath = 'assets/web/spotify_player.html';
       _htmlContent = await rootBundle.loadString(htmlPath);
-      _initWebView();
-      setState(() {
-        _isInitialized = true;
-      });
     } catch(e) {
       debugPrint('Error loading Spotify player HTML: $e');
     }
   }
   
-  void _initWebView() {
-    // Configure the WebView controller with only essential settings
-    _controller
+  // Initialize the standard WebView for mobile and macOS/Linux
+  void _initializeStandardWebView() {
+    _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setNavigationDelegate(
         NavigationDelegate(
@@ -101,51 +91,114 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
         ),
       );
     
-    // Add JavaScript channel with try-catch for platform compatibility
-    try {
-      _controller.addJavaScriptChannel(
-        'SpotifyEvents',
-        onMessageReceived: _handleJavaScriptMessage,
-      );
-    } catch (e) {
-      debugPrint('Error adding JavaScript channel: $e');
-      // Channel might already exist, which is fine
+    if (_htmlContent.isNotEmpty) {
+      _controller!.loadHtmlString(_htmlContent);
     }
-    
-    // Try to set background color but handle platform limitations
+  }
+  
+  // Initialize the Windows-specific WebView
+  Future<void> _initializeWindowsWebView() async {
     try {
-      _controller.setBackgroundColor(Colors.transparent);
+      _windowsController = WebviewController();
+      await _windowsController!.initialize();
+      
+      // Configure WebView settings
+      await _windowsController!.setBackgroundColor(Colors.transparent);
+      
+      // Set up a JavaScript callback for communicating with the WebView
+      await _windowsController!.addScriptToExecuteOnDocumentCreated('''
+        window.chrome.webview.addEventListener('message', event => {
+          if (event.data) {
+            window.chrome.webview.postMessage(JSON.stringify(event.data));
+          }
+        });
+        
+        // Create our own SpotifyEvents channel for compatibility with the mobile implementation
+        window.SpotifyEvents = {
+          postMessage: function(message) {
+            window.chrome.webview.postMessage(message);
+          }
+        };
+      ''');
+      
+      // Set up message handler
+      _windowsController!.webMessage.listen((event) {
+        try {
+          // Use simple debugging to understand the event structure
+          final eventString = event.toString();
+          debugPrint('WebView message received: $eventString');
+          
+          // For Windows WebView, we need to parse the event as a message
+          // The message is likely just a String, so handle it directly
+          _handleWindowsMessage(event);
+        } catch (e) {
+          debugPrint('Error handling WebView message: $e');
+        }
+      });
+      
+      // Load HTML content
+      if (_htmlContent.isNotEmpty) {
+        debugPrint('Loading HTML content into Windows WebView');
+        await _windowsController!.loadStringContent(_htmlContent);
+      }
+      
+      // We need to manually trigger the onWebViewLoaded after a short delay
+      // since we don't have a direct page loaded event
+      Future.delayed(const Duration(milliseconds: 500), () {
+        _onWebViewLoaded();
+      });
     } catch (e) {
-      debugPrint('Could not set WebView background color: $e');
-      // This is ok - we'll continue without setting the background color
+      debugPrint('Error initializing Windows WebView: $e');
     }
-    
-    // Load the HTML directly without modifications
-    _controller.loadHtmlString(_htmlContent);
   }
   
   void _onWebViewLoaded() {
-    // Simplified initialization that focuses only on sending the token
+    if (_controller == null && _windowsController == null) return;
+    
+    // Set up JavaScript channel for communication with the WebView
+    if (_controller != null) {
+      _controller!.addJavaScriptChannel(
+        'SpotifyEvents',
+        onMessageReceived: _handleJavaScriptMessageWrapper,
+      );
+    }
+    
+    // Initialize the player with the access token
+    _initializePlayer();
+  }
+  
+  void _initializePlayer() {
     widget.spotifyService.getAccessToken().then((token) {
       if (token != null) {
-        // Send token to the player in the standard way
-        final message = jsonEncode({
+        final message = json.encode({
           'type': 'token',
           'token': token,
         });
-        _controller.runJavaScript("window.postMessage($message, '*');");
+        if (_controller != null) {
+          _controller!.runJavaScript("window.postMessage($message, '*');");
+        } else if (_windowsController != null) {
+          _executeWindowsJavaScript("window.postMessage($message, '*');");
+        }
         debugPrint('Sent Spotify token to web player');
       } else {
         debugPrint('Cannot initialize Spotify Web Player: No access token available');
       }
-    }).catchError((error) {
-      debugPrint('Error getting Spotify access token: $error');
     });
   }
   
-  void _handleJavaScriptMessage(JavaScriptMessage message) {
+  // Helper method to execute JavaScript in Windows WebView
+  Future<void> _executeWindowsJavaScript(String script) async {
     try {
-      final data = jsonDecode(message.message) as Map<String, dynamic>;
+      debugPrint('Executing JS in Windows WebView: ${script.substring(0, min(50, script.length))}${script.length > 50 ? "..." : ""}');
+      await _windowsController?.executeScript(script);
+    } catch (e) {
+      debugPrint('Error executing JavaScript in Windows WebView: $e');
+    }
+  }
+  
+  void _handleJavaScriptMessage(Map<String, dynamic> message) {
+    try {
+      final data = jsonDecode(message['message']) as Map<String, dynamic>;
       
       if (data['type'] == 'deviceReady') {
         _handleDeviceReady(data['deviceId'] as String? ?? '');
@@ -223,8 +276,6 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
     setState(() {
       _isReady = true;
       _deviceId = deviceId;
-      _deviceLoadFailed = false;
-      _connectRetryCount = 0;
     });
     
     // Notify the SpotifyService about the device ID
@@ -326,7 +377,11 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
         'uri': uri,
       });
       
-      _controller.runJavaScript("window.postMessage($message, '*');");
+      if (_controller != null) {
+        _controller!.runJavaScript("window.postMessage($message, '*');");
+      } else if (_windowsController != null) {
+        _executeWindowsJavaScript("window.postMessage($message, '*');");
+      }
       
       // Immediately emit a playback state change event to provide feedback before the 
       // actual event comes back from the player. This improves responsiveness.
@@ -360,7 +415,11 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
         'type': 'resume',
       });
       
-      _controller.runJavaScript("window.postMessage($message, '*');");
+      if (_controller != null) {
+        _controller!.runJavaScript("window.postMessage($message, '*');");
+      } else if (_windowsController != null) {
+        _executeWindowsJavaScript("window.postMessage($message, '*');");
+      }
       
       // Immediately emit a playback state change event to provide feedback
       if (_currentTrack != null) {
@@ -392,7 +451,11 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
         'type': 'pause',
       });
       
-      _controller.runJavaScript("window.postMessage($message, '*');");
+      if (_controller != null) {
+        _controller!.runJavaScript("window.postMessage($message, '*');");
+      } else if (_windowsController != null) {
+        _executeWindowsJavaScript("window.postMessage($message, '*');");
+      }
       
       // Immediately emit a playback state change event to provide feedback before the 
       // actual event comes back from the player. This improves responsiveness.
@@ -423,8 +486,6 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
     setState(() {
       _isReady = false;
       _deviceId = null;
-      _deviceLoadFailed = false;
-      _connectRetryCount = 0;
     });
     
     // Clear any existing device ID to prevent stale references
@@ -435,10 +496,25 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
     _reconnectTimer?.cancel();
     
     // Create a completely new WebViewController
-    _controller = WebViewController();
-    
-    // Reload HTML content which will reinitialize everything
-    _loadHtmlFromAssets();
+    if (Platform.isWindows) {
+      _initializeWindowsWebView();
+    } else {
+      _controller = WebViewController()
+        ..setJavaScriptMode(JavaScriptMode.unrestricted)
+        ..setNavigationDelegate(
+          NavigationDelegate(
+            onWebResourceError: (error) {
+              debugPrint('WebView error: ${error.description}');
+            },
+            onPageFinished: (_) => _onWebViewLoaded(),
+          ),
+        );
+      
+      // Reload HTML content which will reinitialize everything
+      _loadHtmlFromAssets().then((_) {
+        _controller!.loadHtmlString(_htmlContent);
+      });
+    }
   }
   
   // Check if the player is in a bad state and recover if needed
@@ -463,14 +539,108 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
     return false;
   }
   
+  // Custom handler for Windows WebView messages
+  void _handleWindowsMessage(dynamic event) {
+    try {
+      // The message is likely a simple string containing JSON
+      String jsonString;
+      
+      // Try to extract the message data depending on the event type
+      if (event is String) {
+        jsonString = event;
+      } else if (event is Map) {
+        jsonString = event['value'] ?? event.toString();
+      } else {
+        jsonString = event.toString();
+      }
+      
+      debugPrint('Processing Windows WebView message: $jsonString');
+      
+      // Parse the JSON data
+      final data = jsonDecode(jsonString) as Map<String, dynamic>;
+      
+      if (data['type'] == 'deviceReady') {
+        _handleDeviceReady(data['deviceId'] as String? ?? '');
+      } else if (data['type'] == 'playerStateChanged') {
+        _handlePlayerStateChanged(data['state'] as Map<String, dynamic>? ?? {});
+      } else if (data['type'] == 'error') {
+        debugPrint('SpotifyWebPlayer JS Error: ${data['message']}');
+      }
+    } catch (e) {
+      debugPrint('Error parsing Windows WebView message: $e');
+    }
+  }
+
+  void _handleJavaScriptMessageWrapper(JavaScriptMessage message) {
+    try {
+      final data = jsonDecode(message.message) as Map<String, dynamic>;
+      
+      if (data['type'] == 'deviceReady') {
+        _handleDeviceReady(data['deviceId'] as String? ?? '');
+      } else if (data['type'] == 'playerStateChanged') {
+        _handlePlayerStateChanged(data['state'] as Map<String, dynamic>? ?? {});
+      } else if (data['type'] == 'error') {
+        debugPrint('SpotifyWebPlayer JS Error: ${data['message']}');
+      }
+    } catch (e) {
+      debugPrint('Error handling JavaScript message: $e');
+    }
+  }
+
+  void _handlePlayerProgressUpdate(Map<String, dynamic> progressData) {
+    try {
+      if (progressData.containsKey('position') && progressData.containsKey('duration')) {
+        final position = progressData['position'] as int;
+        // We're tracking duration but not using it currently
+        // final duration = progressData['duration'] as int;
+        
+        // Update track progress (only if significant change to reduce rebuilds)
+        if (position % 1000 < 50) {  // Update roughly every second
+          setState(() {
+            // Update state if needed
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Error handling player progress update: $e');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     // The WebView is kept at a minimal size when not visible
     // This keeps it loaded but not taking up screen space
-    return SizedBox(
-      width: widget.visible ? null : 1, 
-      height: widget.visible ? null : 1,
-      child: WebViewWidget(controller: _controller),
-    );
+    if (Platform.isWindows && _windowsController != null) {
+      return SizedBox(
+        width: widget.visible ? null : 1, 
+        height: widget.visible ? null : 1,
+        child: Webview(
+          _windowsController!,
+          permissionRequested: _onPermissionRequested,
+        ),
+      );
+    } else {
+      return SizedBox(
+        width: widget.visible ? null : 1, 
+        height: widget.visible ? null : 1,
+        child: _controller != null ? WebViewWidget(controller: _controller!) : const SizedBox(),
+      );
+    }
   }
 }
+
+// Create a class to wrap Windows WebView messages to match JavaScriptMessage interface
+class _WindowsJavaScriptMessage implements JavaScriptMessage {
+  @override
+  final String message;
+
+  _WindowsJavaScriptMessage(this.message);
+}
+
+// Handle WebView permissions (required for Windows WebView)
+Future<WebviewPermissionDecision> _onPermissionRequested(
+      String url, WebviewPermissionKind kind, bool isUserInitiated) async {
+    debugPrint('WebView permission requested: $kind for $url');
+    // Automatically allow all permissions
+    return WebviewPermissionDecision.allow;
+  }

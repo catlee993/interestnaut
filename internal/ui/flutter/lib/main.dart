@@ -25,6 +25,14 @@ import 'models.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // Initialize WebView for all platforms
+  try {
+    debugPrint('Initializing WebView');
+    // Any WebView specific initialization can go here
+  } catch (e) {
+    debugPrint('Error initializing WebView: $e');
+  }
+
   bool goFfiAvailable = false;
 
   try {

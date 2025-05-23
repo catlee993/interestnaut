@@ -198,24 +198,73 @@ class LlamaService {
       // Try several approaches to find the dynamic library
       String? libraryPath;
 
+      // Determine the library filename based on platform
+      final String libraryFileName = Platform.isWindows 
+          ? 'llama.dll'
+          : Platform.isMacOS 
+              ? 'libllama.dylib' 
+              : 'libllama.so';
+
       // Approach 1: Try to find the library relative to the project root
       try {
         // Get the project root directory
         final projectRootDir = await _findProjectRoot();
         if (projectRootDir != null) {
-          final devLibPath = path.join(
-            projectRootDir,
-            'internal',
-            'ui',
-            'flutter',
-            'macos',
-            'Libraries',
-            'libllama.dylib'
-          );
-
-          final devLibFile = File(devLibPath);
-          if (await devLibFile.exists()) {
-            libraryPath = devLibPath;
+          String devLibPath;
+          
+          if (Platform.isWindows) {
+            // First try the standard Windows runner directory
+            devLibPath = path.join(
+              projectRootDir,
+              'internal',
+              'ui',
+              'flutter',
+              'windows',
+              'runner',
+              libraryFileName
+            );
+            
+            final devLibFile = File(devLibPath);
+            if (await devLibFile.exists()) {
+              _showToast('Found library in Windows runner directory: $devLibPath');
+              libraryPath = devLibPath;
+            } else {
+              // Also try the build output location for Debug/Release
+              final buildLibPath = path.join(
+                projectRootDir,
+                'internal',
+                'ui',
+                'flutter',
+                'build',
+                'windows',
+                'x64',
+                'runner',
+                Platform.environment['FLUTTER_BUILD_MODE'] ?? 'Debug',
+                libraryFileName
+              );
+              
+              final buildLibFile = File(buildLibPath);
+              if (await buildLibFile.exists()) {
+                _showToast('Found library in build output directory: $buildLibPath');
+                libraryPath = buildLibPath;
+              }
+            }
+          } else {
+            devLibPath = path.join(
+              projectRootDir,
+              'internal',
+              'ui',
+              'flutter',
+              'macos',
+              'Libraries',
+              libraryFileName
+            );
+            
+            final devLibFile = File(devLibPath);
+            if (await devLibFile.exists()) {
+              _showToast('Found library in project directory: $devLibPath');
+              libraryPath = devLibPath;
+            }
           }
         }
       } catch (e) {
@@ -226,7 +275,7 @@ class LlamaService {
       if (libraryPath == null) {
         try {
           final modelDir = path.dirname(modelPath);
-          final libNextToModelPath = path.join(modelDir, 'libllama.dylib');
+          final libNextToModelPath = path.join(modelDir, libraryFileName);
 
           final libFile = File(libNextToModelPath);
           if (await libFile.exists()) {
@@ -238,10 +287,26 @@ class LlamaService {
         }
       }
 
-      // Approach 3: Fallback to system path
+      // Approach 3: For Windows, try the executable directory
+      if (libraryPath == null && Platform.isWindows) {
+        try {
+          final executableDir = File(Platform.resolvedExecutable).parent;
+          final executableDirPath = path.join(executableDir.path, libraryFileName);
+          
+          final executableDirFile = File(executableDirPath);
+          if (await executableDirFile.exists()) {
+            _showToast('Found library in executable directory: $executableDirPath');
+            libraryPath = executableDirPath;
+          }
+        } catch (e) {
+          _showToast('Error looking for library in executable directory: $e');
+        }
+      }
+
+      // Approach 4: Fallback to system path
       if (libraryPath == null) {
         _showToast('Using system library path as fallback');
-        libraryPath = 'libllama.dylib';
+        libraryPath = libraryFileName;
       }
 
       // Set the library path
@@ -270,18 +335,18 @@ class LlamaService {
       _contextParams!.noPerfTimings = true; // Disable performance timings
       _contextParams!.defragThold = 0.5;
 
-      // Configure aggressive sampling for speed
+      // Configure sampling to prevent repetition loops
       final samplerParams = SamplerParams();
-      samplerParams.greedy = true;         // Non-greedy sampling
-      samplerParams.temp = 0.0;            // Higher temperature
-      samplerParams.topK = 1;              // Only consider most likely token
-      samplerParams.topP = 1.0;            // Don't filter by probability
-      samplerParams.minP = 0.5;            // No minimum probability threshold
-      samplerParams.typical = 0.5;         // Disable typical sampling
-      samplerParams.penaltyLastTokens = 1; // Disable penalty window
-      samplerParams.penaltyRepeat = 1.2;   // Encourage less repetition
-      samplerParams.penaltyFreq = 0.8;     // Penalize frequent tokens
-      samplerParams.penaltyPresent = 0.8;  // Penalize already-present tokens
+      samplerParams.greedy = false;        // Use non-deterministic sampling
+      samplerParams.temp = 0.3;            // Moderate temperature for creativity
+      samplerParams.topK = 40;             // Consider top 40 tokens
+      samplerParams.topP = 0.9;            // Filter to 90% most likely tokens
+      samplerParams.minP = 0.05;           // Minimum probability threshold
+      samplerParams.typical = 1.0;         // Enable typical sampling
+      samplerParams.penaltyLastTokens = 64; // Apply penalties to last 64 tokens
+      samplerParams.penaltyRepeat = 2.0;   // Strong repetition penalty
+      samplerParams.penaltyFreq = 1.2;     // Stronger frequency penalty
+      samplerParams.penaltyPresent = 1.2;  // Stronger penalty for present tokens
       samplerParams.ignoreEOS = false;     // Allow normal EOS handling for proper completion
 
 
@@ -501,9 +566,26 @@ class LlamaService {
             if (extractedJson != null) {
               completer.complete(extractedJson);
             } else {
-              // Return what we have, it will be handled by the fallback logic
-              completer.complete(buffer.toString());
+              // Try repair as last resort only if the text has all required properties
+              final repairedJson = attemptJsonRepair(finalText);
+              if (repairedJson != null) {
+                debugPrint('Successfully repaired JSON: $repairedJson');
+                completer.complete(repairedJson);
+              } else {
+                // Don't return invalid JSON to prevent backend errors
+                debugPrint('⚠️ Failed to extract valid JSON from LLM response');
+                debugPrint('Raw response: \n$finalText');
+                completer.completeError(Exception('Failed to generate valid JSON response'));
+              }
             }
+            
+            // Cancel the subscription to stop token handling
+            subscription?.cancel();
+            
+            // Stop the generation
+            _llamaParent?.stop().catchError((e) {
+              debugPrint('LlamaService: Error stopping generation: $e');
+            });
           }
         }
       );
@@ -812,19 +894,110 @@ class LlamaService {
     }
   }
 
-  /// Robust n-gram duplication detection: streaming only
+  /// Robust repetition detection for streaming text generation
   bool hasRepeatedNgram(String text, {int n = 4}) {
-    final normalized = text
-        .replaceAll(RegExp(r'[.,!?;:"\\-]'), '')
-        .toLowerCase();
-    final words = normalized.split(RegExp(r'\\s+')).where((w) => w.isNotEmpty).toList();
-    final seen = <String>{};
-    for (int i = 0; i <= words.length - n; i++) {
-      final ngram = words.sublist(i, i + n).join(' ');
-      if (seen.contains(ngram)) return true;
-      seen.add(ngram);
+    // Need enough text to detect meaningful repetition
+    if (text.length < 40) return false;
+    
+    // Focus on the most recent portion of text where repetition is likely occurring
+    final windowSize = 200;
+    final recentText = text.length > windowSize 
+        ? text.substring(text.length - windowSize) 
+        : text;
+    
+    // 1. Sliding window repetition detection
+    // This detects if any contiguous chunk of text is repeated within the recent window
+    for (int patternLength = 3; patternLength <= 20; patternLength++) {
+      // Skip if we don't have enough text for this pattern length
+      if (recentText.length < patternLength * 2) continue;
+      
+      // Use a hashmap to track seen substrings and their positions
+      final seen = <String, List<int>>{};
+      
+      // Slide through recent text looking for repetitions
+      for (int i = 0; i <= recentText.length - patternLength; i++) {
+        final chunk = recentText.substring(i, i + patternLength);
+        
+        if (!seen.containsKey(chunk)) {
+          seen[chunk] = [i];
+        } else {
+          seen[chunk]!.add(i);
+          
+          // If we see the same pattern with small gaps between occurrences
+          final positions = seen[chunk]!;
+          if (positions.length >= 3) {
+            // Check if the repetitions are close together (indicating a loop)
+            final lastPos = positions.last;
+            final secondLastPos = positions[positions.length - 2];
+            
+            // If we find the same pattern repeating with similar distances
+            // it's likely a repetition loop
+            if (lastPos - secondLastPos < patternLength * 3) {
+              debugPrint('Repetition detected: "$chunk" repeats multiple times with small gaps');
+              return true;
+            }
+          }
+        }
+      }
     }
+    
+    // 2. Word-level repetition detection for longer patterns
+    // Split by words and look for repeating sequences
+    final words = recentText.split(RegExp(r'\s+'));
+    if (words.length >= 12) { // Need enough words to detect meaningful repetition
+      // Create a dictionary of repeated word sequences and their frequency
+      for (int seqLength = 3; seqLength <= 6; seqLength++) {
+        if (words.length < seqLength * 2) continue;
+        
+        final seqCounts = <String, int>{};
+        for (int i = 0; i <= words.length - seqLength; i++) {
+          final seq = words.sublist(i, i + seqLength).join(' ');
+          seqCounts[seq] = (seqCounts[seq] ?? 0) + 1;
+          
+          // If a 3+ word sequence repeats 3+ times, it's almost certainly a loop
+          if (seqCounts[seq]! >= 3) {
+            debugPrint('Word sequence repetition: "$seq" appears ${seqCounts[seq]} times');
+            return true;
+          }
+        }
+      }
+    }
+    
+    // 3. Check for cyclic patterns in the last portion of text
+    // This catches repetitions that might not be exact matches
+    if (recentText.length > 40) {
+      final lastPortion = recentText.substring(recentText.length - 40);
+      final secondLastPortion = recentText.length > 80 
+          ? recentText.substring(recentText.length - 80, recentText.length - 40)
+          : "";
+          
+      if (secondLastPortion.isNotEmpty) {
+        // Calculate string similarity using Levenshtein distance
+        final similarity = _calculateStringSimilarity(lastPortion, secondLastPortion);
+        if (similarity > 0.7) { // 70% similar text indicates repetition
+          debugPrint('High text similarity detected between consecutive chunks: $similarity');
+          return true;
+        }
+      }
+    }
+    
     return false;
+  }
+  
+  /// Calculate string similarity using a simplified Levenshtein ratio
+  double _calculateStringSimilarity(String s1, String s2) {
+    if (s1.isEmpty || s2.isEmpty) return 0.0;
+    
+    // Count matching characters in sequence
+    int matches = 0;
+    final minLength = min(s1.length, s2.length);
+    
+    for (int i = 0; i < minLength; i++) {
+      if (s1[i] == s2[i]) matches++;
+    }
+    
+    // Calculate similarity ratio
+    return matches / max(s1.length, s2.length);
   }
 
   /// Shutdown and clean up resources

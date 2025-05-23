@@ -52,6 +52,15 @@ add_subdirectory(${FLUTTER_MANAGED_DIR})
 # Application build; see runner/CMakeLists.txt.
 add_subdirectory("runner")
 
+# Define the native libraries directory
+set(NATIVE_LIBS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/native_libs")
+
+# Add our pre-built llama.dll and interestnaut.dll from the native_libs directory
+install(FILES 
+  "${NATIVE_LIBS_DIR}/llama.dll"
+  "${NATIVE_LIBS_DIR}/interestnaut.dll"
+  DESTINATION "${CMAKE_INSTALL_PREFIX}"
+  COMPONENT Runtime)
 
 # Generated plugin build rules, which manage building the plugins and adding
 # them to the application.

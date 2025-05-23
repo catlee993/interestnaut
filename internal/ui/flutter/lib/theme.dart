@@ -98,7 +98,7 @@ class AppTheme {
       textTheme: _buildTextTheme(),
       
       // Card theme - updated to match MUI styling exactly
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         color: surfaceColor,
         elevation: 4,
         shadowColor: Colors.black.withOpacity(0.3),
@@ -127,7 +127,7 @@ class AppTheme {
       inputDecorationTheme: _buildInputDecorationTheme(),
       
       // Dialog theme
-      dialogTheme: DialogTheme(
+      dialogTheme: DialogThemeData(
         backgroundColor: surfaceColor,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(borderRadius),
@@ -168,7 +168,7 @@ class AppTheme {
       ),
       
       // Tab bar theme - updated to match MUI tab styling
-      tabBarTheme: const TabBarTheme(
+      tabBarTheme: const TabBarThemeData(
         labelColor: primaryColor,
         unselectedLabelColor: textSecondary,
         indicatorSize: TabBarIndicatorSize.tab,
