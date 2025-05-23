@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import 'package:window_size/window_size.dart' as window_package;
 import 'package:path_provider/path_provider.dart';
 import 'package:ffi/ffi.dart';
+import 'package:llama_cpp_dart/llama_cpp_dart.dart';
 
 import 'theme.dart';
 import 'services/go_bindings.dart';
@@ -23,49 +24,49 @@ import 'models.dart';
 /// Entry point for the Flutter app
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
+
   bool goFfiAvailable = false;
-  
+
   try {
     // Try to initialize FFI, but don't stop the app if it fails
     await FFIInitializer.initialize();
     debugPrint('FFI initialized successfully');
-    
+
     // Get application support directory for storage
     final appDir = await getApplicationSupportDirectory();
     final storagePath = appDir.path;
     debugPrint('Using Flutter storage path: $storagePath');
 
-    // Try to initialize Go bindings
+    // Try to initialize Go bindings for music auth (but not for LlamaService)
     try {
       final goInitFFIBridge =
       FFIInitializer.dylib.lookupFunction<ffi.Pointer<ffi.Char> Function(ffi.Pointer<ffi.Char>),
           ffi.Pointer<ffi.Char> Function(ffi.Pointer<ffi.Char>)>('InitializeFFIBridge');
       debugPrint('Dart: Calling Go InitializeFFIBridge()...');
-      
+
       // Convert Dart string to C string
       final storagePathC = storagePath.toNativeUtf8().cast<ffi.Char>();
-      
+
       // Call the function with the storage path
       final resultPtr = goInitFFIBridge(storagePathC);
-      
+
       // Free the C string after use
       calloc.free(storagePathC);
-      
+
       // Parse the result (optional)
       final result = resultPtr.cast<Utf8>().toDartString();
       debugPrint('Dart: Go InitializeFFIBridge() called successfully. Result: $result');
-      
+
       // Initialize GoBindings (Dart wrapper for FFI calls)
       await GoBindings.initialize();
       debugPrint('Dart: GoBindings.initialize() complete. Status: ${GoBindings.ffiAvailable}');
-      
+
       goFfiAvailable = GoBindings.ffiAvailable;
-      
+
       if (goFfiAvailable) {
         // Register shutdown hooks only if FFI is available
         registerShutdownHooks();
-        
+
         // Register the app lifecycle observer
         final binding = WidgetsBinding.instance;
         binding.addObserver(_AppLifecycleObserver());
@@ -78,41 +79,45 @@ Future<void> main() async {
     debugPrint('Error initializing FFI: $e');
     // Continue anyway, the app will handle missing FFI gracefully
   }
-  
-  // --- Initialize LlamaService ---
+
+  // --- Initialize LlamaService directly with native Dart implementation ---
   final llamaService = LlamaService();
   bool llamaInitialized = false;
-  
-  // Attempt to initialize LlamaService only if Go FFI is available, 
-  // if model path discovery or other parts depend on it.
-  // For now, let's assume getModelPath might need FFI or is better to group logically.
-  if (goFfiAvailable) { // Or if getModelPath is independent, remove this outer if for llama init
-    try {
-      final modelPath = await LlamaService.getModelPath(modelFileName: kLlamaModelFileName);
-      if (modelPath.isNotEmpty) {
-        await llamaService.initialize(
-          modelPath,
-          toastCallback: (message, {isError = false}) {
-            debugPrint('LlamaService Toast: $message (Error: $isError)');
-            // TODO: Implement a way to show these toasts in the UI if desired
-          },
-        );
-        llamaInitialized = llamaService.isRunning;
-        debugPrint('LlamaService initialized: $llamaInitialized');
-      } else {
-        debugPrint('LlamaService: Model path not found or empty for $kLlamaModelFileName.');
-      }
-    } catch (e) {
-      debugPrint('Error initializing LlamaService: $e');
+
+  try {
+    // Initialize LlamaService (independent of Go FFI)
+    final modelPath = await LlamaService.getModelPath(
+      modelFileName: kLlamaModelFileName,
+    );
+
+    if (File(modelPath).existsSync()) {
+      // Configure model parameters
+      final modelParams = ModelParams(); // Use default parameters
+
+      // Initialize with the model
+      await llamaService.initialize(
+        modelPath,
+        modelParams: modelParams,
+        toastCallback: (message, {isError = false}) {
+          debugPrint('LlamaService: ${isError ? "ERROR: " : ""}$message');
+        },
+      );
+
+      llamaInitialized = true;
+      debugPrint('LlamaService initialized successfully with model: $modelPath');
+    } else {
+      debugPrint('LlamaService model not found at path: $modelPath');
+      // Continue without LLM - app will still work with limited functionality
     }
-  } else {
-    debugPrint('Skipping LlamaService initialization because Go FFI is not available.');
+  } catch (e) {
+    debugPrint('Error initializing LlamaService: $e');
+    // Continue anyway, the app will handle missing LLM gracefully
   }
 
   // --- Initialize RecommendationService ---
-  // Create stub implementation that won't try to use the removed FFI functions
+  // Create the recommendation service with the LlamaService
   final recommendationService = RecommendationService(llamaService);
-  
+
   // Set window size for desktop platforms
   if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
     try {
@@ -127,7 +132,7 @@ Future<void> main() async {
       debugPrint('Error setting window size: $e');
     }
   }
-  
+
   // The app will now run even if FFI initialization fails
   // This allows the Dart-only SpotifyService to work independently
   runApp(
@@ -137,19 +142,26 @@ Future<void> main() async {
         Provider.value(value: llamaService),
         ChangeNotifierProvider.value(value: recommendationService),
         // If SpotifyService needs to be a provider:
-        // ChangeNotifierProvider(create: (_) => SpotifyService()), 
+        Provider.value(value: SpotifyService()),
       ],
       child: const MyApp(),
     ),
   );
 
   // --- Post-runApp async initialization for RecommendationService ---
-  // Don't attempt to initialize the removed recommendation service
-  if (llamaInitialized && goFfiAvailable) {
-    debugPrint('Recommendation service initialization skipped - functionality removed');
-  } else {
-    debugPrint('Skipping RecommendationService.initializeAndPrefillQueues due to initialization failures (Llama: $llamaInitialized, GoFFI: $goFfiAvailable).');
-    // User should be informed that recommendations might be unavailable.
+  // Initialize the recommendation service with the SQLite database
+  try {
+    await recommendationService.init();
+
+    // Prefill recommendation queues if LlamaService is available
+    if (llamaInitialized) {
+      await recommendationService.initializeAndPrefillQueues();
+      debugPrint('RecommendationService initialized with queues prefilled');
+    } else {
+      debugPrint('RecommendationService initialized without LLM support');
+    }
+  } catch (e) {
+    debugPrint('Error initializing RecommendationService: $e');
   }
 }
 
@@ -193,10 +205,6 @@ class MyApp extends StatelessWidget {
       title: 'Interestnaut',
       theme: AppTheme.theme,
       debugShowCheckedModeBanner: false,
-      // Access services using Provider.of<ServiceName>(context) or context.watch/read<ServiceName>()
-      // For example, in a widget's build method or event handler:
-      // final recService = context.read<RecommendationService>();
-      // recService.ensureSuggestionQueue('music');
       home: const InterestnautApp(),
     );
   }
@@ -214,29 +222,29 @@ class _InterestnautAppState extends State<InterestnautApp> {
   String _currentMediaType = 'music'; // Default media type
   String _searchQuery = '';
   bool _isSearchActive = false;
-  
+
   void _handleSearch(String query) {
     setState(() {
       _searchQuery = query;
       _isSearchActive = query.isNotEmpty;
     });
-    
+
     debugPrint('Searching for "$query" in $_currentMediaType');
   }
-  
+
   void _clearSearch() {
     setState(() {
       _searchQuery = '';
       _isSearchActive = false;
     });
   }
-  
+
   void _handleMediaChange(String media) {
     setState(() {
       _currentMediaType = media;
     });
   }
-  
+
   @override
   Widget build(BuildContext context) {
     // Main app UI
