@@ -85,6 +85,17 @@
         }
         debugPanel.scrollTop = debugPanel.scrollHeight;
       }
+      
+      // Send log to Flutter for collection
+      try {
+        if (window.SpotifyEvents && window.SpotifyEvents.postMessage) {
+          window.SpotifyEvents.postMessage("DEBUG: " + message);
+        } else if (window.chrome && window.chrome.webview) {
+          window.chrome.webview.postMessage("DEBUG: " + message);
+        }
+      } catch (e) {
+        console.error("Failed to send log to Flutter:", e);
+      }
     }
     
     // Global audio context

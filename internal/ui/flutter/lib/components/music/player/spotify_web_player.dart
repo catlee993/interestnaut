@@ -31,11 +31,13 @@ bool forceSpotifyPlayerReconnection() {
 class SpotifyWebPlayer extends StatefulWidget {
   final SpotifyService spotifyService;
   final bool visible;
+  final Function(String)? onError;
   
   const SpotifyWebPlayer({
     Key? key,
     required this.spotifyService,
     this.visible = false,
+    this.onError,
   }) : super(key: key);
 
   @override
@@ -51,6 +53,10 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
   Timer? _reconnectTimer;
   String _htmlContent = '';
   String? _pendingTrackUri;
+  
+  // Debug log buffer
+  final List<String> _debugLogs = [];
+  final int _maxLogEntries = 100;
   
   @override
   void initState() {
@@ -196,57 +202,74 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
     }
   }
   
-  void _handleJavaScriptMessage(Map<String, dynamic> message) {
+  void _handleJavaScriptMessageWrapper(JavaScriptMessage message) {
     try {
-      final data = jsonDecode(message['message']) as Map<String, dynamic>;
-      
-      if (data['type'] == 'deviceReady') {
-        _handleDeviceReady(data['deviceId'] as String? ?? '');
-      } else if (data['type'] == 'playerStateChanged') {
-        _handlePlayerStateChanged(data);
-      } else if (data['type'] == 'deviceDisconnected') {
-        _handleDeviceDisconnected();
-      } else if (data['type'] == 'error') {
-        debugPrint('Spotify Web Player error: ${data['message']}');
-        
-        // Enhanced error detection
-        if (data['message'] != null) {
-          final errorMessage = data['message'].toString().toLowerCase();
-          
-          // Critical error detection
-          bool isCriticalError = 
-              errorMessage.contains('authentication') || 
-              errorMessage.contains('expired') ||
-              errorMessage.contains('authorization') ||
-              errorMessage.contains('failed to initialize') ||
-              errorMessage.contains('device not found') ||
-              errorMessage.contains('not available') ||
-              errorMessage.contains('connection') ||
-              errorMessage.contains('timeout') ||
-              errorMessage.contains('disconnected');
-          
-          if (isCriticalError) {
-            debugPrint('Critical Spotify Web Player error detected - forcing reconnection');
-            // Clear the device ID if it's a device error
-            if (errorMessage.contains('device')) {
-              widget.spotifyService.clearActiveDeviceId();
-            }
-            forcePlayerReconnection();
-          } else {
-            // For non-critical errors, try to reconnect the player if the error is playback-related
-            if (errorMessage.contains('playback')) {
-              debugPrint('Playback-related error - attempting reconnection via timer');
-              // Try to reconnect the player after a short delay
-              if (_reconnectTimer == null || !_reconnectTimer!.isActive) {
-                _reconnectTimer = Timer(const Duration(seconds: 2), _onWebViewLoaded);
-              }
-            }
-          }
-        }
-      }
+      final dynamic data = jsonDecode(message.message);
+      _handleJavaScriptMessage({'message': message.message});
     } catch (e) {
       debugPrint('Error processing JavaScript message: $e');
+      // Still attempt to handle the raw message in case it's useful
+      if (message.message.contains('error') && message.message.contains('message')) {
+        // Try to extract error message if it looks like it contains one
+        _handleError('Error in JavaScript: ${message.message}');
+      }
     }
+  }
+
+  void _handleJavaScriptMessage(Map<String, dynamic> data) {
+    try {
+      // If the message is a JSON string, try to parse it
+      if (data.containsKey('message') && data['message'] is String) {
+        try {
+          final dynamic parsedData = jsonDecode(data['message']);
+          if (parsedData is Map<String, dynamic>) {
+            // Process the parsed data
+            _processMessageData(parsedData);
+            return;
+          }
+        } catch (e) {
+          // Not valid JSON or not a map, continue with original handling
+          debugPrint('Message is not a valid JSON object: ${e.toString().substring(0, min(50, e.toString().length))}');
+        }
+      }
+      
+      // If we got here, either there was no 'message' field or it wasn't valid JSON
+      // Try to process the data directly
+      _processMessageData(data);
+    } catch (e) {
+      debugPrint('Error in _handleJavaScriptMessage: $e');
+      _handleError('Error processing message: $e');
+    }
+  }
+  
+  void _processMessageData(Map<String, dynamic> data) {
+    // Handle different message types
+    if (data.containsKey('type')) {
+      final messageType = data['type'];
+      
+      if (messageType == 'deviceReady') {
+        _handleDeviceReady(data['deviceId'] as String? ?? '');
+      } else if (messageType == 'playerStateChanged') {
+        if (data.containsKey('state')) {
+          _handlePlayerStateChanged(data['state'] as Map<String, dynamic>? ?? {});
+        } else {
+          _handlePlayerStateChanged(data);
+        }
+      } else if (messageType == 'error') {
+        _handleError(data['message'] as String? ?? 'Unknown error');
+      } else if (messageType == 'deviceDisconnected') {
+        _handleDeviceDisconnected();
+      }
+    }
+  }
+  
+  void _handleError(String errorMessage) {
+    debugPrint('SpotifyWebPlayer Error: $errorMessage');
+    // Add to debug logs
+    _addToDebugLog('ERROR: $errorMessage');
+    
+    // You might want to notify listeners about this error
+    widget.onError?.call(errorMessage);
   }
   
   void _handleDeviceDisconnected() {
@@ -540,50 +563,30 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
   }
   
   // Custom handler for Windows WebView messages
-  void _handleWindowsMessage(dynamic event) {
+  void _handleWindowsMessage(dynamic message) {
     try {
-      // The message is likely a simple string containing JSON
-      String jsonString;
+      // The message is a string that could be JSON
+      String messageStr = message.toString();
       
-      // Try to extract the message data depending on the event type
-      if (event is String) {
-        jsonString = event;
-      } else if (event is Map) {
-        jsonString = event['value'] ?? event.toString();
-      } else {
-        jsonString = event.toString();
-      }
-      
-      debugPrint('Processing Windows WebView message: $jsonString');
-      
-      // Parse the JSON data
-      final data = jsonDecode(jsonString) as Map<String, dynamic>;
-      
-      if (data['type'] == 'deviceReady') {
-        _handleDeviceReady(data['deviceId'] as String? ?? '');
-      } else if (data['type'] == 'playerStateChanged') {
-        _handlePlayerStateChanged(data['state'] as Map<String, dynamic>? ?? {});
-      } else if (data['type'] == 'error') {
-        debugPrint('SpotifyWebPlayer JS Error: ${data['message']}');
+      // Try to parse as JSON
+      try {
+        final data = json.decode(messageStr);
+        _handleJavaScriptMessage(data);
+      } catch (e) {
+        // Not valid JSON, might be a debug log message
+        if (messageStr.startsWith('DEBUG:')) {
+          // Handle debug log message
+          final logMessage = messageStr.substring(6).trim();
+          debugPrint('SpotifyWebPlayer Debug: $logMessage');
+          
+          // You could store these logs for later viewing
+          _addToDebugLog(logMessage);
+        } else {
+          debugPrint('Raw WebView message: $messageStr');
+        }
       }
     } catch (e) {
-      debugPrint('Error parsing Windows WebView message: $e');
-    }
-  }
-
-  void _handleJavaScriptMessageWrapper(JavaScriptMessage message) {
-    try {
-      final data = jsonDecode(message.message) as Map<String, dynamic>;
-      
-      if (data['type'] == 'deviceReady') {
-        _handleDeviceReady(data['deviceId'] as String? ?? '');
-      } else if (data['type'] == 'playerStateChanged') {
-        _handlePlayerStateChanged(data['state'] as Map<String, dynamic>? ?? {});
-      } else if (data['type'] == 'error') {
-        debugPrint('SpotifyWebPlayer JS Error: ${data['message']}');
-      }
-    } catch (e) {
-      debugPrint('Error handling JavaScript message: $e');
+      debugPrint('Error handling Windows message: $e');
     }
   }
 
@@ -604,6 +607,28 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
     } catch (e) {
       debugPrint('Error handling player progress update: $e');
     }
+  }
+
+  // Add a message to the debug log
+  void _addToDebugLog(String message) {
+    _debugLogs.add('${DateTime.now().toIso8601String()}: $message');
+    if (_debugLogs.length > _maxLogEntries) {
+      _debugLogs.removeAt(0); // Remove oldest log when buffer is full
+    }
+    
+    // Optionally notify listeners if you want to display these logs in the UI
+    // setState(() {});
+  }
+  
+  // Method to get debug logs (could be called from outside)
+  List<String> getDebugLogs() {
+    return List.from(_debugLogs);
+  }
+  
+  // Method to clear debug logs
+  void clearDebugLogs() {
+    _debugLogs.clear();
+    // setState(() {});
   }
 
   @override

@@ -343,10 +343,10 @@ class LlamaService {
       samplerParams.topP = 0.9;            // Filter to 90% most likely tokens
       samplerParams.minP = 0.05;           // Minimum probability threshold
       samplerParams.typical = 1.0;         // Enable typical sampling
-      samplerParams.penaltyLastTokens = 64; // Apply penalties to last 64 tokens
-      samplerParams.penaltyRepeat = 2.0;   // Strong repetition penalty
-      samplerParams.penaltyFreq = 1.2;     // Stronger frequency penalty
-      samplerParams.penaltyPresent = 1.2;  // Stronger penalty for present tokens
+      samplerParams.penaltyLastTokens = 128; // Apply penalties to last 128 tokens
+      samplerParams.penaltyRepeat = 2.5;   // Stronger repetition penalty
+      samplerParams.penaltyFreq = 1.5;     // Stronger frequency penalty
+      samplerParams.penaltyPresent = 1.5;  // Stronger penalty for present tokens
       samplerParams.ignoreEOS = false;     // Allow normal EOS handling for proper completion
 
 
@@ -385,7 +385,7 @@ class LlamaService {
         },
       );
 
-      _showToast('LLM successfully initialized in isolate');
+      _showToast('LlamaService initialized successfully with model: $modelPath');
       _isRunning = true;
       _initCompleter?.complete();
       return true;
@@ -428,198 +428,8 @@ class LlamaService {
     }
   }
 
-  /// Generate a full response for a prompt
-  Future<String> generateFullResponse(String prompt) async {
-    final completer = Completer<String>();
-    final buffer = StringBuffer();
-    String errorMessage = "";
-    StreamSubscription<String>? subscription;
-    Timer? tokenTimeoutTimer;
-    bool isGenerating = false;
-    int tokenCount = 0;
-    DateTime lastTokenTime = DateTime.now();
-
-    if (!_isRunning) {
-      throw Exception('LLM service not running.');
-    }
-
-    try {
-      // Process the prompt
-      await processPrompt(prompt);
-
-      // Start a timer to check for token generation timeout
-      tokenTimeoutTimer = Timer.periodic(Duration(milliseconds: 500), (timer) {
-        final timeSinceLastToken = DateTime.now().difference(lastTokenTime).inSeconds;
-        final currentLength = buffer.length;
-        
-        // Check for timeout conditions:
-        // 1. No tokens received for 10+ seconds (after generation started)
-        // 2. Response exceeds 1000 characters
-        if ((isGenerating && timeSinceLastToken >= 10) || currentLength > 1000) {
-          if (isGenerating && timeSinceLastToken >= 10) {
-            debugPrint('LlamaService: Token generation timeout after $timeSinceLastToken seconds - assuming generation is complete (received $tokenCount tokens total)');
-          } else if (currentLength > 1000) {
-            debugPrint('LlamaService: Response exceeded 1000 characters - truncating to avoid excessive generation');
-          }
-          
-          isGenerating = false;
-          timer.cancel();
-          
-          // Don't complete immediately - give a brief moment for any pending tokens
-          // to arrive in the buffer before we extract the JSON
-          Future.delayed(Duration(milliseconds: 300), () {
-            // Extract the final JSON if not already completed
-            if (!completer.isCompleted) {
-              final finalText = buffer.toString();
-              final extractedJson = extractJsonFromText(finalText);
-              if (extractedJson != null) {
-                completer.complete(extractedJson);
-              } else {
-                // Try repair as last resort only if the text has all required properties
-                final repairedJson = attemptJsonRepair(finalText);
-                if (repairedJson != null) {
-                  debugPrint('Successfully repaired JSON: $repairedJson');
-                  completer.complete(repairedJson);
-                } else {
-                  // Don't return invalid JSON to prevent backend errors
-                  debugPrint('⚠️ Failed to extract valid JSON from LLM response');
-                  debugPrint('Raw response: \n$finalText');
-                  completer.completeError(Exception('Failed to generate valid JSON response'));
-                }
-              }
-              
-              // Cancel the subscription to stop token handling
-              subscription?.cancel();
-              
-              // Stop the generation
-              _llamaParent?.stop().catchError((e) {
-                debugPrint('LlamaService: Error stopping generation: $e');
-              });
-            }
-          });
-        }
-      });
-
-      // Create stream subscription for receiving tokens
-      subscription = responseStream?.listen(
-        (token) {
-          // Only process tokens if we're still generating
-          // This prevents processing tokens after timeout
-          if (!isGenerating && completer.isCompleted) {
-            debugPrint('LlamaService: Received token after completion: "$token" (ignored)');
-            return;
-          }
-          
-          buffer.write(token);
-          tokenCount++;
-          final now = DateTime.now();
-          final timeSinceLastToken = now.difference(lastTokenTime).inMilliseconds;
-          debugPrint('LlamaService: Token generated: "$token" ($timeSinceLastToken ms since last token)');
-          lastTokenTime = now;
-          isGenerating = true;
-          
-          // Robust n-gram duplication detection: streaming only
-          if (hasRepeatedNgram(buffer.toString(), n: 4)) {
-            debugPrint('[LLAMA] Repeated content detected during generation. Aborting early.');
-            final repairedJson = attemptJsonRepair(buffer.toString());
-            completer.complete(repairedJson);
-            subscription?.cancel();
-            tokenTimeoutTimer?.cancel();
-            isGenerating = false;
-            return;
-          }
-          
-          // Check for end of generation tokens
-          final currentText = buffer.toString();
-          if (isGenerating && (
-              currentText.endsWith('"}') ||
-              currentText.contains('}\n'))) {
-            
-            debugPrint('LlamaService: Potential end of generation detected');
-            
-            // Extract JSON from the complete text
-            final extractedJson = extractJsonFromText(currentText);
-            if (extractedJson != null) {
-              // Found a valid suggestion, exit immediately
-              if (!completer.isCompleted) {
-                completer.complete(extractedJson);
-              }
-              subscription?.cancel();
-              tokenTimeoutTimer?.cancel();
-              isGenerating = false;
-            }
-          }
-        },
-        onError: (e) {
-          errorMessage = e.toString();
-          if (!completer.isCompleted) {
-            completer.completeError(e);
-          }
-        },
-        onDone: () {
-          tokenTimeoutTimer?.cancel();
-          
-          if (!completer.isCompleted) {
-            // Try to extract JSON from the full response
-            final finalText = buffer.toString();
-            final extractedJson = extractJsonFromText(finalText);
-            if (extractedJson != null) {
-              completer.complete(extractedJson);
-            } else {
-              // Try repair as last resort only if the text has all required properties
-              final repairedJson = attemptJsonRepair(finalText);
-              if (repairedJson != null) {
-                debugPrint('Successfully repaired JSON: $repairedJson');
-                completer.complete(repairedJson);
-              } else {
-                // Don't return invalid JSON to prevent backend errors
-                debugPrint('⚠️ Failed to extract valid JSON from LLM response');
-                debugPrint('Raw response: \n$finalText');
-                completer.completeError(Exception('Failed to generate valid JSON response'));
-              }
-            }
-            
-            // Cancel the subscription to stop token handling
-            subscription?.cancel();
-            
-            // Stop the generation
-            _llamaParent?.stop().catchError((e) {
-              debugPrint('LlamaService: Error stopping generation: $e');
-            });
-          }
-        }
-      );
-    } catch (e) {
-      if (!completer.isCompleted) {
-        completer.completeError(e);
-      }
-    }
-
-    final rawResponse = await completer.future;
-
-    // Extract and validate JSON from the response
-    final jsonString = extractJsonFromText(rawResponse);
-
-    if (jsonString == null) {
-      debugPrint('⚠️ Failed to extract valid JSON from LLM response');
-      debugPrint('Raw response: $rawResponse');
-
-      // Try a simple fallback approach for incomplete responses
-      final fallbackJson = attemptJsonRepair(rawResponse);
-      if (fallbackJson != null) {
-        debugPrint('✅ Repaired JSON: $fallbackJson');
-        return fallbackJson;
-      }
-
-      // If all else fails, return an error message in JSON format
-      return '{"error": "Failed to generate valid JSON response", "raw_text": "${rawResponse.replaceAll('"', '\\"').substring(0, min(100, rawResponse.length))}..."}';
-    }
-
-    return jsonString;
-  }
-
   /// Generate a JSON response for a structured prompt
-  /// This method adds JSON extraction and validation on top of generateFullResponse
+  /// This method handles token generation and includes JSON extraction and validation
   Future<String> generateStructuredJsonResponse(String prompt) async {
     // Use a lower temperature for structured output to encourage format compliance
     final completer = Completer<String>();
@@ -637,14 +447,40 @@ class LlamaService {
 
     try {
       // Process the prompt with lower temperature for structured output
-      await processPromptWithParams(prompt, temperature: 0.2, topP: 0.95);
+      await processPromptWithParams(prompt);
 
       // Listen to the token stream and exit as soon as a valid suggestion (JSON) is detected
       subscription = _responseStreamController?.stream.listen((token) {
         buffer.write(token);
         tokenCount++;
         lastTokenTime = DateTime.now();
+        
+        // Print each token for debugging
+        print('LlamaService: Token generated: "$token"');
+        
+        // Check for repetition with every token
         final text = buffer.toString();
+        
+        // Aggressive repetition check on every token
+        print('LlamaService: Checking for repetition at token $tokenCount (text length: ${text.length})');
+        if (hasRepeatedNgram(text, n: 4)) {
+          print('[LLAMA] Repeated content detected during generation. Aborting early.');
+          final repairedJson = attemptJsonRepair(text);
+          if (!completer.isCompleted) {
+            if (repairedJson != null) {
+              print('[LLAMA] Completing with repaired JSON after repetition detected');
+              completer.complete(repairedJson);
+            } else {
+              print('[LLAMA] Unable to repair JSON after repetition detected');
+              completer.completeError(Exception('Repetition detected and unable to repair JSON'));
+            }
+          }
+          subscription?.cancel();
+          tokenTimeoutTimer?.cancel();
+          isGenerating = false;
+          return;
+        }
+        
         final extractedJson = extractJsonFromText(text);
         if (extractedJson != null) {
           // Found a valid suggestion, exit immediately
@@ -675,11 +511,11 @@ class LlamaService {
           } else {
             final repairedJson = attemptJsonRepair(finalText);
             if (repairedJson != null) {
-              debugPrint('Successfully repaired JSON: $repairedJson');
+              print('Successfully repaired JSON: $repairedJson');
               completer.complete(repairedJson);
             } else {
-              debugPrint('⚠️ Failed to extract valid JSON from LLM response');
-              debugPrint('Raw response: \n$finalText');
+              print('⚠️ Failed to extract valid JSON from LLM response');
+              print('Raw response: \n$finalText');
               completer.completeError(Exception('Failed to generate valid JSON response'));
             }
           }
@@ -695,9 +531,9 @@ class LlamaService {
         // Timeout or excessive length
         if ((isGenerating && timeSinceLastToken >= 10) || currentLength > 1000) {
           if (isGenerating && timeSinceLastToken >= 10) {
-            debugPrint('LlamaService: Token generation timeout after $timeSinceLastToken seconds - assuming generation is complete (received $tokenCount tokens total)');
+            print('LlamaService: Token generation timeout after $timeSinceLastToken seconds - assuming generation is complete (received $tokenCount tokens total)');
           } else if (currentLength > 1000) {
-            debugPrint('LlamaService: Response exceeded 1000 characters - truncating to avoid excessive generation');
+            print('LlamaService: Response exceeded 1000 characters - truncating to avoid excessive generation');
           }
           isGenerating = false;
           timer.cancel();
@@ -711,14 +547,22 @@ class LlamaService {
               } else {
                 final repairedJson = attemptJsonRepair(finalText);
                 if (repairedJson != null) {
-                  debugPrint('Successfully repaired JSON: $repairedJson');
+                  print('Successfully repaired JSON: $repairedJson');
                   completer.complete(repairedJson);
                 } else {
-                  debugPrint('⚠️ Failed to extract valid JSON from LLM response');
-                  debugPrint('Raw response: \n$finalText');
+                  print('⚠️ Failed to extract valid JSON from LLM response');
+                  print('Raw response: \n$finalText');
                   completer.completeError(Exception('Failed to generate valid JSON response'));
                 }
               }
+              
+              // Cancel the subscription to stop token handling
+              subscription?.cancel();
+              
+              // Stop the generation
+              _llamaParent?.stop().catchError((e) {
+                print('LlamaService: Error stopping generation: $e');
+              });
             }
           });
         }
@@ -855,7 +699,7 @@ class LlamaService {
       
       return null;
     } catch (e) {
-      debugPrint('Error attempting to repair JSON: $e');
+      print('Error attempting to repair JSON: $e');
       return null;
     }
   }
@@ -878,18 +722,18 @@ class LlamaService {
         
         // Simpler validation: just check for title and some form of description
         if (hasTitle && hasReasoning) {
-          debugPrint('JSON validation passed: has title and reasoning');
+          print('JSON validation passed: has title and reasoning');
           return true;
         } else {
-          if (!hasTitle) debugPrint('JSON validation failed: missing title');
-          if (!hasReasoning) debugPrint('JSON validation failed: missing or insufficient reasoning');
+          if (!hasTitle) print('JSON validation failed: missing title');
+          if (!hasReasoning) print('JSON validation failed: missing or insufficient reasoning');
           return false;
         }
       }
       
       return false;
     } catch (e) {
-      debugPrint('Error validating JSON completeness: $e');
+      print('Error validating JSON completeness: $e');
       return false;
     }
   }
@@ -899,91 +743,116 @@ class LlamaService {
     // Need enough text to detect meaningful repetition
     if (text.length < 40) return false;
     
+    // Debug logging for repetition detection
+    print('REPETITION CHECK: Analyzing text of length ${text.length}');
+    
     // Focus on the most recent portion of text where repetition is likely occurring
-    final windowSize = 200;
+    final windowSize = 400; 
     final recentText = text.length > windowSize 
         ? text.substring(text.length - windowSize) 
         : text;
     
-    // 1. Sliding window repetition detection
-    // This detects if any contiguous chunk of text is repeated within the recent window
-    for (int patternLength = 3; patternLength <= 20; patternLength++) {
-      // Skip if we don't have enough text for this pattern length
-      if (recentText.length < patternLength * 2) continue;
-      
-      // Use a hashmap to track seen substrings and their positions
-      final seen = <String, List<int>>{};
-      
-      // Slide through recent text looking for repetitions
-      for (int i = 0; i <= recentText.length - patternLength; i++) {
-        final chunk = recentText.substring(i, i + patternLength);
-        
-        if (!seen.containsKey(chunk)) {
-          seen[chunk] = [i];
-        } else {
-          seen[chunk]!.add(i);
-          
-          // If we see the same pattern with small gaps between occurrences
-          final positions = seen[chunk]!;
-          if (positions.length >= 3) {
-            // Check if the repetitions are close together (indicating a loop)
-            final lastPos = positions.last;
-            final secondLastPos = positions[positions.length - 2];
-            
-            // If we find the same pattern repeating with similar distances
-            // it's likely a repetition loop
-            if (lastPos - secondLastPos < patternLength * 3) {
-              debugPrint('Repetition detected: "$chunk" repeats multiple times with small gaps');
-              return true;
-            }
-          }
-        }
-      }
+    // Special check for "He is the best" pattern which is a common issue
+    final heIsTheBestPattern = RegExp(r'(He|he) is the best\..*?(He|he) is the best\.');
+    if (heIsTheBestPattern.hasMatch(recentText)) {
+      print('REPETITION DETECTED: "He is the best" pattern found');
+      return true;
     }
     
-    // 2. Word-level repetition detection for longer patterns
-    // Split by words and look for repeating sequences
-    final words = recentText.split(RegExp(r'\s+'));
-    if (words.length >= 12) { // Need enough words to detect meaningful repetition
-      // Create a dictionary of repeated word sequences and their frequency
-      for (int seqLength = 3; seqLength <= 6; seqLength++) {
-        if (words.length < seqLength * 2) continue;
+    // Find repeated sentences with simple period-based splitting
+    final sentences = recentText.split('.');
+    if (sentences.length >= 3) {
+      // Get last few sentences for comparison
+      for (int i = sentences.length - 1; i >= 2; i--) {
+        final currSentence = sentences[i].trim().toLowerCase();
+        final prevSentence = sentences[i-1].trim().toLowerCase();
         
-        final seqCounts = <String, int>{};
-        for (int i = 0; i <= words.length - seqLength; i++) {
-          final seq = words.sublist(i, i + seqLength).join(' ');
-          seqCounts[seq] = (seqCounts[seq] ?? 0) + 1;
-          
-          // If a 3+ word sequence repeats 3+ times, it's almost certainly a loop
-          if (seqCounts[seq]! >= 3) {
-            debugPrint('Word sequence repetition: "$seq" appears ${seqCounts[seq]} times');
+        // Skip empty sentences
+        if (currSentence.isEmpty || prevSentence.isEmpty) continue;
+        
+        // If two consecutive sentences are identical
+        if (currSentence == prevSentence) {
+          print('REPETITION DETECTED: Repeated sentence: "$currSentence"');
+          return true;
+        }
+        
+        // If the current sentence appears anywhere earlier in the text
+        // with exact match (excluding current and previous sentence)
+        for (int j = 0; j < i-1; j++) {
+          if (sentences[j].trim().toLowerCase() == currSentence) {
+            print('REPETITION DETECTED: Sentence "$currSentence" appears multiple times');
             return true;
           }
         }
       }
     }
     
-    // 3. Check for cyclic patterns in the last portion of text
-    // This catches repetitions that might not be exact matches
-    if (recentText.length > 40) {
-      final lastPortion = recentText.substring(recentText.length - 40);
-      final secondLastPortion = recentText.length > 80 
-          ? recentText.substring(recentText.length - 80, recentText.length - 40)
-          : "";
+    // Check for word-level repetition patterns
+    final words = recentText.split(RegExp(r'\s+'));
+    if (words.length >= 8) {
+      // Track the count of "the best" phrases
+      int theBestCount = 0;
+      
+      // Check for excessive use of specific phrases
+      for (int i = 0; i < words.length - 1; i++) {
+        if (words[i].toLowerCase() == 'the' && 
+            i < words.length - 1 && 
+            words[i+1].toLowerCase() == 'best') {
+          theBestCount++;
           
-      if (secondLastPortion.isNotEmpty) {
-        // Calculate string similarity using Levenshtein distance
-        final similarity = _calculateStringSimilarity(lastPortion, secondLastPortion);
-        if (similarity > 0.7) { // 70% similar text indicates repetition
-          debugPrint('High text similarity detected between consecutive chunks: $similarity');
+          if (theBestCount >= 3) {
+            print('REPETITION DETECTED: Phrase "the best" appears $theBestCount times');
+            return true;
+          }
+        }
+      }
+      
+      // Check for repeating word patterns (e.g., "He is the best. He is the best.")
+      for (int i = words.length - 4; i >= 0; i--) {
+        if (i + 8 <= words.length && 
+            words[i].toLowerCase() == words[i+4].toLowerCase() && 
+            words[i+1].toLowerCase() == words[i+5].toLowerCase() && 
+            words[i+2].toLowerCase() == words[i+6].toLowerCase() && 
+            words[i+3].toLowerCase() == words[i+7].toLowerCase()) {
+          
+          final pattern = '${words[i]} ${words[i+1]} ${words[i+2]} ${words[i+3]}';
+          print('REPETITION DETECTED: Word pattern "$pattern" repeats');
           return true;
         }
       }
     }
     
+    // Generic token-based repetition detection (simplified for performance)
+    // Test smaller token sizes more frequently as they're more likely to catch repetition
+    final tokenSizes = [3, 5, 10, 15];
+    
+    for (final tokenSize in tokenSizes) {
+      if (recentText.length > tokenSize * 3) {
+        // Get the last N characters
+        final lastNChars = recentText.substring(recentText.length - tokenSize);
+        
+        // Look for this token in the earlier text
+        final earlierText = recentText.substring(0, recentText.length - tokenSize);
+        
+        // If we find the same characters earlier in the text
+        if (earlierText.contains(lastNChars)) {
+          // Check how close the last occurrence is to the end
+          final lastPos = earlierText.lastIndexOf(lastNChars);
+          final distanceFromEnd = recentText.length - tokenSize - lastPos;
+          
+          // If it's very close, it's likely a repetition loop
+          if (distanceFromEnd < tokenSize * 4) {
+            print('REPETITION DETECTED: Pattern "$lastNChars" repeats with small gap (distance: $distanceFromEnd)');
+            return true;
+          }
+        }
+      }
+    }
+    
+    // No repetition detected
     return false;
   }
-  
+
   /// Calculate string similarity using a simplified Levenshtein ratio
   double _calculateStringSimilarity(String s1, String s2) {
     if (s1.isEmpty || s2.isEmpty) return 0.0;
