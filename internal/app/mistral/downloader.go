@@ -12,8 +12,8 @@ import (
 	"sync/atomic"
 )
 
-const downloadURL = "https://interestnaut.com/Mistral-7B-Instruct-v0.3-q4_1.gguf"
-const modelName = "Mistral-7B-Instruct-v0.3-q4_1.gguf"
+const downloadURL = "https://interestnaut.com/Meta-Llama-3-7B-29Layers.Q4_K_S.gguf"
+const modelName = "Meta-Llama-3-7B-29Layers.Q4_K_S.gguf"
 
 type MClient struct {
 	hasClient atomic.Bool

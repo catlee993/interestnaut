@@ -33,7 +33,7 @@ class DownloadModelResponse {
 /// Pure Dart implementation without FFI
 class LLMDownloaderService {
   // Default download URL - can be overridden
-  static String defaultModelDownloadUrl = "https://interestnaut.com/Mistral-7B-Instruct-v0.3-q4_1.gguf";
+  static String defaultModelDownloadUrl = "https://interestnaut.com/Meta-Llama-3-7B-29Layers.Q4_K_S.gguf";
   
   // Singleton pattern with private constructor
   static final LLMDownloaderService _instance = LLMDownloaderService._();

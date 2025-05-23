@@ -60,7 +60,7 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
   Future<String> _getModelPath() async {
     // Use the proper method from LLMDownloaderService
     final modelDir = await LLMDownloaderService.getModelDirectory();
-    return path.join(modelDir, kMistralModelFileName);
+    return path.join(modelDir, kLlamaModelFileName);
   }
 
   Future<void> _downloadModel() async {
@@ -86,7 +86,7 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
         // Start the download using the proper method signature
         final response = await LLMDownloaderService.downloadModel(
           modelDir,
-          kMistralModelFileName
+          kLlamaModelFileName
         );
 
         if (mounted) {
@@ -195,7 +195,7 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
                     const Divider(color: Colors.white24),
                     const SizedBox(height: 24),
                     const Text(
-                      'Mistral AI',
+                      'Meta-Llama 3',
                       style: TextStyle(
                         color: Colors.white,
                         fontSize: 16,

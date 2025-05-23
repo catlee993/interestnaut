@@ -164,7 +164,7 @@ class LlamaService {
     // Return the path to the model file
     return path.join(
       modelDir,
-      modelFileName ?? kMistralModelFileName,
+      modelFileName ?? kLlamaModelFileName,
     );
   }
   
