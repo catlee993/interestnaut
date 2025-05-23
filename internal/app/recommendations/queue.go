@@ -646,9 +646,9 @@ func startRecommendationWorker(service *Service) {
 	}
 }
 
-// --- Only use title and artist for Wikidata/Wikipedia lookups ---
-// When constructing queries for external APIs, use only the title and artist (or author/director/etc) fields from the suggestion.
-// For Wikipedia, perform a general search using title and artist, return the best match (first result or best scoring result).
+// --- Remove all SPARQL logic and references ---
+// Use only Wikipedia MediaWiki API for enrichment, and Wikidata REST API (wbsearchentities + claims) as fallback for missing fields.
+// Do not use SPARQL queries at all.
 
 // processRecommendationRequest processes a single recommendation request.
 // This function is only called from the worker goroutine that has been locked to a specific OS thread.
