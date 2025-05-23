@@ -25,6 +25,7 @@
       text-align: center;
       padding: 20px;
     }
+    
     /* Critical fix for Chrome WebView audio playback issue */
     iframe {
       display: block !important; 
@@ -35,10 +36,27 @@
       left: 0;
       z-index: 999;
     }
+    
+    /* Added debugging panel */
+    #debug-panel {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      background: rgba(0,0,0,0.8);
+      color: #0f0;
+      font-size: 12px;
+      padding: 5px;
+      max-height: 100px;
+      overflow-y: auto;
+      width: 100%;
+      display: none;
+    }
   </style>
 </head>
 <body>
   <div id="player-status">Connecting to Spotify...</div>
+  <!-- Debug panel for troubleshooting -->
+  <div id="debug-panel"></div>
   <!-- Hidden button for triggering audio context -->
   <button id="audio-enable" style="position: absolute; opacity: 0.01; top: 5px; left: 5px; width: 50px; height: 50px;">Enable Audio</button>
   <!-- Add an audio element for enabling audio context -->
@@ -47,6 +65,28 @@
   </audio>
 
   <script>
+    // Enable debugging
+    const DEBUG = true;
+    
+    // Debug logger function
+    function debugLog(message) {
+      if (!DEBUG) return;
+      
+      console.log(message);
+      const debugPanel = document.getElementById('debug-panel');
+      if (debugPanel) {
+        debugPanel.style.display = 'block';
+        const logEntry = document.createElement('div');
+        logEntry.textContent = message;
+        debugPanel.appendChild(logEntry);
+        // Keep only recent messages
+        while (debugPanel.childNodes.length > 10) {
+          debugPanel.removeChild(debugPanel.firstChild);
+        }
+        debugPanel.scrollTop = debugPanel.scrollHeight;
+      }
+    }
+    
     // Global audio context
     let audioContext = null;
     
@@ -56,46 +96,46 @@
         // Create audio context if it doesn't exist
         if (!audioContext) {
           audioContext = new (window.AudioContext || window.webkitAudioContext)();
-          console.log('Audio context created:', audioContext.state);
+          debugLog('Audio context created: ' + audioContext.state);
         }
         
         // Resume it if suspended
         if (audioContext.state === 'suspended') {
           audioContext.resume().then(() => {
-            console.log('Audio context resumed:', audioContext.state);
+            debugLog('Audio context resumed: ' + audioContext.state);
           });
         }
         
         // Play a silent audio file to fully enable audio
         const audioStarter = document.getElementById('audio-starter');
         audioStarter.play().then(() => {
-          console.log('Silent audio played successfully');
+          debugLog('Silent audio played successfully');
         }).catch(err => {
-          console.error('Silent audio play failed:', err);
+          debugLog('Silent audio play failed: ' + err);
         });
         
         return true;
       } catch(e) {
-        console.error('Error initializing audio context:', e);
+        debugLog('Error initializing audio context: ' + e);
         return false;
       }
     }
     
     // Fix iframe display styles as soon as DOM is ready
     document.addEventListener('DOMContentLoaded', () => {
-      console.log('DOM loaded, setting up audio and fixing iframes');
+      debugLog('DOM loaded, setting up audio and fixing iframes');
       
       // Set up audio button click handler
       const audioButton = document.getElementById('audio-enable');
       audioButton.addEventListener('click', function() {
-        console.log('Audio button clicked - initializing audio context');
+        debugLog('Audio button clicked - initializing audio context');
         initAudioContext();
       });
       
       // Auto-click the button after a short delay
       setTimeout(() => {
         audioButton.click();
-        console.log('Auto-clicked audio button');
+        debugLog('Auto-clicked audio button');
       }, 500);
       
       // Run the check periodically to catch dynamically injected iframes
@@ -104,24 +144,31 @@
         iframes.forEach(iframe => {
           if (iframe.style.display === 'none') {
             iframe.style.display = 'block';
-            console.log('Fixed iframe display style');
+            debugLog('Fixed iframe display style');
           }
         });
       }, 500);
     });
     
     window.onSpotifyWebPlaybackSDKReady = () => {
+      debugLog('Spotify WebPlayback SDK Ready');
       let token = '';
       let player = null;
       let deviceId = '';
+      let playerInitialized = false;
       
       // Function to send messages to Flutter
       function sendToFlutter(data) {
         // Use the SpotifyEvents channel name we defined in the Dart code
-        if (window.SpotifyEvents && window.SpotifyEvents.postMessage) {
-          window.SpotifyEvents.postMessage(JSON.stringify(data));
-        } else {
-          console.error('SpotifyEvents channel not available');
+        try {
+          if (window.SpotifyEvents && window.SpotifyEvents.postMessage) {
+            window.SpotifyEvents.postMessage(JSON.stringify(data));
+            debugLog('Message sent to Flutter: ' + JSON.stringify(data).substring(0, 50) + '...');
+          } else {
+            debugLog('SpotifyEvents channel not available');
+          }
+        } catch (e) {
+          debugLog('Error sending to Flutter: ' + e.message);
         }
       }
       
@@ -130,6 +177,7 @@
         const data = event.data;
         
         try {
+          debugLog('Received message from Flutter: ' + JSON.stringify(data).substring(0, 50) + '...');
           if (typeof data === 'string') {
             const jsonData = JSON.parse(data);
             handleMessage(jsonData);
@@ -137,7 +185,7 @@
             handleMessage(data);
           }
         } catch (e) {
-          console.error('Error processing message:', e);
+          debugLog('Error processing message: ' + e);
           sendToFlutter({
             type: 'error',
             message: 'Error processing message: ' + e.message
@@ -147,12 +195,12 @@
       
       // Handle incoming messages from Flutter
       function handleMessage(data) {
-        console.log('Message from Flutter:', data);
+        debugLog('Processing message: ' + data.type);
         
         if (data.type === 'token') {
           // Got token from Flutter
           token = data.token;
-          console.log('Received token from Flutter, initializing player');
+          debugLog('Received token (length: ' + token.length + '), initializing player');
           
           // Initialize audio first
           initAudioContext();
@@ -164,7 +212,7 @@
         } else if (data.type === 'playTrack') {
           // Play a track
           if (player && deviceId) {
-            console.log('Playing track:', data.uri);
+            debugLog('Playing track: ' + data.uri);
             
             // Ensure audio is enabled
             initAudioContext();
@@ -188,20 +236,20 @@
                   }
                 }).then(response => {
                   if (!response.ok) {
-                    console.error('Play track API error:', response.status);
+                    debugLog('Play track API error: ' + response.status);
                     return response.text().then(text => {
-                      console.error('API response:', text);
+                      debugLog('API response: ' + text);
                       sendToFlutter({
                         type: 'error',
                         message: `Play track API error: ${response.status} ${text}`
                       });
                     });
                   } else {
-                    console.log('Track playback started via API');
+                    debugLog('Track playback started via API');
                   }
                 })
                 .catch(error => {
-                  console.error('Play track request error:', error);
+                  debugLog('Play track request error: ' + error);
                 });
               }
             });
@@ -214,11 +262,11 @@
         } else if (data.type === 'resume') {
           // Resume playback at current position
           if (player) {
-            console.log('Resuming playback via Web Player SDK');
+            debugLog('Resuming playback via Web Player SDK');
             player.resume().then(() => {
-              console.log('Resume playback successful');
+              debugLog('Resume playback successful');
             }).catch(error => {
-              console.error('Resume playback failed:', error);
+              debugLog('Resume playback failed: ' + error);
               // Try alternative method if resume fails
               player.togglePlay();
             });
@@ -227,125 +275,149 @@
       }
       
       function initializePlayer(token) {
-        if (player) {
-          player.disconnect();
+        if (playerInitialized) {
+          debugLog('Player already initialized, disconnecting first');
+          if (player) {
+            player.disconnect();
+          }
         }
+        
+        debugLog('Initializing Spotify player with token');
         
         // Ensure audio context is enabled
         initAudioContext();
         
-        // Create a new player with the latest token
-        player = new Spotify.Player({
-          name: 'Interestnaut Web Player',
-          getOAuthToken: cb => { cb(token); },
-          volume: 1.0,
-          enableMediaSession: true
-        });
-        
-        // Ready
-        player.addListener('ready', ({ device_id }) => {
-          console.log('Ready with Device ID', device_id);
-          deviceId = device_id;
-          document.getElementById('player-status').innerText = 'Connected to Spotify';
-          
-          // Notify Flutter about the device ID
-          sendToFlutter({
-            type: 'deviceReady',
-            deviceId: device_id
-          });
-        });
-        
-        // Not Ready
-        player.addListener('not_ready', ({ device_id }) => {
-          console.log('Device ID has gone offline', device_id);
-          document.getElementById('player-status').innerText = 'Disconnected from Spotify';
-          
-          sendToFlutter({
-            type: 'deviceDisconnected'
-          });
-        });
-        
-        // Player State Changed
-        player.addListener('player_state_changed', state => {
-          if (!state) {
-            console.log('No player state available');
-            return;
-          }
-          
-          console.log('Player State:', state);
-          
-          const current_track = state.track_window.current_track;
-          const paused = state.paused;
-          
-          document.getElementById('player-status').innerText = paused ? 
-            `Paused: ${current_track.name}` : 
-            `Playing: ${current_track.name}`;
-          
-          sendToFlutter({
-            type: 'playerStateChanged',
-            track: {
-              id: current_track.id,
-              uri: current_track.uri,
-              name: current_track.name,
-              artists: current_track.artists,
-              album: current_track.album,
-              duration_ms: current_track.duration_ms
+        try {
+          // Create a new player with the latest token
+          player = new Spotify.Player({
+            name: 'Interestnaut Web Player',
+            getOAuthToken: cb => { 
+              debugLog('getOAuthToken called by SDK');
+              cb(token); 
             },
-            paused: paused,
-            position: state.position,
-            duration: current_track.duration_ms
+            volume: 1.0,
+            enableMediaSession: true
           });
-        });
-        
-        // Error
-        player.addListener('initialization_error', ({ message }) => {
-          console.error('Failed to initialize', message);
-          document.getElementById('player-status').innerText = 'Failed to initialize player';
-          sendToFlutter({
-            type: 'error',
-            message: `Initialization error: ${message}`
+          
+          // Ready
+          player.addListener('ready', ({ device_id }) => {
+            debugLog('Player ready with Device ID: ' + device_id);
+            deviceId = device_id;
+            document.getElementById('player-status').innerText = 'Connected to Spotify';
+            playerInitialized = true;
+            
+            // Notify Flutter about the device ID
+            sendToFlutter({
+              type: 'deviceReady',
+              deviceId: device_id
+            });
           });
-        });
-        
-        player.addListener('authentication_error', ({ message }) => {
-          console.error('Failed to authenticate', message);
-          document.getElementById('player-status').innerText = 'Authentication failed';
-          sendToFlutter({
-            type: 'error',
-            message: `Authentication error: ${message}`
+          
+          // Not Ready
+          player.addListener('not_ready', ({ device_id }) => {
+            debugLog('Device ID has gone offline: ' + device_id);
+            document.getElementById('player-status').innerText = 'Disconnected from Spotify';
+            
+            sendToFlutter({
+              type: 'deviceDisconnected'
+            });
           });
-        });
-        
-        player.addListener('account_error', ({ message }) => {
-          console.error('Premium account required', message);
-          document.getElementById('player-status').innerText = 'Premium account required';
-          sendToFlutter({
-            type: 'error',
-            message: `Account error: ${message}`
+          
+          // Player State Changed
+          player.addListener('player_state_changed', state => {
+            if (!state) {
+              debugLog('No player state available');
+              return;
+            }
+            
+            debugLog('Player State changed');
+            
+            const current_track = state.track_window.current_track;
+            const paused = state.paused;
+            
+            document.getElementById('player-status').innerText = paused ? 
+              `Paused: ${current_track.name}` : 
+              `Playing: ${current_track.name}`;
+            
+            sendToFlutter({
+              type: 'playerStateChanged',
+              track: {
+                id: current_track.id,
+                uri: current_track.uri,
+                name: current_track.name,
+                artists: current_track.artists,
+                album: current_track.album,
+                duration_ms: current_track.duration_ms
+              },
+              paused: paused,
+              position: state.position,
+              duration: current_track.duration_ms
+            });
           });
-        });
-        
-        // Connect to the player
-        player.connect().then(success => {
-          if (success) {
-            console.log('The Web Playback SDK successfully connected to Spotify!');
-            // Force the iframe style fix again after connecting
-            setTimeout(() => {
-              const spotifyIframes = document.querySelectorAll('iframe');
-              spotifyIframes.forEach(iframe => {
-                iframe.style.display = 'block';
-                console.log('Fixed iframe style after connection');
-              });
-            }, 500);
-          } else {
-            console.log('The Web Playback SDK failed to connect to Spotify');
-            document.getElementById('player-status').innerText = 'Failed to connect to Spotify';
+          
+          // Error
+          player.addListener('initialization_error', ({ message }) => {
+            debugLog('Player initialization error: ' + message);
+            document.getElementById('player-status').innerText = 'Failed to initialize player';
             sendToFlutter({
               type: 'error',
-              message: 'Failed to connect to Spotify'
+              message: `Initialization error: ${message}`
             });
-          }
-        });
+          });
+          
+          player.addListener('authentication_error', ({ message }) => {
+            debugLog('Player authentication error: ' + message);
+            document.getElementById('player-status').innerText = 'Authentication failed';
+            sendToFlutter({
+              type: 'error',
+              message: `Authentication error: ${message}`
+            });
+          });
+          
+          player.addListener('account_error', ({ message }) => {
+            debugLog('Player account error: ' + message);
+            document.getElementById('player-status').innerText = 'Premium account required';
+            sendToFlutter({
+              type: 'error',
+              message: `Account error: ${message}`
+            });
+          });
+          
+          // Connect to the player
+          debugLog('Connecting to Spotify Web Playback SDK');
+          player.connect().then(success => {
+            if (success) {
+              debugLog('Successfully connected to Spotify Web Playback SDK');
+              // Force the iframe style fix again after connecting
+              setTimeout(() => {
+                const spotifyIframes = document.querySelectorAll('iframe');
+                spotifyIframes.forEach(iframe => {
+                  iframe.style.display = 'block';
+                  debugLog('Fixed iframe style after connection');
+                });
+              }, 500);
+            } else {
+              debugLog('Failed to connect to Spotify Web Playback SDK');
+              document.getElementById('player-status').innerText = 'Failed to connect to Spotify';
+              sendToFlutter({
+                type: 'error',
+                message: 'Failed to connect to Spotify'
+              });
+            }
+          }).catch(e => {
+            debugLog('Error connecting to Spotify: ' + e.message);
+            sendToFlutter({
+              type: 'error',
+              message: 'Connection error: ' + e.message
+            });
+          });
+        } catch (e) {
+          debugLog('Exception initializing player: ' + e.message);
+          sendToFlutter({
+            type: 'error',
+            message: 'Player initialization exception: ' + e.message
+          });
+        }
       }
     };
   </script>
