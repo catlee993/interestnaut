@@ -109,11 +109,9 @@ Future<void> main() async {
     debugPrint('Skipping LlamaService initialization because Go FFI is not available.');
   }
 
-  // --- Initialize RecommendationBindings and RecommendationService ---
-  // Assuming RecommendationBindings can be instantiated directly.
-  // If it's a static class or part of GoBindings, adjust accordingly.
-  final recommendationBindings = RecommendationBindings(); 
-  final recommendationService = RecommendationService(llamaService, recommendationBindings);
+  // --- Initialize RecommendationService ---
+  // Create stub implementation that won't try to use the removed FFI functions
+  final recommendationService = RecommendationService(llamaService);
   
   // Set window size for desktop platforms
   if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
@@ -137,8 +135,6 @@ Future<void> main() async {
       providers: [
         // Provide LlamaService, RecommendationService, etc.
         Provider.value(value: llamaService),
-        // RecommendationBindings might not need to be provided if only RecommendationService uses it.
-        // Provider.value(value: recommendationBindings), 
         ChangeNotifierProvider.value(value: recommendationService),
         // If SpotifyService needs to be a provider:
         // ChangeNotifierProvider(create: (_) => SpotifyService()), 
@@ -148,17 +144,9 @@ Future<void> main() async {
   );
 
   // --- Post-runApp async initialization for RecommendationService ---
+  // Don't attempt to initialize the removed recommendation service
   if (llamaInitialized && goFfiAvailable) {
-    Future.microtask(() async {
-      try {
-        debugPrint('Starting RecommendationService.initializeAndPrefillQueues...');
-        await recommendationService.initializeAndPrefillQueues();
-        debugPrint('RecommendationService.initializeAndPrefillQueues completed.');
-      } catch (e) {
-        debugPrint('Error during recommendationService.initializeAndPrefillQueues: $e');
-        // Optionally, set an error state in RecommendationService or show a global error
-      }
-    });
+    debugPrint('Recommendation service initialization skipped - functionality removed');
   } else {
     debugPrint('Skipping RecommendationService.initializeAndPrefillQueues due to initialization failures (Llama: $llamaInitialized, GoFFI: $goFfiAvailable).');
     // User should be informed that recommendations might be unavailable.

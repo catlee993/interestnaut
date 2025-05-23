@@ -53,6 +53,10 @@ dependencies:
   provider: ^6.0.5
   url_launcher: ^6.1.12
   font_awesome_flutter: ^10.5.0
+
+  # SQLite for local storage
+  sqlite3: ^2.7.6
+  sqlite3_flutter_libs: ^0.5.33
   
   # New dependencies for cross-platform auth and WebView
   flutter_secure_storage: ^9.0.0

@@ -1,8 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 import 'package:interestnaut/services/llama_service.dart';
-import 'package:interestnaut/services/go_bindings.dart';
-import 'package:interestnaut/services/model_constants.dart';
+import 'package:interestnaut/services/sqlite_db.dart';
 
 // --- Data Models ---
 
@@ -16,7 +17,7 @@ enum SuggestionStatus {
 }
 
 class MediaSuggestion {
-  final String id; // Assuming ID is non-nullable, assigned by Go DB
+  final int id; // Using INTEGER for ID instead of String
   final String query; // The original LLM query or bot's raw suggestion text
   final String mediaType; // e.g., "music", "movie", "book"
   final String? title; // Enriched title from Wikidata/Wikipedia
@@ -32,7 +33,7 @@ class MediaSuggestion {
   final DateTime? updatedAt;
 
   MediaSuggestion({
-    required this.id,
+    this.id = 0, // Default to 0 for new entries (will be set by autoincrement)
     required this.query,
     required this.mediaType,
     this.title,
@@ -50,7 +51,7 @@ class MediaSuggestion {
 
   factory MediaSuggestion.fromJson(Map<String, dynamic> json) {
     return MediaSuggestion(
-      id: json['id'] as String,
+      id: json['id'] as int,
       query: json['query'] as String,
       mediaType: json['media_type'] as String,
       title: json['title'] as String?,
@@ -124,29 +125,17 @@ class MediaSuggestion {
 
 class RecommendationService extends ChangeNotifier {
   final LlamaService _llamaService;
-  final RecommendationBindings _recommendationBindings;
+  final SQLiteDatabase _db = SQLiteDatabase();
   final List<MediaSuggestion> _suggestions = [];
-  final Set<String> _activeMediaQueuesBeingFilled = {};
   String? _currentlyProcessingMediaType;
   bool _isLoading = false;
   String? _error;
-  bool _isInitialized = false;
   
-  // Constants for queue management
-  final List<String> _managedMediaTypes = ['music', 'movie', 'book', 'show', 'video_game'];
-  final int _minSuggestionsQueue = 3;
-  final int _maxErrorsPerRun = 3;  // Maximum number of errors allowed in a single queue fill run
+  // Queue management
+  static const int _targetPendingCount = 3;
+  Timer? _queueCheckTimer;
   
-  // Queue monitoring state
-  DateTime? _lastQueueCheckTime;
-  Timer? _queueMonitorTimer;
-  int _recoveryAttempts = 0;
-  final int _maxRecoveryAttempts = 5;
-
-  // Currently selected media type for the UI
-  String? _selectedMediaType;
-
-  RecommendationService(this._llamaService, this._recommendationBindings);
+  RecommendationService(this._llamaService);
 
   List<MediaSuggestion> get suggestions => _suggestions;
   bool get isLoading => _isLoading;
@@ -155,171 +144,403 @@ class RecommendationService extends ChangeNotifier {
 
   // Initialize the service (should be called early in the app lifecycle)
   Future<void> init() async {
-    _lastQueueCheckTime = DateTime.now();
-    _error = null;
+    _isLoading = true;
+    notifyListeners();
     
     try {
-      // Initialize the recommendation queue in the Go backend
-      // This ensures the thread-safe worker is ready for processing requests
-      await _recommendationBindings.initQueue();
-      debugPrint('Recommendation queue initialized successfully');
-
-      // Begin background monitoring of the queue
+      // Initialize the SQLite database
+      await _db.init();
+      
+      // Start the background queue monitoring
       _startBackgroundQueue();
+      
+      _isLoading = false;
+      notifyListeners();
     } catch (e) {
-      _error = 'Failed to initialize recommendation service: $e';
+      _isLoading = false;
+      _error = "Failed to initialize recommendation service: $e";
       debugPrint(_error);
+      notifyListeners();
     }
   }
 
   // Initialize background queue monitoring
   void _startBackgroundQueue() {
-    // Cancel existing timer if it exists
-    _queueMonitorTimer?.cancel();
-    
-    // Start a new timer that checks the queue status periodically
-    _queueMonitorTimer = Timer.periodic(const Duration(seconds: 30), (timer) async {
-      _lastQueueCheckTime = DateTime.now();
-      
-      // Skip if we're already processing
-      if (_isLoading) return;
-      
-      // Check and fill queues for all media types
-      try {
-        await _checkAndFillQueuesIfNeeded();
-      } catch (e) {
-        debugPrint('Error in background queue monitoring: $e');
-        _recoveryAttempts++;
-        
-        // If we've exceeded the maximum number of recovery attempts, stop trying
-        if (_recoveryAttempts >= _maxRecoveryAttempts) {
-          debugPrint('Maximum recovery attempts reached. Stopping background queue monitoring.');
-          timer.cancel();
-          _error = 'Maximum recovery attempts reached. Please restart the app.';
-          notifyListeners();
-        }
-      }
+    // Check queue status every 30 seconds
+    _queueCheckTimer?.cancel();
+    _queueCheckTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      _checkAndFillQueuesIfNeeded();
     });
   }
-  
+
   // Check and fill queues if needed
   Future<void> _checkAndFillQueuesIfNeeded() async {
-    // Only check queues for the selected media type or any that have fallen below threshold
-    for (final mediaType in _managedMediaTypes) {
+    if (_isLoading || _currentlyProcessingMediaType != null) {
+      return; // Don't check if already processing
+    }
+    
+    // Media types to check
+    final mediaTypes = ['music', 'movie', 'book', 'tv_show', 'video_game'];
+    
+    for (final mediaType in mediaTypes) {
       final pendingCount = await _getPendingSuggestionsCount(mediaType);
-      if (pendingCount < _minSuggestionsQueue) {
-        debugPrint('Queue for $mediaType is below threshold. Filling...');
+      
+      if (pendingCount < _targetPendingCount) {
+        // Need to fill the queue for this media type
         await _fillSuggestionQueue(mediaType);
+        break; // Only process one media type at a time
       }
     }
   }
-  
+
   // Get the count of pending suggestions for a specific media type
   Future<int> _getPendingSuggestionsCount(String mediaType) async {
     try {
-      return await _recommendationBindings.getPendingSuggestionsCount(mediaType);
+      return await _db.countPendingMediaSuggestions(mediaType);
     } catch (e) {
-      debugPrint('Error getting pending suggestions count: $e');
-      return 0; // Return 0 on error to trigger refill
+      debugPrint('Error counting pending suggestions: $e');
+      return 0;
     }
   }
-  
+
   // Fill the suggestion queue for a specific media type
   Future<void> _fillSuggestionQueue(String mediaType) async {
-    // Skip if we're already processing this media type
-    if (_currentlyProcessingMediaType == mediaType || _activeMediaQueuesBeingFilled.contains(mediaType)) {
-      debugPrint('Already processing $mediaType. Skipping fill request.');
-      return;
+    if (_currentlyProcessingMediaType != null) {
+      return; // Already processing another media type
     }
     
-    _activeMediaQueuesBeingFilled.add(mediaType);
     _currentlyProcessingMediaType = mediaType;
     notifyListeners();
     
     try {
-      // Get current count of pending suggestions
-      final pendingCount = await _getPendingSuggestionsCount(mediaType);
-      final neededSuggestions = _minSuggestionsQueue - pendingCount;
+      // Get existing suggestions to build prompt context
+      final existingSuggestions = await _db.getAllMediaSuggestions(
+        mediaType: mediaType,
+        limit: 10, // Get recent suggestions for context
+      );
       
-      if (neededSuggestions <= 0) {
-        debugPrint('Queue for $mediaType is already filled.');
-        return;
+      // Build a prompt with context of past suggestions
+      final context = existingSuggestions.map((s) => s.toPromptSummary()).join('\n');
+      final prompt = _buildSuggestionPrompt(mediaType, context);
+      
+      // Get a suggestion from LLama
+      final suggestion = await _llamaService.generateFullResponse(prompt);
+      
+      if (suggestion.isEmpty) {
+        throw Exception('Failed to generate suggestion');
       }
       
-      debugPrint('Filling queue for $mediaType with $neededSuggestions suggestions...');
+      // Create a preliminary suggestion
+      final preliminarySuggestion = MediaSuggestion(
+        query: suggestion,
+        mediaType: mediaType,
+        status: SuggestionStatus.pending,
+      );
       
-      // Here we would trigger a call to the LLM to generate new suggestions,
-      // but for now we'll just log that we would do this
-      debugPrint('Would generate $neededSuggestions new $mediaType suggestions here.');
+      // Enrich the suggestion with Wikidata/Wikipedia data
+      final enrichedSuggestion = await _enrichSuggestion(preliminarySuggestion);
       
-      // Simulate some processing time
-      await Future.delayed(const Duration(milliseconds: 500));
+      // Save to SQLite
+      await _db.saveMediaSuggestion(enrichedSuggestion);
       
+      _currentlyProcessingMediaType = null;
+      notifyListeners();
     } catch (e) {
-      debugPrint('Error filling suggestion queue for $mediaType: $e');
-    } finally {
-      _activeMediaQueuesBeingFilled.remove(mediaType);
+      _error = 'Error filling suggestion queue: $e';
+      debugPrint(_error);
       _currentlyProcessingMediaType = null;
       notifyListeners();
     }
   }
 
-  // --- Initialization and Proactive Queue Management ---
-
-  Future<void> initializeAndPrefillQueues() async {
-    if (_isInitialized) return;
+  // Build a prompt for the LLM to generate a suggestion
+  String _buildSuggestionPrompt(String mediaType, String context) {
+    String humanReadableType = mediaType.replaceAll('_', ' ');
     
-    try {
-      // First initialize the thread-safe queue to prevent FFI crashes
-      await init();
-      
-      _isInitialized = true;
-      debugPrint('Recommendation service initialized');
-      
-      // 1. Clear local cache and fetch ALL existing suggestions for managed types from DB.
-      _suggestions.clear();
-      for (final mediaType in _managedMediaTypes) {
-        try {
-          debugPrint('Fetching initial suggestions for $mediaType...');
-          final suggestionsForType = await _recommendationBindings.getAllSuggestions(mediaType, statusFilter: '');
-          _suggestions.addAll(suggestionsForType);
-          debugPrint('Fetched ${suggestionsForType.length} suggestions for $mediaType.');
-        } catch (e) {
-          debugPrint('Error fetching initial suggestions for $mediaType: $e');
-          // Continue to other media types even if one fails
-        }
-      }
-      // Notify once after all initial data is potentially loaded.
-      // This ensures the UI has access to all existing liked/skipped items etc.
-      notifyListeners();
+    // Base prompt
+    String prompt = 'Suggest a $humanReadableType that you think I might enjoy.';
+    
+    // Add context of previous suggestions if available
+    if (context.isNotEmpty) {
+      prompt = '''
+I've previously been suggested the following $humanReadableType:
+$context
 
-      // 2. For each media type, ensure its PENDING queue is at the minimum.
-      // Priority order from most reliable to least reliable based on error logs
-      final priorityOrder = ['music', 'movie', 'book', 'tv_show', 'video_game'];
-      for (final mediaType in priorityOrder) {
-        if (!_managedMediaTypes.contains(mediaType)) continue;
-        debugPrint('Ensuring suggestion queue for $mediaType post-initialization...');
-        // We await each call to process media types sequentially for LLM calls.
-        await ensureSuggestionQueue(mediaType);
-      }
-      debugPrint('Initial prefill of all media type queues completed.');
-    } catch (e) {
-      _error = 'Failed during initial suggestion prefill: $e';
-      debugPrint(_error);
-    } finally {
-      // Clear global loading state only if no specific queues are still being filled
-      // (ensureSuggestionQueue manages _activeMediaQueuesBeingFilled)
-      if (_activeMediaQueuesBeingFilled.isEmpty) {
-        _isLoading = false;
-        _currentlyProcessingMediaType = null;
-      }
-      notifyListeners();
-      debugPrint('Finished initializing and prefilling queues.');
+Based on these, $prompt Make sure to suggest something different than what I've seen before.
+''';
     }
+    
+    return prompt;
   }
 
-  // Renamed from fetchInitialSuggestions and functionality merged into initializeAndPrefillQueues & ensureSuggestionQueue
-  // Future<void> fetchInitialSuggestions(String mediaType, {String statusFilter = ''}) async { ... }
+  // Enrich a suggestion with Wikidata/Wikipedia data
+  Future<MediaSuggestion> _enrichSuggestion(MediaSuggestion suggestion) async {
+    // First, search Wikidata for the best match
+    final wikidataResult = await _searchWikidata(suggestion.query, suggestion.mediaType);
+    
+    if (wikidataResult == null) {
+      // If no Wikidata match found, return the original suggestion
+      return suggestion;
+    }
+    
+    // Get more details from Wikipedia if we have a Wikidata ID
+    final wikipediaResult = wikidataResult['wikidataId'] != null 
+      ? await _getWikipediaDetails(wikidataResult['wikidataId'] as String)
+      : null;
+    
+    // Build enriched suggestion
+    return MediaSuggestion(
+      id: suggestion.id,
+      query: suggestion.query,
+      mediaType: suggestion.mediaType,
+      title: wikidataResult['title'] as String? ?? suggestion.title,
+      artist: wikidataResult['artist'] as String? ?? suggestion.artist,
+      album: wikidataResult['album'] as String? ?? suggestion.album,
+      coverArtUrl: wikidataResult['imageUrl'] as String? ?? suggestion.coverArtUrl,
+      description: wikipediaResult?['description'] as String? ?? suggestion.description,
+      wikiUrl: wikipediaResult?['url'] as String? ?? suggestion.wikiUrl,
+      wikidataId: wikidataResult['wikidataId'] as String? ?? suggestion.wikidataId,
+      botReasoning: "Found match on Wikidata with confidence level: ${wikidataResult['confidence'] ?? 'unknown'}",
+      status: suggestion.status,
+      createdAt: suggestion.createdAt,
+    );
+  }
+
+  // Search Wikidata for the best match
+  Future<Map<String, dynamic>?> _searchWikidata(String query, String mediaType) async {
+    try {
+      // Convert media type to the format expected by Wikidata
+      final wikidataType = _mapMediaTypeForWikidata(mediaType);
+      
+      // Build the SPARQL query to search Wikidata
+      final sparqlQuery = _buildWikidataSparqlQuery(query, wikidataType);
+      
+      // Wikidata endpoint
+      final endpoint = Uri.parse('https://query.wikidata.org/sparql');
+      
+      // Execute the query
+      final queryParams = {'query': sparqlQuery, 'format': 'json'};
+      final url = Uri(
+        scheme: endpoint.scheme,
+        host: endpoint.host,
+        path: endpoint.path,
+        queryParameters: queryParams,
+      );
+      
+      final response = await http.get(
+        url,
+        headers: {'Accept': 'application/json'},
+      );
+      
+      if (response.statusCode != 200) {
+        debugPrint('Wikidata query failed with status: ${response.statusCode}');
+        return null;
+      }
+      
+      final data = json.decode(response.body);
+      final results = data['results']['bindings'] as List<dynamic>;
+      
+      if (results.isEmpty) {
+        return null;
+      }
+      
+      // Process the first/best result
+      final result = results.first;
+      
+      // Extract fields based on media type
+      final Map<String, dynamic> extractedData = {
+        'wikidataId': result['item']?['value']?.toString().split('/').last,
+        'title': result['itemLabel']?['value'],
+        'confidence': 'high', // Default confidence
+      };
+      
+      // Add media-type specific fields
+      switch (mediaType) {
+        case 'music':
+          if (result.containsKey('artist')) {
+            extractedData['artist'] = result['artistLabel']?['value'];
+          }
+          if (result.containsKey('album')) {
+            extractedData['album'] = result['albumLabel']?['value'];
+          }
+          break;
+        case 'movie':
+        case 'tv_show':
+          if (result.containsKey('director')) {
+            extractedData['director'] = result['directorLabel']?['value'];
+          }
+          break;
+        case 'book':
+          if (result.containsKey('author')) {
+            extractedData['author'] = result['authorLabel']?['value'];
+          }
+          break;
+        case 'video_game':
+          if (result.containsKey('developer')) {
+            extractedData['developer'] = result['developerLabel']?['value'];
+          }
+          break;
+      }
+      
+      // Try to get an image URL if available
+      if (result.containsKey('image')) {
+        extractedData['imageUrl'] = result['image']?['value'];
+      }
+      
+      return extractedData;
+    } catch (e) {
+      debugPrint('Error searching Wikidata: $e');
+      return null;
+    }
+  }
+  
+  // Build a SPARQL query for Wikidata based on the media type
+  String _buildWikidataSparqlQuery(String query, String mediaType) {
+    // Escape the query for SPARQL
+    final escapedQuery = query.replaceAll('"', '\\"');
+    
+    // Base query structure
+    String sparqlQuery = '''
+      SELECT ?item ?itemLabel 
+      WHERE {
+        SERVICE wikibase:mwapi {
+          bd:serviceParam wikibase:endpoint "www.wikidata.org/w/api.php";
+          wikibase:api "EntitySearch";
+          wikibase:limit 5;
+          mwapi:search "$escapedQuery";
+          mwapi:language "en".
+          ?item wikibase:apiOutputItem mwapi:item.
+        }
+    ''';
+    
+    // Add filters based on media type
+    switch (mediaType) {
+      case 'music':
+        sparqlQuery += '''
+          ?item wdt:P31/wdt:P279* wd:Q2188189. # instance of musical work or subclass
+          OPTIONAL { ?item wdt:P175 ?artist. } # performer
+          OPTIONAL { ?item wdt:P361 ?album. } # part of album
+          OPTIONAL { ?item wdt:P18 ?image. } # image
+        ''';
+        break;
+      case 'movie':
+        sparqlQuery += '''
+          ?item wdt:P31/wdt:P279* wd:Q11424. # instance of film or subclass
+          OPTIONAL { ?item wdt:P57 ?director. } # director
+          OPTIONAL { ?item wdt:P18 ?image. } # image
+        ''';
+        break;
+      case 'book':
+        sparqlQuery += '''
+          ?item wdt:P31/wdt:P279* wd:Q571. # instance of book or subclass
+          OPTIONAL { ?item wdt:P50 ?author. } # author
+          OPTIONAL { ?item wdt:P18 ?image. } # image
+        ''';
+        break;
+      case 'show':
+        sparqlQuery += '''
+          ?item wdt:P31/wdt:P279* wd:Q5398426. # instance of TV series or subclass
+          OPTIONAL { ?item wdt:P57 ?director. } # director
+          OPTIONAL { ?item wdt:P18 ?image. } # image
+        ''';
+        break;
+      case 'game':
+        sparqlQuery += '''
+          ?item wdt:P31/wdt:P279* wd:Q7889. # instance of video game or subclass
+          OPTIONAL { ?item wdt:P178 ?developer. } # developer
+          OPTIONAL { ?item wdt:P18 ?image. } # image
+        ''';
+        break;
+    }
+    
+    // Close the query and add service for labels
+    sparqlQuery += '''
+      SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
+    }
+    LIMIT 1
+    ''';
+    
+    return sparqlQuery;
+  }
+
+  // Get additional details from Wikipedia using a Wikidata ID
+  Future<Map<String, dynamic>?> _getWikipediaDetails(String wikidataId) async {
+    try {
+      // First, get the Wikipedia title from Wikidata
+      final wikidataEndpoint = Uri.parse('https://www.wikidata.org/w/api.php');
+      
+      final wdQueryParams = {
+        'action': 'wbgetentities',
+        'ids': wikidataId,
+        'props': 'sitelinks',
+        'sitefilter': 'enwiki',
+        'format': 'json',
+      };
+      
+      final wdUrl = Uri(
+        scheme: wikidataEndpoint.scheme,
+        host: wikidataEndpoint.host,
+        path: wikidataEndpoint.path,
+        queryParameters: wdQueryParams,
+      );
+      
+      final wikidataResponse = await http.get(wdUrl);
+      
+      if (wikidataResponse.statusCode != 200) {
+        return null;
+      }
+      
+      final wikidataData = json.decode(wikidataResponse.body);
+      final entities = wikidataData['entities'] as Map<String, dynamic>;
+      
+      if (!entities.containsKey(wikidataId) || 
+          !entities[wikidataId].containsKey('sitelinks') || 
+          !entities[wikidataId]['sitelinks'].containsKey('enwiki')) {
+        return null;
+      }
+      
+      final wikipediaTitle = entities[wikidataId]['sitelinks']['enwiki']['title'];
+      
+      // Now get the Wikipedia page extract
+      final wikipediaEndpoint = Uri.parse('https://en.wikipedia.org/w/api.php');
+      
+      final wpQueryParams = {
+        'action': 'query',
+        'prop': 'extracts|info',
+        'exintro': 'true',
+        'explaintext': 'true',
+        'inprop': 'url',
+        'titles': wikipediaTitle,
+        'format': 'json',
+      };
+      
+      final wpUrl = Uri(
+        scheme: wikipediaEndpoint.scheme,
+        host: wikipediaEndpoint.host,
+        path: wikipediaEndpoint.path,
+        queryParameters: wpQueryParams,
+      );
+      
+      final wikipediaResponse = await http.get(wpUrl);
+      
+      if (wikipediaResponse.statusCode != 200) {
+        return null;
+      }
+      
+      final wikipediaData = json.decode(wikipediaResponse.body);
+      final pages = wikipediaData['query']['pages'] as Map<String, dynamic>;
+      final pageId = pages.keys.first;
+      final page = pages[pageId];
+      
+      return {
+        'description': page['extract'],
+        'url': page['fullurl'],
+      };
+    } catch (e) {
+      debugPrint('Error fetching Wikipedia details: $e');
+      return null;
+    }
+  }
 
   // Helper method to convert media types for Wikidata
   String _mapMediaTypeForWikidata(String mediaType) {
@@ -330,308 +551,125 @@ class RecommendationService extends ChangeNotifier {
     }
   }
 
-  Future<void> ensureSuggestionQueue(String mediaType) async {
-    if (!_managedMediaTypes.contains(mediaType)) {
-      debugPrint('ensureSuggestionQueue called for unmanaged media type: $mediaType');
-      return;
-    }
+  // --- Initialization and Proactive Queue Management ---
 
-    if (_activeMediaQueuesBeingFilled.contains(mediaType)) {
-      debugPrint('Suggestion queue for $mediaType is already being processed.');
-      return;
-    }
-    _activeMediaQueuesBeingFilled.add(mediaType);
-    _currentlyProcessingMediaType = mediaType;
+  Future<void> initializeAndPrefillQueues() async {
+    if (_isLoading) return;
     
-    bool needsGlobalLoadingUpdate = !_isLoading; // Only set global isLoading if not already set
-    if (needsGlobalLoadingUpdate) {
-      _isLoading = true;
-      notifyListeners(); // Notify global loading start
-    }
-
-    String? loopError;
-    bool madeChangesThisRun = false;
-    
-    // Record queue check time
-    _lastQueueCheckTime = DateTime.now();
-
-    try {
-      int currentPendingCount = _suggestions
-          .where((s) => s.mediaType == mediaType && s.status == SuggestionStatus.pending)
-          .length;
-      debugPrint('Queue for $mediaType: $currentPendingCount pending, target $_minSuggestionsQueue.');
-
-      // Check LlamaService state before entering the loop
-      if (!_llamaService.isRunning) {
-        debugPrint('\u{26A0} LlamaService not running - attempting initialization');
-        try {
-          // Check if LlamaService can be initialized
-          // Get the model path first
-          final modelPath = await LlamaService.getModelPath(modelFileName: kLlamaModelFileName);
-          
-          // Call initialize with correct parameters
-          bool llamaInitialized = await _llamaService.initialize(
-            modelPath,
-            toastCallback: (msg, {isError = false}) {
-              debugPrint('LLAMA init: $msg${isError ? " (ERROR)" : ""}');
-            }
-          );
-          
-          if (llamaInitialized) {
-            debugPrint('\u{2705} Successfully initialized LlamaService');
-          } else {
-            loopError = 'Failed to initialize LlamaService. Cannot generate suggestions.';
-            debugPrint('\u{274C} $loopError');
-            return; // Exit early
-          }
-        } catch (e) {
-          loopError = 'Error initializing LlamaService: $e';
-          debugPrint('\u{274C} $loopError');
-          return; // Exit early
-        }
-      }
-
-      while (currentPendingCount < _minSuggestionsQueue) {
-        if (!_llamaService.isRunning) {
-          loopError = 'LlamaService not running. Cannot generate suggestions for $mediaType.';
-          debugPrint('\u{274C} $loopError');
-          break; 
-        }
-
-        debugPrint('\u{1F504} Generating new suggestion for $mediaType. Current pending: $currentPendingCount');
-        
-        // Initialize/reset error counter for this run
-        int errorCount = 0;
-        
-        try {
-          // Get the appropriate prompt template for the media type
-          final promptTemplate = getPromptTemplateForMediaType(mediaType);
-            
-          // Get previous suggestions for this media type to inform the LLM
-          final history = _suggestions
-              .where((s) => s.mediaType == mediaType) 
-              .map((s) => s.toPromptSummary())
-              .take(10) // Show the last 10 suggestions to provide more context
-              .toList();
-                
-          // Format the prompt with previous suggestions
-          final formattedPrompt = formatPromptWithPreviousSuggestions(promptTemplate, history);
-
-          debugPrint('\u{270D} Prompt for $mediaType: ${formattedPrompt.length} chars');
-          
-          // Set a timeout for the LLM response
-          final completer = Completer<String>();
-          bool isCompleted = false;
-          
-          // Set up a timeout to cancel if it takes too long
-          // Increased timeout to 120 seconds to give more time for slower models
-          final timeout = Timer(Duration(seconds: 120), () {
-            if (!isCompleted) {
-              isCompleted = true;
-              completer.completeError('Timeout: LLM response took too long (120s)');
-            }
-          });
-          
-          // Start the LLM generation
-          _llamaService.generateStructuredJsonResponse(formattedPrompt)
-            .then((value) {
-              if (!isCompleted) {
-                isCompleted = true;
-                completer.complete(value);
-              }
-            })
-            .catchError((error) {
-              if (!isCompleted) {
-                isCompleted = true;
-                completer.completeError(error);
-              }
-            });
-            
-          String rawSuggestionText;
-          try {
-            rawSuggestionText = await completer.future;
-            timeout.cancel();
-          } catch (timeoutError) {
-            debugPrint('\u{26A0} LLM generation timed out for $mediaType. Terminating attempt.');
-            timeout.cancel();
-            // Since timeout occurred, break the entire loop
-            break;
-          }
-          
-          if (rawSuggestionText.trim().isEmpty) {
-            debugPrint('\u{26A0} LLM returned an empty suggestion for $mediaType. Skipping this attempt.');
-            // Small delay before continuing to avoid rapid retries
-            await Future.delayed(Duration(milliseconds: 500));
-            continue;
-          }
-          
-          debugPrint('\u{2705} Generated suggestion for $mediaType: "${rawSuggestionText.trim()}"');
-          String llmReasoning = 'Suggested by LLM based on general knowledge and previous interactions.';
-
-          debugPrint('\u{1F50D} Finding and saving suggestion via Go FFI...');
-          
-          try {
-            // Use the mapped media type for the Wikidata query
-            final wikidataMediaType = _mapMediaTypeForWikidata(mediaType);
-            
-            final newSuggestion = await _recommendationBindings.findAndSaveSuggestion(
-              rawSuggestionText.trim(),
-              wikidataMediaType,
-              llmReasoning,
-            );
-            
-            // Add to local cache if not already present (should be new from DB)
-            if (!_suggestions.any((s) => s.id == newSuggestion.id)) {
-              _suggestions.add(newSuggestion);
-              madeChangesThisRun = true;
-              debugPrint('\u{2705} Added new suggestion ${newSuggestion.id} for $mediaType: "${newSuggestion.title ?? newSuggestion.query}"');
-              
-              // Reset error count on success
-              errorCount = 0;
-              _recoveryAttempts = 0;
-            } else {
-              debugPrint('\u{26A0} Suggestion ${newSuggestion.id} for $mediaType already in local cache. This might be unexpected.');
-            }
-          } catch (ffiFindError) {
-            debugPrint('\u{274C} Error in FFI findAndSaveSuggestion for $mediaType: $ffiFindError');
-            errorCount++;
-            if (errorCount >= _maxErrorsPerRun) {
-              debugPrint('\u{26A0} Multiple FFI errors encountered ($errorCount). Breaking loop for now.');
-              loopError = 'Failed to process suggestions via Go FFI: $ffiFindError';
-              break;
-            }
-            // Add a delay before the next attempt
-            await Future.delayed(Duration(seconds: 2));
-            continue;
-          }
-          
-          currentPendingCount = _suggestions
-              .where((s) => s.mediaType == mediaType && s.status == SuggestionStatus.pending)
-              .length;
-          
-          if (madeChangesThisRun) {
-             notifyListeners(); // Notify after each successful addition for UI responsiveness
-             madeChangesThisRun = false; // Reset for next potential addition in loop
-          }
-        } catch (e) {
-          debugPrint('\u{274C} Error generating suggestion for $mediaType: $e');
-          // Save error to provide feedback but don't stop trying for minimum queue
-          loopError = 'Failed to generate a suggestion for $mediaType: $e';
-          // Break out of the loop if we encounter an error to avoid too many rapid failures
-          break;
-        }
-      }
-      debugPrint('${loopError == null ? "\u{2705}" : "\u{26A0}"} Queue processing for $mediaType completed ${loopError == null ? "successfully" : "with errors"}. Current pending count: $currentPendingCount');
-    } catch (e) {
-      // Catch errors from initial count or other unexpected issues within the try block for the media type
-      loopError = 'Error during suggestion queue processing for $mediaType: $e';
-      debugPrint('\u{274C} $loopError');
-    }
-    finally {
-      _activeMediaQueuesBeingFilled.remove(mediaType);
-      if (loopError != null) _error = loopError;
-
-      if (_activeMediaQueuesBeingFilled.isEmpty) {
-        _isLoading = false; // Clear global loading if all specific queues are done
-        _currentlyProcessingMediaType = null;
-      }
-      // Always notify at the end of processing for a specific media type, 
-      // regardless of global _isLoading, to update _currentlyProcessingMediaType or _error.
-      notifyListeners();
-      debugPrint('Finished ensuring suggestion queue for $mediaType.');
-    }
-  }
-
-
-  Future<void> updateSuggestionStatus(String suggestionId, SuggestionStatus newStatus) async {
-    final index = _suggestions.indexWhere((s) => s.id == suggestionId);
-    if (index == -1) {
-      _error = 'Suggestion with ID $suggestionId not found for status update.';
-      debugPrint(_error);
-      notifyListeners();
-      return;
-    }
-
-    var suggestion = _suggestions[index];
-    final originalStatus = suggestion.status;
-    final mediaType = suggestion.mediaType;
-
-    // Optimistic UI update
-    suggestion.status = newStatus;
-    // Create a new instance for ChangeNotifier to detect change if MediaSuggestion is complex
-    _suggestions[index] = MediaSuggestion.fromJson(suggestion.toJson()); 
+    _isLoading = true;
     notifyListeners();
-
+    
     try {
-      final newStatusString = newStatus.toString().split('.').last;
-      await _recommendationBindings.updateSuggestionStatus(suggestion.id, newStatusString);
-      debugPrint('Updated status for suggestion ${suggestion.id} to $newStatusString in DB.');
-
-      // Successfully updated in DB. Now ensure the queue for this media type is topped up.
-      await ensureSuggestionQueue(mediaType);
-
-    } catch (e) {
-      _error = 'Failed to update suggestion status for $suggestionId to $newStatus: $e';
-      debugPrint(_error);
-      // Revert optimistic UI update on error
-      suggestion.status = originalStatus;
-      _suggestions[index] = MediaSuggestion.fromJson(suggestion.toJson());
-      notifyListeners();
-    }
-  }
-
-  Future<void> deleteSuggestion(String suggestionId) async {
-    debugPrint('RecommendationService: Attempting to "delete" (archive) suggestion $suggestionId');
-    final suggestionIndex = _suggestions.indexWhere((s) => s.id == suggestionId);
-    if (suggestionIndex == -1) {
-      _error = 'Suggestion with ID $suggestionId not found for deletion.';
-      debugPrint(_error);
-      return;
-    }
-
-    final suggestion = _suggestions[suggestionIndex];
-    final originalStatus = suggestion.status;
-
-    // Update status to archived in the backend
-    try {
-      // Instead of a direct delete, update its status
-      await _recommendationBindings.updateSuggestionStatus(suggestionId, SuggestionStatus.archived.name);
-      // No need to call a non-existent _recommendationBindings.deleteSuggestion(suggestionId);
+      await init();
+      await _checkAndFillQueuesIfNeeded();
       
-      // If successful, update local cache and notify
-      _suggestions.removeAt(suggestionIndex);
+      _isLoading = false;
       notifyListeners();
-      debugPrint('RecommendationService: Suggestion $suggestionId archived and removed from local cache.');
-
-      // Trigger queue refilling for the affected media type
-      // Use a set to avoid redundant calls if multiple suggestions of the same type are acted upon quickly
-      ensureSuggestionQueue(suggestion.mediaType).catchError((e) {
-        // Log error from ensureSuggestionQueue, but don't let it crash deleteSuggestion
-        debugPrint('Error ensuring suggestion queue after archiving suggestion $suggestionId: $e');
-      });
-
     } catch (e) {
-      _error = 'Failed to archive suggestion $suggestionId: $e';
-      debugPrint(_error);
-      // Optionally, revert local changes if backend update fails, though current model is remove then refill
-      // For now, we assume the queue refill logic will handle inconsistencies or rely on next full init.
-      debugPrint('Error during archiving suggestion $suggestionId: $e. Suggestion might still be in local cache with status $originalStatus or removed.');
-      // If we had kept it in the list and only changed status:
-      // _suggestions[suggestionIndex] = suggestion.copyWith(status: originalStatus);
-      notifyListeners(); // Notify even on error to reflect potential state changes or error messages
+      _isLoading = false;
+      _error = "Failed to initialize and prefill queues: $e";
+      notifyListeners();
     }
   }
 
-  void clearError() {
-    _error = null;
+  // Ensure there are enough suggestions in the queue for a media type
+  Future<bool> ensureSuggestionQueue(String mediaType) async {
+    if (_isLoading) return false;
+    
+    _isLoading = true;
     notifyListeners();
+    
+    try {
+      final pendingCount = await _getPendingSuggestionsCount(mediaType);
+      
+      if (pendingCount < _targetPendingCount) {
+        await _fillSuggestionQueue(mediaType);
+      }
+      
+      // Get the pending suggestions to return
+      final pendingSuggestions = await _db.getPendingMediaSuggestions(mediaType);
+      _suggestions.clear();
+      _suggestions.addAll(pendingSuggestions);
+      
+      _isLoading = false;
+      notifyListeners();
+      return pendingSuggestions.isNotEmpty;
+    } catch (e) {
+      _isLoading = false;
+      _error = "Failed to ensure suggestion queue: $e";
+      notifyListeners();
+      return false;
+    }
   }
 
-  List<MediaSuggestion> getSuggestionsForMediaType(String mediaType, {SuggestionStatus? status}) {
-    var filtered = _suggestions.where((s) => s.mediaType == mediaType);
-    if (status != null) {
-      filtered = filtered.where((s) => s.status == status);
+  // Update the status of a suggestion
+  Future<bool> updateSuggestionStatus(int suggestionId, SuggestionStatus newStatus) async {
+    try {
+      await _db.updateMediaSuggestionStatus(suggestionId, newStatus);
+      
+      // Update local cache if the suggestion is in memory
+      final index = _suggestions.indexWhere((s) => s.id == suggestionId);
+      if (index >= 0) {
+        _suggestions[index].status = newStatus;
+        notifyListeners();
+      }
+      
+      // Check if we need to fill the queue again
+      final mediaType = _suggestions.firstWhere((s) => s.id == suggestionId, orElse: () => 
+          MediaSuggestion(id: 0, query: '', mediaType: '')).mediaType;
+      
+      if (mediaType.isNotEmpty) {
+        _checkAndFillQueuesIfNeeded();
+      }
+      
+      return true;
+    } catch (e) {
+      _error = "Failed to update suggestion status: $e";
+      debugPrint(_error);
+      return false;
     }
-    return filtered.toList();
+  }
+
+  // Delete a suggestion
+  Future<bool> deleteSuggestion(int suggestionId) async {
+    try {
+      final result = await _db.deleteMediaSuggestion(suggestionId);
+      
+      // Remove from local cache if present
+      final index = _suggestions.indexWhere((s) => s.id == suggestionId);
+      if (index >= 0) {
+        _suggestions.removeAt(index);
+        notifyListeners();
+      }
+      
+      return result;
+    } catch (e) {
+      _error = "Failed to delete suggestion: $e";
+      debugPrint(_error);
+      return false;
+    }
+  }
+
+  // Get suggestions for a specific media type
+  Future<List<MediaSuggestion>> getSuggestions(String mediaType, {SuggestionStatus? status}) async {
+    try {
+      final suggestions = await _db.getAllMediaSuggestions(
+        mediaType: mediaType,
+        statusFilter: status,
+      );
+      
+      return suggestions;
+    } catch (e) {
+      _error = "Failed to get suggestions: $e";
+      debugPrint(_error);
+      return [];
+    }
+  }
+  
+  // Clean up resources
+  @override
+  void dispose() {
+    _queueCheckTimer?.cancel();
+    super.dispose();
   }
 }
