@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:interestnaut/services/llama_service.dart';
 import 'package:interestnaut/services/sqlite_db.dart';
+import 'package:interestnaut/services/model_constants.dart'; // Import the model constants
 
 // --- Data Models ---
 
@@ -91,35 +92,76 @@ class MediaSuggestion {
       };
 
   String toPromptSummary() {
-    String summary;
-    
-    // Format based on media type
-    switch (mediaType) {
-      case 'music':
-        summary = '${artist ?? "Unknown Artist"} - "${title ?? query}" (Album: ${album ?? "Unknown"})';
-        break;
-      case 'movie':
-        // Extract movie info from either structured fields or the raw query
-        final year = query.contains('(') && query.contains(')') 
-            ? RegExp(r'\((\d{4})\)').firstMatch(query)?.group(1) 
-            : null;
-        summary = '"${title ?? query}" ${year != null ? "($year)" : ""}';
-        break;
-      case 'book':
-        summary = '"${title ?? query}" by ${query.contains('by') ? query.split('by').last.trim() : "Unknown Author"}';
-        break;
-      case 'tv_show':
-        summary = 'TV Show: "${title ?? query}"';
-        break;
-      case 'video_game':
-        summary = 'Game: "${title ?? query}"';
-        break;
-      default:
-        summary = title ?? query;
+    // Format in JSON format to be compatible with structured prompts
+    try {
+      Map<String, dynamic> jsonSummary = {};
+      
+      // Add required fields based on media type
+      switch (mediaType) {
+        case 'music':
+          jsonSummary = {
+            "title": title ?? "Unknown",
+            "artist": artist ?? "Unknown Artist",
+            "album": album ?? "Unknown Album",
+            "reasoning": botReasoning ?? "Previously suggested music"
+          };
+          break;
+        case 'movie':
+          // Extract year if available
+          final year = description != null &&  description!.contains('released in')
+              ? RegExp(r'released in (\d{4})').firstMatch(description!)?.group(1) 
+              : "Unknown Year";
+          jsonSummary = {
+            "title": title ?? "Unknown",
+            "director": query.isNotEmpty && query.contains('directed by') ? query.split('directed by').last.trim() : "Unknown Director",
+            "year": year,
+            "reasoning": botReasoning ?? "Previously suggested movie"
+          };
+          break;
+        case 'book':
+          jsonSummary = {
+            "title": title ?? "Unknown",
+            "author": query.isNotEmpty && query.contains('by') ? query.split('by').last.trim() : "Unknown Author",
+            "year": "Unknown Year",
+            "reasoning": botReasoning ?? "Previously suggested book"
+          };
+          break;
+        case 'tv_show':
+          jsonSummary = {
+            "title": title ?? "Unknown",
+            "network": "Unknown Network",
+            "year": "Unknown Year",
+            "reasoning": botReasoning ?? "Previously suggested TV show"
+          };
+          break;
+        case 'video_game':
+          jsonSummary = {
+            "title": title ?? "Unknown",
+            "developer": "Unknown Developer",
+            "year": "Unknown Year",
+            "reasoning": botReasoning ?? "Previously suggested video game"
+          };
+          break;
+        default:
+          jsonSummary = {
+            "title": title ?? query,
+            "reasoning": botReasoning ?? "Previously suggested media"
+          };
+      }
+      
+      // Truncate all fields to ensure they don't exceed 80 characters
+      jsonSummary.forEach((key, value) {
+        if (value is String && value.length > 80) {
+          jsonSummary[key] = value.substring(0, 77) + "...";
+        }
+      });
+      
+      // Return properly formatted JSON
+      return json.encode(jsonSummary);
+    } catch (e) {
+      // Fallback to simple format if JSON creation fails
+      return '{"title": "${(title ?? query).replaceAll('"', '\\"')}", "reasoning": "Previously suggested ${mediaType.replaceAll('_', ' ')}"}';
     }
-    
-    // Add status information
-    return '$summary [Status: ${status.toString().split('.').last}]';
   }
 }
 
@@ -223,25 +265,81 @@ class RecommendationService extends ChangeNotifier {
       final context = existingSuggestions.map((s) => s.toPromptSummary()).join('\n');
       final prompt = _buildSuggestionPrompt(mediaType, context);
       
-      // Get a suggestion from LLama
-      final suggestion = await _llamaService.generateFullResponse(prompt);
+      // Get a suggestion from LLama using structured JSON format
+      final jsonResponse = await _llamaService.generateStructuredJsonResponse(prompt);
       
-      if (suggestion.isEmpty) {
+      if (jsonResponse.isEmpty) {
         throw Exception('Failed to generate suggestion');
       }
       
-      // Create a preliminary suggestion
-      final preliminarySuggestion = MediaSuggestion(
-        query: suggestion,
-        mediaType: mediaType,
-        status: SuggestionStatus.pending,
-      );
-      
-      // Enrich the suggestion with Wikidata/Wikipedia data
-      final enrichedSuggestion = await _enrichSuggestion(preliminarySuggestion);
-      
-      // Save to SQLite
-      await _db.saveMediaSuggestion(enrichedSuggestion);
+      // Parse the JSON response
+      Map<String, dynamic> suggestionData;
+      try {
+        suggestionData = json.decode(jsonResponse);
+        
+        // Validate that we have essential fields based on media type
+        if (suggestionData == null || !suggestionData.containsKey('title') || 
+            !suggestionData.containsKey('reasoning')) {
+          throw FormatException('Missing required fields in LLM response');
+        }
+        
+        // Extract metadata based on media type
+        String artist = '';
+        String album = '';
+        
+        switch (mediaType) {
+          case 'music':
+            artist = suggestionData['artist'] ?? '';
+            album = suggestionData['album'] ?? '';
+            break;
+          case 'movie':
+            artist = suggestionData['director'] ?? '';
+            break;
+          case 'book':
+            artist = suggestionData['author'] ?? '';
+            break;
+          case 'tv_show':
+            artist = suggestionData['network'] ?? '';
+            break;
+          case 'video_game':
+            artist = suggestionData['developer'] ?? '';
+            break;
+        }
+        
+        // Create a preliminary suggestion with structured data
+        final preliminarySuggestion = MediaSuggestion(
+          query: jsonResponse, // Store the full JSON as query
+          mediaType: mediaType,
+          title: suggestionData['title'],
+          artist: artist,
+          album: album,
+          botReasoning: suggestionData['reasoning'],
+          status: SuggestionStatus.pending,
+        );
+        
+        // Enrich the suggestion with Wikidata/Wikipedia data
+        final enrichedSuggestion = await _enrichSuggestion(preliminarySuggestion);
+        
+        // Save to SQLite
+        await _db.saveMediaSuggestion(enrichedSuggestion);
+        
+      } catch (e) {
+        debugPrint('Error parsing JSON response: $e');
+        debugPrint('Raw response: $jsonResponse');
+        
+        // Fall back to using the raw response as a suggestion
+        final preliminarySuggestion = MediaSuggestion(
+          query: jsonResponse,
+          mediaType: mediaType,
+          status: SuggestionStatus.pending,
+        );
+        
+        // Enrich the suggestion with Wikidata/Wikipedia data
+        final enrichedSuggestion = await _enrichSuggestion(preliminarySuggestion);
+        
+        // Save to SQLite
+        await _db.saveMediaSuggestion(enrichedSuggestion);
+      }
       
       _currentlyProcessingMediaType = null;
       notifyListeners();
@@ -255,22 +353,15 @@ class RecommendationService extends ChangeNotifier {
 
   // Build a prompt for the LLM to generate a suggestion
   String _buildSuggestionPrompt(String mediaType, String context) {
-    String humanReadableType = mediaType.replaceAll('_', ' ');
+    // Get the appropriate structured JSON template
+    String template = getPromptTemplateForMediaType(mediaType);
     
-    // Base prompt
-    String prompt = 'Suggest a $humanReadableType that you think I might enjoy.';
-    
-    // Add context of previous suggestions if available
+    // Format with previous suggestions if available
     if (context.isNotEmpty) {
-      prompt = '''
-I've previously been suggested the following $humanReadableType:
-$context
-
-Based on these, $prompt Make sure to suggest something different than what I've seen before.
-''';
+      return formatPromptWithPreviousSuggestions(template, [context]);
     }
     
-    return prompt;
+    return template;
   }
 
   // Enrich a suggestion with Wikidata/Wikipedia data
@@ -357,33 +448,33 @@ Based on these, $prompt Make sure to suggest something different than what I've 
       // Add media-type specific fields
       switch (mediaType) {
         case 'music':
-          if (result.containsKey('artist')) {
+          if (result != null && result.containsKey('artist')) {
             extractedData['artist'] = result['artistLabel']?['value'];
           }
-          if (result.containsKey('album')) {
+          if (result != null && result.containsKey('album')) {
             extractedData['album'] = result['albumLabel']?['value'];
           }
           break;
         case 'movie':
         case 'tv_show':
-          if (result.containsKey('director')) {
+          if (result != null && result.containsKey('director')) {
             extractedData['director'] = result['directorLabel']?['value'];
           }
           break;
         case 'book':
-          if (result.containsKey('author')) {
+          if (result != null && result.containsKey('author')) {
             extractedData['author'] = result['authorLabel']?['value'];
           }
           break;
         case 'video_game':
-          if (result.containsKey('developer')) {
+          if (result != null && result.containsKey('developer')) {
             extractedData['developer'] = result['developerLabel']?['value'];
           }
           break;
       }
       
       // Try to get an image URL if available
-      if (result.containsKey('image')) {
+      if (result != null && result.containsKey('image')) {
         extractedData['imageUrl'] = result['image']?['value'];
       }
       
@@ -491,10 +582,13 @@ Based on these, $prompt Make sure to suggest something different than what I've 
       }
       
       final wikidataData = json.decode(wikidataResponse.body);
-      final entities = wikidataData['entities'] as Map<String, dynamic>;
+      final entities = wikidataData['entities'] as Map<String, dynamic>?;
       
-      if (!entities.containsKey(wikidataId) || 
+      if (entities == null || 
+          !entities.containsKey(wikidataId) || 
+          entities[wikidataId] == null ||
           !entities[wikidataId].containsKey('sitelinks') || 
+          entities[wikidataId]['sitelinks'] == null ||
           !entities[wikidataId]['sitelinks'].containsKey('enwiki')) {
         return null;
       }

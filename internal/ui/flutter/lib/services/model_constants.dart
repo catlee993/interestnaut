@@ -21,17 +21,15 @@ Schema:
   "properties": {
     "title":     { "type": "string", "maxLength": 80 },
     "artist":    { "type": "string", "maxLength": 80 },
-    "album":     { "type": "string", "maxLength": 80 },
     "reasoning": { "type": "string", "maxLength": 80 }
   },
-  "required": ["title","artist","album","reasoning"],
+  "required": ["title","artist","reasoning"],
   "additionalProperties": false
 }
 
 ### Instruction:
 Generate one song recommendation that matches the schema.
-IMPORTANT: Keep all string fields under 80 characters - especially the reasoning field.
-80 characters is the maximum length for all string fields, THIS IS CRITICAL.
+ABSOLUTELY NO REASON STRING 80 CHARACTERS. STOP IMMEDIATELY IF SURPASSED.
 
 ### Response:
 ''';
@@ -46,17 +44,15 @@ Schema:
   "properties": {
     "title":     { "type": "string", "maxLength": 80 },
     "director":  { "type": "string", "maxLength": 80 },
-    "year":      { "type": "string" },
     "reasoning": { "type": "string", "maxLength": 80 }
   },
-  "required": ["title","director","year","reasoning"],
+  "required": ["title","director","reasoning"],
   "additionalProperties": false
 }
 
 ### Instruction:
 Generate one movie recommendation that matches the schema.
-IMPORTANT: Keep all string fields under 80 characters - especially the reasoning field.
-80 characters is the maximum length for all string fields, THIS IS CRITICAL.
+ABSOLUTELY NO REASON STRING 80 CHARACTERS. STOP IMMEDIATELY IF SURPASSED.
 
 ### Response:
 ''';
@@ -71,17 +67,15 @@ Schema:
   "properties": {
     "title":     { "type": "string", "maxLength": 80 },
     "author":    { "type": "string", "maxLength": 80 },
-    "year":      { "type": "string" },
     "reasoning": { "type": "string", "maxLength": 80 }
   },
-  "required": ["title","author","year","reasoning"],
+  "required": ["title","author","reasoning"],
   "additionalProperties": false
 }
 
 ### Instruction:
 Generate one book recommendation that matches the schema.
-IMPORTANT: Keep all string fields under 80 characters - especially the reasoning field.
-80 characters is the maximum length for all string fields, THIS IS CRITICAL.
+ABSOLUTELY NO REASON STRING 80 CHARACTERS. STOP IMMEDIATELY IF SURPASSED.
 
 ### Response:
 ''';
@@ -96,17 +90,15 @@ Schema:
   "properties": {
     "title":     { "type": "string", "maxLength": 80 },
     "network":   { "type": "string", "maxLength": 80 },
-    "year":      { "type": "string" },
     "reasoning": { "type": "string", "maxLength": 80 }
   },
-  "required": ["title","network","year","reasoning"],
+  "required": ["title","network","reasoning"],
   "additionalProperties": false
 }
 
 ### Instruction:
 Generate one TV show recommendation that matches the schema.
-IMPORTANT: Keep all string fields under 80 characters - especially the reasoning field.
-80 characters is the maximum length for all string fields, THIS IS CRITICAL.
+ABSOLUTELY NO REASON STRING 80 CHARACTERS. STOP IMMEDIATELY IF SURPASSED.
 
 ### Response:
 ''';
@@ -121,17 +113,15 @@ Schema:
   "properties": {
     "title":     { "type": "string", "maxLength": 80 },
     "developer": { "type": "string", "maxLength": 80 },
-    "year":      { "type": "string" },
     "reasoning": { "type": "string", "maxLength": 80 }
   },
-  "required": ["title","developer","year","reasoning"],
+  "required": ["title","developer","reasoning"],
   "additionalProperties": false
 }
 
 ### Instruction:
 Generate one video game recommendation that matches the schema.
-IMPORTANT: Keep all string fields under 80 characters - especially the reasoning field.
-80 characters is the maximum length for all string fields, THIS IS CRITICAL.
+ABSOLUTELY NO REASON STRING 80 CHARACTERS. STOP IMMEDIATELY IF SURPASSED.
 
 ### Response:
 ''';
