@@ -335,12 +335,6 @@ class RecommendationService extends ChangeNotifier {
               break;
           }
           
-          // Check for duplication
-          if (hasRepeatedStatement(suggestionData['reasoning'] ?? '')) {
-            debugPrint('[LLAMA] Repeated statement detected in reasoning. Retrying...');
-            return _fillSuggestionQueue(mediaType);
-          }
-          
           // Create a preliminary suggestion with structured data
           final preliminarySuggestion = MediaSuggestion(
             query: jsonResponse, // Store the full JSON as query
@@ -445,12 +439,6 @@ class RecommendationService extends ChangeNotifier {
           case 'video_game':
             artist = suggestionData['developer'] ?? '';
             break;
-        }
-        
-        // Check for duplication
-        if (hasRepeatedStatement(suggestionData['reasoning'] ?? '')) {
-          debugPrint('[LLAMA] Repeated statement detected in reasoning. Retrying...');
-          return _fillSuggestionQueue(mediaType);
         }
         
         // Create a preliminary suggestion with structured data
@@ -952,20 +940,5 @@ class RecommendationService extends ChangeNotifier {
   void dispose() {
     _queueCheckTimer?.cancel();
     super.dispose();
-  }
-
-  // --- Helper: Detect repeated statements in a string (for reasoning duplication) ---
-  bool hasRepeatedStatement(String text) {
-    // Split into sentences using period, exclamation, or question mark
-    final sentences = text.split(RegExp(r'[.!?]'))
-      .map((s) => s.trim())
-      .where((s) => s.isNotEmpty)
-      .toList();
-    final seen = <String>{};
-    for (final sentence in sentences) {
-      if (seen.contains(sentence)) return true;
-      seen.add(sentence);
-    }
-    return false;
   }
 }

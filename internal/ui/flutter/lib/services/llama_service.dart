@@ -407,12 +407,12 @@ class LlamaService {
             if (!completer.isCompleted) {
               final finalText = buffer.toString();
               final extractedJson = extractJsonFromText(finalText);
-              if (extractedJson != null && _isJsonObjectComplete(extractedJson)) {
+              if (extractedJson != null) {
                 completer.complete(extractedJson);
               } else {
                 // Try repair as last resort only if the text has all required properties
                 final repairedJson = attemptJsonRepair(finalText);
-                if (repairedJson != null && _isJsonObjectComplete(repairedJson)) {
+                if (repairedJson != null) {
                   debugPrint('Successfully repaired JSON: $repairedJson');
                   completer.complete(repairedJson);
                 } else {
@@ -453,15 +453,15 @@ class LlamaService {
           lastTokenTime = now;
           isGenerating = true;
           
-          // Check for repeated statements
-          if (hasRepeatedStatement(buffer.toString()) || hasRepeatedNgram(buffer.toString(), n: 4)) {
+          // Robust n-gram duplication detection: streaming only
+          if (hasRepeatedNgram(buffer.toString(), n: 4)) {
             debugPrint('[LLAMA] Repeated content detected during generation. Aborting early.');
-            final repairedJson = repairJson(buffer.toString());
+            final repairedJson = attemptJsonRepair(buffer.toString());
             completer.complete(repairedJson);
             subscription?.cancel();
             tokenTimeoutTimer?.cancel();
             isGenerating = false;
-            return; // Ensure we return immediately to stop processing
+            return;
           }
           
           // Check for end of generation tokens
@@ -474,27 +474,14 @@ class LlamaService {
             
             // Extract JSON from the complete text
             final extractedJson = extractJsonFromText(currentText);
-            if (extractedJson != null && _isJsonObjectComplete(extractedJson)) {
-              debugPrint('LlamaService: Found complete JSON object, stopping generation');
-              
-              // Stop processing immediately
-              isGenerating = false;
-              tokenTimeoutTimer?.cancel();
-              
+            if (extractedJson != null) {
+              // Found a valid suggestion, exit immediately
               if (!completer.isCompleted) {
                 completer.complete(extractedJson);
               }
-              
-              // Cancel the subscription and stop generation
               subscription?.cancel();
-              
-              // Stop the generation
-              _llamaParent?.stop().catchError((e) {
-                debugPrint('LlamaService: Error stopping generation: $e');
-              });
-              
-              // Return early to prevent further processing
-              return;
+              tokenTimeoutTimer?.cancel();
+              isGenerating = false;
             }
           }
         },
@@ -511,7 +498,7 @@ class LlamaService {
             // Try to extract JSON from the full response
             final finalText = buffer.toString();
             final extractedJson = extractJsonFromText(finalText);
-            if (extractedJson != null && _isJsonObjectComplete(extractedJson)) {
+            if (extractedJson != null) {
               completer.complete(extractedJson);
             } else {
               // Return what we have, it will be handled by the fallback logic
@@ -577,7 +564,7 @@ class LlamaService {
         lastTokenTime = DateTime.now();
         final text = buffer.toString();
         final extractedJson = extractJsonFromText(text);
-        if (extractedJson != null && _isJsonObjectComplete(extractedJson)) {
+        if (extractedJson != null) {
           // Found a valid suggestion, exit immediately
           if (!completer.isCompleted) {
             completer.complete(extractedJson);
@@ -601,11 +588,11 @@ class LlamaService {
           // Try to extract/repair JSON one last time
           final finalText = buffer.toString();
           final extractedJson = extractJsonFromText(finalText);
-          if (extractedJson != null && _isJsonObjectComplete(extractedJson)) {
+          if (extractedJson != null) {
             completer.complete(extractedJson);
           } else {
             final repairedJson = attemptJsonRepair(finalText);
-            if (repairedJson != null && _isJsonObjectComplete(repairedJson)) {
+            if (repairedJson != null) {
               debugPrint('Successfully repaired JSON: $repairedJson');
               completer.complete(repairedJson);
             } else {
@@ -637,11 +624,11 @@ class LlamaService {
             if (!completer.isCompleted) {
               final finalText = buffer.toString();
               final extractedJson = extractJsonFromText(finalText);
-              if (extractedJson != null && _isJsonObjectComplete(extractedJson)) {
+              if (extractedJson != null) {
                 completer.complete(extractedJson);
               } else {
                 final repairedJson = attemptJsonRepair(finalText);
-                if (repairedJson != null && _isJsonObjectComplete(repairedJson)) {
+                if (repairedJson != null) {
                   debugPrint('Successfully repaired JSON: $repairedJson');
                   completer.complete(repairedJson);
                 } else {
@@ -825,26 +812,12 @@ class LlamaService {
     }
   }
 
-  /// Detect repeated statements in a string (for reasoning duplication)
-  bool hasRepeatedStatement(String text) {
-    final sentences = text.split(RegExp(r'[.!?]'))
-        .map((s) => s.trim())
-        .where((s) => s.isNotEmpty)
-        .toList();
-    final seen = <String>{};
-    for (final sentence in sentences) {
-      if (seen.contains(sentence)) return true;
-      seen.add(sentence);
-    }
-    return false;
-  }
-
-  /// Detect repeated n-grams in a string
+  /// Robust n-gram duplication detection: streaming only
   bool hasRepeatedNgram(String text, {int n = 4}) {
     final normalized = text
-        .replaceAll(RegExp(r'[.,!?;:"\-]'), '')
+        .replaceAll(RegExp(r'[.,!?;:"\\-]'), '')
         .toLowerCase();
-    final words = normalized.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+    final words = normalized.split(RegExp(r'\\s+')).where((w) => w.isNotEmpty).toList();
     final seen = <String>{};
     for (int i = 0; i <= words.length - n; i++) {
       final ngram = words.sublist(i, i + n).join(' ');
@@ -852,24 +825,6 @@ class LlamaService {
       seen.add(ngram);
     }
     return false;
-  }
-
-  /// Defensive JSON repair: ensure closing braces/quotes
-  String repairJson(String input) {
-    var s = input.trim();
-    // Remove trailing commas
-    s = s.replaceAll(RegExp(r',\s*([}\]])'), r'$1');
-    // Add missing closing quote and brace if needed
-    if (!s.endsWith('"}')) {
-      if (s.endsWith('"')) {
-        s = s + '}';
-      } else if (s.endsWith('}')) {
-        // Already closed
-      } else {
-        s = s + '"}';
-      }
-    }
-    return s;
   }
 
   /// Shutdown and clean up resources
