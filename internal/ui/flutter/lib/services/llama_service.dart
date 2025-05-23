@@ -279,9 +279,9 @@ class LlamaService {
       samplerParams.minP = 0.5;            // No minimum probability threshold
       samplerParams.typical = 0.5;         // Disable typical sampling
       samplerParams.penaltyLastTokens = 1; // Disable penalty window
-      samplerParams.penaltyRepeat = 1.0;   // No repeat penalty
-      samplerParams.penaltyFreq = 0.0;     // No frequency penalty
-      samplerParams.penaltyPresent = 0.0;  // No presence penalty
+      samplerParams.penaltyRepeat = 1.2;   // Encourage less repetition
+      samplerParams.penaltyFreq = 0.8;     // Penalize frequent tokens
+      samplerParams.penaltyPresent = 0.8;  // Penalize already-present tokens
       samplerParams.ignoreEOS = false;     // Allow normal EOS handling for proper completion
 
 
@@ -498,7 +498,8 @@ class LlamaService {
           
           if (!completer.isCompleted) {
             // Try to extract JSON from the full response
-            final extractedJson = extractJsonFromText(buffer.toString());
+            final finalText = buffer.toString();
+            final extractedJson = extractJsonFromText(finalText);
             if (extractedJson != null && _isJsonObjectComplete(extractedJson)) {
               completer.complete(extractedJson);
             } else {
@@ -555,166 +556,102 @@ class LlamaService {
     }
 
     try {
-      // Process the prompt with lower temperature for more deterministic output
+      // Process the prompt with lower temperature for structured output
       await processPromptWithParams(prompt, temperature: 0.2, topP: 0.95);
+
+      // Listen to the token stream and exit as soon as a valid suggestion (JSON) is detected
+      subscription = _responseStreamController?.stream.listen((token) {
+        buffer.write(token);
+        tokenCount++;
+        lastTokenTime = DateTime.now();
+        final text = buffer.toString();
+        final extractedJson = extractJsonFromText(text);
+        if (extractedJson != null && _isJsonObjectComplete(extractedJson)) {
+          // Found a valid suggestion, exit immediately
+          if (!completer.isCompleted) {
+            completer.complete(extractedJson);
+          }
+          subscription?.cancel();
+          tokenTimeoutTimer?.cancel();
+          isGenerating = false;
+        }
+      },
+      onError: (e) {
+        if (!completer.isCompleted) {
+          completer.completeError(e);
+        }
+        tokenTimeoutTimer?.cancel();
+        isGenerating = false;
+      },
+      onDone: () {
+        if (!completer.isCompleted) {
+          // Try to extract/repair JSON one last time
+          final finalText = buffer.toString();
+          final extractedJson = extractJsonFromText(finalText);
+          if (extractedJson != null && _isJsonObjectComplete(extractedJson)) {
+            completer.complete(extractedJson);
+          } else {
+            final repairedJson = attemptJsonRepair(finalText);
+            if (repairedJson != null && _isJsonObjectComplete(repairedJson)) {
+              debugPrint('Successfully repaired JSON: $repairedJson');
+              completer.complete(repairedJson);
+            } else {
+              debugPrint('⚠️ Failed to extract valid JSON from LLM response');
+              debugPrint('Raw response: \n$finalText');
+              completer.completeError(Exception('Failed to generate valid JSON response'));
+            }
+          }
+        }
+        tokenTimeoutTimer?.cancel();
+        isGenerating = false;
+      });
 
       // Start a timer to check for token generation timeout
       tokenTimeoutTimer = Timer.periodic(Duration(milliseconds: 500), (timer) {
         final timeSinceLastToken = DateTime.now().difference(lastTokenTime).inSeconds;
         final currentLength = buffer.length;
-        
-        // Check for timeout conditions:
-        // 1. No tokens received for 10+ seconds (after generation started)
-        // 2. Response exceeds 1000 characters
+        // Timeout or excessive length
         if ((isGenerating && timeSinceLastToken >= 10) || currentLength > 1000) {
           if (isGenerating && timeSinceLastToken >= 10) {
             debugPrint('LlamaService: Token generation timeout after $timeSinceLastToken seconds - assuming generation is complete (received $tokenCount tokens total)');
           } else if (currentLength > 1000) {
             debugPrint('LlamaService: Response exceeded 1000 characters - truncating to avoid excessive generation');
           }
-          
           isGenerating = false;
           timer.cancel();
-          
-          // Don't complete immediately - give a brief moment for any pending tokens
-          // to arrive in the buffer before we extract the JSON
+          // Give a moment for any pending tokens then extract JSON
           Future.delayed(Duration(milliseconds: 300), () {
-            // Extract the final JSON if not already completed
             if (!completer.isCompleted) {
               final finalText = buffer.toString();
               final extractedJson = extractJsonFromText(finalText);
               if (extractedJson != null && _isJsonObjectComplete(extractedJson)) {
                 completer.complete(extractedJson);
               } else {
-                // Try repair as last resort only if the text has all required properties
                 final repairedJson = attemptJsonRepair(finalText);
                 if (repairedJson != null && _isJsonObjectComplete(repairedJson)) {
                   debugPrint('Successfully repaired JSON: $repairedJson');
                   completer.complete(repairedJson);
                 } else {
-                  // Don't return invalid JSON to prevent backend errors
                   debugPrint('⚠️ Failed to extract valid JSON from LLM response');
                   debugPrint('Raw response: \n$finalText');
                   completer.completeError(Exception('Failed to generate valid JSON response'));
                 }
               }
-              
-              // Cancel the subscription to stop token handling
-              subscription?.cancel();
-              
-              // Stop the generation
-              _llamaParent?.stop().catchError((e) {
-                debugPrint('LlamaService: Error stopping generation: $e');
-              });
             }
           });
         }
       });
 
-      // Create stream subscription for receiving tokens
-      subscription = responseStream?.listen(
-        (token) {
-          // Only process tokens if we're still generating
-          // This prevents processing tokens after timeout
-          if (!isGenerating && completer.isCompleted) {
-            debugPrint('LlamaService: Received token after completion: "$token" (ignored)');
-            return;
-          }
-          
-          buffer.write(token);
-          tokenCount++;
-          final now = DateTime.now();
-          final timeSinceLastToken = now.difference(lastTokenTime).inMilliseconds;
-          debugPrint('LlamaService: Token generated: "$token" ($timeSinceLastToken ms since last token)');
-          lastTokenTime = now;
-          isGenerating = true;
-          
-          // Check for end of generation tokens
-          final currentText = buffer.toString();
-          if (isGenerating && (
-              currentText.contains("<///>") ||
-              currentText.endsWith('"}') || 
-              currentText.endsWith('"}]') || 
-              currentText.endsWith('}\n') ||
-              currentText.endsWith('</s>') ||
-              currentText.contains('}\n'))) {
-            
-            debugPrint('LlamaService: Potential end of generation detected');
-            
-            // Extract JSON from the complete text
-            final extractedJson = extractJsonFromText(currentText);
-            if (extractedJson != null && _isJsonObjectComplete(extractedJson)) {
-              debugPrint('LlamaService: Found complete JSON object, stopping generation');
-              
-              // Stop processing immediately
-              isGenerating = false;
-              tokenTimeoutTimer?.cancel();
-              
-              if (!completer.isCompleted) {
-                completer.complete(extractedJson);
-              }
-              
-              // Cancel the subscription and stop generation
-              subscription?.cancel();
-              
-              // Stop the generation
-              _llamaParent?.stop().catchError((e) {
-                debugPrint('LlamaService: Error stopping generation: $e');
-              });
-              
-              // Return early to prevent further processing
-              return;
-            }
-          }
-        },
-        onError: (e) {
-          errorMessage = e.toString();
-          if (!completer.isCompleted) {
-            completer.completeError(e);
-          }
-        },
-        onDone: () {
-          tokenTimeoutTimer?.cancel();
-          
-          if (!completer.isCompleted) {
-            // Try to extract JSON from the full response
-            final extractedJson = extractJsonFromText(buffer.toString());
-            if (extractedJson != null && _isJsonObjectComplete(extractedJson)) {
-              completer.complete(extractedJson);
-            } else {
-              // Return what we have, it will be handled by the fallback logic
-              completer.complete(buffer.toString());
-            }
-          }
-        }
-      );
+      isGenerating = true;
     } catch (e) {
       if (!completer.isCompleted) {
         completer.completeError(e);
       }
+      tokenTimeoutTimer?.cancel();
+      isGenerating = false;
     }
 
-    final rawResponse = await completer.future;
-
-    // Extract and validate JSON from the response
-    final jsonString = extractJsonFromText(rawResponse);
-
-    if (jsonString == null) {
-      debugPrint('⚠️ Failed to extract valid JSON from LLM response');
-      debugPrint('Raw response: $rawResponse');
-
-      // Try a simple fallback approach for incomplete responses
-      final fallbackJson = attemptJsonRepair(rawResponse);
-      if (fallbackJson != null) {
-        debugPrint('✅ Repaired JSON: $fallbackJson');
-        return fallbackJson;
-      }
-
-      // If all else fails, return an error message in JSON format
-      return '{"error": "Failed to generate valid JSON response", "raw_text": "${rawResponse.replaceAll('"', '\\"').substring(0, min(100, rawResponse.length))}..."}';
-    }
-
-    return jsonString;
+    return completer.future;
   }
 
   /// Helper method to extract a JSON object from a response

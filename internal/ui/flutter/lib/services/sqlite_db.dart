@@ -254,9 +254,8 @@ class SQLiteDatabase {
     
     try {
       final stmt = _db!.prepare(countPendingMediaSuggestionsQuery);
-      final result = stmt.select([mediaType]);
-      
-      final count = result.first['count'] as int;
+      final result = stmt.select([mediaType, 'pending']);
+      final count = result.first.values.first as int;
       stmt.dispose();
       
       return count;

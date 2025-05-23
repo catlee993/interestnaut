@@ -15,6 +15,7 @@ enum SuggestionStatus {
   disliked,
   added, // Favorited
   archived, // User has removed/deleted it from view, kept for history
+  failure, // New status for failed enrichment
 }
 
 class MediaSuggestion {
@@ -163,6 +164,10 @@ class MediaSuggestion {
       return '{"title": "${(title ?? query).replaceAll('"', '\\"')}", "reasoning": "Previously suggested ${mediaType.replaceAll('_', ' ')}"}';
     }
   }
+
+  bool isValid() {
+    return title != null && title!.isNotEmpty;
+  }
 }
 
 class RecommendationService extends ChangeNotifier {
@@ -239,8 +244,9 @@ class RecommendationService extends ChangeNotifier {
   Future<int> _getPendingSuggestionsCount(String mediaType) async {
     try {
       return await _db.countPendingMediaSuggestions(mediaType);
-    } catch (e) {
-      debugPrint('Error counting pending suggestions: $e');
+    } catch (e, stack) {
+      debugPrint('[DB] Error counting pending suggestions for mediaType=$mediaType: ${e.toString()}');
+      debugPrint('[DB] Stack trace: $stack');
       return 0;
     }
   }
@@ -256,21 +262,158 @@ class RecommendationService extends ChangeNotifier {
     
     try {
       // Get existing suggestions to build prompt context
-      final existingSuggestions = await _db.getAllMediaSuggestions(
+      final allSuggestions = await _db.getAllMediaSuggestions(
         mediaType: mediaType,
-        limit: 10, // Get recent suggestions for context
+        limit: 1000, // Get all previous suggestions for context (large limit)
+        statusFilter: null, // Get all, not just pending
       );
       
-      // Build a prompt with context of past suggestions
-      final context = existingSuggestions.map((s) => s.toPromptSummary()).join('\n');
-      final prompt = _buildSuggestionPrompt(mediaType, context);
+      // Build a prompt with context of ALL past suggestions, compact format
+      final summaries = allSuggestions.map((s) {
+        return '{"title":"${s.title ?? ''}","artist":"${s.artist ?? ''}"}}';
+      }).toList();
       
-      // Get a suggestion from LLama using structured JSON format
-      final jsonResponse = await _llamaService.generateStructuredJsonResponse(prompt);
-      
-      if (jsonResponse.isEmpty) {
-        throw Exception('Failed to generate suggestion');
+      // Join summaries, but truncate oldest if prompt gets too long
+      String context = '';
+      const maxPromptLength = 4096; // Quadruple previous safe threshold
+      for (int i = 0; i < summaries.length; i++) {
+        // Always include most recent suggestions, drop/compact oldest if needed
+        if ((context + summaries[i] + '\n').length > maxPromptLength) {
+          context += '\n...and ${summaries.length - i} more previous suggestions omitted for brevity.';
+          break;
+        }
+        context += summaries[i] + '\n';
       }
+      final prompt = _buildSuggestionPrompt(mediaType, context.trim());
+      
+      debugPrint('[LLAMA] Prompt length: ${prompt.length}');
+      debugPrint('[LLAMA] Prompt content (first 512 chars): ${prompt.substring(0, prompt.length > 512 ? 512 : prompt.length)}');
+      
+      if (prompt.length > maxPromptLength) {
+        debugPrint('[LLAMA] Prompt exceeded max length ($maxPromptLength). Truncating to avoid crash.');
+        // Truncate to last 1024 chars (most recent context + instruction)
+        final truncatedPrompt = prompt.substring(prompt.length - maxPromptLength);
+        // Add a warning to the prompt
+        final safePrompt = '/* WARNING: Truncated context to fit model batch size. */\n' + truncatedPrompt;
+        // Defensive: if still too long, throw to avoid crash
+        if (safePrompt.length > maxPromptLength) {
+          debugPrint('[LLAMA] Prompt still exceeds max length after truncation. Aborting LLM call to avoid crash.');
+          throw Exception('Prompt exceeds safe batch size for Llama model.');
+        }
+        // Use safePrompt for the LLM call
+        final jsonResponse = await _llamaService.generateStructuredJsonResponse(safePrompt);
+        
+        // Parse the JSON response
+        Map<String, dynamic> suggestionData;
+        try {
+          suggestionData = json.decode(jsonResponse);
+          
+          // Validate that we have essential fields based on media type
+          if (suggestionData == null || !suggestionData.containsKey('title') || 
+              !suggestionData.containsKey('reasoning')) {
+            throw FormatException('Missing required fields in LLM response');
+          }
+          
+          // Extract metadata based on media type
+          String artist = '';
+          String album = '';
+          
+          switch (mediaType) {
+            case 'music':
+              artist = suggestionData['artist'] ?? '';
+              album = suggestionData['album'] ?? '';
+              break;
+            case 'movie':
+            case 'tv_show':
+              artist = suggestionData['director'] ?? '';
+              break;
+            case 'book':
+              artist = suggestionData['author'] ?? '';
+              break;
+            case 'video_game':
+              artist = suggestionData['developer'] ?? '';
+              break;
+          }
+          
+          // Check for duplication
+          if (hasRepeatedStatement(suggestionData['reasoning'] ?? '')) {
+            debugPrint('[LLAMA] Repeated statement detected in reasoning. Retrying...');
+            return _fillSuggestionQueue(mediaType);
+          }
+          
+          // Create a preliminary suggestion with structured data
+          final preliminarySuggestion = MediaSuggestion(
+            query: jsonResponse, // Store the full JSON as query
+            mediaType: mediaType,
+            title: suggestionData['title'],
+            artist: artist,
+            album: album,
+            botReasoning: suggestionData['reasoning'],
+            status: SuggestionStatus.pending,
+          );
+          
+          // Enrich the suggestion with Wikidata/Wikipedia data
+          final enrichedSuggestion = await _enrichSuggestion(preliminarySuggestion);
+          
+          // Save to SQLite as 'pending' only if enrichment was successful
+          if (enrichedSuggestion != null && enrichedSuggestion.isValid()) {
+            await _db.saveMediaSuggestion(enrichedSuggestion);
+          } else {
+            // Save minimal info as a failure
+            final failureSuggestion = MediaSuggestion(
+              query: jsonResponse,
+              mediaType: mediaType,
+              title: suggestionData['title'] ?? '',
+              artist: artist,
+              status: SuggestionStatus.failure,
+            );
+            await _db.saveMediaSuggestion(failureSuggestion);
+          }
+          
+          _currentlyProcessingMediaType = null;
+          notifyListeners();
+          return;
+        } catch (e) {
+          debugPrint('Error parsing JSON response: $e');
+          debugPrint('Raw response: $jsonResponse');
+          
+          // Fall back to using the raw response as a suggestion
+          final preliminarySuggestion = MediaSuggestion(
+            query: jsonResponse,
+            mediaType: mediaType,
+            status: SuggestionStatus.pending,
+          );
+          
+          // Enrich the suggestion with Wikidata/Wikipedia data
+          final enrichedSuggestion = await _enrichSuggestion(preliminarySuggestion);
+          
+          // Save to SQLite as 'pending' only if enrichment was successful
+          if (enrichedSuggestion != null && enrichedSuggestion.isValid()) {
+            await _db.saveMediaSuggestion(enrichedSuggestion);
+          } else {
+            // Save minimal info as a failure
+            final failureSuggestion = MediaSuggestion(
+              query: jsonResponse,
+              mediaType: mediaType,
+              title: '',
+              artist: '',
+              status: SuggestionStatus.failure,
+            );
+            await _db.saveMediaSuggestion(failureSuggestion);
+          }
+          
+          _currentlyProcessingMediaType = null;
+          notifyListeners();
+          return;
+        }
+        
+        _currentlyProcessingMediaType = null;
+        notifyListeners();
+        return;
+      }
+      
+      // Normal case
+      final jsonResponse = await _llamaService.generateStructuredJsonResponse(prompt);
       
       // Parse the JSON response
       Map<String, dynamic> suggestionData;
@@ -293,17 +436,21 @@ class RecommendationService extends ChangeNotifier {
             album = suggestionData['album'] ?? '';
             break;
           case 'movie':
+          case 'tv_show':
             artist = suggestionData['director'] ?? '';
             break;
           case 'book':
             artist = suggestionData['author'] ?? '';
             break;
-          case 'tv_show':
-            artist = suggestionData['network'] ?? '';
-            break;
           case 'video_game':
             artist = suggestionData['developer'] ?? '';
             break;
+        }
+        
+        // Check for duplication
+        if (hasRepeatedStatement(suggestionData['reasoning'] ?? '')) {
+          debugPrint('[LLAMA] Repeated statement detected in reasoning. Retrying...');
+          return _fillSuggestionQueue(mediaType);
         }
         
         // Create a preliminary suggestion with structured data
@@ -320,9 +467,23 @@ class RecommendationService extends ChangeNotifier {
         // Enrich the suggestion with Wikidata/Wikipedia data
         final enrichedSuggestion = await _enrichSuggestion(preliminarySuggestion);
         
-        // Save to SQLite
-        await _db.saveMediaSuggestion(enrichedSuggestion);
+        // Save to SQLite as 'pending' only if enrichment was successful
+        if (enrichedSuggestion != null && enrichedSuggestion.isValid()) {
+          await _db.saveMediaSuggestion(enrichedSuggestion);
+        } else {
+          // Save minimal info as a failure
+          final failureSuggestion = MediaSuggestion(
+            query: jsonResponse,
+            mediaType: mediaType,
+            title: suggestionData['title'] ?? '',
+            artist: artist,
+            status: SuggestionStatus.failure,
+          );
+          await _db.saveMediaSuggestion(failureSuggestion);
+        }
         
+        _currentlyProcessingMediaType = null;
+        notifyListeners();
       } catch (e) {
         debugPrint('Error parsing JSON response: $e');
         debugPrint('Raw response: $jsonResponse');
@@ -337,8 +498,23 @@ class RecommendationService extends ChangeNotifier {
         // Enrich the suggestion with Wikidata/Wikipedia data
         final enrichedSuggestion = await _enrichSuggestion(preliminarySuggestion);
         
-        // Save to SQLite
-        await _db.saveMediaSuggestion(enrichedSuggestion);
+        // Save to SQLite as 'pending' only if enrichment was successful
+        if (enrichedSuggestion != null && enrichedSuggestion.isValid()) {
+          await _db.saveMediaSuggestion(enrichedSuggestion);
+        } else {
+          // Save minimal info as a failure
+          final failureSuggestion = MediaSuggestion(
+            query: jsonResponse,
+            mediaType: mediaType,
+            title: '',
+            artist: '',
+            status: SuggestionStatus.failure,
+          );
+          await _db.saveMediaSuggestion(failureSuggestion);
+        }
+        
+        _currentlyProcessingMediaType = null;
+        notifyListeners();
       }
       
       _currentlyProcessingMediaType = null;
@@ -367,7 +543,7 @@ class RecommendationService extends ChangeNotifier {
   // Enrich a suggestion with Wikidata/Wikipedia data
   Future<MediaSuggestion> _enrichSuggestion(MediaSuggestion suggestion) async {
     // First, search Wikidata for the best match
-    final wikidataResult = await _searchWikidata(suggestion.query, suggestion.mediaType);
+    final wikidataResult = await _searchWikidata(suggestion.title ?? '', suggestion.mediaType);
     
     if (wikidataResult == null) {
       // If no Wikidata match found, return the original suggestion
@@ -400,16 +576,16 @@ class RecommendationService extends ChangeNotifier {
   // Search Wikidata for the best match
   Future<Map<String, dynamic>?> _searchWikidata(String query, String mediaType) async {
     try {
+      debugPrint('[WIKIDATA] Querying Wikidata for: "$query" (mediaType: $mediaType)');
       // Convert media type to the format expected by Wikidata
       final wikidataType = _mapMediaTypeForWikidata(mediaType);
       
       // Build the SPARQL query to search Wikidata
       final sparqlQuery = _buildWikidataSparqlQuery(query, wikidataType);
+      debugPrint('[WIKIDATA] SPARQL: $sparqlQuery');
       
       // Wikidata endpoint
       final endpoint = Uri.parse('https://query.wikidata.org/sparql');
-      
-      // Execute the query
       final queryParams = {'query': sparqlQuery, 'format': 'json'};
       final url = Uri(
         scheme: endpoint.scheme,
@@ -417,14 +593,16 @@ class RecommendationService extends ChangeNotifier {
         path: endpoint.path,
         queryParameters: queryParams,
       );
+      debugPrint('[WIKIDATA] URL: $url');
       
+      // Execute the query
       final response = await http.get(
         url,
         headers: {'Accept': 'application/json'},
       );
-      
+      debugPrint('[WIKIDATA] Response status: ${response.statusCode}');
       if (response.statusCode != 200) {
-        debugPrint('Wikidata query failed with status: ${response.statusCode}');
+        debugPrint('[WIKIDATA] Response body: ${response.body}');
         return null;
       }
       
@@ -557,6 +735,7 @@ class RecommendationService extends ChangeNotifier {
   // Get additional details from Wikipedia using a Wikidata ID
   Future<Map<String, dynamic>?> _getWikipediaDetails(String wikidataId) async {
     try {
+      debugPrint('[WIKIPEDIA] Getting Wikipedia details for Wikidata ID: $wikidataId');
       // First, get the Wikipedia title from Wikidata
       final wikidataEndpoint = Uri.parse('https://www.wikidata.org/w/api.php');
       
@@ -574,10 +753,16 @@ class RecommendationService extends ChangeNotifier {
         path: wikidataEndpoint.path,
         queryParameters: wdQueryParams,
       );
+      debugPrint('[WIKIPEDIA] Wikidata API URL: $wdUrl');
       
-      final wikidataResponse = await http.get(wdUrl);
-      
+      // Execute the query
+      final wikidataResponse = await http.get(
+        wdUrl,
+        headers: {'Accept': 'application/json'},
+      );
+      debugPrint('[WIKIPEDIA] Wikidata API status: ${wikidataResponse.statusCode}');
       if (wikidataResponse.statusCode != 200) {
+        debugPrint('[WIKIPEDIA] Wikidata API body: ${wikidataResponse.body}');
         return null;
       }
       
@@ -614,10 +799,12 @@ class RecommendationService extends ChangeNotifier {
         path: wikipediaEndpoint.path,
         queryParameters: wpQueryParams,
       );
+      debugPrint('[WIKIPEDIA] Wikipedia API URL: $wpUrl');
       
       final wikipediaResponse = await http.get(wpUrl);
-      
+      debugPrint('[WIKIPEDIA] Wikipedia API status: ${wikipediaResponse.statusCode}');
       if (wikipediaResponse.statusCode != 200) {
+        debugPrint('[WIKIPEDIA] Wikipedia API body: ${wikipediaResponse.body}');
         return null;
       }
       
@@ -765,5 +952,20 @@ class RecommendationService extends ChangeNotifier {
   void dispose() {
     _queueCheckTimer?.cancel();
     super.dispose();
+  }
+
+  // --- Helper: Detect repeated statements in a string (for reasoning duplication) ---
+  bool hasRepeatedStatement(String text) {
+    // Split into sentences using period, exclamation, or question mark
+    final sentences = text.split(RegExp(r'[.!?]'))
+      .map((s) => s.trim())
+      .where((s) => s.isNotEmpty)
+      .toList();
+    final seen = <String>{};
+    for (final sentence in sentences) {
+      if (seen.contains(sentence)) return true;
+      seen.add(sentence);
+    }
+    return false;
   }
 }
