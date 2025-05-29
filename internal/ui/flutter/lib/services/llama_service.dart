@@ -185,12 +185,12 @@ class LlamaService {
     _initCompleter = Completer<void>();
     
     try {
-      _showToast('Initializing LLM with model: ${path.basename(modelPath)}');
+      print('Initializing LLM with model: ${path.basename(modelPath)}');
       
       // Check if model exists first
       final modelFile = File(modelPath);
       if (!await modelFile.exists()) {
-        _showToast('Model not found at $modelPath', isError: true);
+        print('Model not found at $modelPath');
         _initCompleter?.complete();
         return false;
       }
@@ -226,7 +226,7 @@ class LlamaService {
             
             final devLibFile = File(devLibPath);
             if (await devLibFile.exists()) {
-              _showToast('Found library in Windows runner directory: $devLibPath');
+              print('Found library in Windows runner directory: $devLibPath');
               libraryPath = devLibPath;
             } else {
               // Also try the build output location for Debug/Release
@@ -245,7 +245,7 @@ class LlamaService {
               
               final buildLibFile = File(buildLibPath);
               if (await buildLibFile.exists()) {
-                _showToast('Found library in build output directory: $buildLibPath');
+                print('Found library in build output directory: $buildLibPath');
                 libraryPath = buildLibPath;
               }
             }
@@ -262,13 +262,13 @@ class LlamaService {
             
             final devLibFile = File(devLibPath);
             if (await devLibFile.exists()) {
-              _showToast('Found library in project directory: $devLibPath');
+              print('Found library in project directory: $devLibPath');
               libraryPath = devLibPath;
             }
           }
         }
       } catch (e) {
-        _showToast('Error looking for library in project directory: $e');
+        print('Error looking for library in project directory: $e');
       }
 
       // Approach 2: If not found, try a path relative to the model file
@@ -279,11 +279,11 @@ class LlamaService {
 
           final libFile = File(libNextToModelPath);
           if (await libFile.exists()) {
-            _showToast('Found library next to model: $libNextToModelPath');
+            print('Found library next to model: $libNextToModelPath');
             libraryPath = libNextToModelPath;
           }
         } catch (e) {
-          _showToast('Error looking for library next to model: $e');
+          print('Error looking for library next to model: $e');
         }
       }
 
@@ -295,17 +295,17 @@ class LlamaService {
           
           final executableDirFile = File(executableDirPath);
           if (await executableDirFile.exists()) {
-            _showToast('Found library in executable directory: $executableDirPath');
+            print('Found library in executable directory: $executableDirPath');
             libraryPath = executableDirPath;
           }
         } catch (e) {
-          _showToast('Error looking for library in executable directory: $e');
+          print('Error looking for library in executable directory: $e');
         }
       }
 
       // Approach 4: Fallback to system path
       if (libraryPath == null) {
-        _showToast('Using system library path as fallback');
+        print('Using system library path as fallback');
         libraryPath = libraryFileName;
       }
 
@@ -368,7 +368,7 @@ class LlamaService {
       // Listen to the parent's token stream
       _llamaParent!.stream.listen(
         (token) {
-          // Debug: Print each token as it's generated
+          // Debug: Print each token as it's generated (only once)
           print('LlamaService: Token generated: "$token"');
 
           // Add token to our stream controller
@@ -385,12 +385,12 @@ class LlamaService {
         },
       );
 
-      _showToast('LlamaService initialized successfully with model: $modelPath');
+      print('LlamaService initialized successfully with model: $modelPath');
       _isRunning = true;
       _initCompleter?.complete();
       return true;
     } catch (e) {
-      _showToast('Error initializing LLM: $e', isError: true);
+      print('Error initializing LLM: $e');
       _isRunning = false;
       _initCompleter?.completeError(e);
       return false;
@@ -405,7 +405,7 @@ class LlamaService {
   /// Process a prompt with specific generation parameters
   Future<void> processPromptWithParams(String text, {double temperature = 0.7, double topP = 0.9}) async {
     if (!_isRunning || _llamaParent == null) {
-      _showToast('LLM service not running', isError: true);
+      print('LLM service not running');
       throw Exception('LLM service not running or not properly initialized.');
     }
 
@@ -415,12 +415,12 @@ class LlamaService {
     }
 
     try {
-      _showToast('Processing prompt...');
+      print('Processing prompt...');
       
       // Send prompt to the isolate
       _llamaParent!.sendPrompt(text);
     } catch (e) {
-      _showToast('Error processing prompt: $e', isError: true);
+      print('Error processing prompt: $e');
       if (_responseStreamController != null && !_responseStreamController!.isClosed) {
         _responseStreamController!.addError(e);
       }
@@ -440,6 +440,7 @@ class LlamaService {
     bool isGenerating = false;
     int tokenCount = 0;
     DateTime lastTokenTime = DateTime.now();
+    bool hasLoggedToken = false; // Track if we've already logged this token
 
     if (!_isRunning) {
       throw Exception('LLM service not running.');
@@ -455,16 +456,23 @@ class LlamaService {
         tokenCount++;
         lastTokenTime = DateTime.now();
         
-        // Print each token for debugging
-        print('LlamaService: Token generated: "$token"');
+        // We don't need to log tokens here since they're already logged in the parent stream listener
         
         // Check for repetition with every token
         final text = buffer.toString();
         
         // Aggressive repetition check on every token
-        print('LlamaService: Checking for repetition at token $tokenCount (text length: ${text.length})');
-        if (hasRepeatedNgram(text, n: 4)) {
+        if (tokenCount % 5 == 0) { // Only check every 5 tokens to reduce overhead
+          print('LlamaService: Checking for repetition at token $tokenCount (text length: ${text.length})');
+        }
+        
+        // Only check for repetition after we have enough text
+        if (text.length > 40 && (hasRepeatedNgram(text, n: 4, minOccurrences: 4) || text.length > 200)) {
           print('[LLAMA] Repeated content detected during generation. Aborting early.');
+          
+          // CRITICAL: Immediately stop token generation
+          _llamaParent?.stop();
+          
           final repairedJson = attemptJsonRepair(text);
           if (!completer.isCompleted) {
             if (repairedJson != null) {
@@ -478,26 +486,48 @@ class LlamaService {
           subscription?.cancel();
           tokenTimeoutTimer?.cancel();
           isGenerating = false;
+          
+          // Explicitly stop the generation
+          _llamaParent?.stop().catchError((e) {
+            print('LlamaService: Error stopping generation after repetition: $e');
+          });
           return;
         }
         
         final extractedJson = extractJsonFromText(text);
         if (extractedJson != null) {
           // Found a valid suggestion, exit immediately
+          
+          // CRITICAL: Immediately stop token generation
+          _llamaParent?.stop();
+          
           if (!completer.isCompleted) {
             completer.complete(extractedJson);
           }
           subscription?.cancel();
           tokenTimeoutTimer?.cancel();
           isGenerating = false;
+          
+          // Explicitly stop the generation to prevent further token generation
+          _llamaParent?.stop().catchError((e) {
+            print('LlamaService: Error stopping generation after JSON extraction: $e');
+          });
         }
       },
       onError: (e) {
+        // CRITICAL: Immediately stop token generation on error
+        _llamaParent?.stop();
+        
         if (!completer.isCompleted) {
           completer.completeError(e);
         }
         tokenTimeoutTimer?.cancel();
         isGenerating = false;
+        
+        // Ensure generation is stopped on error
+        _llamaParent?.stop().catchError((e) {
+          print('LlamaService: Error stopping generation after error: $e');
+        });
       },
       onDone: () {
         tokenTimeoutTimer?.cancel();
@@ -520,7 +550,6 @@ class LlamaService {
             }
           }
         }
-        tokenTimeoutTimer?.cancel();
         isGenerating = false;
       });
 
@@ -537,6 +566,10 @@ class LlamaService {
           }
           isGenerating = false;
           timer.cancel();
+          
+          // CRITICAL: Immediately stop token generation on timeout
+          _llamaParent?.stop();
+          
           // Give a moment for any pending tokens then extract JSON
           Future.delayed(Duration(milliseconds: 300), () {
             if (!completer.isCompleted) {
@@ -570,11 +603,19 @@ class LlamaService {
 
       isGenerating = true;
     } catch (e) {
+      // CRITICAL: Immediately stop token generation on exception
+      _llamaParent?.stop();
+      
       if (!completer.isCompleted) {
         completer.completeError(e);
       }
       tokenTimeoutTimer?.cancel();
       isGenerating = false;
+      
+      // Ensure generation is stopped on error
+      _llamaParent?.stop().catchError((e) {
+        print('LlamaService: Error stopping generation after exception: $e');
+      });
     }
 
     return completer.future;
@@ -739,7 +780,7 @@ class LlamaService {
   }
 
   /// Robust repetition detection for streaming text generation
-  bool hasRepeatedNgram(String text, {int n = 4}) {
+  bool hasRepeatedNgram(String text, {int n = 4, int minOccurrences = 2}) {
     // Need enough text to detect meaningful repetition
     if (text.length < 40) return false;
     
@@ -778,10 +819,14 @@ class LlamaService {
         
         // If the current sentence appears anywhere earlier in the text
         // with exact match (excluding current and previous sentence)
+        int occurrenceCount = 0;
         for (int j = 0; j < i-1; j++) {
           if (sentences[j].trim().toLowerCase() == currSentence) {
-            print('REPETITION DETECTED: Sentence "$currSentence" appears multiple times');
-            return true;
+            occurrenceCount++;
+            if (occurrenceCount >= minOccurrences - 1) { // -1 because we already found one occurrence
+              print('REPETITION DETECTED: Sentence "$currSentence" appears multiple times');
+              return true;
+            }
           }
         }
       }
@@ -800,7 +845,7 @@ class LlamaService {
             words[i+1].toLowerCase() == 'best') {
           theBestCount++;
           
-          if (theBestCount >= 3) {
+          if (theBestCount >= minOccurrences + 1) {
             print('REPETITION DETECTED: Phrase "the best" appears $theBestCount times');
             return true;
           }
@@ -808,15 +853,13 @@ class LlamaService {
       }
       
       // Check for repeating word patterns (e.g., "He is the best. He is the best.")
-      for (int i = words.length - 4; i >= 0; i--) {
-        if (i + 8 <= words.length && 
-            words[i].toLowerCase() == words[i+4].toLowerCase() && 
-            words[i+1].toLowerCase() == words[i+5].toLowerCase() && 
-            words[i+2].toLowerCase() == words[i+6].toLowerCase() && 
-            words[i+3].toLowerCase() == words[i+7].toLowerCase()) {
-          
-          final pattern = '${words[i]} ${words[i+1]} ${words[i+2]} ${words[i+3]}';
-          print('REPETITION DETECTED: Word pattern "$pattern" repeats');
+      Map<String, int> patternCounts = {};
+      for (int i = 0; i <= words.length - 4; i++) {
+        final pattern = '${words[i]} ${words[i+1]} ${words[i+2]} ${words[i+3]}'.toLowerCase();
+        patternCounts[pattern] = (patternCounts[pattern] ?? 0) + 1;
+        
+        if ((patternCounts[pattern] ?? 0) >= minOccurrences) {
+          print('REPETITION DETECTED: Word pattern "$pattern" repeats ${patternCounts[pattern]} times');
           return true;
         }
       }
@@ -831,20 +874,30 @@ class LlamaService {
         // Get the last N characters
         final lastNChars = recentText.substring(recentText.length - tokenSize);
         
-        // Look for this token in the earlier text
+        // Count occurrences in the earlier text
         final earlierText = recentText.substring(0, recentText.length - tokenSize);
         
-        // If we find the same characters earlier in the text
-        if (earlierText.contains(lastNChars)) {
-          // Check how close the last occurrence is to the end
-          final lastPos = earlierText.lastIndexOf(lastNChars);
-          final distanceFromEnd = recentText.length - tokenSize - lastPos;
+        // Count occurrences
+        int occurrenceCount = 0;
+        int startIndex = 0;
+        while (true) {
+          final index = earlierText.indexOf(lastNChars, startIndex);
+          if (index == -1) break;
           
-          // If it's very close, it's likely a repetition loop
-          if (distanceFromEnd < tokenSize * 4) {
-            print('REPETITION DETECTED: Pattern "$lastNChars" repeats with small gap (distance: $distanceFromEnd)');
-            return true;
+          occurrenceCount++;
+          if (occurrenceCount >= minOccurrences - 1) { // -1 because we're looking for one less occurrence in the earlier text
+            // Check how close the last occurrence is to the end
+            final lastPos = earlierText.lastIndexOf(lastNChars);
+            final distanceFromEnd = recentText.length - tokenSize - lastPos;
+            
+            // If it's very close, it's likely a repetition loop
+            if (distanceFromEnd < tokenSize * 4) {
+              print('REPETITION DETECTED: Pattern "$lastNChars" repeats with small gap (distance: $distanceFromEnd)');
+              return true;
+            }
+            break;
           }
+          startIndex = index + 1;
         }
       }
     }
@@ -885,9 +938,9 @@ class LlamaService {
       _responseStreamController = null;
 
       _isRunning = false;
-      _showToast('LLM shutdown complete');
+      print('LLM shutdown complete');
     } catch (e) {
-      _showToast('Error during shutdown: $e', isError: true);
+      print('Error during shutdown: $e');
     }
   }
 
@@ -901,7 +954,7 @@ class LlamaService {
       Future.delayed(Duration(seconds: 5), () {
         if (!shutdownCompleter.isCompleted) {
           shutdownCompleter.complete();
-          _logger.warning('Timed out waiting for llama isolate to shut down');
+          print('Timed out waiting for llama isolate to shut down');
         }
       });
       
@@ -913,7 +966,7 @@ class LlamaService {
             shutdownCompleter.complete();
           }
         }).catchError((e) {
-          _logger.warning('Error disposing LlamaParent: $e');
+          print('Error disposing LlamaParent: $e');
           if (!shutdownCompleter.isCompleted) {
             shutdownCompleter.complete();
           }
