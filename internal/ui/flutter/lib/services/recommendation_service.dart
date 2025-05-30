@@ -4,7 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:interestnaut/services/llama_service.dart';
 import 'package:interestnaut/services/sqlite_db.dart';
-import 'package:interestnaut/services/model_constants.dart'; // Import the model constants
+import 'package:interestnaut/services/model_constants.dart'; 
+import '../components/music/spotify_service.dart'; 
 
 // --- Data Models ---
 
@@ -13,29 +14,29 @@ enum SuggestionStatus {
   skipped,
   liked,
   disliked,
-  added, // Favorited
-  archived, // User has removed/deleted it from view, kept for history
-  failure, // New status for failed enrichment
+  added, 
+  archived, 
+  failure, 
 }
 
 class MediaSuggestion {
-  final int id; // Using INTEGER for ID instead of String
-  final String query; // The original LLM query or bot's raw suggestion text
-  final String mediaType; // e.g., "music", "movie", "book"
-  final String? title; // Enriched title from Wikidata/Wikipedia
-  final String? artist; // Specific for music, adapt as needed for other types
-  final String? album;  // Specific for music
-  final String? coverArtUrl; // URL for cover art
-  final String? description; // Enriched description
+  final int id; 
+  final String query; 
+  final String mediaType; 
+  final String? title; 
+  final String? artist; 
+  final String? album;  
+  final String? coverArtUrl; 
+  final String? description; 
   final String? wikiUrl;
   final String? wikidataId;
-  final String? botReasoning; // LLM's reasoning for the suggestion, or Go's reasoning for match
+  final String? botReasoning; 
   SuggestionStatus status;
   final DateTime createdAt;
   final DateTime? updatedAt;
 
   MediaSuggestion({
-    this.id = 0, // Default to 0 for new entries (will be set by autoincrement)
+    this.id = 0, 
     required this.query,
     required this.mediaType,
     this.title,
@@ -92,12 +93,16 @@ class MediaSuggestion {
         'updated_at': updatedAt?.toIso8601String(),
       };
 
+  Map<String, dynamic> toMap() => toJson();
+
+  static MediaSuggestion fromMap(Map<String, dynamic> map) {
+    return MediaSuggestion.fromJson(map);
+  }
+
   String toPromptSummary() {
-    // Format in JSON format to be compatible with structured prompts
     try {
       Map<String, dynamic> jsonSummary = {};
       
-      // Add required fields based on media type
       switch (mediaType) {
         case 'music':
           jsonSummary = {
@@ -108,7 +113,6 @@ class MediaSuggestion {
           };
           break;
         case 'movie':
-          // Extract year if available
           final year = description != null &&  description!.contains('released in')
               ? RegExp(r'released in (\d{4})').firstMatch(description!)?.group(1) 
               : "Unknown Year";
@@ -150,17 +154,14 @@ class MediaSuggestion {
           };
       }
       
-      // Truncate all fields to ensure they don't exceed 80 characters
       jsonSummary.forEach((key, value) {
         if (value is String && value.length > 80) {
           jsonSummary[key] = value.substring(0, 77) + "...";
         }
       });
       
-      // Return properly formatted JSON
       return json.encode(jsonSummary);
     } catch (e) {
-      // Fallback to simple format if JSON creation fails
       return '{"title": "${(title ?? query).replaceAll('"', '\\"')}", "reasoning": "Previously suggested ${mediaType.replaceAll('_', ' ')}"}';
     }
   }
@@ -171,774 +172,352 @@ class MediaSuggestion {
 }
 
 class RecommendationService extends ChangeNotifier {
-  final LlamaService _llamaService;
+  static final RecommendationService _instance = RecommendationService._internal();
+  factory RecommendationService() => _instance;
+  RecommendationService._internal();
+  
   final SQLiteDatabase _db = SQLiteDatabase();
-  final List<MediaSuggestion> _suggestions = [];
-  String? _currentlyProcessingMediaType;
-  bool _isLoading = false;
-  String? _error;
+  final LlamaService _llamaService = LlamaService();
+  final SpotifyService _spotifyService = SpotifyService(); 
   
-  // Queue management
-  static const int _targetPendingCount = 3;
-  Timer? _queueCheckTimer;
+  bool _isProcessingQueue = false;
+  final Map<String, bool> _queueBeingFilled = {};
+  final Map<String, int> _pendingQueueCounts = {};
   
-  RecommendationService(this._llamaService);
-
-  List<MediaSuggestion> get suggestions => _suggestions;
-  bool get isLoading => _isLoading;
-  String? get error => _error;
-  String? get currentlyProcessingMediaType => _currentlyProcessingMediaType;
-
-  // Initialize the service (should be called early in the app lifecycle)
+  Timer? _queueTimer;
+  
   Future<void> init() async {
-    _isLoading = true;
-    notifyListeners();
-    
-    try {
-      // Initialize the SQLite database
-      await _db.init();
-      
-      // Start the background queue monitoring
-      _startBackgroundQueue();
-      
-      _isLoading = false;
-      notifyListeners();
-    } catch (e) {
-      _isLoading = false;
-      _error = "Failed to initialize recommendation service: $e";
-      debugPrint(_error);
-      notifyListeners();
-    }
+    await _db.init();
+    _startBackgroundQueue();
   }
-
-  // Initialize background queue monitoring
+  
   void _startBackgroundQueue() {
-    // Check queue status every 30 seconds
-    _queueCheckTimer?.cancel();
-    _queueCheckTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+    _queueTimer = Timer.periodic(const Duration(minutes: 5), (timer) {
       _checkAndFillQueuesIfNeeded();
     });
   }
-
-  // Check and fill queues if needed
+  
   Future<void> _checkAndFillQueuesIfNeeded() async {
-    if (_isLoading || _currentlyProcessingMediaType != null) {
-      return; // Don't check if already processing
-    }
-    
-    // Media types to check
-    final mediaTypes = ['music', 'movie', 'book', 'tv_show', 'video_game'];
-    
-    for (final mediaType in mediaTypes) {
-      final pendingCount = await _getPendingSuggestionsCount(mediaType);
+    final musicCount = await _getPendingSuggestionsCount('music');
+    if (musicCount < 5) {
+      await _fillMusicQueueFromSpotify();
       
-      if (pendingCount < _targetPendingCount) {
-        // Need to fill the queue for this media type
-        await _fillSuggestionQueue(mediaType);
-        break; // Only process one media type at a time
+      final updatedMusicCount = await _getPendingSuggestionsCount('music');
+      if (updatedMusicCount < 5) {
+        await _fillSuggestionQueue('music');
       }
     }
-  }
-
-  // Get the count of pending suggestions for a specific media type
-  Future<int> _getPendingSuggestionsCount(String mediaType) async {
-    try {
-      return await _db.countPendingMediaSuggestions(mediaType);
-    } catch (e, stack) {
-      debugPrint('[DB] Error counting pending suggestions for mediaType=$mediaType: ${e.toString()}');
-      debugPrint('[DB] Stack trace: $stack');
-      return 0;
-    }
-  }
-
-  // Fill the suggestion queue for a specific media type
-  Future<void> _fillSuggestionQueue(String mediaType) async {
-    if (_currentlyProcessingMediaType != null) {
-      return; // Already processing another media type
+    
+    final movieCount = await _getPendingSuggestionsCount('movie');
+    if (movieCount < 5) {
+      await _fillSuggestionQueue('movie');
     }
     
-    _currentlyProcessingMediaType = mediaType;
-    notifyListeners();
-    
-    try {
-      // Get existing suggestions to build prompt context
-      final allSuggestions = await _db.getAllMediaSuggestions(
-        mediaType: mediaType,
-        limit: 1000, // Get all previous suggestions for context (large limit)
-        statusFilter: null, // Get all, not just pending
-      );
-      
-      // Build a prompt with context of ALL past suggestions, compact format
-      final summaries = allSuggestions.map((s) {
-        return '{"title":"${s.title ?? ''}","artist":"${s.artist ?? ''}"}}';
-      }).toList();
-      
-      // Join summaries, but truncate oldest if prompt gets too long
-      String context = '';
-      const maxPromptLength = 4096; // Quadruple previous safe threshold
-      for (int i = 0; i < summaries.length; i++) {
-        // Always include most recent suggestions, drop/compact oldest if needed
-        if ((context + summaries[i] + '\n').length > maxPromptLength) {
-          context += '\n...and ${summaries.length - i} more previous suggestions omitted for brevity.';
-          break;
-        }
-        context += summaries[i] + '\n';
-      }
-      final prompt = _buildSuggestionPrompt(mediaType, context.trim());
-      
-      debugPrint('[LLAMA] Prompt length: ${prompt.length}');
-      debugPrint('[LLAMA] Prompt content (first 512 chars): ${prompt.substring(0, prompt.length > 512 ? 512 : prompt.length)}');
-      
-      if (prompt.length > maxPromptLength) {
-        debugPrint('[LLAMA] Prompt exceeded max length ($maxPromptLength). Truncating to avoid crash.');
-        // Truncate to last 1024 chars (most recent context + instruction)
-        final truncatedPrompt = prompt.substring(prompt.length - maxPromptLength);
-        // Add a warning to the prompt
-        final safePrompt = '/* WARNING: Truncated context to fit model batch size. */\n' + truncatedPrompt;
-        // Defensive: if still too long, throw to avoid crash
-        if (safePrompt.length > maxPromptLength) {
-          debugPrint('[LLAMA] Prompt still exceeds max length after truncation. Aborting LLM call to avoid crash.');
-          throw Exception('Prompt exceeds safe batch size for Llama model.');
-        }
-        // Use safePrompt for the LLM call
-        final jsonResponse = await _llamaService.generateStructuredJsonResponse(safePrompt);
-        
-        // Parse the JSON response
-        Map<String, dynamic> suggestionData;
-        try {
-          suggestionData = json.decode(jsonResponse);
-          
-          // Validate that we have essential fields based on media type
-          if (suggestionData == null || !suggestionData.containsKey('title') || 
-              !suggestionData.containsKey('reasoning')) {
-            throw FormatException('Missing required fields in LLM response');
-          }
-          
-          // Extract metadata based on media type
-          String artist = '';
-          String album = '';
-          
-          switch (mediaType) {
-            case 'music':
-              artist = suggestionData['artist'] ?? '';
-              album = suggestionData['album'] ?? '';
-              break;
-            case 'movie':
-            case 'tv_show':
-              artist = suggestionData['director'] ?? '';
-              break;
-            case 'book':
-              artist = suggestionData['author'] ?? '';
-              break;
-            case 'video_game':
-              artist = suggestionData['developer'] ?? '';
-              break;
-          }
-          
-          // Create a preliminary suggestion with structured data
-          final preliminarySuggestion = MediaSuggestion(
-            query: jsonResponse, // Store the full JSON as query
-            mediaType: mediaType,
-            title: suggestionData['title'],
-            artist: artist,
-            album: album,
-            botReasoning: suggestionData['reasoning'],
-            status: SuggestionStatus.pending,
-          );
-          
-          // Enrich the suggestion with Wikidata/Wikipedia data
-          final enrichedSuggestion = await _enrichSuggestion(preliminarySuggestion);
-          
-          // Save to SQLite as 'pending' only if enrichment was successful
-          if (enrichedSuggestion != null && enrichedSuggestion.isValid()) {
-            await _db.saveMediaSuggestion(enrichedSuggestion);
-          } else {
-            // Save minimal info as a failure
-            final failureSuggestion = MediaSuggestion(
-              query: jsonResponse,
-              mediaType: mediaType,
-              title: suggestionData['title'] ?? '',
-              artist: artist,
-              status: SuggestionStatus.failure,
-            );
-            await _db.saveMediaSuggestion(failureSuggestion);
-          }
-          
-          _currentlyProcessingMediaType = null;
-          notifyListeners();
-          return;
-        } catch (e) {
-          debugPrint('Error parsing JSON response: $e');
-          debugPrint('Raw response: $jsonResponse');
-          
-          // Fall back to using the raw response as a suggestion
-          final preliminarySuggestion = MediaSuggestion(
-            query: jsonResponse,
-            mediaType: mediaType,
-            status: SuggestionStatus.pending,
-          );
-          
-          // Enrich the suggestion with Wikidata/Wikipedia data
-          final enrichedSuggestion = await _enrichSuggestion(preliminarySuggestion);
-          
-          // Save to SQLite as 'pending' only if enrichment was successful
-          if (enrichedSuggestion != null && enrichedSuggestion.isValid()) {
-            await _db.saveMediaSuggestion(enrichedSuggestion);
-          } else {
-            // Save minimal info as a failure
-            final failureSuggestion = MediaSuggestion(
-              query: jsonResponse,
-              mediaType: mediaType,
-              title: '',
-              artist: '',
-              status: SuggestionStatus.failure,
-            );
-            await _db.saveMediaSuggestion(failureSuggestion);
-          }
-          
-          _currentlyProcessingMediaType = null;
-          notifyListeners();
-          return;
-        }
-        
-        _currentlyProcessingMediaType = null;
-        notifyListeners();
-        return;
-      }
-      
-      // Normal case
-      final jsonResponse = await _llamaService.generateStructuredJsonResponse(prompt);
-      
-      // Parse the JSON response
-      Map<String, dynamic> suggestionData;
-      try {
-        suggestionData = json.decode(jsonResponse);
-        
-        // Validate that we have essential fields based on media type
-        if (suggestionData == null || !suggestionData.containsKey('title') || 
-            !suggestionData.containsKey('reasoning')) {
-          throw FormatException('Missing required fields in LLM response');
-        }
-        
-        // Extract metadata based on media type
-        String artist = '';
-        String album = '';
-        
-        switch (mediaType) {
-          case 'music':
-            artist = suggestionData['artist'] ?? '';
-            album = suggestionData['album'] ?? '';
-            break;
-          case 'movie':
-          case 'tv_show':
-            artist = suggestionData['director'] ?? '';
-            break;
-          case 'book':
-            artist = suggestionData['author'] ?? '';
-            break;
-          case 'video_game':
-            artist = suggestionData['developer'] ?? '';
-            break;
-        }
-        
-        // Create a preliminary suggestion with structured data
-        final preliminarySuggestion = MediaSuggestion(
-          query: jsonResponse, // Store the full JSON as query
-          mediaType: mediaType,
-          title: suggestionData['title'],
-          artist: artist,
-          album: album,
-          botReasoning: suggestionData['reasoning'],
-          status: SuggestionStatus.pending,
-        );
-        
-        // Enrich the suggestion with Wikidata/Wikipedia data
-        final enrichedSuggestion = await _enrichSuggestion(preliminarySuggestion);
-        
-        // Save to SQLite as 'pending' only if enrichment was successful
-        if (enrichedSuggestion != null && enrichedSuggestion.isValid()) {
-          await _db.saveMediaSuggestion(enrichedSuggestion);
-        } else {
-          // Save minimal info as a failure
-          final failureSuggestion = MediaSuggestion(
-            query: jsonResponse,
-            mediaType: mediaType,
-            title: suggestionData['title'] ?? '',
-            artist: artist,
-            status: SuggestionStatus.failure,
-          );
-          await _db.saveMediaSuggestion(failureSuggestion);
-        }
-        
-        _currentlyProcessingMediaType = null;
-        notifyListeners();
-      } catch (e) {
-        debugPrint('Error parsing JSON response: $e');
-        debugPrint('Raw response: $jsonResponse');
-        
-        // Fall back to using the raw response as a suggestion
-        final preliminarySuggestion = MediaSuggestion(
-          query: jsonResponse,
-          mediaType: mediaType,
-          status: SuggestionStatus.pending,
-        );
-        
-        // Enrich the suggestion with Wikidata/Wikipedia data
-        final enrichedSuggestion = await _enrichSuggestion(preliminarySuggestion);
-        
-        // Save to SQLite as 'pending' only if enrichment was successful
-        if (enrichedSuggestion != null && enrichedSuggestion.isValid()) {
-          await _db.saveMediaSuggestion(enrichedSuggestion);
-        } else {
-          // Save minimal info as a failure
-          final failureSuggestion = MediaSuggestion(
-            query: jsonResponse,
-            mediaType: mediaType,
-            title: '',
-            artist: '',
-            status: SuggestionStatus.failure,
-          );
-          await _db.saveMediaSuggestion(failureSuggestion);
-        }
-        
-        _currentlyProcessingMediaType = null;
-        notifyListeners();
-      }
-      
-      _currentlyProcessingMediaType = null;
-      notifyListeners();
-    } catch (e) {
-      _error = 'Error filling suggestion queue: $e';
-      debugPrint(_error);
-      _currentlyProcessingMediaType = null;
-      notifyListeners();
-    }
-  }
-
-  // Build a prompt for the LLM to generate a suggestion
-  String _buildSuggestionPrompt(String mediaType, String context) {
-    // Get the appropriate structured JSON template
-    String template = getPromptTemplateForMediaType(mediaType);
-    
-    // Format with previous suggestions if available
-    if (context.isNotEmpty) {
-      return formatPromptWithPreviousSuggestions(template, [context]);
-    }
-    
-    return template;
-  }
-
-  // Enrich a suggestion with Wikidata/Wikipedia data
-  Future<MediaSuggestion> _enrichSuggestion(MediaSuggestion suggestion) async {
-    // First, search Wikidata for the best match
-    final wikidataResult = await _searchWikidata(suggestion.title ?? '', suggestion.mediaType);
-    
-    if (wikidataResult == null) {
-      // If no Wikidata match found, return the original suggestion
-      return suggestion;
-    }
-    
-    // Get more details from Wikipedia if we have a Wikidata ID
-    final wikipediaResult = wikidataResult['wikidataId'] != null 
-      ? await _getWikipediaDetails(wikidataResult['wikidataId'] as String)
-      : null;
-    
-    // Build enriched suggestion
-    return MediaSuggestion(
-      id: suggestion.id,
-      query: suggestion.query,
-      mediaType: suggestion.mediaType,
-      title: wikidataResult['title'] as String? ?? suggestion.title,
-      artist: wikidataResult['artist'] as String? ?? suggestion.artist,
-      album: wikidataResult['album'] as String? ?? suggestion.album,
-      coverArtUrl: wikidataResult['imageUrl'] as String? ?? suggestion.coverArtUrl,
-      description: wikipediaResult?['description'] as String? ?? suggestion.description,
-      wikiUrl: wikipediaResult?['url'] as String? ?? suggestion.wikiUrl,
-      wikidataId: wikidataResult['wikidataId'] as String? ?? suggestion.wikidataId,
-      botReasoning: "Found match on Wikidata with confidence level: ${wikidataResult['confidence'] ?? 'unknown'}",
-      status: suggestion.status,
-      createdAt: suggestion.createdAt,
-    );
-  }
-
-  // Search Wikidata for the best match
-  Future<Map<String, dynamic>?> _searchWikidata(String query, String mediaType) async {
-    try {
-      debugPrint('[WIKIDATA] Querying Wikidata for: "$query" (mediaType: $mediaType)');
-      // Convert media type to the format expected by Wikidata
-      final wikidataType = _mapMediaTypeForWikidata(mediaType);
-      
-      // Build the SPARQL query to search Wikidata
-      final sparqlQuery = _buildWikidataSparqlQuery(query, wikidataType);
-      debugPrint('[WIKIDATA] SPARQL: $sparqlQuery');
-      
-      // Wikidata endpoint
-      final endpoint = Uri.parse('https://query.wikidata.org/sparql');
-      final queryParams = {'query': sparqlQuery, 'format': 'json'};
-      final url = Uri(
-        scheme: endpoint.scheme,
-        host: endpoint.host,
-        path: endpoint.path,
-        queryParameters: queryParams,
-      );
-      debugPrint('[WIKIDATA] URL: $url');
-      
-      // Execute the query
-      final response = await http.get(
-        url,
-        headers: {'Accept': 'application/json'},
-      );
-      debugPrint('[WIKIDATA] Response status: ${response.statusCode}');
-      if (response.statusCode != 200) {
-        debugPrint('[WIKIDATA] Response body: ${response.body}');
-        return null;
-      }
-      
-      final data = json.decode(response.body);
-      final results = data['results']['bindings'] as List<dynamic>;
-      
-      if (results.isEmpty) {
-        return null;
-      }
-      
-      // Process the first/best result
-      final result = results.first;
-      
-      // Extract fields based on media type
-      final Map<String, dynamic> extractedData = {
-        'wikidataId': result['item']?['value']?.toString().split('/').last,
-        'title': result['itemLabel']?['value'],
-        'confidence': 'high', // Default confidence
-      };
-      
-      // Add media-type specific fields
-      switch (mediaType) {
-        case 'music':
-          if (result != null && result.containsKey('artist')) {
-            extractedData['artist'] = result['artistLabel']?['value'];
-          }
-          if (result != null && result.containsKey('album')) {
-            extractedData['album'] = result['albumLabel']?['value'];
-          }
-          break;
-        case 'movie':
-        case 'tv_show':
-          if (result != null && result.containsKey('director')) {
-            extractedData['director'] = result['directorLabel']?['value'];
-          }
-          break;
-        case 'book':
-          if (result != null && result.containsKey('author')) {
-            extractedData['author'] = result['authorLabel']?['value'];
-          }
-          break;
-        case 'video_game':
-          if (result != null && result.containsKey('developer')) {
-            extractedData['developer'] = result['developerLabel']?['value'];
-          }
-          break;
-      }
-      
-      // Try to get an image URL if available
-      if (result != null && result.containsKey('image')) {
-        extractedData['imageUrl'] = result['image']?['value'];
-      }
-      
-      return extractedData;
-    } catch (e) {
-      debugPrint('Error searching Wikidata: $e');
-      return null;
+    final bookCount = await _getPendingSuggestionsCount('book');
+    if (bookCount < 5) {
+      await _fillSuggestionQueue('book');
     }
   }
   
-  // Build a SPARQL query for Wikidata based on the media type
-  String _buildWikidataSparqlQuery(String query, String mediaType) {
-    // Escape the query for SPARQL
-    final escapedQuery = query.replaceAll('"', '\\"');
+  Future<int> _getPendingSuggestionsCount(String mediaType) async {
+    try {
+      return await _db.countPendingMediaSuggestions(mediaType);
+    } catch (e) {
+      debugPrint('Error getting pending suggestions count: $e');
+      return 0;
+    }
+  }
+  
+  Future<void> _fillMusicQueueFromSpotify() async {
+    if (_queueBeingFilled['music'] == true) {
+      debugPrint('Music queue is already being filled');
+      return;
+    }
     
-    // Base query structure
-    String sparqlQuery = '''
-      SELECT ?item ?itemLabel 
-      WHERE {
-        SERVICE wikibase:mwapi {
-          bd:serviceParam wikibase:endpoint "www.wikidata.org/w/api.php";
-          wikibase:api "EntitySearch";
-          wikibase:limit 5;
-          mwapi:search "$escapedQuery";
-          mwapi:language "en".
-          ?item wikibase:apiOutputItem mwapi:item.
+    _queueBeingFilled['music'] = true;
+    
+    try {
+      debugPrint('Filling music queue from Spotify Discover Weekly');
+      
+      final tracks = await _spotifyService.getDiscoverWeeklyTracks();
+      
+      if (tracks.isEmpty) {
+        debugPrint('No tracks found in Discover Weekly');
+        return;
+      }
+      
+      debugPrint('Found ${tracks.length} tracks in Discover Weekly');
+      
+      final existingMusic = await _db.getAllMediaSuggestions(
+        mediaType: 'music',
+        limit: 100,
+      );
+      
+      int addedCount = 0;
+      
+      for (final track in tracks) {
+        final exists = existingMusic.any((suggestion) => 
+          suggestion.title == track.title && 
+          suggestion.artist == track.overview);
+        
+        if (!exists) {
+          final suggestion = MediaSuggestion(
+            query: 'Spotify Discover Weekly: ${track.title} by ${track.overview}',
+            mediaType: 'music',
+            title: track.title,
+            artist: track.overview,
+            album: track.posterPath,
+            coverArtUrl: track.posterPath,
+            description: 'From your Spotify Discover Weekly playlist',
+            botReasoning: 'This song was recommended by Spotify in your Discover Weekly playlist.',
+          );
+          
+          await _db.saveMediaSuggestion(suggestion);
+          addedCount++;
         }
-    ''';
+      }
+      
+      debugPrint('Added $addedCount new music suggestions from Spotify');
+    } catch (e) {
+      debugPrint('Error filling music queue from Spotify: $e');
+    } finally {
+      _queueBeingFilled['music'] = false;
+    }
+  }
+  
+  Future<void> _fillSuggestionQueue(String mediaType) async {
+    if (_queueBeingFilled[mediaType] == true) {
+      debugPrint('$mediaType queue is already being filled');
+      return;
+    }
     
-    // Add filters based on media type
+    _queueBeingFilled[mediaType] = true;
+    
+    try {
+      debugPrint('Filling $mediaType queue with LLM suggestions');
+      
+      final context = await _buildContextForMediaType(mediaType);
+      
+      final prompt = _buildSuggestionPrompt(mediaType, context);
+      
+      final response = await _llamaService.generateStructuredJsonResponse(prompt);
+      
+      final suggestions = _parseLlamaSuggestions(response, mediaType);
+      
+      for (final suggestion in suggestions) {
+        await _db.saveMediaSuggestion(suggestion);
+      }
+      
+      debugPrint('Added ${suggestions.length} new $mediaType suggestions from LLM');
+    } catch (e) {
+      debugPrint('Error filling suggestion queue: $e');
+    } finally {
+      _queueBeingFilled[mediaType] = false;
+    }
+  }
+  
+  Future<String> _buildContextForMediaType(String mediaType) async {
+    try {
+      final likedItems = await _db.getAllMediaSuggestions(
+        mediaType: mediaType,
+        statusFilter: SuggestionStatus.liked,
+        limit: 10
+      );
+      
+      if (likedItems.isEmpty) {
+        return "No previous preferences found.";
+      }
+      
+      String context = "User has liked the following $mediaType:\n";
+      
+      for (final item in likedItems) {
+        final title = item.title ?? 'Unknown';
+        
+        if (mediaType == 'music') {
+          final artist = item.artist ?? 'Unknown';
+          final album = item.album ?? '';
+          context += "- $title by $artist${album.isNotEmpty ? ' (Album: $album)' : ''}\n";
+        } else {
+          context += "- $title\n";
+        }
+      }
+      
+      return context;
+    } catch (e) {
+      debugPrint('Error building context: $e');
+      return "Error retrieving preferences.";
+    }
+  }
+  
+  String _buildSuggestionPrompt(String mediaType, String context) {
+    final displayType = _mapMediaTypeForDisplay(mediaType);
+    
+    return '''
+You are a recommendation engine for $displayType.
+Based on the user's preferences, suggest 5 $displayType that they might enjoy.
+
+User's preferences:
+$context
+
+For each suggestion, provide:
+1. Title
+2. ${mediaType == 'music' ? 'Artist and Album' : mediaType == 'movie' ? 'Director and Year' : 'Author'}
+3. A brief reason why you're recommending it
+
+Format each suggestion as:
+TITLE: [title]
+${mediaType == 'music' ? 'ARTIST: [artist]\nALBUM: [album]' : mediaType == 'movie' ? 'DIRECTOR: [director]\nYEAR: [year]' : 'AUTHOR: [author]'}
+REASON: [your reasoning]
+
+Provide 5 diverse suggestions.
+''';
+  }
+  
+  List<MediaSuggestion> _parseLlamaSuggestions(String response, String mediaType) {
+    final List<MediaSuggestion> suggestions = [];
+    
+    try {
+      final regex = RegExp(r'TITLE:\s*([^\n]+)(?:\s*\n|$)');
+      final matches = regex.allMatches(response);
+      
+      for (final match in matches) {
+        final startIndex = match.start;
+        final endIndex = (startIndex < matches.length - 1) ? matches.elementAt(startIndex + 1).start : response.length;
+        
+        final suggestionText = response.substring(startIndex, endIndex).trim();
+        
+        final titleMatch = RegExp(r'TITLE:\s*([^\n]+)').firstMatch(suggestionText);
+        final title = titleMatch?.group(1)?.trim() ?? '';
+        
+        String? artist;
+        if (mediaType == 'music') {
+          final artistMatch = RegExp(r'ARTIST:\s*([^\n]+)').firstMatch(suggestionText);
+          artist = artistMatch?.group(1)?.trim();
+        }
+        
+        String? album;
+        if (mediaType == 'music') {
+          final albumMatch = RegExp(r'ALBUM:\s*([^\n]+)').firstMatch(suggestionText);
+          album = albumMatch?.group(1)?.trim();
+        }
+        
+        final reasonMatch = RegExp(r'REASON:\s*([^\n]+(?:\n[^\n]+)*)').firstMatch(suggestionText);
+        final reasoning = reasonMatch?.group(1)?.trim() ?? '';
+        
+        if (title.isNotEmpty) {
+          final suggestion = MediaSuggestion(
+            query: title,
+            mediaType: mediaType,
+            title: title,
+            artist: artist,
+            album: album,
+            botReasoning: reasoning,
+            status: SuggestionStatus.pending,
+          );
+          
+          suggestions.add(suggestion);
+        }
+      }
+    } catch (e) {
+      debugPrint('Error parsing LLM suggestions: $e');
+    }
+    
+    return suggestions;
+  }
+  
+  String _mapMediaTypeForDisplay(String mediaType) {
     switch (mediaType) {
       case 'music':
-        sparqlQuery += '''
-          ?item wdt:P31/wdt:P279* wd:Q2188189. # instance of musical work or subclass
-          OPTIONAL { ?item wdt:P175 ?artist. } # performer
-          OPTIONAL { ?item wdt:P361 ?album. } # part of album
-          OPTIONAL { ?item wdt:P18 ?image. } # image
-        ''';
-        break;
+        return 'music';
       case 'movie':
-        sparqlQuery += '''
-          ?item wdt:P31/wdt:P279* wd:Q11424. # instance of film or subclass
-          OPTIONAL { ?item wdt:P57 ?director. } # director
-          OPTIONAL { ?item wdt:P18 ?image. } # image
-        ''';
-        break;
+        return 'movies';
       case 'book':
-        sparqlQuery += '''
-          ?item wdt:P31/wdt:P279* wd:Q571. # instance of book or subclass
-          OPTIONAL { ?item wdt:P50 ?author. } # author
-          OPTIONAL { ?item wdt:P18 ?image. } # image
-        ''';
-        break;
-      case 'show':
-        sparqlQuery += '''
-          ?item wdt:P31/wdt:P279* wd:Q5398426. # instance of TV series or subclass
-          OPTIONAL { ?item wdt:P57 ?director. } # director
-          OPTIONAL { ?item wdt:P18 ?image. } # image
-        ''';
-        break;
-      case 'game':
-        sparqlQuery += '''
-          ?item wdt:P31/wdt:P279* wd:Q7889. # instance of video game or subclass
-          OPTIONAL { ?item wdt:P178 ?developer. } # developer
-          OPTIONAL { ?item wdt:P18 ?image. } # image
-        ''';
-        break;
-    }
-    
-    // Close the query and add service for labels
-    sparqlQuery += '''
-      SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
-    }
-    LIMIT 1
-    ''';
-    
-    return sparqlQuery;
-  }
-
-  // Get additional details from Wikipedia using a Wikidata ID
-  Future<Map<String, dynamic>?> _getWikipediaDetails(String wikidataId) async {
-    try {
-      debugPrint('[WIKIPEDIA] Getting Wikipedia details for Wikidata ID: $wikidataId');
-      // First, get the Wikipedia title from Wikidata
-      final wikidataEndpoint = Uri.parse('https://www.wikidata.org/w/api.php');
-      
-      final wdQueryParams = {
-        'action': 'wbgetentities',
-        'ids': wikidataId,
-        'props': 'sitelinks',
-        'sitefilter': 'enwiki',
-        'format': 'json',
-      };
-      
-      final wdUrl = Uri(
-        scheme: wikidataEndpoint.scheme,
-        host: wikidataEndpoint.host,
-        path: wikidataEndpoint.path,
-        queryParameters: wdQueryParams,
-      );
-      debugPrint('[WIKIPEDIA] Wikidata API URL: $wdUrl');
-      
-      // Execute the query
-      final wikidataResponse = await http.get(
-        wdUrl,
-        headers: {'Accept': 'application/json'},
-      );
-      debugPrint('[WIKIPEDIA] Wikidata API status: ${wikidataResponse.statusCode}');
-      if (wikidataResponse.statusCode != 200) {
-        debugPrint('[WIKIPEDIA] Wikidata API body: ${wikidataResponse.body}');
-        return null;
-      }
-      
-      final wikidataData = json.decode(wikidataResponse.body);
-      final entities = wikidataData['entities'] as Map<String, dynamic>?;
-      
-      if (entities == null || 
-          !entities.containsKey(wikidataId) || 
-          entities[wikidataId] == null ||
-          !entities[wikidataId].containsKey('sitelinks') || 
-          entities[wikidataId]['sitelinks'] == null ||
-          !entities[wikidataId]['sitelinks'].containsKey('enwiki')) {
-        return null;
-      }
-      
-      final wikipediaTitle = entities[wikidataId]['sitelinks']['enwiki']['title'];
-      
-      // Now get the Wikipedia page extract
-      final wikipediaEndpoint = Uri.parse('https://en.wikipedia.org/w/api.php');
-      
-      final wpQueryParams = {
-        'action': 'query',
-        'prop': 'extracts|info',
-        'exintro': 'true',
-        'explaintext': 'true',
-        'inprop': 'url',
-        'titles': wikipediaTitle,
-        'format': 'json',
-      };
-      
-      final wpUrl = Uri(
-        scheme: wikipediaEndpoint.scheme,
-        host: wikipediaEndpoint.host,
-        path: wikipediaEndpoint.path,
-        queryParameters: wpQueryParams,
-      );
-      debugPrint('[WIKIPEDIA] Wikipedia API URL: $wpUrl');
-      
-      final wikipediaResponse = await http.get(wpUrl);
-      debugPrint('[WIKIPEDIA] Wikipedia API status: ${wikipediaResponse.statusCode}');
-      if (wikipediaResponse.statusCode != 200) {
-        debugPrint('[WIKIPEDIA] Wikipedia API body: ${wikipediaResponse.body}');
-        return null;
-      }
-      
-      final wikipediaData = json.decode(wikipediaResponse.body);
-      final pages = wikipediaData['query']['pages'] as Map<String, dynamic>;
-      final pageId = pages.keys.first;
-      final page = pages[pageId];
-      
-      return {
-        'description': page['extract'],
-        'url': page['fullurl'],
-      };
-    } catch (e) {
-      debugPrint('Error fetching Wikipedia details: $e');
-      return null;
+        return 'books';
+      default:
+        return mediaType;
     }
   }
-
-  // Helper method to convert media types for Wikidata
-  String _mapMediaTypeForWikidata(String mediaType) {
-    switch (mediaType) {
-      case 'tv_show': return 'show';  // Map to the format expected by Wikidata
-      case 'video_game': return 'game';  // Map to the format expected by Wikidata
-      default: return mediaType;  // Keep others as is
-    }
-  }
-
-  // --- Initialization and Proactive Queue Management ---
-
-  Future<void> initializeAndPrefillQueues() async {
-    if (_isLoading) return;
-    
-    _isLoading = true;
-    notifyListeners();
-    
-    try {
-      await init();
-      await _checkAndFillQueuesIfNeeded();
-      
-      _isLoading = false;
-      notifyListeners();
-    } catch (e) {
-      _isLoading = false;
-      _error = "Failed to initialize and prefill queues: $e";
-      notifyListeners();
-    }
-  }
-
-  // Ensure there are enough suggestions in the queue for a media type
-  Future<bool> ensureSuggestionQueue(String mediaType) async {
-    if (_isLoading) return false;
-    
-    _isLoading = true;
-    notifyListeners();
-    
-    try {
-      final pendingCount = await _getPendingSuggestionsCount(mediaType);
-      
-      if (pendingCount < _targetPendingCount) {
+  
+  Future<void> ensureSuggestionQueue(String mediaType) async {
+    final count = await _getPendingSuggestionsCount(mediaType);
+    if (count < 5) {
+      if (mediaType == 'music') {
+        await _fillMusicQueueFromSpotify();
+        
+        final updatedCount = await _getPendingSuggestionsCount(mediaType);
+        if (updatedCount < 5) {
+          await _fillSuggestionQueue(mediaType);
+        }
+      } else {
         await _fillSuggestionQueue(mediaType);
       }
-      
-      // Get the pending suggestions to return
-      final pendingSuggestions = await _db.getPendingMediaSuggestions(mediaType);
-      _suggestions.clear();
-      _suggestions.addAll(pendingSuggestions);
-      
-      _isLoading = false;
-      notifyListeners();
-      return pendingSuggestions.isNotEmpty;
-    } catch (e) {
-      _isLoading = false;
-      _error = "Failed to ensure suggestion queue: $e";
-      notifyListeners();
-      return false;
     }
   }
-
-  // Update the status of a suggestion
-  Future<bool> updateSuggestionStatus(int suggestionId, SuggestionStatus newStatus) async {
-    try {
-      await _db.updateMediaSuggestionStatus(suggestionId, newStatus);
-      
-      // Update local cache if the suggestion is in memory
-      final index = _suggestions.indexWhere((s) => s.id == suggestionId);
-      if (index >= 0) {
-        _suggestions[index].status = newStatus;
-        notifyListeners();
-      }
-      
-      // Check if we need to fill the queue again
-      final mediaType = _suggestions.firstWhere((s) => s.id == suggestionId, orElse: () => 
-          MediaSuggestion(id: 0, query: '', mediaType: '')).mediaType;
-      
-      if (mediaType.isNotEmpty) {
-        _checkAndFillQueuesIfNeeded();
-      }
-      
-      return true;
-    } catch (e) {
-      _error = "Failed to update suggestion status: $e";
-      debugPrint(_error);
-      return false;
-    }
-  }
-
-  // Delete a suggestion
-  Future<bool> deleteSuggestion(int suggestionId) async {
-    try {
-      final result = await _db.deleteMediaSuggestion(suggestionId);
-      
-      // Remove from local cache if present
-      final index = _suggestions.indexWhere((s) => s.id == suggestionId);
-      if (index >= 0) {
-        _suggestions.removeAt(index);
-        notifyListeners();
-      }
-      
-      return result;
-    } catch (e) {
-      _error = "Failed to delete suggestion: $e";
-      debugPrint(_error);
-      return false;
-    }
-  }
-
-  // Get suggestions for a specific media type
+  
   Future<List<MediaSuggestion>> getSuggestions(String mediaType, {SuggestionStatus? status}) async {
     try {
-      final suggestions = await _db.getAllMediaSuggestions(
-        mediaType: mediaType,
-        statusFilter: status,
-      );
+      await ensureSuggestionQueue(mediaType);
       
-      return suggestions;
+      if (status != null) {
+        return await _db.getAllMediaSuggestions(
+          mediaType: mediaType,
+          statusFilter: status,
+        );
+      } else {
+        return await _db.getAllMediaSuggestions(
+          mediaType: mediaType,
+        );
+      }
     } catch (e) {
-      _error = "Failed to get suggestions: $e";
-      debugPrint(_error);
+      debugPrint('Error getting suggestions: $e');
       return [];
     }
   }
   
-  // Clean up resources
+  Future<bool> updateSuggestionStatus(int suggestionId, SuggestionStatus newStatus) async {
+    try {
+      await _db.updateMediaSuggestionStatus(suggestionId, newStatus);
+      return true;
+    } catch (e) {
+      debugPrint('Error updating suggestion status: $e');
+      return false;
+    }
+  }
+  
+  Future<bool> deleteSuggestion(int suggestionId) async {
+    try {
+      await _db.deleteMediaSuggestion(suggestionId);
+      return true;
+    } catch (e) {
+      debugPrint('Error deleting suggestion: $e');
+      return false;
+    }
+  }
+  
+  /// Prefill all recommendation queues
+  /// This is called during app initialization to ensure we have recommendations ready
+  Future<void> prefillQueues() async {
+    debugPrint('Prefilling recommendation queues');
+    
+    // First try to fill music queue from Spotify
+    await _fillMusicQueueFromSpotify();
+    
+    // Then fill any remaining queues with LLM suggestions
+    final mediaTypes = ['music', 'movie', 'book'];
+    
+    for (final mediaType in mediaTypes) {
+      final count = await _getPendingSuggestionsCount(mediaType);
+      if (count < 5) {
+        await _fillSuggestionQueue(mediaType);
+      }
+    }
+    
+    debugPrint('Finished prefilling recommendation queues');
+  }
+  
   @override
   void dispose() {
-    _queueCheckTimer?.cancel();
+    _queueTimer?.cancel();
     super.dispose();
   }
 }

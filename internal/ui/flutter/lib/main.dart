@@ -123,8 +123,8 @@ Future<void> main() async {
   }
 
   // --- Initialize RecommendationService ---
-  // Create the recommendation service with the LlamaService
-  final recommendationService = RecommendationService(llamaService);
+  // Create the recommendation service
+  final recommendationService = RecommendationService();
 
   // Set window size for desktop platforms
   if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
@@ -163,7 +163,7 @@ Future<void> main() async {
 
     // Prefill recommendation queues if LlamaService is available
     if (llamaInitialized) {
-      await recommendationService.initializeAndPrefillQueues();
+      await recommendationService.prefillQueues();
       debugPrint('RecommendationService initialized with queues prefilled');
     } else {
       debugPrint('RecommendationService initialized without LLM support');

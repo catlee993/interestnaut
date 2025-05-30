@@ -12,10 +12,28 @@ class WikipediaService {
   /// [limit] - Maximum number of results to return
   Future<List<WikipediaSearchResult>> search(String query, {int limit = 10}) async {
     try {
-      final response = await http.get(
-        Uri.parse('$_baseUrl?action=opensearch&search=${Uri.encodeComponent(query)}&limit=$limit&namespace=0&format=json'),
+      debugPrint('[WIKIPEDIA] Searching for: "$query" (limit: $limit)');
+      
+      // Add a user agent to avoid potential API blocks
+      final headers = {
+        'User-Agent': 'Interestnaut/1.0 (https://github.com/catlee993/interestnaut; catlee993@example.com)',
+        'Accept': 'application/json',
+      };
+      
+      final uri = Uri.parse('$_baseUrl').replace(
+        queryParameters: {
+          'action': 'opensearch',
+          'search': query,
+          'limit': limit.toString(),
+          'namespace': '0',
+          'format': 'json',
+        },
       );
+      
+      debugPrint('[WIKIPEDIA] Request URL: $uri');
+      final response = await http.get(uri, headers: headers);
 
+      debugPrint('[WIKIPEDIA] Response status: ${response.statusCode}');
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
         
@@ -44,8 +62,11 @@ class WikipediaService {
             );
           }
           
+          debugPrint('[WIKIPEDIA] Found ${results.length} results');
           return results;
         }
+      } else {
+        debugPrint('[WIKIPEDIA] Error response: ${response.body}');
       }
       
       return [];
@@ -85,19 +106,53 @@ class WikipediaService {
   /// Gets detailed content for a Wikipedia page by its title
   Future<WikipediaContent?> getContent(String pageId) async {
     try {
-      // Using the more detailed query to get page content
-      final response = await http.get(
-        Uri.parse(
-          '$_baseUrl?action=query&prop=extracts|pageimages&exintro=1&explaintext=1&titles=${Uri.encodeComponent(pageId)}&format=json&pithumbsize=500'
-        ),
+      debugPrint('[WIKIPEDIA] Getting content for page ID: $pageId');
+      
+      // Add a user agent to avoid potential API blocks
+      final headers = {
+        'User-Agent': 'Interestnaut/1.0 (https://github.com/catlee993/interestnaut; catlee993@example.com)',
+        'Accept': 'application/json',
+      };
+      
+      final uri = Uri.parse('$_baseUrl').replace(
+        queryParameters: {
+          'action': 'query',
+          'prop': 'extracts|pageimages',
+          'exintro': '1',
+          'explaintext': '1',
+          'titles': pageId,
+          'format': 'json',
+          'pithumbsize': '500',
+        },
       );
       
+      debugPrint('[WIKIPEDIA] Request URL: $uri');
+      final response = await http.get(uri, headers: headers);
+      
+      debugPrint('[WIKIPEDIA] Response status: ${response.statusCode}');
       if (response.statusCode == 200) {
         final Map<String, dynamic> data = json.decode(response.body);
+        
+        if (!data.containsKey('query') || !data['query'].containsKey('pages')) {
+          debugPrint('[WIKIPEDIA] Invalid response format: ${response.body}');
+          return null;
+        }
+        
         final pages = data['query']['pages'] as Map<String, dynamic>;
         
         // There's only one page in the response, but we don't know the page ID
+        if (pages.isEmpty) {
+          debugPrint('[WIKIPEDIA] No pages found in response');
+          return null;
+        }
+        
         final pageData = pages.values.first;
+        
+        // Check if we got a missing page
+        if (pageData.containsKey('missing')) {
+          debugPrint('[WIKIPEDIA] Page not found: $pageId');
+          return null;
+        }
         
         String? imageUrl;
         if (pageData.containsKey('thumbnail') && pageData['thumbnail'] != null) {
@@ -107,10 +162,12 @@ class WikipediaService {
         return WikipediaContent(
           pageId: pageData['pageid'].toString(),
           title: pageData['title'],
-          extract: pageData['extract'],
+          extract: pageData['extract'] ?? 'No description available',
           imageUrl: imageUrl,
           fullUrl: '$_baseContentUrl${Uri.encodeComponent(pageId)}',
         );
+      } else {
+        debugPrint('[WIKIPEDIA] Error response: ${response.body}');
       }
       
       return null;
@@ -124,14 +181,35 @@ class WikipediaService {
   /// This is more accurate than the OpenSearch API for finding specific entities
   Future<WikipediaSearchResult?> searchEntity(String query) async {
     try {
-      final response = await http.get(
-        Uri.parse(
-          '$_baseUrl?action=query&list=search&srsearch=${Uri.encodeComponent(query)}&format=json'
-        ),
+      debugPrint('[WIKIPEDIA] Searching entity: "$query"');
+      
+      // Add a user agent to avoid potential API blocks
+      final headers = {
+        'User-Agent': 'Interestnaut/1.0 (https://github.com/catlee993/interestnaut; catlee993@example.com)',
+        'Accept': 'application/json',
+      };
+      
+      final uri = Uri.parse('$_baseUrl').replace(
+        queryParameters: {
+          'action': 'query',
+          'list': 'search',
+          'srsearch': query,
+          'format': 'json',
+        },
       );
       
+      debugPrint('[WIKIPEDIA] Request URL: $uri');
+      final response = await http.get(uri, headers: headers);
+      
+      debugPrint('[WIKIPEDIA] Response status: ${response.statusCode}');
       if (response.statusCode == 200) {
         final Map<String, dynamic> data = json.decode(response.body);
+        
+        if (!data.containsKey('query') || !data['query'].containsKey('search')) {
+          debugPrint('[WIKIPEDIA] Invalid response format: ${response.body}');
+          return null;
+        }
+        
         final searchResults = data['query']['search'] as List<dynamic>;
         
         if (searchResults.isNotEmpty) {
@@ -147,7 +225,11 @@ class WikipediaService {
             url: '$_baseContentUrl${Uri.encodeComponent(result['title'])}',
             pageId: result['title'],
           );
+        } else {
+          debugPrint('[WIKIPEDIA] No search results found for: $query');
         }
+      } else {
+        debugPrint('[WIKIPEDIA] Error response: ${response.body}');
       }
       
       return null;
@@ -163,7 +245,12 @@ class WikipediaService {
   /// Returns a MediaInfo object with details about the media
   Future<MediaInfo?> findMediaInfo(String title, MediaType mediaType) async {
     try {
-      print('Searching Wikipedia for $mediaType: "$title"');
+      if (title.isEmpty) {
+        debugPrint('[WIKIPEDIA] Cannot search with empty title');
+        return null;
+      }
+      
+      debugPrint('[WIKIPEDIA] Searching for $mediaType: "$title"');
       
       // Create a more specific search query based on media type
       String searchQuery = title;
@@ -188,11 +275,31 @@ class WikipediaService {
           break;
       }
       
-      // Search for the media
+      // Try the entity search first (more accurate for specific titles)
+      debugPrint('[WIKIPEDIA] Trying entity search first');
+      final entityResult = await searchEntity(searchQuery);
+      
+      if (entityResult != null) {
+        debugPrint('[WIKIPEDIA] Found entity match: ${entityResult.title}');
+        final content = await getContent(entityResult.pageId);
+        
+        if (content != null) {
+          // Check if the content matches the media type
+          if (_contentMatchesMediaType(content.extract, mediaType)) {
+            debugPrint('[WIKIPEDIA] Entity content matches media type');
+            return _extractMediaInfo(content, mediaType);
+          } else {
+            debugPrint('[WIKIPEDIA] Entity content does not match media type, falling back to regular search');
+          }
+        }
+      }
+      
+      // Fall back to regular search
+      debugPrint('[WIKIPEDIA] Falling back to regular search');
       final searchResults = await search(searchQuery, limit: 5);
       
       if (searchResults.isEmpty) {
-        print('No Wikipedia results found for: $searchQuery');
+        debugPrint('[WIKIPEDIA] No Wikipedia results found for: $searchQuery');
         return null;
       }
       
@@ -200,26 +307,50 @@ class WikipediaService {
       WikipediaSearchResult? bestMatch = _findBestMediaMatch(searchResults, title, mediaType);
       
       if (bestMatch == null) {
-        print('No suitable Wikipedia match found for: $title ($mediaType)');
-        return null;
+        debugPrint('[WIKIPEDIA] No suitable Wikipedia match found for: $title ($mediaType)');
+        
+        // Last resort: try with a simpler query
+        debugPrint('[WIKIPEDIA] Trying simpler query as last resort');
+        final simpleResults = await search(title, limit: 3);
+        if (simpleResults.isNotEmpty) {
+          bestMatch = simpleResults.first;
+          debugPrint('[WIKIPEDIA] Using first result as fallback: ${bestMatch.title}');
+        } else {
+          return null;
+        }
       }
       
-      print('Found potential Wikipedia match: ${bestMatch.title}');
+      debugPrint('[WIKIPEDIA] Found potential Wikipedia match: ${bestMatch.title}');
       
       // Get the detailed content for the best match
       final content = await getContent(bestMatch.pageId);
       
       if (content == null) {
-        print('Failed to get Wikipedia content for: ${bestMatch.title}');
+        debugPrint('[WIKIPEDIA] Failed to get Wikipedia content for: ${bestMatch.title}');
         return null;
       }
       
       // Extract media information from the content
       return _extractMediaInfo(content, mediaType);
     } catch (e) {
-      print('Error finding media info from Wikipedia: $e');
+      debugPrint('[WIKIPEDIA] Error finding media info: $e');
       return null;
     }
+  }
+  
+  /// Checks if content matches the expected media type
+  bool _contentMatchesMediaType(String content, MediaType mediaType) {
+    final lowerContent = content.toLowerCase();
+    final keywords = _getMediaTypeKeywords(mediaType);
+    
+    // Check if any of the keywords appear in the content
+    for (final keyword in keywords) {
+      if (lowerContent.contains(keyword)) {
+        return true;
+      }
+    }
+    
+    return false;
   }
   
   /// Finds the best match for a media item from search results

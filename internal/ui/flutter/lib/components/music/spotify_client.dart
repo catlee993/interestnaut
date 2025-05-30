@@ -127,7 +127,7 @@ class SpotifyClient {
   }
   
   /// Refresh the access token using the refresh token
-  Future<void> _refreshTokenToken() async {
+  Future<bool> _refreshTokenToken() async {
     try {
       debugPrint('Refreshing access token...');
       
@@ -159,7 +159,7 @@ class SpotifyClient {
       
       if (refreshToken == null) {
         debugPrint('No refresh token available, cannot refresh access token');
-        return;
+        return false;
       }
       
       // Use HTTP directly instead of the oauth2 package to have more control
@@ -203,11 +203,14 @@ class SpotifyClient {
         );
         
         debugPrint('Successfully refreshed access token, valid until ${expiry.toString()}');
+        return true;
       } else {
         debugPrint('Failed to refresh token: ${response.statusCode} - ${response.body}');
+        return false;
       }
     } catch (e) {
       debugPrint('Error refreshing token: $e');
+      return false;
     }
   }
   
@@ -316,44 +319,39 @@ class SpotifyClient {
     // Handle 401 (token expired) by refreshing token and retrying once
     if (response.statusCode == 401 && requiresAuth) {
       debugPrint('Access token expired, attempting to refresh...');
-      await _refreshTokenToken();
-      
-      token = await getValidToken();
-      if (token == null) {
-        throw Exception('Failed to refresh token');
-      }
-      
-      // Update auth header with new token
-      headers['Authorization'] = 'Bearer $token';
-      
-      // Retry the request
-      switch (method.toUpperCase()) {
-        case 'GET':
-          response = await http.get(uri, headers: headers);
-          break;
-        case 'POST':
-          response = await http.post(
-            uri,
-            headers: headers,
-            body: body != null ? jsonEncode(body) : null,
-          );
-          break;
-        case 'PUT':
-          response = await http.put(
-            uri,
-            headers: headers,
-            body: body != null ? jsonEncode(body) : null,
-          );
-          break;
-        case 'DELETE':
-          response = await http.delete(
-            uri,
-            headers: headers,
-            body: body != null ? jsonEncode(body) : null,
-          );
-          break;
-        default:
-          throw Exception('Unsupported HTTP method: $method');
+      if (await _refreshTokenToken()) {
+        // Update auth header with new token
+        headers['Authorization'] = 'Bearer $_accessToken';
+        
+        // Retry the request
+        switch (method.toUpperCase()) {
+          case 'GET':
+            response = await http.get(uri, headers: headers);
+            break;
+          case 'POST':
+            response = await http.post(
+              uri,
+              headers: headers,
+              body: body != null ? jsonEncode(body) : null,
+            );
+            break;
+          case 'PUT':
+            response = await http.put(
+              uri,
+              headers: headers,
+              body: body != null ? jsonEncode(body) : null,
+            );
+            break;
+          case 'DELETE':
+            response = await http.delete(
+              uri,
+              headers: headers,
+              body: body != null ? jsonEncode(body) : null,
+            );
+            break;
+          default:
+            throw Exception('Unsupported HTTP method: $method');
+        }
       }
     }
     
@@ -568,29 +566,54 @@ class SpotifyClient {
   
   /// Get user's playlists
   Future<List<Map<String, dynamic>>> getUserPlaylists({int limit = 20, int offset = 0}) async {
+    final result = await getUserPlaylistsMap(limit: limit, offset: offset);
+    if (result == null) return [];
+    
     try {
-      final params = <String, String>{
+      final items = result['items'] as List<dynamic>;
+      return items.map((item) => item as Map<String, dynamic>).toList();
+    } catch (e) {
+      debugPrint('Error parsing user playlists: $e');
+      return [];
+    }
+  }
+  
+  /// Get user's playlists
+  /// [limit] - The maximum number of playlists to return (default: 20)
+  /// [offset] - The index of the first playlist to return (default: 0)
+  Future<Map<String, dynamic>?> getUserPlaylistsMap({int limit = 20, int offset = 0}) async {
+    final token = await getValidToken();
+    if (token == null) return null;
+    
+    try {
+      final uri = Uri.https(_baseUrl, '$_apiVersion/me/playlists', {
         'limit': limit.toString(),
         'offset': offset.toString(),
-      };
+      });
       
-      final response = await _apiRequest(
-        'GET',
-        'me/playlists',
-        queryParams: params,
+      final response = await http.get(
+        uri,
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
       );
       
       if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        debugPrint('Successfully retrieved user playlists - API connection is working');
-        return List<Map<String, dynamic>>.from(data['items'] as List<dynamic>);
-      } else {
-        debugPrint('Failed to get playlists: ${response.statusCode} - ${response.body}');
-        return [];
+        return jsonDecode(response.body);
+      } else if (response.statusCode == 401) {
+        // Token expired, try to refresh
+        if (await _refreshTokenToken()) {
+          // Try again with new token
+          return getUserPlaylistsMap(limit: limit, offset: offset);
+        }
       }
+      
+      debugPrint('Failed to get user playlists: ${response.statusCode} - ${response.body}');
+      return null;
     } catch (e) {
-      debugPrint('Error getting playlists: $e');
-      return [];
+      debugPrint('Error getting user playlists: $e');
+      return null;
     }
   }
   
@@ -795,6 +818,80 @@ class SpotifyClient {
       await storage.delete(key: 'spotify_token_expiry');
     } catch (e) {
       debugPrint('Error clearing tokens from direct secure storage: $e');
+    }
+  }
+  
+  /// Get a playlist by ID
+  Future<Map<String, dynamic>?> getPlaylist(String playlistId) async {
+    final token = await getValidToken();
+    if (token == null) return null;
+    
+    try {
+      final uri = Uri.https(_baseUrl, '$_apiVersion/playlists/$playlistId');
+      
+      final response = await http.get(
+        uri,
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+      );
+      
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      } else if (response.statusCode == 401) {
+        // Token expired, try to refresh
+        if (await _refreshTokenToken()) {
+          // Try again with new token
+          return getPlaylist(playlistId);
+        }
+        return null;
+      }
+      
+      debugPrint('Error getting playlist: ${response.statusCode} - ${response.body}');
+      return null;
+    } catch (e) {
+      debugPrint('Error getting playlist: $e');
+      return null;
+    }
+  }
+  
+  /// Get tracks from a playlist
+  Future<List<Map<String, dynamic>>> getPlaylistTracks(String playlistId, {int limit = 50, int offset = 0}) async {
+    final token = await getValidToken();
+    if (token == null) return [];
+    
+    try {
+      final uri = Uri.https(_baseUrl, '$_apiVersion/playlists/$playlistId/tracks', {
+        'limit': limit.toString(),
+        'offset': offset.toString(),
+      });
+      
+      final response = await http.get(
+        uri,
+        headers: {
+          'Authorization': 'Bearer $token',
+        },
+      );
+      
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final items = data['items'] as List<dynamic>;
+        return items.map((item) => item as Map<String, dynamic>).toList();
+      } else if (response.statusCode == 401) {
+        // Token expired, try to refresh
+        if (await _refreshTokenToken()) {
+          // Try again with new token
+          return getPlaylistTracks(playlistId, limit: limit, offset: offset);
+        }
+        return [];
+      }
+      
+      debugPrint('Error getting playlist tracks: ${response.statusCode} - ${response.body}');
+      return [];
+    } catch (e) {
+      debugPrint('Error getting playlist tracks: $e');
+      return [];
     }
   }
 }

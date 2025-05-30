@@ -1527,7 +1527,7 @@ class SpotifyService {
   /// Get user's playlists
   Future<List<Map<String, dynamic>>> getUserPlaylists({int limit = 20, int offset = 0}) async {
     if (!_isAuthenticated) {
-      debugPrint('Cannot get user playlists: not authenticated');
+      debugPrint('Not authenticated, cannot get playlists');
       return [];
     }
     
@@ -1563,6 +1563,151 @@ class SpotifyService {
     } catch (e) {
       debugPrint('Error verifying authentication: $e');
       return false;
+    }
+  }
+
+  /// Find the user's Discover Weekly playlist
+  /// Returns the playlist ID if found, null otherwise
+  Future<String?> findDiscoverWeeklyPlaylist() async {
+    debugPrint('Finding Discover Weekly playlist...');
+    if (!_isAuthenticated || _accessToken == null) {
+      debugPrint('Cannot find Discover Weekly: not authenticated');
+      return null;
+    }
+    
+    try {
+      // First try to get all playlists directly from Spotify client
+      final playlists = await _spotifyClient.getUserPlaylists(limit: 50);
+      if (playlists == null) {
+        debugPrint('Failed to get user playlists');
+        return null;
+      }
+      
+      // Look for "Discover Weekly" in the playlist items
+      final items = playlists;
+      if (items.isEmpty) {
+        debugPrint('No playlists found');
+        return null;
+      }
+      
+      // Search for Discover Weekly by name
+      for (final playlist in items) {
+        final name = playlist['name'] as String?;
+        if (name != null && name.toLowerCase() == 'discover weekly') {
+          final id = playlist['id'] as String?;
+          if (id != null) {
+            debugPrint('Found Discover Weekly playlist: $id');
+            return id;
+          }
+        }
+      }
+      
+      // If not found in the first batch, try to search more if there are more playlists
+      // We'll need to paginate manually since we're using the list-based API now
+      int offset = 50;
+      while (offset < 1000) { // Cap at 1000 to prevent infinite loops
+        final morePlaylists = await _spotifyClient.getUserPlaylists(limit: 50, offset: offset);
+        if (morePlaylists.isEmpty) break;
+        
+        for (final playlist in morePlaylists) {
+          final name = playlist['name'] as String?;
+          if (name != null && name.toLowerCase() == 'discover weekly') {
+            final id = playlist['id'] as String?;
+            if (id != null) {
+              debugPrint('Found Discover Weekly playlist: $id');
+              return id;
+            }
+          }
+        }
+        
+        offset += 50;
+      }
+
+      debugPrint('Discover Weekly playlist not found');
+      return null;
+    } catch (e) {
+      debugPrint('Error finding Discover Weekly playlist: $e');
+      return null;
+    }
+  }
+  
+  /// Get tracks from the user's Discover Weekly playlist
+  /// Returns a list of MediaItems if successful, empty list otherwise
+  Future<List<MediaItem>> getDiscoverWeeklyTracks() async {
+    final List<MediaItem> tracks = [];
+    
+    try {
+      // Find the Discover Weekly playlist
+      final playlistId = await findDiscoverWeeklyPlaylist();
+      if (playlistId == null) {
+        debugPrint('Could not find Discover Weekly playlist');
+        return tracks;
+      }
+      
+      // Get the tracks from the playlist
+      final playlistTracks = await _spotifyClient.getPlaylistTracks(playlistId);
+      if (playlistTracks.isEmpty) {
+        debugPrint('No tracks found in Discover Weekly');
+        return tracks;
+      }
+      
+      // Convert to MediaItems
+      for (final item in playlistTracks) {
+        try {
+          final track = item['track'] as Map<String, dynamic>?;
+          if (track == null) continue;
+          
+          final id = track['id'] as String?;
+          final name = track['name'] as String?;
+          
+          if (id == null || name == null) continue;
+          
+          // Get artist names
+          String artistNames = 'Unknown';
+          final artists = track['artists'] as List<dynamic>?;
+          if (artists != null && artists.isNotEmpty) {
+            artistNames = artists.map((artist) => artist['name'] as String?).where((name) => name != null).join(', ');
+          }
+          
+          // Get album info
+          String albumName = '';
+          String albumImageUrl = '';
+          final album = track['album'] as Map<String, dynamic>?;
+          if (album != null) {
+            albumName = album['name'] as String? ?? '';
+            
+            final images = album['images'] as List<dynamic>?;
+            if (images != null && images.isNotEmpty) {
+              final image = images.first as Map<String, dynamic>?;
+              if (image != null) {
+                albumImageUrl = image['url'] as String? ?? '';
+              }
+            }
+          }
+
+          // Create MediaItem
+          final mediaItem = MediaItem(
+            id: 'spotify:track:$id',
+            title: name,
+            mediaType: 'music',
+            overview: artistNames,
+            posterPath: albumImageUrl,
+            uri: 'spotify:track:$id',
+            previewUrl: '',
+            date: albumName,
+          );
+          
+          tracks.add(mediaItem);
+        } catch (e) {
+          debugPrint('Error parsing track: $e');
+        }
+      }
+      
+      debugPrint('Retrieved ${tracks.length} tracks from Discover Weekly');
+      return tracks;
+    } catch (e) {
+      debugPrint('Error getting Discover Weekly tracks: $e');
+      return tracks;
     }
   }
 }
