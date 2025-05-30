@@ -156,6 +156,309 @@ class WikipediaService {
       return null;
     }
   }
+  
+  /// Finds media information by title and media type
+  /// [title] - The title of the media
+  /// [mediaType] - The type of media (book, movie, album, etc.)
+  /// Returns a MediaInfo object with details about the media
+  Future<MediaInfo?> findMediaInfo(String title, MediaType mediaType) async {
+    try {
+      print('Searching Wikipedia for $mediaType: "$title"');
+      
+      // Create a more specific search query based on media type
+      String searchQuery = title;
+      switch (mediaType) {
+        case MediaType.book:
+          searchQuery = '$title book novel';
+          break;
+        case MediaType.movie:
+          searchQuery = '$title film movie';
+          break;
+        case MediaType.tvShow:
+          searchQuery = '$title tv television series show';
+          break;
+        case MediaType.album:
+          searchQuery = '$title music album';
+          break;
+        case MediaType.game:
+          searchQuery = '$title video game';
+          break;
+        default:
+          // Use the title as is
+          break;
+      }
+      
+      // Search for the media
+      final searchResults = await search(searchQuery, limit: 5);
+      
+      if (searchResults.isEmpty) {
+        print('No Wikipedia results found for: $searchQuery');
+        return null;
+      }
+      
+      // Find the best match by comparing titles and checking for media type keywords
+      WikipediaSearchResult? bestMatch = _findBestMediaMatch(searchResults, title, mediaType);
+      
+      if (bestMatch == null) {
+        print('No suitable Wikipedia match found for: $title ($mediaType)');
+        return null;
+      }
+      
+      print('Found potential Wikipedia match: ${bestMatch.title}');
+      
+      // Get the detailed content for the best match
+      final content = await getContent(bestMatch.pageId);
+      
+      if (content == null) {
+        print('Failed to get Wikipedia content for: ${bestMatch.title}');
+        return null;
+      }
+      
+      // Extract media information from the content
+      return _extractMediaInfo(content, mediaType);
+    } catch (e) {
+      print('Error finding media info from Wikipedia: $e');
+      return null;
+    }
+  }
+  
+  /// Finds the best match for a media item from search results
+  WikipediaSearchResult? _findBestMediaMatch(
+    List<WikipediaSearchResult> results, 
+    String originalTitle, 
+    MediaType mediaType
+  ) {
+    // Keywords to look for in the description based on media type
+    final mediaTypeKeywords = _getMediaTypeKeywords(mediaType);
+    
+    // First pass: Look for exact title match with media type keywords
+    for (final result in results) {
+      final String normalizedResultTitle = _normalizeTitle(result.title);
+      final String normalizedOriginalTitle = _normalizeTitle(originalTitle);
+      
+      // Check if the title is similar and description contains media type keywords
+      if (_isTitleSimilar(normalizedResultTitle, normalizedOriginalTitle)) {
+        bool hasMediaTypeKeyword = false;
+        for (final keyword in mediaTypeKeywords) {
+          if (result.description.toLowerCase().contains(keyword)) {
+            hasMediaTypeKeyword = true;
+            break;
+          }
+        }
+        
+        if (hasMediaTypeKeyword) {
+          return result;
+        }
+      }
+    }
+    
+    // Second pass: Look for partial title match with media type keywords
+    for (final result in results) {
+      final String normalizedResultTitle = _normalizeTitle(result.title);
+      final String normalizedOriginalTitle = _normalizeTitle(originalTitle);
+      
+      bool hasMediaTypeKeyword = false;
+      for (final keyword in mediaTypeKeywords) {
+        if (result.description.toLowerCase().contains(keyword)) {
+          hasMediaTypeKeyword = true;
+          break;
+        }
+      }
+      
+      if (hasMediaTypeKeyword && 
+          (normalizedResultTitle.contains(normalizedOriginalTitle) || 
+           normalizedOriginalTitle.contains(normalizedResultTitle))) {
+        return result;
+      }
+    }
+    
+    // Third pass: Just return the first result if it has a somewhat similar title
+    if (results.isNotEmpty) {
+      final String normalizedResultTitle = _normalizeTitle(results.first.title);
+      final String normalizedOriginalTitle = _normalizeTitle(originalTitle);
+      
+      if (_isTitleSimilar(normalizedResultTitle, normalizedOriginalTitle)) {
+        return results.first;
+      }
+    }
+    
+    return null;
+  }
+  
+  /// Checks if two titles are similar
+  bool _isTitleSimilar(String title1, String title2) {
+    // If either title contains the other, they're similar
+    if (title1.contains(title2) || title2.contains(title1)) {
+      return true;
+    }
+    
+    // Split titles into words and check for significant word overlap
+    final words1 = title1.split(' ');
+    final words2 = title2.split(' ');
+    
+    // Count matching words
+    int matchCount = 0;
+    for (final word1 in words1) {
+      if (word1.length <= 2) continue; // Skip short words
+      
+      for (final word2 in words2) {
+        if (word2.length <= 2) continue; // Skip short words
+        
+        if (word1 == word2) {
+          matchCount++;
+          break;
+        }
+      }
+    }
+    
+    // If more than half of the words match, consider it similar
+    return matchCount >= (words1.length / 2).round() || matchCount >= (words2.length / 2).round();
+  }
+  
+  /// Normalizes a title for comparison
+  String _normalizeTitle(String title) {
+    // Remove common prefixes like "The", "A", etc.
+    String normalized = title.toLowerCase();
+    
+    // Remove anything in parentheses
+    normalized = normalized.replaceAll(RegExp(r'\([^)]*\)'), '');
+    
+    // Remove common punctuation
+    normalized = normalized.replaceAll(RegExp(r'[^\w\s]'), '');
+    
+    // Remove common words
+    final commonWords = ['the', 'a', 'an', 'and', 'or', 'of', 'in', 'on', 'at', 'to'];
+    final words = normalized.split(' ');
+    final filteredWords = words.where((word) => !commonWords.contains(word) && word.isNotEmpty).toList();
+    
+    return filteredWords.join(' ').trim();
+  }
+  
+  /// Gets keywords associated with a media type
+  List<String> _getMediaTypeKeywords(MediaType mediaType) {
+    switch (mediaType) {
+      case MediaType.book:
+        return ['book', 'novel', 'fiction', 'author', 'published', 'literature'];
+      case MediaType.movie:
+        return ['film', 'movie', 'directed', 'director', 'cinema', 'starring'];
+      case MediaType.tvShow:
+        return ['television', 'tv', 'series', 'show', 'episode', 'season', 'aired'];
+      case MediaType.album:
+        return ['album', 'music', 'song', 'band', 'artist', 'record', 'track', 'released'];
+      case MediaType.game:
+        return ['game', 'video game', 'gameplay', 'developer', 'console', 'player'];
+      default:
+        return [];
+    }
+  }
+  
+  /// Extracts media information from Wikipedia content
+  MediaInfo _extractMediaInfo(WikipediaContent content, MediaType mediaType) {
+    // Extract creator information (author, director, developer, etc.)
+    String? creator = _extractCreator(content.extract, mediaType);
+    
+    // Extract release date
+    String? releaseDate = _extractReleaseDate(content.extract, mediaType);
+    
+    // Extract genre
+    String? genre = _extractGenre(content.extract, mediaType);
+    
+    return MediaInfo(
+      title: content.title,
+      description: content.extract,
+      imageUrl: content.imageUrl,
+      creator: creator,
+      releaseDate: releaseDate,
+      genre: genre,
+      mediaType: mediaType,
+      sourceUrl: content.fullUrl,
+    );
+  }
+  
+  /// Extracts creator information from content
+  String? _extractCreator(String content, MediaType mediaType) {
+    final lowerContent = content.toLowerCase();
+    
+    // Different patterns based on media type
+    RegExp? regex;
+    switch (mediaType) {
+      case MediaType.book:
+        regex = RegExp(r'(?:by|author|written by)[^\.\n]*?([\w\s]+)', caseSensitive: false);
+        break;
+      case MediaType.movie:
+        regex = RegExp(r'(?:directed by|director)[^\.\n]*?([\w\s]+)', caseSensitive: false);
+        break;
+      case MediaType.tvShow:
+        regex = RegExp(r'(?:created by|creator|developed by)[^\.\n]*?([\w\s]+)', caseSensitive: false);
+        break;
+      case MediaType.album:
+        regex = RegExp(r'(?:by|artist|band)[^\.\n]*?([\w\s]+)', caseSensitive: false);
+        break;
+      case MediaType.game:
+        regex = RegExp(r'(?:developed by|developer)[^\.\n]*?([\w\s]+)', caseSensitive: false);
+        break;
+      default:
+        return null;
+    }
+    
+    final match = regex.firstMatch(lowerContent);
+    if (match != null && match.groupCount >= 1) {
+      return match.group(1)?.trim();
+    }
+    
+    return null;
+  }
+  
+  /// Extracts release date from content
+  String? _extractReleaseDate(String content, MediaType mediaType) {
+    final lowerContent = content.toLowerCase();
+    
+    // Look for year patterns
+    final yearRegex = RegExp(r'(?:released|published|aired|premiered|first released|launch|debut)(?:[^\.\n]*?)(\d{4})', caseSensitive: false);
+    final yearMatch = yearRegex.firstMatch(lowerContent);
+    
+    if (yearMatch != null && yearMatch.groupCount >= 1) {
+      return yearMatch.group(1);
+    }
+    
+    // Fallback: just look for a year in the first paragraph
+    final firstParagraphYearRegex = RegExp(r'\b(19\d{2}|20\d{2})\b');
+    final paragraphs = content.split('\n\n');
+    if (paragraphs.isNotEmpty) {
+      final firstParagraphMatch = firstParagraphYearRegex.firstMatch(paragraphs[0]);
+      if (firstParagraphMatch != null) {
+        return firstParagraphMatch.group(0);
+      }
+    }
+    
+    return null;
+  }
+  
+  /// Extracts genre information from content
+  String? _extractGenre(String content, MediaType mediaType) {
+    final lowerContent = content.toLowerCase();
+    
+    // Different patterns based on media type
+    RegExp? regex;
+    switch (mediaType) {
+      case MediaType.book:
+      case MediaType.movie:
+      case MediaType.tvShow:
+      case MediaType.album:
+      case MediaType.game:
+        regex = RegExp(r'(?:genre|genres)[^\.\n]*?([\w\s,]+)', caseSensitive: false);
+        break;
+      default:
+        return null;
+    }
+    
+    final match = regex.firstMatch(lowerContent);
+    if (match != null && match.groupCount >= 1) {
+      return match.group(1)?.trim();
+    }
+    
+    return null;
+  }
 }
 
 /// Represents a Wikipedia search result
@@ -197,5 +500,89 @@ class WikipediaContent {
   @override
   String toString() {
     return 'WikipediaContent{title: $title, extract: ${extract.substring(0, extract.length > 100 ? 100 : extract.length)}...}';
+  }
+}
+
+/// Represents the type of media
+enum MediaType {
+  book,
+  movie,
+  tvShow,
+  album,
+  game,
+  other
+}
+
+/// Represents media information extracted from Wikipedia
+class MediaInfo {
+  final String title;
+  final String description;
+  final String? imageUrl;
+  final String? creator;
+  final String? releaseDate;
+  final String? genre;
+  final MediaType mediaType;
+  final String sourceUrl;
+  
+  MediaInfo({
+    required this.title,
+    required this.description,
+    this.imageUrl,
+    this.creator,
+    this.releaseDate,
+    this.genre,
+    required this.mediaType,
+    required this.sourceUrl,
+  });
+  
+  @override
+  String toString() {
+    return 'MediaInfo{title: $title, creator: $creator, releaseDate: $releaseDate, genre: $genre, mediaType: $mediaType}';
+  }
+  
+  /// Converts this MediaInfo to a Map for database storage
+  Map<String, dynamic> toMap() {
+    return {
+      'title': title,
+      'description': description,
+      'imageUrl': imageUrl,
+      'creator': creator,
+      'releaseDate': releaseDate,
+      'genre': genre,
+      'mediaType': mediaType.toString().split('.').last,
+      'sourceUrl': sourceUrl,
+    };
+  }
+  
+  /// Creates a MediaInfo from a Map (for database retrieval)
+  factory MediaInfo.fromMap(Map<String, dynamic> map) {
+    return MediaInfo(
+      title: map['title'] ?? '',
+      description: map['description'] ?? '',
+      imageUrl: map['imageUrl'],
+      creator: map['creator'],
+      releaseDate: map['releaseDate'],
+      genre: map['genre'],
+      mediaType: _mediaTypeFromString(map['mediaType'] ?? 'other'),
+      sourceUrl: map['sourceUrl'] ?? '',
+    );
+  }
+  
+  /// Converts a string to MediaType enum
+  static MediaType _mediaTypeFromString(String type) {
+    switch (type.toLowerCase()) {
+      case 'book':
+        return MediaType.book;
+      case 'movie':
+        return MediaType.movie;
+      case 'tvshow':
+        return MediaType.tvShow;
+      case 'album':
+        return MediaType.album;
+      case 'game':
+        return MediaType.game;
+      default:
+        return MediaType.other;
+    }
   }
 }

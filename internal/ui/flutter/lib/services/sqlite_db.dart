@@ -42,9 +42,26 @@ class SQLiteDatabase {
   /// Get the database file path
   Future<String> _getDatabasePath() async {
     try {
-      final documentsDirectory = await getApplicationDocumentsDirectory();
-      final path = join(documentsDirectory.path, 'interestnaut.db');
-      return path;
+      if (Platform.isWindows) {
+        // On Windows, use the application support directory which is more appropriate
+        // for database files than the documents directory
+        final appDataDir = await getApplicationSupportDirectory();
+        final dbDir = Directory(join(appDataDir.path, 'Interestnaut'));
+        
+        // Create the directory if it doesn't exist
+        if (!await dbDir.exists()) {
+          await dbDir.create(recursive: true);
+        }
+        
+        final path = join(dbDir.path, 'interestnaut.db');
+        debugPrint('Windows SQLite database path: $path');
+        return path;
+      } else {
+        // For other platforms, use the documents directory as before
+        final documentsDirectory = await getApplicationDocumentsDirectory();
+        final path = join(documentsDirectory.path, 'interestnaut.db');
+        return path;
+      }
     } catch (e) {
       debugPrint('Error getting database path: $e');
       rethrow;
