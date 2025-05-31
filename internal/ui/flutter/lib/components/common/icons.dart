@@ -17,6 +17,7 @@ class AppIcons {
   static const IconData stepForward = FontAwesomeIcons.stepForward;
   static const IconData times = FontAwesomeIcons.xmark;
   static const IconData spotify = FontAwesomeIcons.spotify;
+  static const IconData robot = FontAwesomeIcons.robot;
   
   // Define standard sizes to use throughout the app
   static const double iconSizeSmall = 14.0;   // Smaller to match Font Awesome default size

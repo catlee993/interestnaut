@@ -75,8 +75,8 @@ class LibrarySection extends StatelessWidget {
                     
                     return TrackCard(
                       track: simpleTrack,
-                      isSaved: true,
-                      isPlaying: !isPlaybackPaused && nowPlayingTrack?.id == track.id,
+                        isSaved: true,
+                        isPlaying: !isPlaybackPaused && nowPlayingTrack?.id == track.id,
                       onPlay: (t) => onPlay(track), // Pass original track to onPlay
                       onSave: (t) => onSave(track), // Pass original track to onSave
                       onRemove: (t) => onRemove(track), // Pass original track to onRemove

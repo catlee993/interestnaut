@@ -98,7 +98,7 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
         message.contains('Failed') ||
         message.contains('Successfully connected') ||
         message.contains('Sending initial token')) {
-      debugPrint('SpotifyWebPlayer: $logEntry');
+    debugPrint('SpotifyWebPlayer: $logEntry');
     }
   }
   

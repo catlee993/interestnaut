@@ -94,15 +94,15 @@
                          message.includes('Received token');
       
       if (isImportant) {
-        try {
-          if (window.SpotifyEvents && window.SpotifyEvents.postMessage) {
+      try {
+        if (window.SpotifyEvents && window.SpotifyEvents.postMessage) {
             window.SpotifyEvents.postMessage(JSON.stringify({
               type: 'log',
               message: message
             }));
-          }
-        } catch (e) {
-          console.error("Failed to send log to Flutter:", e);
+        }
+      } catch (e) {
+        console.error("Failed to send log to Flutter:", e);
         }
       }
     }
@@ -222,7 +222,7 @@
       function handleMessage(data) {
         // Only log non-SP_MESSAGE types to reduce noise
         if (data.type !== 'SP_MESSAGE') {
-          debugLog('Processing message: ' + data.type);
+        debugLog('Processing message: ' + data.type);
         }
         
         if (data.type === 'token') {

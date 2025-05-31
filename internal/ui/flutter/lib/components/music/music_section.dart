@@ -12,6 +12,7 @@ import 'player/spotify_player_view.dart';
 import 'player/spotify_web_player.dart';
 import 'spotify_service.dart';
 import 'suggestions/suggestion_display.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 
 // A helper class to adapt Track to MediaItem for compatibility
 class TrackAdapter {
@@ -72,11 +73,6 @@ class _MusicSectionState extends State<MusicSection> {
   String? _dbSuggestionError;
   bool _isLoadingDbSuggestion = false;
 
-  // Suggestion state (for Spotify suggestions)
-  Track? _suggestion;
-  String? _suggestionError;
-  bool _isLoadingSuggestion = false;
-
   // Playback state
   Track? _nowPlayingTrack;
   bool _isPlaybackPaused = true;
@@ -112,9 +108,6 @@ class _MusicSectionState extends State<MusicSection> {
   @override
   void initState() {
     super.initState();
-    
-    // Reset suggestion state on init to avoid any loading indicators
-    _resetSuggestionState();
     
     _setupListeners();
     _checkAuthentication();
@@ -174,7 +167,6 @@ class _MusicSectionState extends State<MusicSection> {
         debugPrint('Player conditions: isAuthenticated=$_isAuthenticated, nowPlayingTrack=$_nowPlayingTrack');
         
         _loadLibrary();
-        _loadSuggestion(); // Ensure we load a suggestion on authentication
         
         // Check player readiness after a short delay to allow for initialization
         Future.delayed(const Duration(seconds: 1), () {
@@ -251,7 +243,6 @@ class _MusicSectionState extends State<MusicSection> {
 
     if (_isAuthenticated) {
       _loadLibrary();
-      _loadSuggestion(); // Ensure we load a suggestion on authentication
     }
   }
 
@@ -334,36 +325,6 @@ class _MusicSectionState extends State<MusicSection> {
       previewUrl: simpleTrack.previewUrl ?? '',
     );
   }
-
-  // Load a suggestion based on library
-  Future<void> _loadSuggestion() async {
-    setState(() {
-      _isLoadingSuggestion = false; // Prevent loading indicator from showing
-      _suggestionError = null;
-    });
-    try {
-      final recommendations = await _spotifyService.getRecommendations();
-      
-      if (recommendations.isNotEmpty) {
-        final simpleTrack = recommendations.first;
-        final track = _convertSimpleTrackToTrack(simpleTrack);
-        
-        setState(() {
-          _suggestion = track;
-        });
-      } else {
-        setState(() {
-          _suggestion = null;
-          _suggestionError = 'No suggestions available';
-        });
-      }
-    } catch (e) {
-      setState(() {
-        _suggestion = null;
-        _suggestionError = e.toString();
-      });
-    }
-  }
   
   // Load next page of tracks
   void _loadNextPage() {
@@ -419,16 +380,16 @@ class _MusicSectionState extends State<MusicSection> {
           });
         } else {
           // Store as pending
-          _pendingTrackUri = trackUri;
-          debugPrint('Storing track URI as pending: $trackUri');
-          
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
+        _pendingTrackUri = trackUri;
+        debugPrint('Storing track URI as pending: $trackUri');
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
                 content: Text('No Spotify devices available. Please open Spotify on any device.'),
                 duration: Duration(seconds: 3),
-              ),
-            );
+            ),
+          );
           }
         }
       }
@@ -489,6 +450,56 @@ class _MusicSectionState extends State<MusicSection> {
   Future<void> _saveFromLibrary(Track track) async {
     if (track.id.isEmpty) return;
     await _saveTrack(track.id.toString());
+  }
+
+  // Save a database track to Spotify likes
+  Future<void> _saveSpotifyTrack(Track track) async {
+    if (!_isAuthenticated) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please connect to Spotify first'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
+    try {
+      // For database tracks, we would need to search for them on Spotify first
+      // since they don't have Spotify track IDs
+      final searchResults = await _spotifyService.searchTracks(
+        '${track.name} ${track.artists.first.name}',
+        limit: 1,
+      );
+      
+      if (searchResults.isNotEmpty) {
+        final spotifyTrack = searchResults.first;
+        await _saveTrack(spotifyTrack.id);
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Added "${track.name}" to your Spotify likes'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Could not find "${track.name}" on Spotify'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error saving track to Spotify: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to add track to Spotify: $e'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
   }
 
   // Handle track card play/pause
@@ -572,44 +583,6 @@ class _MusicSectionState extends State<MusicSection> {
       }
     } catch (e) {
       debugPrint('Error toggling playback: $e');
-    }
-  }
-
-  // Reset all state variables related to suggestions
-  void _resetSuggestionState() {
-    setState(() {
-      _isLoadingSuggestion = false;
-      _suggestionError = null;
-      _suggestion = null;
-    });
-  }
-
-  // Provide feedback for a suggestion
-  Future<void> _provideFeedback(String feedback) async {
-    if (_suggestion == null) return;
-
-    try {
-      // Extract info from the suggestion
-      final String title = _suggestion!.name;
-      final String artist = _suggestion!.artists.first.name;
-
-      // Show feedback message
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('$feedback: $title by $artist'),
-          duration: const Duration(seconds: 2),
-        ),
-      );
-
-      // Load a new suggestion
-      _loadSuggestion();
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error providing feedback: $e'),
-          duration: const Duration(seconds: 5),
-        ),
-      );
     }
   }
 
@@ -724,21 +697,13 @@ class _MusicSectionState extends State<MusicSection> {
     const double headerHeight = 145;
     return Stack(
       children: [
-        // Album art background (scrolls under header)
-        Positioned.fill(
-          child: _suggestion != null && _suggestion!.album.images.isNotEmpty
-              ? Image.network(
-                  _suggestion!.album.images.first.url,
-                  fit: BoxFit.cover,
-                  alignment: Alignment.topCenter,
-                )
-              : Container(color: Colors.transparent),
-        ),
         // Main content (text, lists, errors) now all inside ScrollContentWrapper
         ScrollContentWrapper(
           headerHeight: 106.0,
           builder: (scrollOffset) {
-            return Column(
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 100), // Add padding for playbar
+              child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 SizedBox(
@@ -751,7 +716,7 @@ class _MusicSectionState extends State<MusicSection> {
                   ),
                 ),
                 const SizedBox(height: 12),
-                // Database suggestion section
+                  // Database suggestion section
                 Center(
                   child: Opacity(
                     opacity: (scrollOffset <= 70) ? 1.0 : 0.0,
@@ -767,14 +732,14 @@ class _MusicSectionState extends State<MusicSection> {
                   ),
                 ),
                 const SizedBox(height: 12),
-                if (_isLoadingDbSuggestion)
+                  if (_isLoadingDbSuggestion)
                   const SizedBox.shrink()
-                else if (_dbSuggestionError != null)
+                  else if (_dbSuggestionError != null)
                   Center(
                     child: Padding(
                       padding: const EdgeInsets.symmetric(vertical: 24),
                       child: Text(
-                        'Error: $_dbSuggestionError',
+                          'Error: $_dbSuggestionError',
                         style: const TextStyle(
                           color: Colors.white54,
                           fontSize: 16,
@@ -783,7 +748,7 @@ class _MusicSectionState extends State<MusicSection> {
                       ),
                     ),
                   )
-                else if (_dbSuggestedTrack == null)
+                  else if (_dbSuggestedTrack == null)
                   const Center(
                     child: Padding(
                       padding: EdgeInsets.symmetric(vertical: 24),
@@ -798,119 +763,346 @@ class _MusicSectionState extends State<MusicSection> {
                     ),
                   )
                 else
-                  Column(
-                    children: [
-                      SuggestionDisplay(
-                        suggestedTrack: TrackAdapter.toMediaItem(_dbSuggestedTrack!),
-                        onRequestSuggestion: _loadDbSuggestion,
-                        onSkipSuggestion: _skipDbSuggestion,
-                        onSuggestionFeedback: _handleDbSuggestionFeedback,
-                        onAddToLibrary: _likeDbSuggestion,
-                        onPlay: (mediaItem) => {}, // DB suggestions can't be played through Spotify
-                        isPlaybackPaused: true,
-                        nowPlayingTrack: null,
-                        onPlayPause: () => {},
-                        isPlayerReady: false,
-                      ),
-                      const SizedBox(height: 16),
-                      // Add to Playlist button
-                      Center(
-                        child: OutlinedButton.icon(
-                          onPressed: _addDbSuggestionToPlaylist,
-                          icon: const Icon(Icons.playlist_add),
-                          label: const Text('Add to Playlist'),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: const Color(0xFFA855F7),
-                            side: const BorderSide(color: Color(0xFFA855F7)),
+                    Column(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(24),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF282828), // Surface color from React (--surface-color)
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // Album art (takes full height)
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(12),
+                                child: Container(
+                                  width: 300,
+                                  height: 450, // Match movie poster height
+                                  color: Colors.grey[900],
+                                  child: _dbSuggestedTrack!.album.images.isNotEmpty
+                                    ? Image.network(
+                                        _dbSuggestedTrack!.album.images.first.url,
+                                        fit: BoxFit.cover,
+                                        errorBuilder: (context, error, stackTrace) {
+                                          return const Center(
+                                            child: Icon(
+                                              Icons.music_note,
+                                              size: 48,
+                                              color: Colors.white54,
+                                            ),
+                                          );
+                                        },
+                                      )
+                                    : const Center(
+                                        child: Icon(
+                                          Icons.music_note,
+                                          size: 48,
+                                          color: Colors.white54,
+                                        ),
+                                      ),
+                                ),
+                              ),
+                              const SizedBox(width: 24),
+                              
+                              // Track info (centered alignment)
+                              Expanded(
+                                child: SizedBox(
+                                  height: 450, // Match the album art height
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.center, // Center everything
+                                    children: [
+                                      // Track title
+                                      Text(
+                                        _dbSuggestedTrack!.name,
+                                        style: const TextStyle(
+                                          fontSize: 24,
+                                          fontWeight: FontWeight.w600,
+                                          color: Colors.white,
+                                        ),
+                                        textAlign: TextAlign.center,
+                                      ),
+                                      const SizedBox(height: 8),
+                                      
+                                      // Artist and Album info
+                                      Text(
+                                        '${_dbSuggestedTrack!.artists.first.name} • ${_dbSuggestedTrack!.album.name}',
+                                        style: TextStyle(
+                                          fontSize: 15,
+                                          color: Colors.white.withOpacity(0.7),
+                                          fontWeight: FontWeight.w400,
+                                        ),
+                                        textAlign: TextAlign.center,
+                                      ),
+                                      const SizedBox(height: 16),
+                                      
+                                      // Description text (same color as title)
+                                      if (_currentDbSuggestion?.description?.isNotEmpty == true)
+                                        Padding(
+                                          padding: const EdgeInsets.only(bottom: 16),
+                                          child: Text(
+                                            _currentDbSuggestion!.description!,
+                                            style: const TextStyle(
+                                              fontSize: 14,
+                                              color: Colors.white, // Same as title
+                                              height: 1.5,
+                                              fontWeight: FontWeight.w400,
+                                            ),
+                                            textAlign: TextAlign.center,
+                                          ),
+                                        ),
+                                      
+                                      // Use Expanded to push reasoning to bottom
+                                      Expanded(child: Container()),
+                                      
+                                      // Bot reasoning (no background, clean styling)
+                                      if (_currentDbSuggestion?.botReasoning?.isNotEmpty == true)
+                                        Container(
+                                          width: double.infinity,
+                                          margin: const EdgeInsets.only(bottom: 24),
+                                          child: Column(
+                                            children: [
+                                              // Reasoning header with Font Awesome robot icon
+                                              Row(
+                                                mainAxisAlignment: MainAxisAlignment.center,
+                                                children: [
+                                                  Icon(
+                                                    FontAwesomeIcons.robot, // Clean robot icon from Font Awesome
+                                                    size: 16,
+                                                    color: const Color(0xFF8C86E2).withOpacity(0.7), // rgba(140, 134, 258, 0.7)
+                                                  ),
+                                                  const SizedBox(width: 8),
+                                                  Text(
+                                                    'Reasoning',
+                                                    style: TextStyle(
+                                                      color: const Color(0xFF8C86E2).withOpacity(0.7),
+                                                      fontWeight: FontWeight.w500,
+                                                      fontSize: 14,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                              const SizedBox(height: 8),
+                                              
+                                              // Divider line
+                                              Container(
+                                                height: 1,
+                                                color: const Color(0xFF7B68EE).withOpacity(0.2), // Primary color with opacity
+                                              ),
+                                              const SizedBox(height: 12),
+                                              
+                                              // Reasoning text
+                                              Text(
+                                                _currentDbSuggestion!.botReasoning!,
+                                                style: TextStyle(
+                                                  color: Colors.white.withOpacity(0.6), // More gray
+                                                  fontSize: 14,
+                                                  height: 1.5,
+                                                ),
+                                                textAlign: TextAlign.center,
+                                              ),
+                                              
+                                              // Action buttons (moved inside container)
+                                              const SizedBox(height: 24),
+                                              Padding(
+                                                padding: const EdgeInsets.symmetric(horizontal: 24), // Center between image and container edge
+                                                child: Wrap(
+                                                  spacing: 8,
+                                                  runSpacing: 8,
+                                                  alignment: WrapAlignment.center,
+                                                  children: [
+                                                    // Like button (black background)
+                                                    ElevatedButton.icon(
+                                                      onPressed: _likeDbSuggestion,
+                                                      icon: const Icon(Icons.thumb_up, size: 16),
+                                                      label: const Text('Like', style: TextStyle(fontSize: 13)),
+                                                      style: ElevatedButton.styleFrom(
+                                                        backgroundColor: Colors.black.withOpacity(0.7),
+                                                        foregroundColor: Colors.white,
+                                                        elevation: 0,
+                                                        side: BorderSide(color: Colors.white.withOpacity(0.3), width: 1),
+                                                        shape: RoundedRectangleBorder(
+                                                          borderRadius: BorderRadius.circular(25),
+                                                        ),
+                                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                                        minimumSize: const Size(0, 44),
+                                                      ),
+                                                    ),
+                                                    
+                                                    // Dislike button (black background)
+                                                    ElevatedButton.icon(
+                                                      onPressed: _dislikeDbSuggestion,
+                                                      icon: const Icon(Icons.thumb_down, size: 16),
+                                                      label: const Text('Dislike', style: TextStyle(fontSize: 13)),
+                                                      style: ElevatedButton.styleFrom(
+                                                        backgroundColor: Colors.black.withOpacity(0.7),
+                                                        foregroundColor: Colors.white,
+                                                        elevation: 0,
+                                                        side: BorderSide(color: Colors.white.withOpacity(0.3), width: 1),
+                                                        shape: RoundedRectangleBorder(
+                                                          borderRadius: BorderRadius.circular(25),
+                                                        ),
+                                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                                        minimumSize: const Size(0, 44),
+                                                      ),
+                                                    ),
+                                                    
+                                                    // Favorite button (gray background)
+                                                    ElevatedButton.icon(
+                                                      onPressed: _likeDbSuggestion, // TODO: Create separate favorite function
+                                                      icon: const Icon(Icons.favorite, size: 16),
+                                                      label: const Text('Favorite', style: TextStyle(fontSize: 13)),
+                                                      style: ElevatedButton.styleFrom(
+                                                        backgroundColor: Colors.white.withOpacity(0.15),
+                                                        foregroundColor: Colors.white,
+                                                        elevation: 0,
+                                                        shape: RoundedRectangleBorder(
+                                                          borderRadius: BorderRadius.circular(25),
+                                                        ),
+                                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                                        minimumSize: const Size(0, 44),
+                                                      ),
+                                                    ),
+                                                    
+                                                    // Playlist button
+                                                    ElevatedButton.icon(
+                                                      onPressed: _addDbSuggestionToPlaylist,
+                                                      icon: const Icon(Icons.playlist_add, size: 16),
+                                                      label: const Text('Playlist', style: TextStyle(fontSize: 13)),
+                                                      style: ElevatedButton.styleFrom(
+                                                        backgroundColor: Colors.white.withOpacity(0.15),
+                                                        foregroundColor: Colors.white,
+                                                        elevation: 0,
+                                                        shape: RoundedRectangleBorder(
+                                                          borderRadius: BorderRadius.circular(25),
+                                                        ),
+                                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                                        minimumSize: const Size(0, 44),
+                                                      ),
+                                                    ),
+                                                    
+                                                    // Skip button with legacy skip icon
+                                                    ElevatedButton.icon(
+                                                      onPressed: _skipDbSuggestion,
+                                                      icon: const Icon(Icons.skip_next, size: 16),
+                                                      label: const Text('Skip', style: TextStyle(fontSize: 13)),
+                                                      style: ElevatedButton.styleFrom(
+                                                        backgroundColor: Colors.white.withOpacity(0.15),
+                                                        foregroundColor: Colors.white,
+                                                        elevation: 0,
+                                                        shape: RoundedRectangleBorder(
+                                                          borderRadius: BorderRadius.circular(25),
+                                                        ),
+                                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                                        minimumSize: const Size(0, 44),
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                      ),
-                    ],
-                  ),
-                
-                // Your Playlist section
-                const SizedBox(height: 32),
-                const Center(
-                  child: Text(
-                    'Your Playlist',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
+                        const SizedBox(height: 24),
+                        
+                        // Your Playlist section
+                        const SizedBox(height: 32),
+                        const Center(
+                          child: Text(
+                            'Your Playlist',
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        if (_isLoadingDbPlaylist)
+                          const Center(
+                            child: CircularProgressIndicator(
+                              color: Color(0xFFA855F7),
+                            ),
+                          )
+                        else if (_dbPlaylistSuggestions.isEmpty)
+                          const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 32),
+                            child: Center(
+                              child: Text(
+                                'No tracks in your playlist yet. Add suggestions to your playlist to see them here.',
+                                style: TextStyle(color: Colors.white54),
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                          )
+                        else
+                          _buildDbPlaylistSection(),
+                        
+                        // Your Library section (for liked DB suggestions)
+                        const SizedBox(height: 32),
+                        const Center(
+                          child: Text(
+                            'Your Library',
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        if (_isLoadingDbLibrary)
+                          const Center(
+                            child: CircularProgressIndicator(
+                              color: Color(0xFFA855F7),
+                            ),
+                          )
+                        else if (_dbLikedSuggestions.isEmpty)
+                          const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 32),
+                            child: Center(
+                              child: Text(
+                                'No tracks in your library yet. Like suggestions to add them to your library.',
+                                style: TextStyle(color: Colors.white54),
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                          )
+                        else
+                          _buildDbLibrarySection(),
+                        
+                        // Your Spotify Liked Tracks section (existing library)
+                        const SizedBox(height: 32),
+                        const Center(
+                          child: Text(
+                            'Your Spotify Liked Tracks',
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        if (!_isAuthenticated)
+                          _buildAuthPrompt()
+                        else if (_isLoadingLibrary)
+                          const Center(
+                            child: CircularProgressIndicator(
+                              color: Color(0xFFA855F7),
+                            ),
+                          )
+                        else
+                          _buildLibrarySection(),
+                      ],
                     ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                if (_isLoadingDbPlaylist)
-                  const Center(
-                    child: CircularProgressIndicator(
-                      color: Color(0xFFA855F7),
-                    ),
-                  )
-                else if (_dbPlaylistSuggestions.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 32),
-                    child: Text(
-                      'No tracks in your playlist yet. Add suggestions to your playlist to see them here.',
-                      style: TextStyle(color: Colors.white54),
-                      textAlign: TextAlign.center,
-                    ),
-                  )
-                else
-                  _buildDbPlaylistSection(),
-                
-                // Your Library section (for liked DB suggestions)
-                const SizedBox(height: 32),
-                const Center(
-                  child: Text(
-                    'Your Library',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                if (_isLoadingDbLibrary)
-                  const Center(
-                    child: CircularProgressIndicator(
-                      color: Color(0xFFA855F7),
-                    ),
-                  )
-                else if (_dbLikedSuggestions.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 32),
-                    child: Text(
-                      'No tracks in your library yet. Like suggestions to add them to your library.',
-                      style: TextStyle(color: Colors.white54),
-                      textAlign: TextAlign.center,
-                    ),
-                  )
-                else
-                  _buildDbLibrarySection(),
-                
-                // Your Spotify Liked Tracks section (existing library)
-                const SizedBox(height: 32),
-                const Center(
-                  child: Text(
-                    'Your Spotify Liked Tracks',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                if (!_isAuthenticated)
-                  _buildAuthPrompt()
-                else if (_isLoadingLibrary)
-                  const Center(
-                    child: CircularProgressIndicator(
-                      color: Color(0xFFA855F7),
-                    ),
-                  )
-                else
-                  _buildLibrarySection(),
-              ],
+                ],
+              ),
             );
           },
         ),

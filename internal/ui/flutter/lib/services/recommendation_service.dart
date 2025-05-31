@@ -16,7 +16,7 @@ enum SuggestionStatus {
   disliked,
   added, 
   archived, 
-  failure,
+  failure, 
   watchlist, // For items added to playlist/watchlist
 }
 
