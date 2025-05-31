@@ -19,7 +19,8 @@ CREATE TABLE IF NOT EXISTS recommendations (
   bot_reasoning TEXT,
   status TEXT NOT NULL DEFAULT 'pending',
   created_at TEXT NOT NULL,
-  updated_at TEXT
+  updated_at TEXT,
+  UNIQUE(title, artist, media_type)
 );
 ''';
 

@@ -320,32 +320,32 @@ class LlamaService {
 
       // No formatter for better JSON generation
 
-      // Use conservative settings optimized for JSON generation
+      // Use conservative settings optimized for efficiency
       _contextParams = ContextParams();
-      _contextParams!.nCtx = 1024;          // Reduced context size for efficiency
-      _contextParams!.nBatch = 256;         // Reduced batch size
-      _contextParams!.nUbatch = 256;        // Match batch size
-      _contextParams!.nThreads = 4;         // Reduced thread count for efficiency
-      _contextParams!.nThreadsBatch = 4;    // Match thread count
-      _contextParams!.nPredict = 128;       // Reduced token limit for JSON responses
-      _contextParams!.offloadKqv = true;   // Offload KQV operations to GPU
-      _contextParams!.logitsAll = false;   // Don't compute logits for all tokens
-      _contextParams!.embeddings = false;  // Don't compute embeddings
-      _contextParams!.flashAttn = true;    // Enable flash attention if available
+      _contextParams!.nCtx = 512;           // Reduced context for faster processing
+      _contextParams!.nBatch = 128;         // Smaller batch size
+      _contextParams!.nUbatch = 128;        // Match batch size
+      _contextParams!.nThreads = 2;         // Fewer threads for stability
+      _contextParams!.nThreadsBatch = 2;    // Match thread count
+      _contextParams!.nPredict = 64;        // Much smaller prediction limit for simple responses
+      _contextParams!.offloadKqv = true;    // Offload KQV operations to GPU
+      _contextParams!.logitsAll = false;    // Don't compute logits for all tokens
+      _contextParams!.embeddings = false;   // Don't compute embeddings
+      _contextParams!.flashAttn = true;     // Enable flash attention if available
       _contextParams!.noPerfTimings = true; // Disable performance timings
       _contextParams!.defragThold = 0.5;
 
-      // Configure sampling for better instruction following with Llama-3 chat format
+      // Configure sampling for fast, simple responses
       final samplerParams = SamplerParams();
-      samplerParams.greedy = false;            // Allow some sampling for more natural responses
-      samplerParams.temp = 0.1;               // Low but not extremely low temperature
-      samplerParams.topK = 10;                // Allow top 10 tokens for some variety
-      samplerParams.topP = 0.1;               // Very focused sampling
-      samplerParams.minP = 0.05;              // Lower minimum probability for more tokens
+      samplerParams.greedy = false;            // Allow some sampling to avoid repetition
+      samplerParams.temp = 0.3;               // Slightly higher temperature for variety
+      samplerParams.topK = 15;                // More tokens for variety
+      samplerParams.topP = 0.7;               // Better sampling for completion
+      samplerParams.minP = 0.05;              // Higher minimum probability
       samplerParams.typical = 1.0;            // No typical sampling
-      samplerParams.penaltyLastTokens = 64;   // Apply penalties to last 64 tokens
-      samplerParams.penaltyRepeat = 1.1;      // Moderate repetition penalty
-      samplerParams.penaltyFreq = 1.0;        // No frequency penalty
+      samplerParams.penaltyLastTokens = 32;   // Smaller penalty window
+      samplerParams.penaltyRepeat = 1.2;      // Higher repetition penalty to avoid loops
+      samplerParams.penaltyFreq = 1.1;        // Frequency penalty to encourage variety
       samplerParams.penaltyPresent = 1.0;     // No penalty for present tokens
       samplerParams.ignoreEOS = false;        // Respect EOS tokens
 
@@ -388,9 +388,6 @@ class LlamaService {
       print('LlamaService initialized successfully with model: $modelPath');
       _isRunning = true;
       _initCompleter?.complete();
-      
-      // Test the model after initialization
-      _testModelAfterInit();
       
       return true;
     } catch (e) {
@@ -508,22 +505,125 @@ class LlamaService {
         
         final extractedJson = extractJsonFromText(text);
         if (extractedJson != null) {
-          // Found a valid suggestion, exit immediately
-          
-          // CRITICAL: Immediately stop token generation
-          _llamaParent?.stop();
-          
-          if (!completer.isCompleted) {
-            completer.complete(extractedJson);
+          // Check if the JSON is actually complete with non-empty required fields
+          try {
+            final json = jsonDecode(extractedJson);
+            if (json is Map) {
+              // Check for any valid JSON structure with non-empty values
+              bool hasCompleteFields = false;
+              
+              // Check for simple status JSON (warm-up)
+              if (json.containsKey('status') && 
+                  json['status'] is String && 
+                  json['status'].toString().trim().isNotEmpty) {
+                hasCompleteFields = true;
+              }
+              // Check for test JSON
+              else if (json.containsKey('test') && 
+                       json['test'] is String && 
+                       json['test'].toString().trim().isNotEmpty) {
+                hasCompleteFields = true;
+              }
+              // Check for music recommendations
+              else if (json.containsKey('title') && 
+                       json.containsKey('artist') && 
+                       json.containsKey('reasoning') &&
+                       json['title'] is String && 
+                       json['title'].toString().trim().isNotEmpty &&
+                       json['artist'] is String && 
+                       json['artist'].toString().trim().isNotEmpty &&
+                       json['reasoning'] is String && 
+                       json['reasoning'].toString().trim().isNotEmpty) {
+                hasCompleteFields = true;
+              }
+              // Check for movie recommendations
+              else if (json.containsKey('title') && 
+                       json.containsKey('director') && 
+                       json.containsKey('reasoning') &&
+                       json['title'] is String && 
+                       json['title'].toString().trim().isNotEmpty &&
+                       json['director'] is String && 
+                       json['director'].toString().trim().isNotEmpty &&
+                       json['reasoning'] is String && 
+                       json['reasoning'].toString().trim().isNotEmpty) {
+                hasCompleteFields = true;
+              }
+              // Check for book recommendations
+              else if (json.containsKey('title') && 
+                       json.containsKey('author') && 
+                       json.containsKey('reasoning') &&
+                       json['title'] is String && 
+                       json['title'].toString().trim().isNotEmpty &&
+                       json['author'] is String && 
+                       json['author'].toString().trim().isNotEmpty &&
+                       json['reasoning'] is String && 
+                       json['reasoning'].toString().trim().isNotEmpty) {
+                hasCompleteFields = true;
+              }
+              
+              if (hasCompleteFields) {
+                // Found a complete valid JSON, exit immediately
+                print('LlamaService: Found complete JSON with all required fields');
+                
+                // CRITICAL: Immediately stop token generation
+                _llamaParent?.stop();
+                
+                if (!completer.isCompleted) {
+                  completer.complete(extractedJson);
+                }
+                subscription?.cancel();
+                tokenTimeoutTimer?.cancel();
+                isGenerating = false;
+                
+                // Explicitly stop the generation to prevent further token generation
+                _llamaParent?.stop().catchError((e) {
+                  print('LlamaService: Error stopping generation after JSON extraction: $e');
+                });
+              } else {
+                print('LlamaService: Found JSON but missing or empty required fields, continuing generation...');
+                // Continue generation - this JSON is incomplete
+              }
+            }
+          } catch (e) {
+            print('LlamaService: JSON parsing error, continuing generation: $e');
+            // Continue generation - this JSON is malformed
           }
-          subscription?.cancel();
-          tokenTimeoutTimer?.cancel();
-          isGenerating = false;
+        }
+        
+        // Check for 3-line format completion (Title\nArtist\nReasoning\n)
+        final lines = text.split('\n').where((line) => line.trim().isNotEmpty).toList();
+        if (lines.length >= 3) {
+          // Check if we have 3 meaningful lines (not just placeholder text)
+          bool hasCompleteThreeLines = true;
+          for (int i = 0; i < 3; i++) {
+            final line = lines[i].trim();
+            if (line.isEmpty || line.length < 2) {
+              hasCompleteThreeLines = false;
+              break;
+            }
+          }
           
-          // Explicitly stop the generation to prevent further token generation
-          _llamaParent?.stop().catchError((e) {
-            print('LlamaService: Error stopping generation after JSON extraction: $e');
-          });
+          if (hasCompleteThreeLines) {
+            print('LlamaService: Found complete 3-line format');
+            
+            // CRITICAL: Immediately stop token generation
+            _llamaParent?.stop();
+            
+            if (!completer.isCompleted) {
+              // Return just the first 3 lines joined
+              final threeLineResponse = lines.take(3).join('\n');
+              completer.complete(threeLineResponse);
+            }
+            subscription?.cancel();
+            tokenTimeoutTimer?.cancel();
+            isGenerating = false;
+            
+            // Explicitly stop the generation
+            _llamaParent?.stop().catchError((e) {
+              print('LlamaService: Error stopping generation after 3-line completion: $e');
+            });
+            return;
+          }
         }
       },
       onError: (e) {
@@ -569,14 +669,14 @@ class LlamaService {
       tokenTimeoutTimer = Timer.periodic(Duration(milliseconds: 500), (timer) {
         final timeSinceLastToken = DateTime.now().difference(lastTokenTime).inSeconds;
         final currentLength = buffer.length;
-        // Reduce timeout to 5 seconds to fail faster and add more debugging
-        if ((isGenerating && timeSinceLastToken >= 5) || currentLength > 1000) {
+        // Reduced timeout to 5 seconds for simple responses
+        if ((isGenerating && timeSinceLastToken >= 5) || currentLength > 200) {
           if (isGenerating && timeSinceLastToken >= 5) {
             print('LlamaService: Token generation timeout after $timeSinceLastToken seconds - assuming generation is complete (received $tokenCount tokens total)');
             print('LlamaService: Buffer length: ${buffer.length}');
-            print('LlamaService: Last 100 chars of buffer: "${buffer.length > 100 ? buffer.toString().substring(buffer.length - 100) : buffer.toString()}"');
-          } else if (currentLength > 1000) {
-            print('LlamaService: Response exceeded 1000 characters - truncating to avoid excessive generation');
+            print('LlamaService: Last 50 chars of buffer: "${buffer.length > 50 ? buffer.toString().substring(buffer.length - 50) : buffer.toString()}"');
+          } else if (currentLength > 200) {
+            print('LlamaService: Response exceeded 200 characters - truncating for simple format');
           }
           isGenerating = false;
           timer.cancel();
@@ -584,24 +684,12 @@ class LlamaService {
           // CRITICAL: Immediately stop token generation on timeout
           _llamaParent?.stop();
           
-          // Give a moment for any pending tokens then extract JSON
-          Future.delayed(Duration(milliseconds: 300), () {
+          // Give a moment for any pending tokens then extract content
+          Future.delayed(Duration(milliseconds: 100), () {
             if (!completer.isCompleted) {
               final finalText = buffer.toString();
-              final extractedJson = extractJsonFromText(finalText);
-              if (extractedJson != null) {
-                completer.complete(extractedJson);
-              } else {
-                final repairedJson = attemptJsonRepair(finalText);
-                if (repairedJson != null) {
-                  print('Successfully repaired JSON: $repairedJson');
-                  completer.complete(repairedJson);
-                } else {
-                  print('⚠️ Failed to extract valid JSON from LLM response');
-                  print('Raw response: \n$finalText');
-                  completer.completeError(Exception('Failed to generate valid JSON response'));
-                }
-              }
+              // For simple format, just return the raw text
+              completer.complete(finalText);
               
               // Cancel the subscription to stop token handling
               subscription?.cancel();
@@ -1047,32 +1135,5 @@ class LlamaService {
     
     // Fallback: just return the current directory
     return Directory.current.path;
-  }
-
-  /// Test the model after initialization
-  void _testModelAfterInit() {
-    Future.delayed(Duration(seconds: 2), () async {
-      try {
-        print('LlamaService: Testing model with JSON directive...');
-        final testResponse = await generateStructuredJsonResponse('<JSON_API>\nOutput: {"test":"success"}\nResponse (JSON only):');
-        print('LlamaService: Test response: "$testResponse"');
-        if (testResponse.isEmpty) {
-          print('LlamaService: WARNING - Model test returned empty response');
-        } else {
-          try {
-            final parsed = json.decode(testResponse);
-            if (parsed is Map && parsed.containsKey('test')) {
-              print('LlamaService: Model test successful - JSON format working');
-            } else {
-              print('LlamaService: WARNING - Model test returned non-JSON: $testResponse');
-            }
-          } catch (e) {
-            print('LlamaService: WARNING - Model test returned invalid JSON: $testResponse');
-          }
-        }
-      } catch (e) {
-        print('LlamaService: Model test failed: $e');
-      }
-    });
   }
 }
