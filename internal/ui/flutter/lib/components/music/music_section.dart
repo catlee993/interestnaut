@@ -2,8 +2,12 @@ import 'dart:ui';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../common/scroll_content_wrapper.dart';
+import '../common/media_grid.dart';
 import '../../models.dart';
+import '../../services/recommendation_service.dart';
+import '../../services/sqlite_db.dart';
 import 'library/library_section.dart';
+import 'tracks/track_card.dart';
 import 'player/spotify_player_view.dart';
 import 'player/spotify_web_player.dart';
 import 'spotify_service.dart';
@@ -62,7 +66,13 @@ class _MusicSectionState extends State<MusicSection> {
   String? _pendingTrackUri;
   bool _isPlayerReady = false;
 
-  // Suggestion state
+  // Database suggestion state
+  MediaSuggestion? _currentDbSuggestion;
+  Track? _dbSuggestedTrack;
+  String? _dbSuggestionError;
+  bool _isLoadingDbSuggestion = false;
+
+  // Suggestion state (for Spotify suggestions)
   Track? _suggestion;
   String? _suggestionError;
   bool _isLoadingSuggestion = false;
@@ -71,15 +81,25 @@ class _MusicSectionState extends State<MusicSection> {
   Track? _nowPlayingTrack;
   bool _isPlaybackPaused = true;
 
-  // Library state
+  // Library state (for Spotify liked tracks)
   List<Track> _likedTracks = [];
   bool _isLoadingLibrary = false;
   int _currentLibraryPage = 1;
   int _totalLibraryTracks = 0;
   final int _tracksPerPage = 20; // Show 20 tracks per page (4x5 grid)
 
+  // Local DB library state (for liked suggestions)
+  List<MediaSuggestion> _dbLikedSuggestions = [];
+  bool _isLoadingDbLibrary = false;
+
+  // Local DB playlist state (for watchlist suggestions)
+  List<MediaSuggestion> _dbPlaylistSuggestions = [];
+  bool _isLoadingDbPlaylist = false;
+
   // Keep services and other components
   final SpotifyService _spotifyService = SpotifyService();
+  final RecommendationService _recommendationService = RecommendationService();
+  final SQLiteDatabase _db = SQLiteDatabase();
 
   StreamSubscription? _authSubscription;
   StreamSubscription? _deviceIdSubscription;
@@ -98,6 +118,12 @@ class _MusicSectionState extends State<MusicSection> {
     
     _setupListeners();
     _checkAuthentication();
+    
+    // Load initial DB suggestion
+    _loadDbSuggestion();
+    // Load DB library and playlist
+    _loadDbLibrary();
+    _loadDbPlaylist();
   }
 
   void _setupListeners() {
@@ -261,6 +287,8 @@ class _MusicSectionState extends State<MusicSection> {
           _likedTracks = tracks;
           _totalLibraryTracks = total ?? 0;
           _isLoadingLibrary = false;
+          debugPrint('Set _likedTracks with ${_likedTracks.length} tracks');
+          debugPrint('Total library tracks: $_totalLibraryTracks');
         });
       } else if (response is List) {
         for (int i = 0; i <response.length; i++) {
@@ -369,7 +397,7 @@ class _MusicSectionState extends State<MusicSection> {
   // Play a track with the given URI
   Future<void> _playTrack(String trackUri) async {
     try {
-      // Use the centralized player ready state from SpotifyEvents
+      // First try to use the WebView player if it's ready
       if (SpotifyEvents.isPlayerReady) {
         // Use web player directly for immediate UI response
         _webPlayerKey.currentState?.playTrack(trackUri);
@@ -379,18 +407,29 @@ class _MusicSectionState extends State<MusicSection> {
           _isPlaybackPaused = false;
         });
       } else {
-        // No valid playback method available, store as pending
-        _pendingTrackUri = trackUri;
-        debugPrint('Storing track URI as pending: $trackUri');
+        // Fallback: Try to use the Spotify API directly
+        debugPrint('WebView player not ready, trying API fallback...');
         
-        // Show a message to inform the user
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Waiting for Spotify player to be ready...'),
-              duration: Duration(seconds: 2),
-            ),
-          );
+        // Try to play using any active device
+        final success = await _spotifyService.playTrack(trackUri);
+        
+        if (success) {
+          setState(() {
+            _isPlaybackPaused = false;
+          });
+        } else {
+          // Store as pending
+          _pendingTrackUri = trackUri;
+          debugPrint('Storing track URI as pending: $trackUri');
+          
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('No Spotify devices available. Please open Spotify on any device.'),
+                duration: Duration(seconds: 3),
+              ),
+            );
+          }
         }
       }
     } catch (e) {
@@ -574,6 +613,111 @@ class _MusicSectionState extends State<MusicSection> {
     }
   }
 
+  // Handle feedback for database suggestions
+  Future<void> _handleDbSuggestionFeedback(String feedback) async {
+    if (_currentDbSuggestion == null) return;
+
+    try {
+      switch (feedback) {
+        case 'like':
+          await _likeDbSuggestion();
+          break;
+        case 'dislike':
+          await _dislikeDbSuggestion();
+          break;
+        case 'skip':
+          await _skipDbSuggestion();
+          break;
+      }
+    } catch (e) {
+      debugPrint('Error handling DB suggestion feedback: $e');
+    }
+  }
+
+  // Like a database suggestion (add to library)
+  Future<void> _likeDbSuggestion() async {
+    if (_currentDbSuggestion == null) return;
+
+    try {
+      await _recommendationService.updateSuggestionStatus(
+        _currentDbSuggestion!.id,
+        SuggestionStatus.liked,
+      );
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Added "${_currentDbSuggestion!.title}" to your library'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+
+      // Reload library and get next suggestion
+      _loadDbLibrary();
+      _loadDbSuggestion();
+    } catch (e) {
+      debugPrint('Error liking DB suggestion: $e');
+    }
+  }
+
+  // Dislike a database suggestion
+  Future<void> _dislikeDbSuggestion() async {
+    if (_currentDbSuggestion == null) return;
+
+    try {
+      await _recommendationService.updateSuggestionStatus(
+        _currentDbSuggestion!.id,
+        SuggestionStatus.disliked,
+      );
+
+      // Get next suggestion
+      _loadDbSuggestion();
+    } catch (e) {
+      debugPrint('Error disliking DB suggestion: $e');
+    }
+  }
+
+  // Skip a database suggestion
+  Future<void> _skipDbSuggestion() async {
+    if (_currentDbSuggestion == null) return;
+
+    try {
+      await _recommendationService.updateSuggestionStatus(
+        _currentDbSuggestion!.id,
+        SuggestionStatus.skipped,
+      );
+
+      // Get next suggestion
+      _loadDbSuggestion();
+    } catch (e) {
+      debugPrint('Error skipping DB suggestion: $e');
+    }
+  }
+
+  // Add database suggestion to playlist
+  Future<void> _addDbSuggestionToPlaylist() async {
+    if (_currentDbSuggestion == null) return;
+
+    try {
+      await _recommendationService.updateSuggestionStatus(
+        _currentDbSuggestion!.id,
+        SuggestionStatus.watchlist,
+      );
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Added "${_currentDbSuggestion!.title}" to your playlist'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+
+      // Reload playlist and get next suggestion
+      _loadDbPlaylist();
+      _loadDbSuggestion();
+    } catch (e) {
+      debugPrint('Error adding DB suggestion to playlist: $e');
+    }
+  }
+
   // Build the main music section UI
   @override
   Widget build(BuildContext context) {
@@ -607,6 +751,7 @@ class _MusicSectionState extends State<MusicSection> {
                   ),
                 ),
                 const SizedBox(height: 12),
+                // Database suggestion section
                 Center(
                   child: Opacity(
                     opacity: (scrollOffset <= 70) ? 1.0 : 0.0,
@@ -622,14 +767,14 @@ class _MusicSectionState extends State<MusicSection> {
                   ),
                 ),
                 const SizedBox(height: 12),
-                if (_isLoadingSuggestion)
+                if (_isLoadingDbSuggestion)
                   const SizedBox.shrink()
-                else if (_suggestionError != null)
+                else if (_dbSuggestionError != null)
                   Center(
                     child: Padding(
                       padding: const EdgeInsets.symmetric(vertical: 24),
                       child: Text(
-                        'Error: $_suggestionError',
+                        'Error: $_dbSuggestionError',
                         style: const TextStyle(
                           color: Colors.white54,
                           fontSize: 16,
@@ -638,7 +783,7 @@ class _MusicSectionState extends State<MusicSection> {
                       ),
                     ),
                   )
-                else if (_suggestion == null)
+                else if (_dbSuggestedTrack == null)
                   const Center(
                     child: Padding(
                       padding: EdgeInsets.symmetric(vertical: 24),
@@ -653,19 +798,68 @@ class _MusicSectionState extends State<MusicSection> {
                     ),
                   )
                 else
-                  SuggestionDisplay(
-                    suggestedTrack: TrackAdapter.toMediaItem(_suggestion!),
-                    onRequestSuggestion: _loadSuggestion,
-                    onSkipSuggestion: _loadSuggestion,
-                    onSuggestionFeedback: (feedback) => _provideFeedback(feedback),
-                    onAddToLibrary: () => _saveTrack(_suggestion!.id),
-                    onPlay: (mediaItem) => _handleTrackCardAction(mediaItem),
-                    isPlaybackPaused: _isPlaybackPaused,
-                    nowPlayingTrack: _nowPlayingTrack != null ? TrackAdapter.toMediaItem(_nowPlayingTrack!) : null,
-                    onPlayPause: () => _togglePlayback(),
-                    isPlayerReady: _isPlayerReady,
+                  Column(
+                    children: [
+                      SuggestionDisplay(
+                        suggestedTrack: TrackAdapter.toMediaItem(_dbSuggestedTrack!),
+                        onRequestSuggestion: _loadDbSuggestion,
+                        onSkipSuggestion: _skipDbSuggestion,
+                        onSuggestionFeedback: _handleDbSuggestionFeedback,
+                        onAddToLibrary: _likeDbSuggestion,
+                        onPlay: (mediaItem) => {}, // DB suggestions can't be played through Spotify
+                        isPlaybackPaused: true,
+                        nowPlayingTrack: null,
+                        onPlayPause: () => {},
+                        isPlayerReady: false,
+                      ),
+                      const SizedBox(height: 16),
+                      // Add to Playlist button
+                      Center(
+                        child: OutlinedButton.icon(
+                          onPressed: _addDbSuggestionToPlaylist,
+                          icon: const Icon(Icons.playlist_add),
+                          label: const Text('Add to Playlist'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: const Color(0xFFA855F7),
+                            side: const BorderSide(color: Color(0xFFA855F7)),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                const SizedBox(height: 24),
+                
+                // Your Playlist section
+                const SizedBox(height: 32),
+                const Center(
+                  child: Text(
+                    'Your Playlist',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                if (_isLoadingDbPlaylist)
+                  const Center(
+                    child: CircularProgressIndicator(
+                      color: Color(0xFFA855F7),
+                    ),
+                  )
+                else if (_dbPlaylistSuggestions.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 32),
+                    child: Text(
+                      'No tracks in your playlist yet. Add suggestions to your playlist to see them here.',
+                      style: TextStyle(color: Colors.white54),
+                      textAlign: TextAlign.center,
+                    ),
+                  )
+                else
+                  _buildDbPlaylistSection(),
+                
+                // Your Library section (for liked DB suggestions)
+                const SizedBox(height: 32),
                 const Center(
                   child: Text(
                     'Your Library',
@@ -676,7 +870,46 @@ class _MusicSectionState extends State<MusicSection> {
                   ),
                 ),
                 const SizedBox(height: 16),
-                _buildLibrarySection(),
+                if (_isLoadingDbLibrary)
+                  const Center(
+                    child: CircularProgressIndicator(
+                      color: Color(0xFFA855F7),
+                    ),
+                  )
+                else if (_dbLikedSuggestions.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 32),
+                    child: Text(
+                      'No tracks in your library yet. Like suggestions to add them to your library.',
+                      style: TextStyle(color: Colors.white54),
+                      textAlign: TextAlign.center,
+                    ),
+                  )
+                else
+                  _buildDbLibrarySection(),
+                
+                // Your Spotify Liked Tracks section (existing library)
+                const SizedBox(height: 32),
+                const Center(
+                  child: Text(
+                    'Your Spotify Liked Tracks',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                if (!_isAuthenticated)
+                  _buildAuthPrompt()
+                else if (_isLoadingLibrary)
+                  const Center(
+                    child: CircularProgressIndicator(
+                      color: Color(0xFFA855F7),
+                    ),
+                  )
+                else
+                  _buildLibrarySection(),
               ],
             );
           },
@@ -723,7 +956,7 @@ class _MusicSectionState extends State<MusicSection> {
         // Convert Track to MediaItem before passing to _handleTrackCardAction
         final mediaItem = TrackAdapter.toMediaItem(track);
         await _handleTrackCardAction(mediaItem);
-              return; // Explicit return for Future<void>
+        return; // Explicit return for Future<void>
       },
       onSave: _saveFromLibrary,
       onRemove: _removeTrack,
@@ -767,6 +1000,239 @@ class _MusicSectionState extends State<MusicSection> {
           ),
         ],
       ),
+    );
+  }
+
+  // Load a suggestion from the database
+  Future<void> _loadDbSuggestion() async {
+    setState(() {
+      _isLoadingDbSuggestion = true;
+      _dbSuggestionError = null;
+    });
+
+    try {
+      // Ensure we have test data
+      await _insertTestDataIfNeeded();
+      
+      // Get pending music suggestions from database
+      final suggestions = await _recommendationService.getSuggestions(
+        'music', 
+        status: SuggestionStatus.pending,
+      );
+      
+      if (suggestions.isNotEmpty) {
+        final suggestion = suggestions.first;
+        
+        // Convert MediaSuggestion to Track for compatibility
+        final track = Track(
+          id: suggestion.id.toString(),
+          name: suggestion.title ?? 'Unknown',
+          artists: [Artist(name: suggestion.artist ?? 'Unknown Artist')],
+          album: Album(
+            name: suggestion.album ?? 'Unknown Album',
+            images: suggestion.coverArtUrl?.isNotEmpty == true 
+              ? [ImageData(url: suggestion.coverArtUrl!, height: 300, width: 300)] 
+              : [],
+          ),
+          uri: '', // No Spotify URI for database suggestions
+          previewUrl: '',
+        );
+        
+        setState(() {
+          _dbSuggestedTrack = track;
+          _currentDbSuggestion = suggestion;
+          _isLoadingDbSuggestion = false;
+        });
+      } else {
+        setState(() {
+          _dbSuggestedTrack = null;
+          _currentDbSuggestion = null;
+          _dbSuggestionError = 'No suggestions available';
+          _isLoadingDbSuggestion = false;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _dbSuggestedTrack = null;
+        _currentDbSuggestion = null;
+        _dbSuggestionError = 'Failed to get suggestion';
+        _isLoadingDbSuggestion = false;
+      });
+    }
+  }
+
+  // Load liked suggestions from database
+  Future<void> _loadDbLibrary() async {
+    setState(() {
+      _isLoadingDbLibrary = true;
+    });
+
+    try {
+      final likedSuggestions = await _recommendationService.getSuggestions(
+        'music',
+        status: SuggestionStatus.liked,
+      );
+      
+      setState(() {
+        _dbLikedSuggestions = likedSuggestions;
+        _isLoadingDbLibrary = false;
+      });
+    } catch (e) {
+      debugPrint('Error loading DB library: $e');
+      setState(() {
+        _isLoadingDbLibrary = false;
+      });
+    }
+  }
+
+  // Load watchlist suggestions from database
+  Future<void> _loadDbPlaylist() async {
+    setState(() {
+      _isLoadingDbPlaylist = true;
+    });
+
+    try {
+      final playlistSuggestions = await _recommendationService.getSuggestions(
+        'music',
+        status: SuggestionStatus.watchlist,
+      );
+      
+      setState(() {
+        _dbPlaylistSuggestions = playlistSuggestions;
+        _isLoadingDbPlaylist = false;
+      });
+    } catch (e) {
+      debugPrint('Error loading DB playlist: $e');
+      setState(() {
+        _isLoadingDbPlaylist = false;
+      });
+    }
+  }
+
+  // Insert test data for development
+  Future<void> _insertTestDataIfNeeded() async {
+    try {
+      // Check if we already have music suggestions
+      final existingSuggestions = await _recommendationService.getSuggestions('music');
+      
+      if (existingSuggestions.isEmpty) {
+        // Insert the "Saint John" test data
+        final testSuggestion = MediaSuggestion(
+          query: 'indie folk music similar to current library',
+          mediaType: 'music',
+          title: 'Saint John',
+          artist: 'No Clear Mind',
+          album: 'Makena',
+          coverArtUrl: 'https://f4.bcbits.com/img/a2164956462_16.jpg',
+          description: 'A beautiful indie folk track with dreamy vocals and atmospheric soundscape. This London-based band creates ethereal music that blends folk and shoegaze elements.',
+          wikiUrl: 'https://noclearmind.bandcamp.com/track/saint-john',
+          botReasoning: 'This track combines indie folk with dreamy, atmospheric elements that should appeal to your taste. The ethereal vocals and gentle instrumentation create a perfect listening experience.',
+          status: SuggestionStatus.pending,
+        );
+        
+        await _db.saveMediaSuggestion(testSuggestion);
+        debugPrint('Inserted test music suggestion: Saint John by No Clear Mind');
+      }
+    } catch (e) {
+      debugPrint('Error inserting test data: $e');
+    }
+  }
+
+  // Build DB playlist section
+  Widget _buildDbPlaylistSection() {
+    return MediaGrid(
+      children: _dbPlaylistSuggestions.map((suggestion) {
+        // Convert MediaSuggestion to Track for TrackCard
+        final track = Track(
+          id: suggestion.id.toString(),
+          name: suggestion.title ?? 'Unknown',
+          artists: [Artist(name: suggestion.artist ?? 'Unknown Artist')],
+          album: Album(
+            name: suggestion.album ?? 'Unknown Album',
+            images: suggestion.coverArtUrl?.isNotEmpty == true 
+              ? [ImageData(url: suggestion.coverArtUrl!, height: 300, width: 300)] 
+              : [],
+          ),
+          uri: '',
+          previewUrl: '',
+        );
+        
+        // Convert to SimpleTrack for TrackCard compatibility
+        final simpleTrack = SimpleTrack(
+          id: track.id,
+          name: track.name,
+          artist: track.artists.isNotEmpty ? track.artists.first.name : 'Unknown Artist',
+          album: track.album.name,
+          albumArtUrl: track.album.images.isNotEmpty ? track.album.images.first.url : '',
+          uri: track.uri,
+          previewUrl: track.previewUrl,
+        );
+        
+        return TrackCard(
+          track: simpleTrack,
+          isSaved: true,
+          isPlaying: false, // DB tracks can't be played
+          onPlay: (t) => {}, // DB tracks can't be played
+          onSave: (t) => {},
+          onRemove: (t) async {
+            // Remove from playlist by changing status back to pending
+            await _recommendationService.updateSuggestionStatus(
+              suggestion.id,
+              SuggestionStatus.pending,
+            );
+            _loadDbPlaylist();
+          },
+        );
+      }).toList(),
+    );
+  }
+
+  // Build DB library section
+  Widget _buildDbLibrarySection() {
+    return MediaGrid(
+      children: _dbLikedSuggestions.map((suggestion) {
+        // Convert MediaSuggestion to Track for TrackCard
+        final track = Track(
+          id: suggestion.id.toString(),
+          name: suggestion.title ?? 'Unknown',
+          artists: [Artist(name: suggestion.artist ?? 'Unknown Artist')],
+          album: Album(
+            name: suggestion.album ?? 'Unknown Album',
+            images: suggestion.coverArtUrl?.isNotEmpty == true 
+              ? [ImageData(url: suggestion.coverArtUrl!, height: 300, width: 300)] 
+              : [],
+          ),
+          uri: '',
+          previewUrl: '',
+        );
+        
+        // Convert to SimpleTrack for TrackCard compatibility
+        final simpleTrack = SimpleTrack(
+          id: track.id,
+          name: track.name,
+          artist: track.artists.isNotEmpty ? track.artists.first.name : 'Unknown Artist',
+          album: track.album.name,
+          albumArtUrl: track.album.images.isNotEmpty ? track.album.images.first.url : '',
+          uri: track.uri,
+          previewUrl: track.previewUrl,
+        );
+        
+        return TrackCard(
+          track: simpleTrack,
+          isSaved: true,
+          isPlaying: false, // DB tracks can't be played
+          onPlay: (t) => {}, // DB tracks can't be played
+          onSave: (t) => {},
+          onRemove: (t) async {
+            // Remove from library by changing status back to pending
+            await _recommendationService.updateSuggestionStatus(
+              suggestion.id,
+              SuggestionStatus.pending,
+            );
+            _loadDbLibrary();
+          },
+        );
+      }).toList(),
     );
   }
 }

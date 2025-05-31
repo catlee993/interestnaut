@@ -61,14 +61,27 @@ class LibrarySection extends StatelessWidget {
           else ...[
             MediaGrid(
               children: savedTracks
-                  .map((track) => TrackCard(
-                        track: track,
-                        isSaved: true,
-                        isPlaying: !isPlaybackPaused && nowPlayingTrack?.id == track.id,
-                        onPlay: (t) => onPlay(t),
-                        onSave: (t) => onSave(t),
-                        onRemove: (t) => onRemove(t),
-                      ))
+                  .map((track) {
+                    // Convert Track to SimpleTrack for TrackCard compatibility
+                    final simpleTrack = SimpleTrack(
+                      id: track.id,
+                      name: track.name,
+                      artist: track.artists.isNotEmpty ? track.artists.first.name : 'Unknown Artist',
+                      album: track.album.name,
+                      albumArtUrl: track.album.images.isNotEmpty ? track.album.images.first.url : '',
+                      uri: track.uri,
+                      previewUrl: track.previewUrl,
+                    );
+                    
+                    return TrackCard(
+                      track: simpleTrack,
+                      isSaved: true,
+                      isPlaying: !isPlaybackPaused && nowPlayingTrack?.id == track.id,
+                      onPlay: (t) => onPlay(track), // Pass original track to onPlay
+                      onSave: (t) => onSave(track), // Pass original track to onSave
+                      onRemove: (t) => onRemove(track), // Pass original track to onRemove
+                    );
+                  })
                   .toList(),
             ),
             const SizedBox(height: 16),

@@ -90,7 +90,16 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
     }
     
     _debugLog.add(logEntry);
-    debugPrint('SpotifyWebPlayer: $logEntry');
+    
+    // Only print important messages to reduce noise
+    if (message.contains('Error') || 
+        message.contains('Device ready') || 
+        message.contains('Player ready') ||
+        message.contains('Failed') ||
+        message.contains('Successfully connected') ||
+        message.contains('Sending initial token')) {
+      debugPrint('SpotifyWebPlayer: $logEntry');
+    }
   }
   
   // Initialize the WebView controller
@@ -100,7 +109,6 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
     try {
       final controller = WebViewController()
         ..setJavaScriptMode(JavaScriptMode.unrestricted)
-        ..setBackgroundColor(Colors.black)
         ..setNavigationDelegate(
           NavigationDelegate(
             onProgress: (int progress) {
@@ -111,6 +119,8 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
             },
             onPageFinished: (String url) {
               _addToDebugLog('WebView page finished loading: $url');
+              // Send initial token to the player after HTML loads
+              _sendInitialToken();
             },
             onWebResourceError: (WebResourceError error) {
               _handleWebViewError(error);
@@ -155,11 +165,19 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
     }
     
     try {
+      // First check if the message looks like JSON (starts with { or [)
+      final messageText = message.message.trim();
+      if (!messageText.startsWith('{') && !messageText.startsWith('[')) {
+        // This is a plain text message, just log it
+        _addToDebugLog('JS (plain): $messageText');
+        return;
+      }
+      
       final dynamic data = jsonDecode(message.message);
       _processMessageData(data);
     } catch (e) {
-      _addToDebugLog('Error parsing message: $e');
-      _handleError('Failed to process player message');
+      _addToDebugLog('Error parsing message: $e - Message: ${message.message}');
+      // Don't call _handleError for parsing errors, as they might just be debug messages
     }
   }
   
@@ -197,21 +215,31 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
   
   // Handle device ready message
   void _handleDeviceReady(dynamic data) {
-    final deviceId = data['device_id'] as String?;
+    String? deviceId;
+    
+    // Handle different message formats
+    if (data.containsKey('deviceId')) {
+      deviceId = data['deviceId'] as String?;
+    } else if (data.containsKey('device_id')) {
+      deviceId = data['device_id'] as String?;
+    }
     
     if (deviceId == null || deviceId.isEmpty) {
-      _addToDebugLog('Received empty device ID');
-      _handleError('Failed to initialize Spotify player');
+      _addToDebugLog('No device ID found in message: ${data.toString()}');
+      _handleError('Failed to get device ID from Spotify');
       return;
     }
     
     _addToDebugLog('Device ready: $deviceId');
     
     setState(() {
-      _deviceId = deviceId;
+      _deviceId = deviceId!;
       _isReady = true;
       _errorMessage = '';
     });
+    
+    // Mark successful connection
+    _lastSuccessfulConnection = DateTime.now();
     
     // Set the device ID in the Spotify service
     widget.spotifyService.setActiveDeviceId(deviceId);
@@ -306,10 +334,9 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
     // Emit error event
     SpotifyEvents.emitError(message);
     
-    // If the error is related to initialization, try to reconnect
-    if (message.contains('initialization') || 
-        message.contains('Failed to initialize') ||
-        message.contains('timeout')) {
+    // Only schedule reconnect for critical initialization errors
+    if (message.contains('Failed to get device ID') || 
+        message.contains('Failed to initialize WebView')) {
       _scheduleReconnect();
     }
   }
@@ -332,8 +359,15 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
     // Cancel any existing reconnect timer
     _reconnectTimer?.cancel();
     
-    // Schedule a new reconnection attempt
-    _reconnectTimer = Timer(const Duration(seconds: 10), () {
+    // Don't reconnect if already disposed or if we recently connected successfully
+    if (_isDisposed || 
+        (_lastSuccessfulConnection != null && 
+         DateTime.now().difference(_lastSuccessfulConnection!).inMinutes < 5)) {
+      return;
+    }
+    
+    // Schedule a new reconnection attempt with longer delay
+    _reconnectTimer = Timer(const Duration(seconds: 30), () {
       if (!_isDisposed) {
         _addToDebugLog('Attempting to reconnect player...');
         _refreshTokenAndReconnect();
@@ -377,6 +411,23 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
     _controller?.runJavaScript('window.postMessage($message, "*");');
   }
   
+  // Send initial token to the player when page loads
+  Future<void> _sendInitialToken() async {
+    try {
+      final token = await widget.spotifyService.getAccessToken();
+      if (token != null) {
+        _addToDebugLog('Sending initial token to player');
+        _updatePlayerToken(token);
+      } else {
+        _addToDebugLog('No token available to send to player');
+        // Try to authenticate
+        await widget.spotifyService.checkAuthentication();
+      }
+    } catch (e) {
+      _addToDebugLog('Error sending initial token: $e');
+    }
+  }
+  
   // Force player reconnection (can be called from outside)
   void forcePlayerReconnection() {
     if (_isDisposed) {
@@ -410,9 +461,9 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
   
   // Check if the player needs recovery and recover if needed
   bool checkAndRecoverPlayerIfNeeded() {
-    // If we've never connected, or it's been more than 10 minutes since last successful connection
+    // Only recover if we've never connected successfully OR if it's been a very long time
     final needsRecovery = _lastSuccessfulConnection == null || 
-        DateTime.now().difference(_lastSuccessfulConnection!).inMinutes > 10;
+        DateTime.now().difference(_lastSuccessfulConnection!).inHours > 1;
     
     if (needsRecovery) {
       _addToDebugLog('Player needs recovery, reconnecting...');
@@ -425,15 +476,14 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
   
   // Method to play a track
   void playTrack(String trackUri) async {
-    // First check if the player needs recovery
-    if (checkAndRecoverPlayerIfNeeded()) {
-      debugPrint('Player was in bad state - cannot play track');
+    // Don't check for recovery on every play - only if player is not ready
+    if (!_isReady || _deviceId.isEmpty) {
+      _addToDebugLog('Player not ready, cannot play track');
       return;
     }
     
     // Execute the JavaScript to play the track
     _addToDebugLog('Playing track: $trackUri');
-    debugPrint('Executing playTrack with URI: $trackUri');
     
     final message = jsonEncode({
       'type': 'playTrack',
@@ -445,15 +495,14 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
   
   // Method to pause playback at current position
   void pausePlayback() async {
-    // First check if the player needs recovery
-    if (checkAndRecoverPlayerIfNeeded()) {
-      debugPrint('Player was in bad state - cannot pause playback');
+    // Only check if player is ready
+    if (!_isReady || _deviceId.isEmpty) {
+      _addToDebugLog('Player not ready, cannot pause playback');
       return;
     }
     
     // Execute the JavaScript to pause playback
     _addToDebugLog('Pausing playback');
-    debugPrint('Executing pausePlayback');
     
     final message = jsonEncode({
       'type': 'pause',
@@ -464,15 +513,14 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
   
   // Method to resume playback at current position
   void resumePlayback() async {
-    // First check if the player needs recovery
-    if (checkAndRecoverPlayerIfNeeded()) {
-      debugPrint('Player was in bad state - cannot resume playback');
+    // Only check if player is ready
+    if (!_isReady || _deviceId.isEmpty) {
+      _addToDebugLog('Player not ready, cannot resume playback');
       return;
     }
     
     // Execute the JavaScript to resume playback
     _addToDebugLog('Resuming playback');
-    debugPrint('Executing resumePlayback');
     
     final message = jsonEncode({
       'type': 'resume',
