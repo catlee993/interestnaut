@@ -295,16 +295,67 @@ class RecommendationService extends ChangeNotifier {
     _queueBeingFilled[mediaType] = true;
     
     try {
-      debugPrint('Filling $mediaType queue with LLM suggestions');
+      debugPrint('Filling $mediaType queue with LLM generation');
       
+      // Test LLM connection first
+      final isLLMWorking = await _testLLMConnection();
+      if (!isLLMWorking) {
+        debugPrint('LLM not working, using fallback suggestions');
+        final fallbackSuggestions = _generateFallbackSuggestions(mediaType);
+        for (final suggestion in fallbackSuggestions) {
+          await _db.saveMediaSuggestion(suggestion);
+        }
+        debugPrint('Added ${fallbackSuggestions.length} fallback $mediaType suggestions');
+        return;
+      }
+      
+      // Warm up the LLM for better performance
+      final isWarmedUp = await _warmUpLLM();
+      if (!isWarmedUp) {
+        debugPrint('LLM warm-up failed, proceeding with caution...');
+      }
+      
+      // Build context from user preferences
       final context = await _buildContextForMediaType(mediaType);
       
-      final prompt = _buildSuggestionPrompt(mediaType, context);
+      // Generate multiple suggestions (3-5 per batch)
+      final suggestions = <MediaSuggestion>[];
+      int successfulGenerations = 0;
       
-      final response = await _llamaService.generateStructuredJsonResponse(prompt);
+      for (int i = 0; i < 5; i++) { // Try up to 5 times
+        try {
+          final prompt = _buildSuggestionPrompt(mediaType, context);
+          debugPrint('Generating $mediaType suggestion ${i + 1}/5 with prompt length: ${prompt.length}');
+          
+          final response = await _llamaService.generateStructuredJsonResponse(prompt);
+          
+          if (response.isNotEmpty) {
+            final parsedSuggestions = _parseLlamaSuggestions(response, mediaType);
+            
+            // Only add valid suggestions
+            final validSuggestions = parsedSuggestions.where((s) => s.isValid()).toList();
+            suggestions.addAll(validSuggestions);
+            
+            if (validSuggestions.isNotEmpty) {
+              successfulGenerations++;
+              debugPrint('Successfully generated ${validSuggestions.length} valid suggestions');
+            }
+            
+            // Stop if we have enough suggestions
+            if (suggestions.length >= 3) {
+              break;
+            }
+            
+            // Add a small delay between generations to prevent overwhelming the model
+            await Future.delayed(const Duration(milliseconds: 1000));
+          }
+        } catch (e) {
+          debugPrint('Error generating suggestion ${i + 1} for $mediaType: $e');
+          // Continue with other suggestions even if one fails
+        }
+      }
       
-      final suggestions = _parseLlamaSuggestions(response, mediaType);
-      
+      // Save suggestions to database
       for (final suggestion in suggestions) {
         await _db.saveMediaSuggestion(suggestion);
       }
@@ -312,8 +363,70 @@ class RecommendationService extends ChangeNotifier {
       debugPrint('Added ${suggestions.length} new $mediaType suggestions from LLM');
     } catch (e) {
       debugPrint('Error filling suggestion queue: $e');
+      // Fallback to hardcoded suggestions on error
+      try {
+        final fallbackSuggestions = _generateFallbackSuggestions(mediaType);
+        for (final suggestion in fallbackSuggestions) {
+          await _db.saveMediaSuggestion(suggestion);
+        }
+        debugPrint('Added ${fallbackSuggestions.length} fallback $mediaType suggestions after error');
+      } catch (fallbackError) {
+        debugPrint('Error with fallback suggestions: $fallbackError');
+      }
     } finally {
       _queueBeingFilled[mediaType] = false;
+    }
+  }
+  
+  Future<bool> _testLLMConnection() async {
+    try {
+      debugPrint('Testing LLM connection with music recommendation format...');
+      const testPrompt = '''
+<|begin_of_text|><|start_header_id|>system<|end_header_id|>
+
+You are a music expert. Respond only with valid JSON.
+
+<|eot_id|><|start_header_id|>user<|end_header_id|>
+
+Generate exactly one song recommendation in this JSON format:
+{
+  "title": "actual song title",
+  "artist": "actual artist name",
+  "reasoning": "brief explanation"
+}
+
+Recommend one real song.
+
+<|eot_id|><|start_header_id|>assistant<|end_header_id|>
+
+''';
+      
+      final testResponse = await _llamaService.generateStructuredJsonResponse(testPrompt);
+      debugPrint('LLM test response: $testResponse');
+      
+      // Check if response contains valid JSON with expected fields
+      try {
+        final json = jsonDecode(testResponse);
+        final hasRequiredFields = json is Map && 
+                                 json.containsKey('title') && 
+                                 json.containsKey('artist') && 
+                                 json.containsKey('reasoning') &&
+                                 json['title'] is String && json['title'].toString().trim().isNotEmpty &&
+                                 json['artist'] is String && json['artist'].toString().trim().isNotEmpty;
+        if (hasRequiredFields) {
+          debugPrint('LLM test successful - all required fields present and valid');
+          return true;
+        } else {
+          debugPrint('LLM test failed - missing or invalid required fields: $testResponse');
+          return false;
+        }
+      } catch (e) {
+        debugPrint('LLM test failed - not valid JSON: $testResponse');
+        return false;
+      }
+    } catch (e) {
+      debugPrint('LLM connection test failed: $e');
+      return false;
     }
   }
   
@@ -351,76 +464,132 @@ class RecommendationService extends ChangeNotifier {
   }
   
   String _buildSuggestionPrompt(String mediaType, String context) {
-    final displayType = _mapMediaTypeForDisplay(mediaType);
-    
-    return '''
-You are a recommendation engine for $displayType.
-Based on the user's preferences, suggest 5 $displayType that they might enjoy.
-
-User's preferences:
+    // Use the proper prompt templates from model_constants.dart
+    try {
+      var basePrompt = getPromptTemplateForMediaType(mediaType);
+      
+      // Add context-aware enhancement if we have user preferences
+      if (context.isNotEmpty && context != "No previous preferences found.") {
+        // Insert context before the instruction section
+        basePrompt = basePrompt.replaceFirst(
+          '### Instruction:',
+          '''### User Context:
 $context
 
-For each suggestion, provide:
-1. Title
-2. ${mediaType == 'music' ? 'Artist and Album' : mediaType == 'movie' ? 'Director and Year' : 'Author'}
-3. A brief reason why you're recommending it
+### Instruction:'''
+        );
+      }
+      
+      return basePrompt;
+    } catch (e) {
+      // Fallback if mediaType is not supported
+      return '''
+Below is a JSON Schema. Produce exactly one JSON object that validates against it—no extra keys, no wrapping in text or markdown.
 
-Format each suggestion as:
-TITLE: [title]
-${mediaType == 'music' ? 'ARTIST: [artist]\nALBUM: [album]' : mediaType == 'movie' ? 'DIRECTOR: [director]\nYEAR: [year]' : 'AUTHOR: [author]'}
-REASON: [your reasoning]
+Schema:
+{
+  "type": "object",
+  "properties": {
+    "title":     { "type": "string", "maxLength": 80 },
+    "reasoning": { "type": "string", "maxLength": 80 }
+  },
+  "required": ["title","reasoning"],
+  "additionalProperties": false
+}
 
-Provide 5 diverse suggestions.
+### Instruction:
+Generate one $mediaType recommendation that matches the schema.
+ABSOLUTELY NO REASON STRING 80 CHARACTERS. STOP IMMEDIATELY IF SURPASSED.
+
+### Response:
 ''';
+    }
   }
   
   List<MediaSuggestion> _parseLlamaSuggestions(String response, String mediaType) {
     final List<MediaSuggestion> suggestions = [];
     
     try {
-      final regex = RegExp(r'TITLE:\s*([^\n]+)(?:\s*\n|$)');
-      final matches = regex.allMatches(response);
+      // Try to parse as JSON first
+      final Map<String, dynamic> json = jsonDecode(response);
       
-      for (final match in matches) {
-        final startIndex = match.start;
-        final endIndex = (startIndex < matches.length - 1) ? matches.elementAt(startIndex + 1).start : response.length;
+      final title = json['title']?.toString().trim() ?? '';
+      final reason = json['reasoning']?.toString().trim() ?? json['reason']?.toString().trim() ?? '';
+      
+      String? artist;
+      String? album;
+      
+      if (mediaType == 'music') {
+        artist = json['artist']?.toString().trim();
+        album = json['album']?.toString().trim();
+      } else if (mediaType == 'movie') {
+        artist = json['director']?.toString().trim(); // Store director in artist field
+      } else if (mediaType == 'book') {
+        artist = json['author']?.toString().trim(); // Store author in artist field
+      }
+      
+      if (title.isNotEmpty) {
+        final suggestion = MediaSuggestion(
+          query: title,
+          mediaType: mediaType,
+          title: title,
+          artist: artist,
+          album: album,
+          botReasoning: reason,
+          status: SuggestionStatus.pending,
+        );
         
-        final suggestionText = response.substring(startIndex, endIndex).trim();
-        
-        final titleMatch = RegExp(r'TITLE:\s*([^\n]+)').firstMatch(suggestionText);
-        final title = titleMatch?.group(1)?.trim() ?? '';
-        
-        String? artist;
-        if (mediaType == 'music') {
-          final artistMatch = RegExp(r'ARTIST:\s*([^\n]+)').firstMatch(suggestionText);
-          artist = artistMatch?.group(1)?.trim();
-        }
-        
-        String? album;
-        if (mediaType == 'music') {
-          final albumMatch = RegExp(r'ALBUM:\s*([^\n]+)').firstMatch(suggestionText);
-          album = albumMatch?.group(1)?.trim();
-        }
-        
-        final reasonMatch = RegExp(r'REASON:\s*([^\n]+(?:\n[^\n]+)*)').firstMatch(suggestionText);
-        final reasoning = reasonMatch?.group(1)?.trim() ?? '';
-        
-        if (title.isNotEmpty) {
-          final suggestion = MediaSuggestion(
-            query: title,
-            mediaType: mediaType,
-            title: title,
-            artist: artist,
-            album: album,
-            botReasoning: reasoning,
-            status: SuggestionStatus.pending,
-          );
-          
-          suggestions.add(suggestion);
-        }
+        suggestions.add(suggestion);
       }
     } catch (e) {
-      debugPrint('Error parsing LLM suggestions: $e');
+      debugPrint('JSON parsing failed, trying fallback parsing: $e');
+      
+      // Fallback to original parsing method
+      try {
+        final regex = RegExp(r'TITLE:\s*([^\n]+)(?:\s*\n|$)');
+        final matches = regex.allMatches(response);
+        
+        for (final match in matches) {
+          final startIndex = match.start;
+          final endIndex = (startIndex < matches.length - 1) ? matches.elementAt(startIndex + 1).start : response.length;
+          
+          final suggestionText = response.substring(startIndex, endIndex).trim();
+          
+          final titleMatch = RegExp(r'TITLE:\s*([^\n]+)').firstMatch(suggestionText);
+          final title = titleMatch?.group(1)?.trim() ?? '';
+          
+          String? artist;
+          if (mediaType == 'music') {
+            final artistMatch = RegExp(r'ARTIST:\s*([^\n]+)').firstMatch(suggestionText);
+            artist = artistMatch?.group(1)?.trim();
+          }
+          
+          String? album;
+          if (mediaType == 'music') {
+            final albumMatch = RegExp(r'ALBUM:\s*([^\n]+)').firstMatch(suggestionText);
+            album = albumMatch?.group(1)?.trim();
+          }
+          
+          final reasonMatch = RegExp(r'REASON:\s*([^\n]+(?:\n[^\n]+)*)').firstMatch(suggestionText);
+          final reasoning = reasonMatch?.group(1)?.trim() ?? '';
+          
+          if (title.isNotEmpty) {
+            final suggestion = MediaSuggestion(
+              query: title,
+              mediaType: mediaType,
+              title: title,
+              artist: artist,
+              album: album,
+              botReasoning: reasoning,
+              status: SuggestionStatus.pending,
+            );
+            
+            suggestions.add(suggestion);
+          }
+        }
+      } catch (e2) {
+        debugPrint('Error parsing LLM suggestions: $e2');
+      }
     }
     
     return suggestions;
@@ -514,6 +683,109 @@ Provide 5 diverse suggestions.
     }
     
     debugPrint('Finished prefilling recommendation queues');
+  }
+  
+  // Generate fallback suggestions when LLM is not available
+  List<MediaSuggestion> _generateFallbackSuggestions(String mediaType) {
+    switch (mediaType) {
+      case 'music':
+        return [
+          MediaSuggestion(
+            query: 'Popular indie rock suggestion',
+            mediaType: 'music',
+            title: 'Bohemian Rhapsody',
+            artist: 'Queen',
+            album: 'A Night at the Opera',
+            botReasoning: 'Classic rock masterpiece with complex arrangements and powerful vocals.',
+            status: SuggestionStatus.pending,
+          ),
+          MediaSuggestion(
+            query: 'Alternative rock suggestion',
+            mediaType: 'music',
+            title: 'Smells Like Teen Spirit',
+            artist: 'Nirvana',
+            album: 'Nevermind',
+            botReasoning: 'Iconic grunge anthem that defined a generation.',
+            status: SuggestionStatus.pending,
+          ),
+        ];
+      case 'movie':
+        return [
+          MediaSuggestion(
+            query: 'Sci-fi movie recommendation',
+            mediaType: 'movie',
+            title: 'The Matrix',
+            artist: 'Wachowskis', // Director stored in artist field
+            botReasoning: 'Groundbreaking sci-fi film that redefined action cinema.',
+            status: SuggestionStatus.pending,
+          ),
+          MediaSuggestion(
+            query: 'Drama film recommendation',
+            mediaType: 'movie',
+            title: 'The Shawshank Redemption',
+            artist: 'Frank Darabont',
+            botReasoning: 'Powerful drama about hope and friendship in prison.',
+            status: SuggestionStatus.pending,
+          ),
+        ];
+      case 'book':
+        return [
+          MediaSuggestion(
+            query: 'Classic literature recommendation',
+            mediaType: 'book',
+            title: '1984',
+            artist: 'George Orwell', // Author stored in artist field
+            botReasoning: 'Dystopian masterpiece exploring themes of surveillance and control.',
+            status: SuggestionStatus.pending,
+          ),
+          MediaSuggestion(
+            query: 'Science fiction book',
+            mediaType: 'book',
+            title: 'Dune',
+            artist: 'Frank Herbert',
+            botReasoning: 'Epic space opera with complex world-building and political intrigue.',
+            status: SuggestionStatus.pending,
+          ),
+        ];
+      default:
+        return [];
+    }
+  }
+  
+  // Warm up the LLM with a simple JSON generation task to improve performance
+  Future<bool> _warmUpLLM() async {
+    try {
+      debugPrint('Warming up LLM for JSON generation...');
+      const warmUpPrompt = '''
+<|begin_of_text|><|start_header_id|>system<|end_header_id|>
+
+You are a JSON response generator. Respond only with valid JSON.
+
+<|eot_id|><|start_header_id|>user<|end_header_id|>
+
+Generate this exact JSON response:
+{"status":"ready"}
+
+<|eot_id|><|start_header_id|>assistant<|end_header_id|>
+
+''';
+      
+      final response = await _llamaService.generateStructuredJsonResponse(warmUpPrompt);
+      
+      // Check if response is valid JSON
+      try {
+        final json = jsonDecode(response);
+        final isValid = json is Map && json.containsKey('status') && json['status'] == 'ready';
+        debugPrint('LLM warm-up ${isValid ? 'successful' : 'failed'}: $response');
+        return isValid;
+      } catch (e) {
+        debugPrint('LLM warm-up failed - invalid JSON: $response');
+        return false;
+      }
+    } catch (e) {
+      debugPrint('LLM warm-up failed with error: $e');
+      return false;
+    }
   }
   
   @override

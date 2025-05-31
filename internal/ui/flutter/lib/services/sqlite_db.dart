@@ -72,6 +72,7 @@ class SQLiteDatabase {
   Future<void> _createTables() async {
     try {
       _db!.execute(createRecommendationsTableQuery);
+      _db!.execute(createWatchlistTableQuery);
     } catch (e) {
       debugPrint('Error creating tables: $e');
       rethrow;
@@ -265,20 +266,102 @@ class SQLiteDatabase {
     }
   }
 
-  /// Count pending media suggestions for a specific media type
+  /// Count pending media suggestions for a specific media type and status
   Future<int> countPendingMediaSuggestions(String mediaType) async {
     await _ensureInitialized();
     
     try {
       final stmt = _db!.prepare(countPendingMediaSuggestionsQuery);
       final result = stmt.select([mediaType, 'pending']);
-      final count = result.first.values.first as int;
-      stmt.dispose();
       
+      final count = result.isNotEmpty ? result.first['COUNT(*)'] as int : 0;
+      stmt.dispose();
       return count;
     } catch (e) {
       debugPrint('Error counting pending media suggestions: $e');
-      return 0;
+      rethrow;
+    }
+  }
+
+  /// Add recommendation to watchlist
+  Future<void> addToWatchlist(int recommendationId) async {
+    await _ensureInitialized();
+    
+    try {
+      final stmt = _db!.prepare(addToWatchlistQuery);
+      stmt.execute([
+        recommendationId,
+        DateTime.now().toIso8601String(),
+      ]);
+      stmt.dispose();
+    } catch (e) {
+      debugPrint('Error adding to watchlist: $e');
+      rethrow;
+    }
+  }
+
+  /// Remove recommendation from watchlist
+  Future<void> removeFromWatchlist(int recommendationId) async {
+    await _ensureInitialized();
+    
+    try {
+      final stmt = _db!.prepare(removeFromWatchlistQuery);
+      stmt.execute([recommendationId]);
+      stmt.dispose();
+    } catch (e) {
+      debugPrint('Error removing from watchlist: $e');
+      rethrow;
+    }
+  }
+
+  /// Get all watchlist items for a specific media type
+  Future<List<MediaSuggestion>> getWatchlist(String mediaType) async {
+    await _ensureInitialized();
+    
+    try {
+      final stmt = _db!.prepare(getWatchlistQuery);
+      final result = stmt.select([mediaType]);
+      
+      final suggestions = result.map((row) => _mapRowToMediaSuggestion(row)).toList();
+      stmt.dispose();
+      return suggestions;
+    } catch (e) {
+      debugPrint('Error getting watchlist: $e');
+      rethrow;
+    }
+  }
+
+  /// Get pending suggestions that are NOT in watchlist (for main suggestions)
+  Future<List<MediaSuggestion>> getPendingSuggestionsNotInWatchlist(String mediaType) async {
+    await _ensureInitialized();
+    
+    try {
+      final stmt = _db!.prepare(getPendingSuggestionsNotInWatchlistQuery);
+      final result = stmt.select([mediaType]);
+      
+      final suggestions = result.map((row) => _mapRowToMediaSuggestion(row)).toList();
+      stmt.dispose();
+      return suggestions;
+    } catch (e) {
+      debugPrint('Error getting pending suggestions not in watchlist: $e');
+      rethrow;
+    }
+  }
+
+  /// Check if recommendation is in watchlist
+  Future<bool> isInWatchlist(int recommendationId) async {
+    await _ensureInitialized();
+    
+    try {
+      final stmt = _db!.prepare(isInWatchlistQuery);
+      final result = stmt.select([recommendationId]);
+      
+      final count = result.isNotEmpty ? result.first['COUNT(*)'] as int : 0;
+      stmt.dispose();
+      return count > 0;
+    } catch (e) {
+      debugPrint('Error checking if in watchlist: $e');
+      rethrow;
     }
   }
 

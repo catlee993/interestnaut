@@ -23,6 +23,17 @@ CREATE TABLE IF NOT EXISTS recommendations (
 );
 ''';
 
+// Create watchlist table if it doesn't exist
+const String createWatchlistTableQuery = '''
+CREATE TABLE IF NOT EXISTS watchlist (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  recommendation_id INTEGER NOT NULL,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (recommendation_id) REFERENCES recommendations (id) ON DELETE CASCADE,
+  UNIQUE(recommendation_id)
+);
+''';
+
 /// Media Suggestion Queries
 
 // Insert a new media suggestion
@@ -189,4 +200,75 @@ const String countPendingMediaSuggestionsQuery = '''
 SELECT COUNT(*)
 FROM recommendations
 WHERE media_type = ? AND status = ?;
+''';
+
+/// Watchlist Queries
+
+// Add recommendation to watchlist
+const String addToWatchlistQuery = '''
+INSERT OR IGNORE INTO watchlist (recommendation_id, created_at)
+VALUES (?, ?);
+''';
+
+// Remove from watchlist
+const String removeFromWatchlistQuery = '''
+DELETE FROM watchlist
+WHERE recommendation_id = ?;
+''';
+
+// Get all watchlist items
+const String getWatchlistQuery = '''
+SELECT 
+  r.id,
+  r.query,
+  r.media_type,
+  r.title,
+  r.artist,
+  r.album,
+  r.cover_art_url,
+  r.description,
+  r.wiki_url,
+  r.wikidata_id,
+  r.bot_reasoning,
+  r.status,
+  r.created_at,
+  r.updated_at,
+  w.created_at as watchlist_added_at
+FROM recommendations r
+INNER JOIN watchlist w ON r.id = w.recommendation_id
+WHERE r.media_type = ?
+ORDER BY w.created_at DESC;
+''';
+
+// Get pending suggestions that are NOT in watchlist (for main suggestions)
+const String getPendingSuggestionsNotInWatchlistQuery = '''
+SELECT
+  id,
+  query,
+  media_type,
+  title,
+  artist,
+  album,
+  cover_art_url,
+  description,
+  wiki_url,
+  wikidata_id,
+  bot_reasoning,
+  status,
+  created_at,
+  updated_at
+FROM recommendations r
+WHERE media_type = ? 
+  AND status = 'pending' 
+  AND NOT EXISTS (
+    SELECT 1 FROM watchlist w WHERE w.recommendation_id = r.id
+  )
+ORDER BY created_at DESC;
+''';
+
+// Check if recommendation is in watchlist
+const String isInWatchlistQuery = '''
+SELECT COUNT(*) 
+FROM watchlist 
+WHERE recommendation_id = ?;
 ''';

@@ -10,117 +10,147 @@ const String kModelsDirectoryName = "models";
 
 /// Music recommendation prompt template
 const String kMusicPromptTemplate = r'''
-Below is a JSON Schema. Produce exactly one JSON object that _validates_ against it—no extra keys, no wrapping in text or markdown.
+<|begin_of_text|><|start_header_id|>system<|end_header_id|>
 
-Schema:
+You are a knowledgeable music curator. Your task is to recommend REAL songs that actually exist. You must respond with valid JSON containing exactly one song recommendation.
+
+<|eot_id|><|start_header_id|>user<|end_header_id|>
+
+Generate exactly one song recommendation in this JSON format:
 {
-  "type": "object",
-  "properties": {
-    "title":     { "type": "string", "maxLength": 80 },
-    "artist":    { "type": "string", "maxLength": 80 },
-    "reasoning": { "type": "string", "maxLength": 80 }
-  },
-  "required": ["title","artist","reasoning"],
-  "additionalProperties": false
+  "title": "actual song title",
+  "artist": "actual artist name", 
+  "reasoning": "brief explanation under 80 characters"
 }
 
-### Instruction:
-Generate one song recommendation that matches the schema.
-ABSOLUTELY NO REASON STRING 80 CHARACTERS. STOP IMMEDIATELY IF SURPASSED.
+Requirements:
+- Must be a REAL song that exists
+- Include actual artist and song title
+- Keep reasoning under 80 characters
+- No additional text or markdown
+- Respond only with valid JSON
 
-### Response:
+### Instruction:
+Recommend one real song that exists. Focus on quality tracks from well-known or critically acclaimed artists.
+
+<|eot_id|><|start_header_id|>assistant<|end_header_id|>
+
 ''';
 
 /// Movie recommendation prompt template
 const String kMoviePromptTemplate = r'''
-Below is a JSON Schema. Produce exactly one JSON object that _validates_ against it—no extra keys, no wrapping in text or markdown.
+<|begin_of_text|><|start_header_id|>system<|end_header_id|>
 
-Schema:
+You are a knowledgeable movie critic. Your task is to recommend REAL movies that actually exist. You must respond with valid JSON containing exactly one movie recommendation.
+
+<|eot_id|><|start_header_id|>user<|end_header_id|>
+
+Generate exactly one movie recommendation in this JSON format:
 {
-  "type": "object",
-  "properties": {
-    "title":     { "type": "string", "maxLength": 80 },
-    "director":  { "type": "string", "maxLength": 80 },
-    "reasoning": { "type": "string", "maxLength": 80 }
-  },
-  "required": ["title","director","reasoning"],
-  "additionalProperties": false
+  "title": "actual movie title",
+  "director": "actual director name",
+  "reasoning": "brief explanation under 80 characters"
 }
 
-### Instruction:
-Generate one movie recommendation that matches the schema.
-ABSOLUTELY NO REASON STRING 80 CHARACTERS. STOP IMMEDIATELY IF SURPASSED.
+Requirements:
+- Must be a REAL movie that exists
+- Include actual director and movie title
+- Keep reasoning under 80 characters
+- No additional text or markdown
+- Respond only with valid JSON
 
-### Response:
+### Instruction:
+Recommend one real movie that exists. Focus on quality films from well-known or critically acclaimed directors.
+
+<|eot_id|><|start_header_id|>assistant<|end_header_id|>
+
 ''';
 
 /// Book recommendation prompt template
 const String kBookPromptTemplate = r'''
-Below is a JSON Schema. Produce exactly one JSON object that _validates_ against it—no extra keys, no wrapping in text or markdown.
+<|begin_of_text|><|start_header_id|>system<|end_header_id|>
 
-Schema:
+You are a knowledgeable librarian. Your task is to recommend REAL books that actually exist. You must respond with valid JSON containing exactly one book recommendation.
+
+<|eot_id|><|start_header_id|>user<|end_header_id|>
+
+Generate exactly one book recommendation in this JSON format:
 {
-  "type": "object",
-  "properties": {
-    "title":     { "type": "string", "maxLength": 80 },
-    "author":    { "type": "string", "maxLength": 80 },
-    "reasoning": { "type": "string", "maxLength": 80 }
-  },
-  "required": ["title","author","reasoning"],
-  "additionalProperties": false
+  "title": "actual book title",
+  "author": "actual author name",
+  "reasoning": "brief explanation under 80 characters"
 }
 
-### Instruction:
-Generate one book recommendation that matches the schema.
-ABSOLUTELY NO REASON STRING 80 CHARACTERS. STOP IMMEDIATELY IF SURPASSED.
+Requirements:
+- Must be a REAL book that exists
+- Include actual author and book title
+- Keep reasoning under 80 characters
+- No additional text or markdown
+- Respond only with valid JSON
 
-### Response:
+### Instruction:
+Recommend one real book that exists. Focus on quality books from well-known or critically acclaimed authors.
+
+<|eot_id|><|start_header_id|>assistant<|end_header_id|>
+
 ''';
 
 /// TV Show recommendation prompt template
 const String kTVShowPromptTemplate = r'''
-Below is a JSON Schema. Produce exactly one JSON object that _validates_ against it—no extra keys, no wrapping in text or markdown.
+<|begin_of_text|><|start_header_id|>system<|end_header_id|>
 
-Schema:
+You are a knowledgeable TV critic. Your task is to recommend REAL TV shows that actually exist. You must respond with valid JSON containing exactly one TV show recommendation.
+
+<|eot_id|><|start_header_id|>user<|end_header_id|>
+
+Generate exactly one TV show recommendation in this JSON format:
 {
-  "type": "object",
-  "properties": {
-    "title":     { "type": "string", "maxLength": 80 },
-    "network":   { "type": "string", "maxLength": 80 },
-    "reasoning": { "type": "string", "maxLength": 80 }
-  },
-  "required": ["title","network","reasoning"],
-  "additionalProperties": false
+  "title": "actual TV show title",
+  "network": "actual network or streaming service",
+  "reasoning": "brief explanation under 80 characters"
 }
 
-### Instruction:
-Generate one TV show recommendation that matches the schema.
-ABSOLUTELY NO REASON STRING 80 CHARACTERS. STOP IMMEDIATELY IF SURPASSED.
+Requirements:
+- Must be a REAL TV show that exists
+- Include actual network/streaming service and show title
+- Keep reasoning under 80 characters
+- No additional text or markdown
+- Respond only with valid JSON
 
-### Response:
+### Instruction:
+Recommend one real TV show that exists. Focus on quality shows from well-known networks or streaming services.
+
+<|eot_id|><|start_header_id|>assistant<|end_header_id|>
+
 ''';
 
 /// Video Game recommendation prompt template
 const String kVideoGamePromptTemplate = r'''
-Below is a JSON Schema. Produce exactly one JSON object that _validates_ against it—no extra keys, no wrapping in text or markdown.
+<|begin_of_text|><|start_header_id|>system<|end_header_id|>
 
-Schema:
+You are a knowledgeable gaming expert. Your task is to recommend REAL video games that actually exist. You must respond with valid JSON containing exactly one video game recommendation.
+
+<|eot_id|><|start_header_id|>user<|end_header_id|>
+
+Generate exactly one video game recommendation in this JSON format:
 {
-  "type": "object",
-  "properties": {
-    "title":     { "type": "string", "maxLength": 80 },
-    "developer": { "type": "string", "maxLength": 80 },
-    "reasoning": { "type": "string", "maxLength": 80 }
-  },
-  "required": ["title","developer","reasoning"],
-  "additionalProperties": false
+  "title": "actual game title",
+  "developer": "actual developer name",
+  "reasoning": "brief explanation under 80 characters"
 }
 
-### Instruction:
-Generate one video game recommendation that matches the schema.
-ABSOLUTELY NO REASON STRING 80 CHARACTERS. STOP IMMEDIATELY IF SURPASSED.
+Requirements:
+- Must be a REAL video game that exists
+- Include actual developer and game title
+- Keep reasoning under 80 characters
+- No additional text or markdown
+- Respond only with valid JSON
 
-### Response:
+### Instruction:
+Recommend one real video game that exists. Focus on quality games from well-known or critically acclaimed developers.
+
+<|eot_id|><|start_header_id|>assistant<|end_header_id|>
+
 ''';
 
 /// Get the appropriate prompt template for a specific media type

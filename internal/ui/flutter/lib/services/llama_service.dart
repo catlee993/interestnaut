@@ -320,14 +320,14 @@ class LlamaService {
 
       // No formatter for better JSON generation
 
-      // Use conservative settings to prevent freezing as per user preferences
+      // Use conservative settings optimized for JSON generation
       _contextParams = ContextParams();
-      _contextParams!.nCtx = 2048;          // Increased context size
-      _contextParams!.nBatch = 512;         // Increased batch size
-      _contextParams!.nUbatch = 512;        // Match batch size
-      _contextParams!.nThreads = 8;         // Limited thread count
-      _contextParams!.nThreadsBatch = 8;    // Match thread count
-      _contextParams!.nPredict = 256;       // Reasonable token generation limit
+      _contextParams!.nCtx = 1024;          // Reduced context size for efficiency
+      _contextParams!.nBatch = 256;         // Reduced batch size
+      _contextParams!.nUbatch = 256;        // Match batch size
+      _contextParams!.nThreads = 4;         // Reduced thread count for efficiency
+      _contextParams!.nThreadsBatch = 4;    // Match thread count
+      _contextParams!.nPredict = 128;       // Reduced token limit for JSON responses
       _contextParams!.offloadKqv = true;   // Offload KQV operations to GPU
       _contextParams!.logitsAll = false;   // Don't compute logits for all tokens
       _contextParams!.embeddings = false;  // Don't compute embeddings
@@ -335,19 +335,19 @@ class LlamaService {
       _contextParams!.noPerfTimings = true; // Disable performance timings
       _contextParams!.defragThold = 0.5;
 
-      // Configure sampling to prevent repetition loops
+      // Configure sampling for better instruction following with Llama-3 chat format
       final samplerParams = SamplerParams();
-      samplerParams.greedy = false;        // Use non-deterministic sampling
-      samplerParams.temp = 0.3;            // Moderate temperature for creativity
-      samplerParams.topK = 40;             // Consider top 40 tokens
-      samplerParams.topP = 0.9;            // Filter to 90% most likely tokens
-      samplerParams.minP = 0.05;           // Minimum probability threshold
-      samplerParams.typical = 1.0;         // Enable typical sampling
-      samplerParams.penaltyLastTokens = 128; // Apply penalties to last 128 tokens
-      samplerParams.penaltyRepeat = 2.5;   // Stronger repetition penalty
-      samplerParams.penaltyFreq = 1.5;     // Stronger frequency penalty
-      samplerParams.penaltyPresent = 1.5;  // Stronger penalty for present tokens
-      samplerParams.ignoreEOS = false;     // Allow normal EOS handling for proper completion
+      samplerParams.greedy = false;            // Allow some sampling for more natural responses
+      samplerParams.temp = 0.1;               // Low but not extremely low temperature
+      samplerParams.topK = 10;                // Allow top 10 tokens for some variety
+      samplerParams.topP = 0.1;               // Very focused sampling
+      samplerParams.minP = 0.05;              // Lower minimum probability for more tokens
+      samplerParams.typical = 1.0;            // No typical sampling
+      samplerParams.penaltyLastTokens = 64;   // Apply penalties to last 64 tokens
+      samplerParams.penaltyRepeat = 1.1;      // Moderate repetition penalty
+      samplerParams.penaltyFreq = 1.0;        // No frequency penalty
+      samplerParams.penaltyPresent = 1.0;     // No penalty for present tokens
+      samplerParams.ignoreEOS = false;        // Respect EOS tokens
 
 
       // Create the LlamaLoad command
@@ -388,6 +388,10 @@ class LlamaService {
       print('LlamaService initialized successfully with model: $modelPath');
       _isRunning = true;
       _initCompleter?.complete();
+      
+      // Test the model after initialization
+      _testModelAfterInit();
+      
       return true;
     } catch (e) {
       print('Error initializing LLM: $e');
@@ -415,7 +419,15 @@ class LlamaService {
     }
 
     try {
-      print('Processing prompt...');
+      print('Processing prompt with text: "${text.substring(0, min(100, text.length))}..."');
+      
+      // Clear any existing generation first to prevent contamination
+      try {
+        await _llamaParent!.stop();
+        print('LlamaService: Stopped any previous generation');
+      } catch (e) {
+        print('LlamaService: Warning - could not stop previous generation: $e');
+      }
       
       // Send prompt to the isolate
       _llamaParent!.sendPrompt(text);
@@ -458,16 +470,16 @@ class LlamaService {
         
         // We don't need to log tokens here since they're already logged in the parent stream listener
         
-        // Check for repetition with every token
+        // Check for repetition with reduced frequency to save resources
         final text = buffer.toString();
         
-        // Aggressive repetition check on every token
-        if (tokenCount % 5 == 0) { // Only check every 5 tokens to reduce overhead
+        // Reduce repetition checking frequency from every 5 to every 15 tokens
+        if (tokenCount % 15 == 0) { // Only check every 15 tokens to reduce overhead
           print('LlamaService: Checking for repetition at token $tokenCount (text length: ${text.length})');
         }
         
-        // Only check for repetition after we have enough text
-        if (text.length > 40 && (hasRepeatedNgram(text, n: 4, minOccurrences: 4) || text.length > 200)) {
+        // Only check for repetition after we have enough text and less frequently
+        if (text.length > 60 && tokenCount % 10 == 0 && (hasRepeatedNgram(text, n: 4, minOccurrences: 3) || text.length > 300)) {
           print('[LLAMA] Repeated content detected during generation. Aborting early.');
           
           // CRITICAL: Immediately stop token generation
@@ -489,7 +501,7 @@ class LlamaService {
           
           // Explicitly stop the generation
           _llamaParent?.stop().catchError((e) {
-            print('LlamaService: Error stopping generation after repetition: $e');
+            print('LlamaService: Error stopping generation after repetition detected');
           });
           return;
         }
@@ -557,10 +569,12 @@ class LlamaService {
       tokenTimeoutTimer = Timer.periodic(Duration(milliseconds: 500), (timer) {
         final timeSinceLastToken = DateTime.now().difference(lastTokenTime).inSeconds;
         final currentLength = buffer.length;
-        // Timeout or excessive length
-        if ((isGenerating && timeSinceLastToken >= 10) || currentLength > 1000) {
-          if (isGenerating && timeSinceLastToken >= 10) {
+        // Reduce timeout to 5 seconds to fail faster and add more debugging
+        if ((isGenerating && timeSinceLastToken >= 5) || currentLength > 1000) {
+          if (isGenerating && timeSinceLastToken >= 5) {
             print('LlamaService: Token generation timeout after $timeSinceLastToken seconds - assuming generation is complete (received $tokenCount tokens total)');
+            print('LlamaService: Buffer length: ${buffer.length}');
+            print('LlamaService: Last 100 chars of buffer: "${buffer.length > 100 ? buffer.toString().substring(buffer.length - 100) : buffer.toString()}"');
           } else if (currentLength > 1000) {
             print('LlamaService: Response exceeded 1000 characters - truncating to avoid excessive generation');
           }
@@ -656,8 +670,8 @@ class LlamaService {
     } catch (_) {
       // Not valid JSON, try to extract JSON object from the text
 
-      // Look for JSON object patterns
-      final jsonMatches = RegExp(r'\{(?:[^{}]|(?:\{(?:[^{}]|(?:\{[^{}]*\}))*\}))*\}')
+      // Look for JSON object patterns - be more aggressive
+      final jsonMatches = RegExp(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}')
           .allMatches(text)
           .map((match) => match.group(0))
           .toList();
@@ -672,6 +686,19 @@ class LlamaService {
         } catch (_) {
           // Not valid JSON, continue to the next match
           continue;
+        }
+      }
+
+      // Look for patterns that might indicate the start of JSON even if malformed
+      final partialJsonMatch = RegExp(r'\{[^{]*"title"[^{]*').firstMatch(text);
+      if (partialJsonMatch != null) {
+        final candidate = partialJsonMatch.group(0);
+        if (candidate != null) {
+          // Try to repair this JSON fragment
+          final repaired = attemptJsonRepair(candidate);
+          if (repaired != null) {
+            return repaired;
+          }
         }
       }
 
@@ -784,8 +811,10 @@ class LlamaService {
     // Need enough text to detect meaningful repetition
     if (text.length < 40) return false;
     
-    // Debug logging for repetition detection
-    print('REPETITION CHECK: Analyzing text of length ${text.length}');
+    // Reduce debug logging frequency
+    if (text.length % 50 == 0) { // Only log every 50 characters instead of every call
+      print('REPETITION CHECK: Analyzing text of length ${text.length}');
+    }
     
     // Focus on the most recent portion of text where repetition is likely occurring
     final windowSize = 400; 
@@ -1018,5 +1047,32 @@ class LlamaService {
     
     // Fallback: just return the current directory
     return Directory.current.path;
+  }
+
+  /// Test the model after initialization
+  void _testModelAfterInit() {
+    Future.delayed(Duration(seconds: 2), () async {
+      try {
+        print('LlamaService: Testing model with JSON directive...');
+        final testResponse = await generateStructuredJsonResponse('<JSON_API>\nOutput: {"test":"success"}\nResponse (JSON only):');
+        print('LlamaService: Test response: "$testResponse"');
+        if (testResponse.isEmpty) {
+          print('LlamaService: WARNING - Model test returned empty response');
+        } else {
+          try {
+            final parsed = json.decode(testResponse);
+            if (parsed is Map && parsed.containsKey('test')) {
+              print('LlamaService: Model test successful - JSON format working');
+            } else {
+              print('LlamaService: WARNING - Model test returned non-JSON: $testResponse');
+            }
+          } catch (e) {
+            print('LlamaService: WARNING - Model test returned invalid JSON: $testResponse');
+          }
+        }
+      } catch (e) {
+        print('LlamaService: Model test failed: $e');
+      }
+    });
   }
 }

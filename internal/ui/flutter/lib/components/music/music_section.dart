@@ -637,6 +637,15 @@ class _MusicSectionState extends State<MusicSection> {
     if (_currentDbSuggestion == null) return;
 
     try {
+      // First, check if item is in watchlist and remove it
+      final isInWatchlist = await _db.isInWatchlist(_currentDbSuggestion!.id);
+      if (isInWatchlist) {
+        await _db.removeFromWatchlist(_currentDbSuggestion!.id);
+        // Refresh playlist since item was removed from there too
+        _loadDbPlaylist();
+      }
+      
+      // Then set status to disliked
       await _recommendationService.updateSuggestionStatus(
         _currentDbSuggestion!.id,
         SuggestionStatus.disliked,
@@ -671,21 +680,19 @@ class _MusicSectionState extends State<MusicSection> {
     if (_currentDbSuggestion == null) return;
 
     try {
-      await _recommendationService.updateSuggestionStatus(
-        _currentDbSuggestion!.id,
-        SuggestionStatus.watchlist,
-      );
+      // Add to watchlist table instead of changing status
+      await _db.addToWatchlist(_currentDbSuggestion!.id);
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Added "${_currentDbSuggestion!.title}" to your playlist'),
+          content: Text('Added "${_currentDbSuggestion!.title}" to ${_getWatchlistTerminology(isAction: true)}'),
           duration: const Duration(seconds: 2),
         ),
       );
 
-      // Reload playlist and get next suggestion
+      // Refresh both playlist and main suggestions
       _loadDbPlaylist();
-      _loadDbSuggestion();
+      _loadDbSuggestion(); // This will get the next suggestion
     } catch (e) {
       debugPrint('Error adding DB suggestion to playlist: $e');
     }
@@ -763,6 +770,7 @@ class _MusicSectionState extends State<MusicSection> {
                     ),
                   )
                 else
+                    // Current suggestion container (only shows when there's a suggestion)
                     Column(
                       children: [
                         Container(
@@ -965,21 +973,38 @@ class _MusicSectionState extends State<MusicSection> {
                                                       ),
                                                     ),
                                                     
-                                                    // Playlist button
-                                                    ElevatedButton.icon(
-                                                      onPressed: _addDbSuggestionToPlaylist,
-                                                      icon: const Icon(Icons.playlist_add, size: 16),
-                                                      label: const Text('Playlist', style: TextStyle(fontSize: 13)),
-                                                      style: ElevatedButton.styleFrom(
-                                                        backgroundColor: Colors.white.withOpacity(0.15),
-                                                        foregroundColor: Colors.white,
-                                                        elevation: 0,
-                                                        shape: RoundedRectangleBorder(
-                                                          borderRadius: BorderRadius.circular(25),
-                                                        ),
-                                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                                        minimumSize: const Size(0, 44),
-                                                      ),
+                                                    // Playlist button - dynamic state based on whether current suggestion is in playlist
+                                                    Builder(
+                                                      builder: (context) {
+                                                        final inPlaylist = _currentDbSuggestion != null && 
+                                                          _dbPlaylistSuggestions.any((item) => item.id == _currentDbSuggestion!.id);
+                                                        
+                                                        return ElevatedButton.icon(
+                                                          onPressed: inPlaylist 
+                                                            ? () => _currentDbSuggestion != null ? _removeFromWatchlist(_currentDbSuggestion!) : null
+                                                            : _addDbSuggestionToPlaylist,
+                                                          icon: Icon(
+                                                            inPlaylist ? Icons.playlist_add_check : Icons.playlist_add, 
+                                                            size: 16
+                                                          ),
+                                                          label: Text(
+                                                            inPlaylist ? 'In Playlist' : 'Playlist', 
+                                                            style: const TextStyle(fontSize: 13)
+                                                          ),
+                                                          style: ElevatedButton.styleFrom(
+                                                            backgroundColor: inPlaylist 
+                                                              ? Colors.blue.withOpacity(0.3)
+                                                              : Colors.white.withOpacity(0.15),
+                                                            foregroundColor: inPlaylist ? Colors.blue : Colors.white,
+                                                            elevation: 0,
+                                                            shape: RoundedRectangleBorder(
+                                                              borderRadius: BorderRadius.circular(25),
+                                                            ),
+                                                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                                            minimumSize: const Size(0, 44),
+                                                          ),
+                                                        );
+                                                      },
                                                     ),
                                                     
                                                     // Skip button with legacy skip icon
@@ -1012,95 +1037,97 @@ class _MusicSectionState extends State<MusicSection> {
                           ),
                         ),
                         const SizedBox(height: 24),
-                        
-                        // Your Playlist section
-                        const SizedBox(height: 32),
-                        const Center(
-                          child: Text(
-                            'Your Playlist',
-                            style: TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        if (_isLoadingDbPlaylist)
-                          const Center(
-                            child: CircularProgressIndicator(
-                              color: Color(0xFFA855F7),
-                            ),
-                          )
-                        else if (_dbPlaylistSuggestions.isEmpty)
-                          const Padding(
-                            padding: EdgeInsets.symmetric(vertical: 32),
-                            child: Center(
-                              child: Text(
-                                'No tracks in your playlist yet. Add suggestions to your playlist to see them here.',
-                                style: TextStyle(color: Colors.white54),
-                                textAlign: TextAlign.center,
-                              ),
-                            ),
-                          )
-                        else
-                          _buildDbPlaylistSection(),
-                        
-                        // Your Library section (for liked DB suggestions)
-                        const SizedBox(height: 32),
-                        const Center(
-                          child: Text(
-                            'Your Library',
-                            style: TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        if (_isLoadingDbLibrary)
-                          const Center(
-                            child: CircularProgressIndicator(
-                              color: Color(0xFFA855F7),
-                            ),
-                          )
-                        else if (_dbLikedSuggestions.isEmpty)
-                          const Padding(
-                            padding: EdgeInsets.symmetric(vertical: 32),
-                            child: Center(
-                              child: Text(
-                                'No tracks in your library yet. Like suggestions to add them to your library.',
-                                style: TextStyle(color: Colors.white54),
-                                textAlign: TextAlign.center,
-                              ),
-                            ),
-                          )
-                        else
-                          _buildDbLibrarySection(),
-                        
-                        // Your Spotify Liked Tracks section (existing library)
-                        const SizedBox(height: 32),
-                        const Center(
-                          child: Text(
-                            'Your Spotify Liked Tracks',
-                            style: TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        if (!_isAuthenticated)
-                          _buildAuthPrompt()
-                        else if (_isLoadingLibrary)
-                          const Center(
-                            child: CircularProgressIndicator(
-                              color: Color(0xFFA855F7),
-                            ),
-                          )
-                        else
-                          _buildLibrarySection(),
                       ],
                     ),
+                
+                // Library sections (always show regardless of suggestion availability)
+                const SizedBox(height: 32),
+                
+                // Your Playlist section
+                Center(
+                  child: Text(
+                    _getWatchlistSectionTitle(),
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                if (_isLoadingDbPlaylist)
+                  const Center(
+                    child: CircularProgressIndicator(
+                      color: Color(0xFFA855F7),
+                    ),
+                  )
+                else if (_dbPlaylistSuggestions.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 32),
+                    child: Center(
+                      child: Text(
+                        'No tracks in your ${_getWatchlistTerminology()} yet. Add suggestions to your ${_getWatchlistTerminology()} to see them here.',
+                        style: const TextStyle(color: Colors.white54),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  )
+                else
+                  _buildDbPlaylistSection(),
+                
+                // Your Library section (for liked DB suggestions)
+                const SizedBox(height: 32),
+                const Center(
+                  child: Text(
+                    'Your Library',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                if (_isLoadingDbLibrary)
+                  const Center(
+                    child: CircularProgressIndicator(
+                      color: Color(0xFFA855F7),
+                    ),
+                  )
+                else if (_dbLikedSuggestions.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 32),
+                    child: Center(
+                      child: Text(
+                        'No tracks in your library yet. Like or add suggestions to see them here.',
+                        style: TextStyle(color: Colors.white54),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  )
+                else
+                  _buildDbLibrarySection(),
+                
+                // Your Spotify Liked Tracks section (existing library)
+                const SizedBox(height: 32),
+                const Center(
+                  child: Text(
+                    'Your Spotify Liked Tracks',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                if (!_isAuthenticated)
+                  _buildAuthPrompt()
+                else if (_isLoadingLibrary)
+                  const Center(
+                    child: CircularProgressIndicator(
+                      color: Color(0xFFA855F7),
+                    ),
+                  )
+                else
+                  _buildLibrarySection(),
                 ],
               ),
             );
@@ -1203,14 +1230,8 @@ class _MusicSectionState extends State<MusicSection> {
     });
 
     try {
-      // Ensure we have test data
-      await _insertTestDataIfNeeded();
-      
-      // Get pending music suggestions from database
-      final suggestions = await _recommendationService.getSuggestions(
-        'music', 
-        status: SuggestionStatus.pending,
-      );
+      // Get pending music suggestions that are NOT in watchlist
+      final suggestions = await _db.getPendingSuggestionsNotInWatchlist('music');
       
       if (suggestions.isNotEmpty) {
         final suggestion = suggestions.first;
@@ -1260,13 +1281,22 @@ class _MusicSectionState extends State<MusicSection> {
     });
 
     try {
+      // Get both liked and added suggestions for the library
       final likedSuggestions = await _recommendationService.getSuggestions(
         'music',
         status: SuggestionStatus.liked,
       );
       
+      final addedSuggestions = await _recommendationService.getSuggestions(
+        'music',
+        status: SuggestionStatus.added,
+      );
+      
+      // Combine both lists
+      final allLibrarySuggestions = [...likedSuggestions, ...addedSuggestions];
+      
       setState(() {
-        _dbLikedSuggestions = likedSuggestions;
+        _dbLikedSuggestions = allLibrarySuggestions;
         _isLoadingDbLibrary = false;
       });
     } catch (e) {
@@ -1284,15 +1314,15 @@ class _MusicSectionState extends State<MusicSection> {
     });
 
     try {
-      final playlistSuggestions = await _recommendationService.getSuggestions(
-        'music',
-        status: SuggestionStatus.watchlist,
-      );
+      // Use the proper watchlist query instead of status-based filtering
+      final playlistSuggestions = await _db.getWatchlist('music');
       
       setState(() {
         _dbPlaylistSuggestions = playlistSuggestions;
         _isLoadingDbPlaylist = false;
       });
+      
+      debugPrint('Loaded ${playlistSuggestions.length} items in playlist');
     } catch (e) {
       debugPrint('Error loading DB playlist: $e');
       setState(() {
@@ -1301,130 +1331,524 @@ class _MusicSectionState extends State<MusicSection> {
     }
   }
 
-  // Insert test data for development
-  Future<void> _insertTestDataIfNeeded() async {
+  // Build DB playlist section with custom cards
+  Widget _buildDbPlaylistSection() {
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 3,
+        childAspectRatio: 1.2, // Shorter cards - was 0.6, now 1.2 (half the height)
+        crossAxisSpacing: 16,
+        mainAxisSpacing: 16,
+      ),
+      itemCount: _dbPlaylistSuggestions.length,
+      itemBuilder: (context, index) {
+        final suggestion = _dbPlaylistSuggestions[index];
+        return _buildLibraryCard(suggestion, isWatchlist: true);
+      },
+    );
+  }
+
+  // Build DB library section with custom cards
+  Widget _buildDbLibrarySection() {
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 3,
+        childAspectRatio: 1.2, // Shorter cards - was 0.6, now 1.2 (half the height)
+        crossAxisSpacing: 16,
+        mainAxisSpacing: 16,
+      ),
+      itemCount: _dbLikedSuggestions.length,
+      itemBuilder: (context, index) {
+        final suggestion = _dbLikedSuggestions[index];
+        return _buildLibraryCard(suggestion, isWatchlist: false);
+      },
+    );
+  }
+
+  // Build individual library card
+  Widget _buildLibraryCard(MediaSuggestion suggestion, {bool isWatchlist = false}) {
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: const Color(0xFF7B68EE).withOpacity(0.3),
+          width: 2,
+        ),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: Stack(
+          children: [
+            // Full image background
+            Positioned.fill(
+              child: suggestion.coverArtUrl?.isNotEmpty == true
+                ? Image.network(
+                    suggestion.coverArtUrl!,
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) {
+                      return Container(
+                        color: const Color(0xFF7B68EE).withOpacity(0.1),
+                        child: const Center(
+                          child: Icon(
+                            Icons.music_note,
+                            size: 60,
+                            color: Colors.white54,
+                          ),
+                        ),
+                      );
+                    },
+                  )
+                : Container(
+                    color: const Color(0xFF7B68EE).withOpacity(0.1),
+                    child: const Center(
+                      child: Icon(
+                        Icons.music_note,
+                        size: 60,
+                        color: Colors.white54,
+                      ),
+                    ),
+                  ),
+            ),
+            
+            // Gradient overlay
+            Positioned.fill(
+              child: Container(
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.transparent,
+                      Color(0x40000000), // rgba(0,0,0,0.25) at 70%
+                      Color(0x66000000), // rgba(0,0,0,0.4) at 85%
+                      Color(0x99000000), // rgba(0,0,0,0.6) at 95%
+                      Colors.black,      // rgba(0,0,0,1) at 100%
+                    ],
+                    stops: [0.0, 0.70, 0.85, 0.95, 1.0],
+                  ),
+                ),
+              ),
+            ),
+            
+            // Remove button for watchlist/saved views (top-right)
+            if (isWatchlist)
+              Positioned(
+                top: 8,
+                right: 8,
+                child: GestureDetector(
+                  onTap: () => _removeFromWatchlist(suggestion),
+                  child: Container(
+                    width: 24,
+                    height: 24,
+                    child: CustomPaint(
+                      painter: XButtonPainter(),
+                    ),
+                  ),
+                ),
+              ),
+            
+            // Content overlay at bottom
+            Positioned(
+              bottom: 0,
+              left: 0,
+              right: 0,
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Title
+                    Text(
+                      suggestion.title ?? 'Unknown',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 4),
+                    
+                    // Year and rating info
+                    if (suggestion.createdAt != null)
+                      Text(
+                        suggestion.createdAt!.year.toString(),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.white.withOpacity(0.8),
+                        ),
+                      ),
+                    
+                    const SizedBox(height: 8),
+                    
+                    // Action buttons row
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        // Left side - metadata
+                        if (suggestion.artist?.isNotEmpty == true)
+                          Flexible(
+                            child: Text(
+                              suggestion.artist!,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.white.withOpacity(0.8),
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        
+                        // Right side - action buttons
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (!isWatchlist) ...[
+                              // Add to playlist button (playlist icon) - blue with checkmark if in watchlist, white if not
+                              Builder(
+                                builder: (context) {
+                                  // Check if this suggestion is already in our loaded playlist
+                                  final inWatchlist = _dbPlaylistSuggestions.any((item) => item.id == suggestion.id);
+                                  return IconButton(
+                                    onPressed: () => inWatchlist 
+                                      ? _removeFromWatchlist(suggestion)
+                                      : _addToWatchlist(suggestion),
+                                    icon: Icon(
+                                      inWatchlist ? Icons.playlist_add_check : Icons.playlist_add,
+                                      color: inWatchlist ? Colors.blue : Colors.white,
+                                      size: 20,
+                                    ),
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(
+                                      minWidth: 32,
+                                      minHeight: 32,
+                                    ),
+                                  );
+                                },
+                              ),
+                            ] else ...[
+                              // Like button for watchlist items (removes from watchlist only)
+                              IconButton(
+                                onPressed: () => _likeWatchlistItem(suggestion),
+                                icon: const Icon(
+                                  Icons.thumb_up,
+                                  color: Colors.white70,
+                                  size: 20,
+                                ),
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(
+                                  minWidth: 32,
+                                  minHeight: 32,
+                                ),
+                              ),
+                              
+                              // Dislike button for watchlist items
+                              IconButton(
+                                onPressed: () => _dislikeWatchlistItem(suggestion),
+                                icon: const Icon(
+                                  Icons.thumb_down,
+                                  color: Colors.white70,
+                                  size: 20,
+                                ),
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(
+                                  minWidth: 32,
+                                  minHeight: 32,
+                                ),
+                              ),
+                            ],
+                            
+                            // Purple heart to unfavorite/remove from library
+                            IconButton(
+                              onPressed: () => isWatchlist 
+                                ? _favoriteWatchlistItem(suggestion)
+                                : _unfavoriteSuggestion(suggestion),
+                              icon: const Icon(
+                                Icons.favorite,
+                                color: Color(0xFF7B68EE), // Primary purple color
+                                size: 20,
+                              ),
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(
+                                minWidth: 32,
+                                minHeight: 32,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Unfavorite a suggestion (remove from library)
+  Future<void> _unfavoriteSuggestion(MediaSuggestion suggestion) async {
     try {
-      // Check if we already have music suggestions
-      final existingSuggestions = await _recommendationService.getSuggestions('music');
+      await _recommendationService.updateSuggestionStatus(
+        suggestion.id,
+        SuggestionStatus.pending,
+      );
       
-      if (existingSuggestions.isEmpty) {
-        // Insert the "Saint John" test data
-        final testSuggestion = MediaSuggestion(
-          query: 'indie folk music similar to current library',
-          mediaType: 'music',
-          title: 'Saint John',
-          artist: 'No Clear Mind',
-          album: 'Makena',
-          coverArtUrl: 'https://f4.bcbits.com/img/a2164956462_16.jpg',
-          description: 'A beautiful indie folk track with dreamy vocals and atmospheric soundscape. This London-based band creates ethereal music that blends folk and shoegaze elements.',
-          wikiUrl: 'https://noclearmind.bandcamp.com/track/saint-john',
-          botReasoning: 'This track combines indie folk with dreamy, atmospheric elements that should appeal to your taste. The ethereal vocals and gentle instrumentation create a perfect listening experience.',
-          status: SuggestionStatus.pending,
-        );
-        
-        await _db.saveMediaSuggestion(testSuggestion);
-        debugPrint('Inserted test music suggestion: Saint John by No Clear Mind');
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Removed "${suggestion.title}" from your library'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+      
+      // Refresh both library and main suggestions (since this item is now back to pending)
+      _loadDbLibrary();
+      _loadDbSuggestion(); // This might show the unfavorited item again as a suggestion
     } catch (e) {
-      debugPrint('Error inserting test data: $e');
+      debugPrint('Error unfavoriting suggestion: $e');
     }
   }
 
-  // Build DB playlist section
-  Widget _buildDbPlaylistSection() {
-    return MediaGrid(
-      children: _dbPlaylistSuggestions.map((suggestion) {
-        // Convert MediaSuggestion to Track for TrackCard
-        final track = Track(
-          id: suggestion.id.toString(),
-          name: suggestion.title ?? 'Unknown',
-          artists: [Artist(name: suggestion.artist ?? 'Unknown Artist')],
-          album: Album(
-            name: suggestion.album ?? 'Unknown Album',
-            images: suggestion.coverArtUrl?.isNotEmpty == true 
-              ? [ImageData(url: suggestion.coverArtUrl!, height: 300, width: 300)] 
-              : [],
-          ),
-          uri: '',
-          previewUrl: '',
-        );
-        
-        // Convert to SimpleTrack for TrackCard compatibility
-        final simpleTrack = SimpleTrack(
-          id: track.id,
-          name: track.name,
-          artist: track.artists.isNotEmpty ? track.artists.first.name : 'Unknown Artist',
-          album: track.album.name,
-          albumArtUrl: track.album.images.isNotEmpty ? track.album.images.first.url : '',
-          uri: track.uri,
-          previewUrl: track.previewUrl,
-        );
-        
-        return TrackCard(
-          track: simpleTrack,
-          isSaved: true,
-          isPlaying: false, // DB tracks can't be played
-          onPlay: (t) => {}, // DB tracks can't be played
-          onSave: (t) => {},
-          onRemove: (t) async {
-            // Remove from playlist by changing status back to pending
-            await _recommendationService.updateSuggestionStatus(
-              suggestion.id,
-              SuggestionStatus.pending,
-            );
-            _loadDbPlaylist();
-          },
-        );
-      }).toList(),
-    );
+  // Add to watchlist (now with real implementation)
+  Future<void> _addToWatchlist(MediaSuggestion suggestion) async {
+    try {
+      await _db.addToWatchlist(suggestion.id);
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Added "${suggestion.title}" to ${_getWatchlistTerminology(isAction: true)}'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+      
+      // Refresh both library and playlist sections
+      _loadDbLibrary(); // This will update the watchlist icon state
+      _loadDbPlaylist();
+    } catch (e) {
+      debugPrint('Error adding to playlist: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to add to ${_getWatchlistTerminology(isAction: true)}: $e'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
   }
 
-  // Build DB library section
-  Widget _buildDbLibrarySection() {
-    return MediaGrid(
-      children: _dbLikedSuggestions.map((suggestion) {
-        // Convert MediaSuggestion to Track for TrackCard
-        final track = Track(
-          id: suggestion.id.toString(),
-          name: suggestion.title ?? 'Unknown',
-          artists: [Artist(name: suggestion.artist ?? 'Unknown Artist')],
-          album: Album(
-            name: suggestion.album ?? 'Unknown Album',
-            images: suggestion.coverArtUrl?.isNotEmpty == true 
-              ? [ImageData(url: suggestion.coverArtUrl!, height: 300, width: 300)] 
-              : [],
+  // Remove from watchlist
+  Future<void> _removeFromWatchlist(MediaSuggestion suggestion) async {
+    try {
+      await _db.removeFromWatchlist(suggestion.id);
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Removed "${suggestion.title}" from ${_getWatchlistTerminology(isAction: true)}'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+      
+      // Refresh both playlist and library sections
+      _loadDbPlaylist();
+      _loadDbLibrary(); // This will update the watchlist icon state
+    } catch (e) {
+      debugPrint('Error removing from ${_getWatchlistTerminology(isAction: true)}: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to remove from ${_getWatchlistTerminology(isAction: true)}: $e'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
+  // Dislike a watchlist item (removes from both playlist and favorites if applicable)
+  Future<void> _dislikeWatchlistItem(MediaSuggestion suggestion) async {
+    try {
+      // First, remove from watchlist table
+      await _db.removeFromWatchlist(suggestion.id);
+      
+      // Then, if the item is liked/added (in favorites), set status to disliked
+      // This will remove it from both playlist and library sections
+      if (suggestion.status == SuggestionStatus.liked || 
+          suggestion.status == SuggestionStatus.added) {
+        await _recommendationService.updateSuggestionStatus(
+          suggestion.id,
+          SuggestionStatus.disliked,
+        );
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Disliked "${suggestion.title}" - removed from ${_getWatchlistTerminology(isAction: true)} and library'),
+            duration: const Duration(seconds: 2),
           ),
-          uri: '',
-          previewUrl: '',
         );
         
-        // Convert to SimpleTrack for TrackCard compatibility
-        final simpleTrack = SimpleTrack(
-          id: track.id,
-          name: track.name,
-          artist: track.artists.isNotEmpty ? track.artists.first.name : 'Unknown Artist',
-          album: track.album.name,
-          albumArtUrl: track.album.images.isNotEmpty ? track.album.images.first.url : '',
-          uri: track.uri,
-          previewUrl: track.previewUrl,
+        // Refresh both sections since item was removed from both
+        _loadDbPlaylist();
+        _loadDbLibrary();
+      } else {
+        // Item was only in playlist, just set to disliked
+        await _recommendationService.updateSuggestionStatus(
+          suggestion.id,
+          SuggestionStatus.disliked,
         );
         
-        return TrackCard(
-          track: simpleTrack,
-          isSaved: true,
-          isPlaying: false, // DB tracks can't be played
-          onPlay: (t) => {}, // DB tracks can't be played
-          onSave: (t) => {},
-          onRemove: (t) async {
-            // Remove from library by changing status back to pending
-            await _recommendationService.updateSuggestionStatus(
-              suggestion.id,
-              SuggestionStatus.pending,
-            );
-            _loadDbLibrary();
-          },
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Disliked "${suggestion.title}" - removed from ${_getWatchlistTerminology(isAction: true)}'),
+            duration: const Duration(seconds: 2),
+          ),
         );
-      }).toList(),
+        
+        // Only refresh playlist section
+        _loadDbPlaylist();
+      }
+    } catch (e) {
+      debugPrint('Error disliking watchlist item: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to dislike item: $e'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
+  // Like a watchlist item (removes from watchlist and sets status to "liked")
+  Future<void> _likeWatchlistItem(MediaSuggestion suggestion) async {
+    try {
+      // Remove from watchlist table
+      await _db.removeFromWatchlist(suggestion.id);
+      
+      // Set status to "liked" so it gets added to library
+      await _recommendationService.updateSuggestionStatus(
+        suggestion.id,
+        SuggestionStatus.liked,
+      );
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Liked "${suggestion.title}" - removed from ${_getWatchlistTerminology(isAction: true)} and added to library'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+      
+      // Refresh both sections
+      _loadDbPlaylist();
+      _loadDbLibrary();
+    } catch (e) {
+      debugPrint('Error liking watchlist item: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to like item: $e'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
+  // Favorite a watchlist item (removes from watchlist and sets status to "added")
+  Future<void> _favoriteWatchlistItem(MediaSuggestion suggestion) async {
+    try {
+      // Remove from watchlist table
+      await _db.removeFromWatchlist(suggestion.id);
+      
+      // Set status to "added" so it stays in library
+      await _recommendationService.updateSuggestionStatus(
+        suggestion.id,
+        SuggestionStatus.added,
+      );
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Favorited "${suggestion.title}" - removed from ${_getWatchlistTerminology(isAction: true)} and added to library'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+      
+      // Refresh both sections
+      _loadDbPlaylist();
+      _loadDbLibrary();
+    } catch (e) {
+      debugPrint('Error favoriting watchlist item: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to favorite item: $e'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
+  // Helper method to get media-specific terminology
+  String _getWatchlistTerminology({bool isAction = false}) {
+    // For music, we use "playlist"
+    // For other media types, this would be different:
+    // - Books: "reading list" or "read list"  
+    // - Movies/TV: "watchlist"
+    // - Video Games: "playlist"
+    
+    if (isAction) {
+      return 'playlist'; // "Add to playlist", "Remove from playlist"
+    } else {
+      return 'playlist'; // "Your Playlist"
+    }
+  }
+
+  String _getWatchlistSectionTitle() {
+    return 'Your ${_getWatchlistTerminology().split(' ').map((word) => word[0].toUpperCase() + word.substring(1)).join(' ')}';
+  }
+}
+
+// Custom painter for X button (similar to React MediaItemWrapper)
+class XButtonPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..strokeWidth = 6
+      ..strokeCap = StrokeCap.round;
+    
+    // Purple outline
+    paint.color = const Color(0xFF6a1b9a);
+    canvas.drawLine(
+      Offset(size.width * 0.2, size.height * 0.2),
+      Offset(size.width * 0.8, size.height * 0.8),
+      paint,
+    );
+    canvas.drawLine(
+      Offset(size.width * 0.2, size.height * 0.8),
+      Offset(size.width * 0.8, size.height * 0.2),
+      paint,
+    );
+    
+    // White inner X
+    paint.color = Colors.white;
+    paint.strokeWidth = 1.5;
+    canvas.drawLine(
+      Offset(size.width * 0.2, size.height * 0.2),
+      Offset(size.width * 0.8, size.height * 0.8),
+      paint,
+    );
+    canvas.drawLine(
+      Offset(size.width * 0.2, size.height * 0.8),
+      Offset(size.width * 0.8, size.height * 0.2),
+      paint,
     );
   }
+  
+  @override
+  bool shouldRepaint(CustomPainter oldDelegate) => false;
 }
