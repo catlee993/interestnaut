@@ -166,9 +166,9 @@ class LLMDownloaderService {
     return path.join(appDir.path, kModelsDirectoryName);
   }
   
-  /// Check if any model exists in the models directory
+  /// Check if TinyLlama model exists in the models directory
   ///
-  /// Returns true if at least one .gguf file is available, false otherwise
+  /// Returns true if the specific TinyLlama model file is available, false otherwise
   static Future<bool> hasModels() async {
     // Use cached value if available
     if (_instance._modelsExist != null) {
@@ -177,29 +177,15 @@ class LLMDownloaderService {
     
     try {
       final modelDir = await getModelDirectory();
-      final directory = Directory(modelDir);
+      final modelFile = File(path.join(modelDir, kTinyLlamaModelFileName));
       
-      if (!await directory.exists()) {
-        _instance._modelsExist = false;
-        return false;
-      }
-      
-      // Count .gguf files in the directory
-      int ggufCount = 0;
-      await for (final entity in directory.list()) {
-        if (entity is File && entity.path.toLowerCase().endsWith('.gguf')) {
-          ggufCount++;
-          break; // At least one file exists, no need to count all
-        }
-      }
-      
-      final exists = ggufCount > 0;
+      final exists = await modelFile.exists();
       
       // Cache the result
       _instance._modelsExist = exists;
       return exists;
     } catch (e) {
-      debugPrint('Error checking model existence: $e');
+      debugPrint('Error checking TinyLlama model existence: $e');
       return false;
     }
   }

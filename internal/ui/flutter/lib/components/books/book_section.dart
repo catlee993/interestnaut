@@ -482,7 +482,7 @@ class _BookSectionState extends State<BookSection> {
       children: [
         // Main content
         ScrollContentWrapper(
-          headerHeight: 60.0,
+          headerHeight: 106.0,
           builder: (scrollOffset) {
             return Padding(
               padding: const EdgeInsets.only(bottom: 100),
@@ -510,15 +510,17 @@ class _BookSectionState extends State<BookSection> {
                     const SizedBox.shrink()
                   else if (!_isDatabaseAvailable)
                     // Show install library card when database is not available
-                    InstallLibraryCard(
-                      mediaType: 'book',
-                      onInstalled: () {
-                        // Reload suggestions after database is installed
-                        setState(() {
-                          _isDatabaseAvailable = true;
-                        });
-                        _loadDbSuggestion();
-                      },
+                    Center(
+                      child: InstallLibraryCard(
+                        mediaType: 'book',
+                        onInstalled: () {
+                          // Reload suggestions after database is installed
+                          setState(() {
+                            _isDatabaseAvailable = true;
+                          });
+                          _loadDbSuggestion();
+                        },
+                      ),
                     )
                   else if (_dbSuggestionError != null)
                     Center(

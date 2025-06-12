@@ -17,7 +17,7 @@ class LlamaService {
   LlamaService._internal();
 
   // Update the default download URL to TinyLlama
-  static const String _tinyllamaUrl = 'https://pub-4f2c8c5b4e8f4c5e8f4c5e8f4c5e8f4c.r2.dev/models/tinyllama-1.1b-chat-q4_0.gguf';
+  static const String _tinyllamaUrl = 'https://interestnaut.com/models/tinyllama-1.1b-chat-q4_0.gguf';
   
   bool _isInitialized = false;
 

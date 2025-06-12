@@ -87,7 +87,7 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
         final response = await LLMDownloaderService.downloadModel(
           modelDir,
           kTinyLlamaModelFileName, // Use TinyLlama instead
-          downloadUrl: 'https://pub-4f2c8c5b4e8f4c5e8f4c5e8f4c5e8f4c.r2.dev/models/tinyllama-1.1b-chat-q4_0.gguf',
+          downloadUrl: 'https://interestnaut.com/models/tinyllama-1.1b-chat-q4_0.gguf',
         );
 
         if (mounted) {

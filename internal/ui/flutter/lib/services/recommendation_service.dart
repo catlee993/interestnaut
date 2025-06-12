@@ -1,12 +1,13 @@
 import 'dart:async';
 import 'dart:convert';
-import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
-import 'package:interestnaut/services/llama_service.dart';
-import 'package:interestnaut/services/sqlite_db.dart';
-import 'package:interestnaut/services/model_constants.dart'; 
+import 'package:flutter/material.dart';
+import 'sqlite_db.dart';
+import '../db/vector_db.dart';
+import 'llama_service.dart';
+import 'model_constants.dart';
+import '../models.dart';
 import 'package:interestnaut/services/wikipedia_service.dart';
-import '../components/music/spotify_service.dart'; 
+import '../components/music/spotify_service.dart';
 
 // --- Data Models ---
 
@@ -539,21 +540,40 @@ class RecommendationService extends ChangeNotifier {
       // Get existing recommendations to avoid duplicates
       final existingRecommendations = await getSuggestions(mediaType);
       
-      // Generate explanation using the updated LlamaService
+      // Get a random suggestion from the vector database
+      final vectorDb = VectorDatabase();
+      final randomResults = await vectorDb.getRandomMedia(mediaType: mediaType, limit: 1);
+      
+      if (randomResults.isEmpty) {
+        debugPrint('No media found in vector database for $mediaType');
+        return null;
+      }
+      
+      final mediaResult = randomResults.first;
+      
+      // Generate explanation using the actual media item
       final response = await _llamaService.generateExplanation(
         userQuery: 'Suggest a great $mediaType',
-        mediaTitle: 'New Recommendation',
+        mediaTitle: mediaResult.title,
         mediaType: mediaType,
+        artist: mediaResult.artist,
+        themes: mediaResult.themes,
+        description: mediaResult.description,
+        similarity: 1.0,
       );
       debugPrint('LLM response: "$response"');
       
-      // For now, return a placeholder suggestion since we're not parsing LLM responses
-      // TODO: Implement proper suggestion generation with vector database search
+      // Create suggestion from actual vector database result
       final suggestion = MediaSuggestion(
         query: 'User requested $mediaType suggestion',
         mediaType: mediaType,
-        title: 'Sample ${mediaType.replaceAll('_', ' ')}',
-        artist: 'Sample Creator',
+        title: mediaResult.title,
+        artist: mediaResult.artist,
+        album: mediaResult.album,
+        coverArtUrl: mediaResult.coverArtUrl,
+        description: mediaResult.description,
+        wikiUrl: mediaResult.wikiUrl,
+        wikidataId: mediaResult.wikidataId,
         botReasoning: response,
         status: SuggestionStatus.pending,
       );
@@ -573,9 +593,15 @@ class RecommendationService extends ChangeNotifier {
 
   /// Check if a media type database is available
   Future<bool> isMediaTypeAvailable(String mediaType) async {
-    // TODO: Check if vector database for this media type is downloaded
-    // For now, return true for music (default enabled)
-    return mediaType == 'music';
+    try {
+      // Check if vector database for this media type is available
+      final vectorDb = VectorDatabase();
+      return vectorDb.isMediaTypeEnabled(mediaType);
+    } catch (e) {
+      debugPrint('Error checking media type availability for $mediaType: $e');
+      // For now, return true for music (default enabled) and false for others
+      return mediaType == 'music';
+    }
   }
 
   /// Get install status for a media type
