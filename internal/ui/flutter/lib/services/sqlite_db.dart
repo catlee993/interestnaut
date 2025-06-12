@@ -1,10 +1,10 @@
 import 'dart:io';
-import 'package:path/path.dart';
+import 'package:path/path.dart' as pathLib;
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter/foundation.dart';
 import 'package:sqlite3/sqlite3.dart';
-import 'package:interestnaut/queries/queries.dart';
-import 'package:interestnaut/services/recommendation_service.dart';
+import '../queries/queries.dart';
+import 'recommendation_service.dart';
 
 /// SQLiteDatabase
 /// This class is responsible for all SQLite database operations.
@@ -46,20 +46,20 @@ class SQLiteDatabase {
         // On Windows, use the application support directory which is more appropriate
         // for database files than the documents directory
         final appDataDir = await getApplicationSupportDirectory();
-        final dbDir = Directory(join(appDataDir.path, 'Interestnaut'));
+        final dbDir = Directory(pathLib.join(appDataDir.path, 'Interestnaut'));
         
         // Create the directory if it doesn't exist
         if (!await dbDir.exists()) {
           await dbDir.create(recursive: true);
         }
         
-        final path = join(dbDir.path, 'interestnaut.db');
+        final path = pathLib.join(dbDir.path, 'interestnaut.db');
         debugPrint('Windows SQLite database path: $path');
         return path;
       } else {
         // For other platforms, use the documents directory as before
         final documentsDirectory = await getApplicationDocumentsDirectory();
-        final path = join(documentsDirectory.path, 'interestnaut.db');
+        final path = pathLib.join(documentsDirectory.path, 'interestnaut.db');
         return path;
       }
     } catch (e) {
@@ -388,5 +388,28 @@ class SQLiteDatabase {
           ? DateTime.parse(row['updated_at'] as String)
           : null,
     );
+  }
+
+  /// Clean up bad suggestions from the database
+  Future<int> cleanupBadSuggestions() async {
+    await _ensureInitialized();
+    
+    try {
+      final stmt = _db!.prepare(deleteBadSuggestionsQuery);
+      final result = stmt.execute([]);
+      stmt.dispose();
+      
+      // Get the number of rows affected
+      final changesStmt = _db!.prepare('SELECT changes()');
+      final changesResult = changesStmt.select([]);
+      final deletedCount = changesResult.isNotEmpty ? changesResult.first['changes()'] as int : 0;
+      changesStmt.dispose();
+      
+      debugPrint('Cleaned up $deletedCount bad suggestions from database');
+      return deletedCount;
+    } catch (e) {
+      debugPrint('Error cleaning up bad suggestions: $e');
+      rethrow;
+    }
   }
 }

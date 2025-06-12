@@ -9,17 +9,21 @@ import 'package:path_provider/path_provider.dart';
 import 'package:ffi/ffi.dart';
 import 'package:llama_cpp_dart/llama_cpp_dart.dart';
 
-import 'theme.dart';
-import 'services/go_bindings.dart';
-import 'services/ffi_init.dart';
-import 'services/llama_service.dart';
-import 'services/recommendation_service.dart';
-import 'services/model_constants.dart';
-import 'components/common/media_header.dart';
+// Import our components and services
 import 'components/music/music_section.dart';
 import 'components/music/search/search_section.dart';
+import 'components/games/game_section.dart';
+import 'components/movies/movie_section.dart';
+import 'components/books/book_section.dart';
+import 'components/tv/tv_show_section.dart';
+import 'components/common/media_header.dart';
 import 'components/music/spotify_service.dart';
+import 'services/llama_service.dart';
+import 'services/recommendation_service.dart';
+import 'services/ffi_init.dart';
+import 'services/go_bindings.dart';
 import 'models.dart';
+import 'theme.dart';
 
 /// Entry point for the Flutter app
 Future<void> main() async {
@@ -93,29 +97,13 @@ Future<void> main() async {
   bool llamaInitialized = false;
 
   try {
-    // Initialize LlamaService (independent of Go FFI)
-    final modelPath = await LlamaService.getModelPath(
-      modelFileName: kLlamaModelFileName,
-    );
-
-    if (File(modelPath).existsSync()) {
-      // Configure model parameters
-      final modelParams = ModelParams(); // Use default parameters
-
-      // Initialize with the model
-      await llamaService.initialize(
-        modelPath,
-        modelParams: modelParams,
-        toastCallback: (message, {isError = false}) {
-          debugPrint('LlamaService: ${isError ? "ERROR: " : ""}$message');
-        },
-      );
-
-      llamaInitialized = true;
-      debugPrint('LlamaService initialized successfully with model: $modelPath');
+    // Initialize LlamaService (downloads model if needed)
+    llamaInitialized = await llamaService.initialize();
+    
+    if (llamaInitialized) {
+      debugPrint('LlamaService initialized successfully');
     } else {
-      debugPrint('LlamaService model not found at path: $modelPath');
-      // Continue without LLM - app will still work with limited functionality
+      debugPrint('LlamaService initialization failed - continuing with limited functionality');
     }
   } catch (e) {
     debugPrint('Error initializing LlamaService: $e');
@@ -289,13 +277,13 @@ class _InterestnautAppState extends State<InterestnautApp> {
       case 'music':
         return const MusicSection();
       case 'movies':
-        return const Center(child: Text('Movies Section', style: TextStyle(color: Colors.white)));
+        return const MovieSection();
       case 'tv':
-        return const Center(child: Text('TV Shows Section', style: TextStyle(color: Colors.white)));
+        return const TVShowSection();
       case 'games':
-        return const Center(child: Text('Games Section', style: TextStyle(color: Colors.white)));
+        return const GameSection();
       case 'books':
-        return const Center(child: Text('Books Section', style: TextStyle(color: Colors.white)));
+        return const BookSection();
       default:
         return const Center(child: Text('Home Section', style: TextStyle(color: Colors.white)));
     }

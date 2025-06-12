@@ -77,16 +77,17 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
       // Show a toast that download has started
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Downloading model (4.6GB). This may take a while...'),
+          content: Text('Downloading TinyLlama model (608MB). This may take a while...'),
           duration: Duration(seconds: 5),
         ),
       );
 
       try {
-        // Start the download using the proper method signature
+        // Start the download using TinyLlama
         final response = await LLMDownloaderService.downloadModel(
           modelDir,
-          kLlamaModelFileName
+          kTinyLlamaModelFileName, // Use TinyLlama instead
+          downloadUrl: 'https://pub-4f2c8c5b4e8f4c5e8f4c5e8f4c5e8f4c.r2.dev/models/tinyllama-1.1b-chat-q4_0.gguf',
         );
 
         if (mounted) {
@@ -99,7 +100,7 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(response.success
-                  ? 'Model downloaded successfully!'
+                  ? 'TinyLlama model downloaded successfully!'
                   : 'Failed to download model: ${response.error}'),
               duration: const Duration(seconds: 5),
             ),
@@ -114,7 +115,7 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
 
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('FFI binding error: $e'),
+              content: Text('Download error: $e'),
               duration: const Duration(seconds: 5),
             ),
           );
@@ -195,7 +196,7 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
                     const Divider(color: Colors.white24),
                     const SizedBox(height: 24),
                     const Text(
-                      'Meta-Llama 3',
+                      'TinyLlama AI',
                       style: TextStyle(
                         color: Colors.white,
                         fontSize: 16,
@@ -205,8 +206,8 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
                     const SizedBox(height: 8),
                     Text(
                       _hasModel
-                          ? 'Model is installed'
-                          : 'Download the model (4.6GB) to enable offline AI suggestions',
+                          ? 'TinyLlama model is installed'
+                          : 'Download TinyLlama (608MB) to enable offline AI explanations',
                       style: const TextStyle(
                         color: Colors.white70,
                         fontSize: 14,

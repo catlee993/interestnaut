@@ -123,6 +123,7 @@ class WikipediaService {
           'titles': pageId,
           'format': 'json',
           'pithumbsize': '500',
+          'piprop': 'thumbnail|original',
         },
       );
       
@@ -155,14 +156,33 @@ class WikipediaService {
         }
         
         String? imageUrl;
+        String? originalImageUrl;
+        
+        // Extract thumbnail URL (preferred for UI display)
         if (pageData.containsKey('thumbnail') && pageData['thumbnail'] != null) {
           imageUrl = pageData['thumbnail']['source'];
+          debugPrint('[WIKIPEDIA] Thumbnail image found: $imageUrl');
         }
+        
+        // Extract original/full-size image URL
+        if (pageData.containsKey('original') && pageData['original'] != null) {
+          originalImageUrl = pageData['original']['source'];
+          debugPrint('[WIKIPEDIA] Original image found: $originalImageUrl');
+          
+          // If we don't have a thumbnail, use the original
+          if (imageUrl == null) {
+            imageUrl = originalImageUrl;
+          }
+        }
+        
+        // Limit the extract to first few sentences to fit in UI cards
+        String extract = pageData['extract'] ?? 'No description available';
+        extract = _limitDescription(extract);
         
         return WikipediaContent(
           pageId: pageData['pageid'].toString(),
           title: pageData['title'],
-          extract: pageData['extract'] ?? 'No description available',
+          extract: extract,
           imageUrl: imageUrl,
           fullUrl: '$_baseContentUrl${Uri.encodeComponent(pageId)}',
         );
@@ -175,6 +195,35 @@ class WikipediaService {
       debugPrint('Error getting Wikipedia content: $e');
       return null;
     }
+  }
+  
+  /// Limits description text to the first few sentences for UI display
+  String _limitDescription(String description, {int maxSentences = 3, int maxChars = 400}) {
+    if (description.isEmpty) return description;
+    
+    // First limit by character count
+    if (description.length <= maxChars) {
+      return description;
+    }
+    
+    // Split into sentences and take the first few
+    final sentences = description.split(RegExp(r'(?<=[.!?])\s+'));
+    
+    if (sentences.length <= maxSentences) {
+      return description.length > maxChars 
+        ? '${description.substring(0, maxChars)}...'
+        : description;
+    }
+    
+    // Take first maxSentences and check length
+    String result = sentences.take(maxSentences).join(' ').trim();
+    
+    // If still too long, truncate and add ellipsis
+    if (result.length > maxChars) {
+      result = '${result.substring(0, maxChars)}...';
+    }
+    
+    return result;
   }
   
   /// Alternative method that uses the Wikipedia Search API to find the best match
@@ -494,9 +543,12 @@ class WikipediaService {
     // Extract genre
     String? genre = _extractGenre(content.extract, mediaType);
     
+    // Limit description length for UI display
+    String limitedDescription = _limitDescription(content.extract);
+    
     return MediaInfo(
       title: content.title,
-      description: content.extract,
+      description: limitedDescription,
       imageUrl: content.imageUrl,
       creator: creator,
       releaseDate: releaseDate,

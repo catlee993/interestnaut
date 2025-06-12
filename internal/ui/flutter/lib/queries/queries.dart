@@ -273,3 +273,21 @@ SELECT COUNT(*)
 FROM watchlist 
 WHERE recommendation_id = ?;
 ''';
+
+// Delete suggestions with invalid titles (cleanup query)
+const String deleteBadSuggestionsQuery = '''
+DELETE FROM recommendations 
+WHERE title IS NULL 
+   OR title = '' 
+   OR title LIKE '%Why%' 
+   OR title LIKE '%What%'
+   OR title LIKE '%How%'
+   OR title LIKE '%Because%'
+   OR title LIKE 'http%'
+   OR artist IS NULL 
+   OR artist = ''
+   OR artist LIKE '%Why%'
+   OR artist LIKE '%What%'
+   OR artist LIKE '%How%'
+   OR artist LIKE '%Because%';
+''';

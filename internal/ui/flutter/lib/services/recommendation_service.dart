@@ -189,36 +189,28 @@ class RecommendationService extends ChangeNotifier {
   Timer? _queueTimer;
   
   Future<void> init() async {
-    await _db.init();
-    _startBackgroundQueue();
+    try {
+      await _db.init();
+      debugPrint('RecommendationService initialized');
+      // Remove automatic queue prefilling - suggestions will be generated on-demand
+    } catch (e) {
+      debugPrint('Error initializing RecommendationService: $e');
+      rethrow;
+    }
   }
   
   void _startBackgroundQueue() {
-    _queueTimer = Timer.periodic(const Duration(minutes: 5), (timer) {
-      _checkAndFillQueuesIfNeeded();
-    });
+    // Disabled automatic queue filling - suggestions are now generated on-demand only
+    // _queueTimer = Timer.periodic(const Duration(minutes: 5), (timer) {
+    //   _checkAndFillQueuesIfNeeded();
+    // });
+    debugPrint('Background queue disabled - using on-demand generation only');
   }
   
   Future<void> _checkAndFillQueuesIfNeeded() async {
-    final musicCount = await _getPendingSuggestionsCount('music');
-    if (musicCount < 5) {
-      await _fillMusicQueueFromSpotify();
-      
-      final updatedMusicCount = await _getPendingSuggestionsCount('music');
-      if (updatedMusicCount < 5) {
-        await _fillSuggestionQueue('music');
-      }
-    }
-    
-    final movieCount = await _getPendingSuggestionsCount('movie');
-    if (movieCount < 5) {
-      await _fillSuggestionQueue('movie');
-    }
-    
-    final bookCount = await _getPendingSuggestionsCount('book');
-    if (bookCount < 5) {
-      await _fillSuggestionQueue('book');
-    }
+    // Disabled automatic queue filling - suggestions are now generated on-demand only
+    debugPrint('Automatic queue filling disabled');
+    return;
   }
   
   Future<int> _getPendingSuggestionsCount(String mediaType) async {
@@ -288,140 +280,55 @@ class RecommendationService extends ChangeNotifier {
   }
   
   Future<void> _fillSuggestionQueue(String mediaType) async {
-    if (_queueBeingFilled[mediaType] == true) {
-      debugPrint('$mediaType queue is already being filled');
-      return;
-    }
-    
-    _queueBeingFilled[mediaType] = true;
-    
-    try {
-      debugPrint('Filling $mediaType queue with validated LLM generation');
-      
-      // Get existing recommendations to avoid duplicates
-      final existingRecommendations = await _db.getAllMediaSuggestions(mediaType: mediaType, limit: 100);
-      
-      // Generate recommendations one at a time with validation
-      int successfulGenerations = 0;
-      int attempts = 0;
-      const maxAttempts = 10; // Prevent infinite loops
-      
-      while (successfulGenerations < 3 && attempts < maxAttempts) {
-        attempts++;
-        debugPrint('Generation attempt $attempts for $mediaType');
-        
-        try {
-          // Build the prompt with previous recommendations
-          final prompt = _buildPromptWithPreviousRecommendations(mediaType, existingRecommendations);
-          debugPrint('Generating $mediaType recommendation with ${existingRecommendations.length} previous items shown');
-          
-          // Generate one recommendation
-          final response = await _llamaService.generateStructuredJsonResponse(prompt);
-          debugPrint('Raw LLM response: "$response"');
-          
-          if (response.isNotEmpty) {
-            // Parse the 3-line format
-            final parsedSuggestion = _parseThreeLineFormat(response, mediaType);
-            
-            if (parsedSuggestion != null) {
-              debugPrint('Parsed suggestion: ${parsedSuggestion.title} by ${parsedSuggestion.artist}');
-              
-              // Check for duplicates
-              final isDuplicate = existingRecommendations.any((existing) => 
-                existing.title?.toLowerCase() == parsedSuggestion.title?.toLowerCase() &&
-                existing.artist?.toLowerCase() == parsedSuggestion.artist?.toLowerCase());
-              
-              if (isDuplicate) {
-                debugPrint('Duplicate detected, skipping: ${parsedSuggestion.title}');
-                continue;
-              }
-              
-              // Validate with Wikipedia
-              final validatedSuggestion = await _validateWithWikipedia(parsedSuggestion);
-              
-              if (validatedSuggestion != null) {
-                // Save the validated suggestion
-                await _saveValidatedSuggestion(validatedSuggestion);
-                existingRecommendations.add(validatedSuggestion);
-                successfulGenerations++;
-                debugPrint('Successfully validated and saved: ${validatedSuggestion.title}');
-              } else {
-                // Mark as failed validation
-                parsedSuggestion.status = SuggestionStatus.failure;
-                await _saveValidatedSuggestion(parsedSuggestion);
-                debugPrint('Failed Wikipedia validation: ${parsedSuggestion.title}');
-              }
-            } else {
-              debugPrint('Failed to parse suggestion from response');
-            }
-          }
-          
-          // Small delay between generations
-          await Future.delayed(const Duration(milliseconds: 500));
-          
-        } catch (e) {
-          debugPrint('Error generating suggestion attempt $attempts for $mediaType: $e');
-        }
-      }
-      
-      debugPrint('Completed $mediaType queue generation: $successfulGenerations successful, $attempts total attempts');
-    } catch (e) {
-      debugPrint('Error filling suggestion queue: $e');
-    } finally {
-      _queueBeingFilled[mediaType] = false;
-    }
+    // Disabled automatic queue filling - suggestions are now generated on-demand only
+    debugPrint('_fillSuggestionQueue disabled for $mediaType - use generateSuggestionOnDemand instead');
+    return;
   }
   
   /// Build prompt with previous recommendations shown
   String _buildPromptWithPreviousRecommendations(String mediaType, List<MediaSuggestion> existingRecommendations) {
     try {
-      var basePrompt = getPromptTemplateForMediaType(mediaType);
-      
-      // Build the previous recommendations list
-      final previousRecommendations = StringBuffer();
-      
-      if (existingRecommendations.isNotEmpty) {
-        for (final rec in existingRecommendations.take(3)) { // Show only 3 previous
-          previousRecommendations.writeln('${rec.title} - ${rec.artist}');
-        }
-      } else {
-        previousRecommendations.writeln('None');
-      }
-      
-      // Replace the placeholder with actual previous recommendations
-      basePrompt = basePrompt.replaceFirst('{PREVIOUS_RECOMMENDATIONS}', previousRecommendations.toString().trim());
-      
-      return basePrompt;
+      // Just return the simple prompt template for now - no previous recommendations needed
+      return getPromptTemplateForMediaType(mediaType);
     } catch (e) {
       debugPrint('Error building prompt: $e');
-      return 'Generate a $mediaType recommendation.\nTitle:\nArtist:\nReason:';
+      return 'Song: Wonderwall\nArtist: Oasis\nReason: Classic britpop anthem\n\nSong: ';
     }
   }
   
-  /// Parse the strict 3-line format: Title\nArtist\nReasoning
+  /// Parse the response from the new simple prompt format
   MediaSuggestion? _parseThreeLineFormat(String response, String mediaType) {
     try {
-      final lines = response.split('\n')
+      // Clean up the response - remove any leading/trailing whitespace
+      final cleanResponse = response.trim();
+      
+      // Split by lines and filter out empty lines
+      final lines = cleanResponse.split('\n')
           .map((line) => line.trim())
           .where((line) => line.isNotEmpty)
           .toList();
+      
+      debugPrint('Parsing response with ${lines.length} lines: ${lines.join(" | ")}');
       
       if (lines.length < 3) {
         debugPrint('Not enough lines in response: ${lines.length}');
         return null;
       }
       
-      final title = lines[0].trim();
-      final artist = lines[1].trim();
-      final reasoning = lines[2].trim();
+      // Take the last 3 lines as our recommendation
+      final title = lines[lines.length - 3];
+      final artist = lines[lines.length - 2]; 
+      final reasoning = lines[lines.length - 1];
+      
+      debugPrint('Extracted: title="$title", artist="$artist", reasoning="$reasoning"');
       
       // Validate the fields
       if (title.isEmpty || artist.isEmpty || reasoning.isEmpty) {
-        debugPrint('Empty fields detected: title="$title", artist="$artist", reasoning="$reasoning"');
+        debugPrint('Empty fields detected');
         return null;
       }
       
-      // Check for placeholder text
+      // Check for placeholder text or invalid content
       if (_containsPlaceholderText(title) || _containsPlaceholderText(artist)) {
         debugPrint('Placeholder text detected in title or artist');
         return null;
@@ -437,7 +344,7 @@ class RecommendationService extends ChangeNotifier {
       );
       
     } catch (e) {
-      debugPrint('Error parsing three-line format: $e');
+      debugPrint('Error parsing simple format: $e');
       return null;
     }
   }
@@ -550,24 +457,14 @@ class RecommendationService extends ChangeNotifier {
   }
   
   Future<void> ensureSuggestionQueue(String mediaType) async {
-    final count = await _getPendingSuggestionsCount(mediaType);
-    if (count < 5) {
-      if (mediaType == 'music') {
-        await _fillMusicQueueFromSpotify();
-        
-        final updatedCount = await _getPendingSuggestionsCount(mediaType);
-        if (updatedCount < 5) {
-          await _fillSuggestionQueue(mediaType);
-        }
-      } else {
-        await _fillSuggestionQueue(mediaType);
-      }
-    }
+    // Disabled automatic queue filling - suggestions are now generated on-demand only
+    debugPrint('ensureSuggestionQueue disabled for $mediaType - use generateSuggestionOnDemand instead');
+    return;
   }
   
   Future<List<MediaSuggestion>> getSuggestions(String mediaType, {SuggestionStatus? status}) async {
     try {
-      await ensureSuggestionQueue(mediaType);
+      // Removed automatic queue ensuring - suggestions are now generated on-demand only
       
       if (status != null) {
         return await _db.getAllMediaSuggestions(
@@ -608,22 +505,87 @@ class RecommendationService extends ChangeNotifier {
   /// Prefill all recommendation queues
   /// This is called during app initialization to ensure we have recommendations ready
   Future<void> prefillQueues() async {
-    debugPrint('Prefilling recommendation queues with LLM generation only');
+    // Disabled automatic queue prefilling - suggestions are now generated on-demand only
+    debugPrint('prefillQueues disabled - using on-demand generation only');
+    return;
+  }
+  
+  /// Generate a single suggestion on-demand (triggered by user action)
+  Future<MediaSuggestion?> generateSuggestionOnDemand(String mediaType) async {
+    if (_queueBeingFilled[mediaType] == true) {
+      debugPrint('Already generating suggestion for $mediaType');
+      return null;
+    }
+
+    // Check if we have the required components before attempting generation
+    final hasLLM = await _llamaService.isModelAvailable();
+    final hasVectorDB = await isMediaTypeAvailable(mediaType);
     
-    // First try to fill music queue from Spotify
-    await _fillMusicQueueFromSpotify();
-    
-    // Then fill any remaining queues with LLM suggestions
-    final mediaTypes = ['music', 'movie', 'book'];
-    
-    for (final mediaType in mediaTypes) {
-      final count = await _getPendingSuggestionsCount(mediaType);
-      if (count < 5) {
-        await _fillSuggestionQueue(mediaType);
-      }
+    if (!hasLLM) {
+      debugPrint('Cannot generate $mediaType suggestion: TinyLlama model not available');
+      return null;
     }
     
-    debugPrint('Finished prefilling recommendation queues');
+    if (!hasVectorDB) {
+      debugPrint('Cannot generate $mediaType suggestion: Vector database not available');
+      return null;
+    }
+
+    _queueBeingFilled[mediaType] = true;
+
+    try {
+      debugPrint('Generating on-demand $mediaType suggestion');
+      
+      // Get existing recommendations to avoid duplicates
+      final existingRecommendations = await getSuggestions(mediaType);
+      
+      // Generate explanation using the updated LlamaService
+      final response = await _llamaService.generateExplanation(
+        userQuery: 'Suggest a great $mediaType',
+        mediaTitle: 'New Recommendation',
+        mediaType: mediaType,
+      );
+      debugPrint('LLM response: "$response"');
+      
+      // For now, return a placeholder suggestion since we're not parsing LLM responses
+      // TODO: Implement proper suggestion generation with vector database search
+      final suggestion = MediaSuggestion(
+        query: 'User requested $mediaType suggestion',
+        mediaType: mediaType,
+        title: 'Sample ${mediaType.replaceAll('_', ' ')}',
+        artist: 'Sample Creator',
+        botReasoning: response,
+        status: SuggestionStatus.pending,
+      );
+      
+      // Save the suggestion
+      await _saveValidatedSuggestion(suggestion);
+      debugPrint('Generated on-demand suggestion: ${suggestion.title}');
+      
+      return suggestion;
+    } catch (e) {
+      debugPrint('Error generating on-demand suggestion for $mediaType: $e');
+      return null;
+    } finally {
+      _queueBeingFilled[mediaType] = false;
+    }
+  }
+
+  /// Check if a media type database is available
+  Future<bool> isMediaTypeAvailable(String mediaType) async {
+    // TODO: Check if vector database for this media type is downloaded
+    // For now, return true for music (default enabled)
+    return mediaType == 'music';
+  }
+
+  /// Get install status for a media type
+  Future<String> getMediaTypeStatus(String mediaType) async {
+    final isAvailable = await isMediaTypeAvailable(mediaType);
+    if (isAvailable) {
+      return 'available';
+    } else {
+      return 'install_required';
+    }
   }
   
   @override

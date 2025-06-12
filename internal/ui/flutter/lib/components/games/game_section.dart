@@ -1,223 +1,805 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
-import 'game_card.dart';
+import '../common/scroll_content_wrapper.dart';
 import '../common/media_grid.dart';
-import '../common/media_section_layout.dart';
 import '../../models.dart';
+import '../../services/recommendation_service.dart';
+import '../../services/sqlite_db.dart';
+import 'game_card.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 
 class GameSection extends StatefulWidget {
-  const GameSection({Key? key}) : super(key: key);
+  const GameSection({super.key});
 
   @override
   State<GameSection> createState() => _GameSectionState();
 }
 
 class _GameSectionState extends State<GameSection> {
-  List<GameWithSavedStatus> games = [];
-  List<GameWithSavedStatus> library = [];
-  List<GameWithSavedStatus> favorites = [];
-  int currentPage = 1;
-  int itemsPerPage = 12;
-  int totalGames = 0;
-  String searchQuery = '';
-  bool isLoadingSuggestion = false;
-  String? suggestionError;
-  String? suggestionErrorDetails;
-  bool isProcessingFeedback = false;
-  GameWithSavedStatus? suggestedGame;
-  String? suggestionReason;
-  bool showSearchResults = false;
-  bool showLibrary = false;
+  // Database suggestion state
+  MediaSuggestion? _currentDbSuggestion;
+  String? _dbSuggestionError;
+  bool _isLoadingDbSuggestion = false;
+
+  // Local DB library state (for liked suggestions)
+  List<MediaSuggestion> _dbLikedSuggestions = [];
+  bool _isLoadingDbLibrary = false;
+
+  // Local DB playlist state
+  List<MediaSuggestion> _dbPlaylistSuggestions = [];
+  bool _isLoadingDbPlaylist = false;
+
+  final RecommendationService _recommendationService = RecommendationService();
+  final SQLiteDatabase _db = SQLiteDatabase();
 
   @override
   void initState() {
     super.initState();
-    // TODO: Load initial games, favorites, and library from backend
+    
+    // Load initial DB suggestion
+    _loadDbSuggestion();
+    // Load DB library and playlist
+    _loadDbLibrary();
+    _loadDbPlaylist();
   }
 
-  void onSearch(String query) {
+  // Load a DB suggestion for video games
+  Future<void> _loadDbSuggestion() async {
     setState(() {
-      searchQuery = query;
-      showSearchResults = query.isNotEmpty;
-      // TODO: Search games from backend
+      _isLoadingDbSuggestion = true;
+      _dbSuggestionError = null;
     });
-  }
 
-  void onSave(int id) {
-    setState(() {
-      // TODO: Save or unsave game in backend
-    });
-  }
-
-  void onAddToLibrary(int id) {
-    setState(() {
-      // TODO: Add game to library in backend
-    });
-  }
-
-  void onRemoveFromLibrary(int id) {
-    setState(() {
-      // TODO: Remove game from library in backend
-    });
-  }
-
-  void onLike(int id) {
-    // TODO: Provide like feedback to backend
-  }
-
-  void onDislike(int id) {
-    // TODO: Provide dislike feedback to backend
-  }
-
-  void onNextPage() {
-    setState(() {
-      currentPage++;
-      // TODO: Load next page from backend
-    });
-  }
-
-  void onPrevPage() {
-    setState(() {
-      if (currentPage > 1) currentPage--;
-      // TODO: Load previous page from backend
-    });
-  }
-
-  void onRequestSuggestion() {
-    setState(() {
-      isLoadingSuggestion = true;
-      suggestionError = null;
-      suggestionErrorDetails = null;
-    });
-    // TODO: Request game suggestion from backend
-  }
-
-  void onLikeSuggestion() {
-    setState(() {
-      isProcessingFeedback = true;
-    });
-    // TODO: Send like feedback for suggestion to backend
-  }
-
-  void onDislikeSuggestion() {
-    setState(() {
-      isProcessingFeedback = true;
-    });
-    // TODO: Send dislike feedback for suggestion to backend
-  }
-
-  void onSkipSuggestion() {
-    setState(() {
-      suggestedGame = null;
-      suggestionReason = null;
-    });
-  }
-
-  void onAddSuggestionToLibrary() {
-    if (suggestedGame != null) {
-      onAddToLibrary(suggestedGame!.id);
+    try {
+      final suggestions = await _recommendationService.getSuggestions(
+        'video_game',
+        status: SuggestionStatus.pending,
+      );
+      
+      if (suggestions.isNotEmpty) {
+        setState(() {
+          _currentDbSuggestion = suggestions.first;
+          _isLoadingDbSuggestion = false;
+        });
+      } else {
+        setState(() {
+          _currentDbSuggestion = null;
+          _dbSuggestionError = 'No game suggestions available';
+          _isLoadingDbSuggestion = false;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _dbSuggestionError = 'Error loading suggestions: $e';
+        _isLoadingDbSuggestion = false;
+      });
     }
   }
 
-  void onToggleLibrary() {
+  // Load DB library (liked/added suggestions)
+  Future<void> _loadDbLibrary() async {
     setState(() {
-      showLibrary = !showLibrary;
+      _isLoadingDbLibrary = true;
     });
+
+    try {
+      final suggestions = await _recommendationService.getSuggestions('video_game');
+      final libraryItems = suggestions.where((s) => 
+        s.status == SuggestionStatus.liked || s.status == SuggestionStatus.added
+      ).toList();
+      
+      setState(() {
+        _dbLikedSuggestions = libraryItems;
+        _isLoadingDbLibrary = false;
+      });
+    } catch (e) {
+      debugPrint('Error loading DB library: $e');
+      setState(() {
+        _isLoadingDbLibrary = false;
+      });
+    }
   }
 
-  MediaSuggestionItem _mapGameToSuggestionItem(GameWithSavedStatus game) {
-    return MediaSuggestionItem(
-      id: game.id,
-      title: game.name,
-      description: game.description,
-      imageUrl: game.coverUrl,
-      releaseDate: game.releaseDate,
-      rating: game.rating,
-      voteCount: game.ratingsCount,
+  // Load DB playlist
+  Future<void> _loadDbPlaylist() async {
+    setState(() {
+      _isLoadingDbPlaylist = true;
+    });
+
+    try {
+      final playlistItems = await _db.getWatchlist('video_game');
+      setState(() {
+        _dbPlaylistSuggestions = playlistItems;
+        _isLoadingDbPlaylist = false;
+      });
+    } catch (e) {
+      debugPrint('Error loading DB playlist: $e');
+      setState(() {
+        _isLoadingDbPlaylist = false;
+      });
+    }
+  }
+
+  // Like a database suggestion (add to library)
+  Future<void> _likeDbSuggestion() async {
+    if (_currentDbSuggestion == null) return;
+
+    try {
+      await _recommendationService.updateSuggestionStatus(
+        _currentDbSuggestion!.id,
+        SuggestionStatus.liked,
+      );
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Added "${_currentDbSuggestion!.title}" to your library'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+
+      _loadDbLibrary();
+      _loadDbSuggestion();
+    } catch (e) {
+      debugPrint('Error liking DB suggestion: $e');
+    }
+  }
+
+  // Dislike a database suggestion
+  Future<void> _dislikeDbSuggestion() async {
+    if (_currentDbSuggestion == null) return;
+
+    try {
+      final isInPlaylist = await _db.isInWatchlist(_currentDbSuggestion!.id);
+      if (isInPlaylist) {
+        await _db.removeFromWatchlist(_currentDbSuggestion!.id);
+        _loadDbPlaylist();
+      }
+      
+      await _recommendationService.updateSuggestionStatus(
+        _currentDbSuggestion!.id,
+        SuggestionStatus.disliked,
+      );
+
+      _loadDbSuggestion();
+    } catch (e) {
+      debugPrint('Error disliking DB suggestion: $e');
+    }
+  }
+
+  // Skip a database suggestion
+  Future<void> _skipDbSuggestion() async {
+    if (_currentDbSuggestion == null) return;
+
+    try {
+      await _recommendationService.updateSuggestionStatus(
+        _currentDbSuggestion!.id,
+        SuggestionStatus.skipped,
+      );
+
+      _loadDbSuggestion();
+    } catch (e) {
+      debugPrint('Error skipping DB suggestion: $e');
+    }
+  }
+
+  // Add database suggestion to playlist
+  Future<void> _addDbSuggestionToPlaylist() async {
+    if (_currentDbSuggestion == null) return;
+
+    try {
+      await _db.addToWatchlist(_currentDbSuggestion!.id);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Added "${_currentDbSuggestion!.title}" to playlist'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+
+      _loadDbPlaylist();
+      _loadDbSuggestion();
+    } catch (e) {
+      debugPrint('Error adding DB suggestion to playlist: $e');
+    }
+  }
+
+  // Build playlist section
+  Widget _buildDbPlaylistSection() {
+    return MediaGrid(
+      children: _dbPlaylistSuggestions.map((suggestion) {
+        return _buildSuggestionCard(
+          suggestion,
+          onRemove: () => _removeFromPlaylist(suggestion),
+          onLike: () => _likePlaylistItem(suggestion),
+          onDislike: () => _dislikePlaylistItem(suggestion),
+          showPlaylistActions: true,
+        );
+      }).toList(),
     );
+  }
+
+  // Build library section
+  Widget _buildDbLibrarySection() {
+    return MediaGrid(
+      children: _dbLikedSuggestions.map((suggestion) {
+        return _buildSuggestionCard(suggestion);
+      }).toList(),
+    );
+  }
+
+  // Build a suggestion card widget
+  Widget _buildSuggestionCard(
+    MediaSuggestion suggestion, {
+    VoidCallback? onRemove,
+    VoidCallback? onLike,
+    VoidCallback? onDislike,
+    bool showPlaylistActions = false,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF282828),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Game cover
+          Expanded(
+            child: Container(
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: Colors.grey[900],
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+              ),
+              child: suggestion.coverArtUrl != null
+                ? ClipRRect(
+                    borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+                    child: Image.network(
+                      suggestion.coverArtUrl!,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) {
+                        return const Center(
+                          child: Icon(
+                            Icons.videogame_asset,
+                            size: 48,
+                            color: Colors.white54,
+                          ),
+                        );
+                      },
+                    ),
+                  )
+                : const Center(
+                    child: Icon(
+                      Icons.videogame_asset,
+                      size: 48,
+                      color: Colors.white54,
+                    ),
+                  ),
+            ),
+          ),
+          
+          // Game info
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  suggestion.title ?? 'Unknown Title',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 14,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  suggestion.artist ?? 'Unknown Developer',
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.7),
+                    fontSize: 12,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                
+                // Action buttons for playlist items
+                if (showPlaylistActions) ...[
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      IconButton(
+                        onPressed: onLike,
+                        icon: const Icon(Icons.thumb_up, size: 16),
+                        color: Colors.green,
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+                      ),
+                      IconButton(
+                        onPressed: onDislike,
+                        icon: const Icon(Icons.thumb_down, size: 16),
+                        color: Colors.red,
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+                      ),
+                      IconButton(
+                        onPressed: onRemove,
+                        icon: const Icon(Icons.close, size: 16),
+                        color: Colors.white54,
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Remove from playlist
+  Future<void> _removeFromPlaylist(MediaSuggestion suggestion) async {
+    try {
+      await _db.removeFromWatchlist(suggestion.id);
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Removed "${suggestion.title}" from playlist'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+      
+      _loadDbPlaylist();
+    } catch (e) {
+      debugPrint('Error removing from playlist: $e');
+    }
+  }
+
+  // Dislike a playlist item
+  Future<void> _dislikePlaylistItem(MediaSuggestion suggestion) async {
+    try {
+      await _db.removeFromWatchlist(suggestion.id);
+      
+      await _recommendationService.updateSuggestionStatus(
+        suggestion.id,
+        SuggestionStatus.disliked,
+      );
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Disliked "${suggestion.title}"'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+      
+      _loadDbPlaylist();
+      _loadDbLibrary();
+    } catch (e) {
+      debugPrint('Error disliking playlist item: $e');
+    }
+  }
+
+  // Like a playlist item
+  Future<void> _likePlaylistItem(MediaSuggestion suggestion) async {
+    try {
+      await _db.removeFromWatchlist(suggestion.id);
+      
+      await _recommendationService.updateSuggestionStatus(
+        suggestion.id,
+        SuggestionStatus.liked,
+      );
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Liked "${suggestion.title}" - added to library'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+      
+      _loadDbPlaylist();
+      _loadDbLibrary();
+    } catch (e) {
+      debugPrint('Error liking playlist item: $e');
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    return MediaSectionLayout<GameWithSavedStatus>(
-      type: 'game',
-      typeName: 'Game',
-      searchResultsKey: GlobalKey(),
-      credentialsError: false,
-      isLoadingSuggestion: isLoadingSuggestion,
-      suggestionError: suggestionError,
-      suggestionErrorDetails: suggestionErrorDetails,
-      isProcessingFeedback: isProcessingFeedback,
-      searchResults: games,
-      showSearchResults: showSearchResults,
-      watchlistItems: library,
-      savedItems: favorites,
-      showWatchlist: false,
-      showLibrary: showLibrary,
-      suggestedItem: suggestedGame,
-      suggestionReason: suggestionReason,
-      onRefreshCredentials: () {
-        // TODO: Refresh API credentials
-      },
-      onRequestSuggestion: onRequestSuggestion,
-      onLikeSuggestion: onLikeSuggestion,
-      onDislikeSuggestion: onDislikeSuggestion,
-      onSkipSuggestion: onSkipSuggestion,
-      onAddToLibrary: onAddSuggestionToLibrary,
-      onAddSuggestionToWatchlist: onAddSuggestionToLibrary,
-      onToggleWatchlist: () {}, // Not used for games
-      onToggleLibrary: onToggleLibrary,
-      onHideSearchResults: () {
-        setState(() {
-          showSearchResults = false;
-          searchQuery = '';
-        });
-      },
-      renderSearchResults: () => MediaGrid(
-        children: games
-            .map((game) => GameCard(
-                  game: game,
-                  isSaved: favorites.any((fav) => fav.id == game.id),
-                  isInLibrary: library.any((lib) => lib.id == game.id),
-                  onSave: onSave,
-                  onAddToLibrary: onAddToLibrary,
-                  onRemoveFromLibrary: onRemoveFromLibrary,
-                  onLike: onLike,
-                  onDislike: onDislike,
-                ))
-            .toList(),
-      ),
-      renderWatchlistItems: () => MediaGrid(
-        children: library
-            .map((game) => GameCard(
-                  game: game,
-                  isSaved: favorites.any((fav) => fav.id == game.id),
-                  isInLibrary: true,
-                  view: 'library',
-                  onSave: onSave,
-                  onAddToLibrary: onAddToLibrary,
-                  onRemoveFromLibrary: onRemoveFromLibrary,
-                  onLike: onLike,
-                  onDislike: onDislike,
-                ))
-            .toList(),
-      ),
-      renderSavedItems: () => MediaGrid(
-        children: favorites
-            .map((game) => GameCard(
-                  game: game,
-                  isSaved: true,
-                  isInLibrary: library.any((lib) => lib.id == game.id),
-                  view: 'saved',
-                  onSave: onSave,
-                  onAddToLibrary: onAddToLibrary,
-                  onRemoveFromLibrary: onRemoveFromLibrary,
-                  onLike: onLike,
-                  onDislike: onDislike,
-                ))
-            .toList(),
-      ),
-      mapToSuggestionItem: _mapGameToSuggestionItem,
-      queueName: 'Library',
+    return Stack(
+      children: [
+        ScrollContentWrapper(
+          headerHeight: 60.0,
+          builder: (scrollOffset) {
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 100),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SizedBox(height: 12),
+                  Center(
+                    child: Opacity(
+                      opacity: (scrollOffset <= 70) ? 1.0 : 0.0,
+                      child: const Text(
+                        'Suggested for You',
+                        style: TextStyle(
+                          fontSize: 24.0,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  if (_isLoadingDbSuggestion)
+                    const SizedBox.shrink()
+                  else if (_dbSuggestionError != null)
+                    Center(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 24),
+                        child: Text(
+                          'Error: $_dbSuggestionError',
+                          style: const TextStyle(
+                            color: Colors.white54,
+                            fontSize: 16,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    )
+                  else if (_currentDbSuggestion == null)
+                    const Center(
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(vertical: 24),
+                        child: Text(
+                          'No suggestions available',
+                          style: TextStyle(
+                            color: Colors.white54,
+                            fontSize: 16,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    )
+                  else
+                    Column(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(24),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF282828),
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // Game cover
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(12),
+                                child: Container(
+                                  width: 300,
+                                  height: 450,
+                                  color: Colors.grey[900],
+                                  child: _currentDbSuggestion!.coverArtUrl != null
+                                    ? Image.network(
+                                        _currentDbSuggestion!.coverArtUrl!,
+                                        fit: BoxFit.cover,
+                                        errorBuilder: (context, error, stackTrace) {
+                                          return const Center(
+                                            child: Icon(
+                                              Icons.videogame_asset,
+                                              size: 48,
+                                              color: Colors.white54,
+                                            ),
+                                          );
+                                        },
+                                      )
+                                    : const Center(
+                                        child: Icon(
+                                          Icons.videogame_asset,
+                                          size: 48,
+                                          color: Colors.white54,
+                                        ),
+                                      ),
+                                ),
+                              ),
+                              const SizedBox(width: 24),
+                              
+                              // Game info
+                              Expanded(
+                                child: SizedBox(
+                                  height: 450,
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.center,
+                                    children: [
+                                      // Game title
+                                      Text(
+                                        _currentDbSuggestion!.title ?? 'Unknown Title',
+                                        style: const TextStyle(
+                                          fontSize: 24,
+                                          fontWeight: FontWeight.w600,
+                                          color: Colors.white,
+                                        ),
+                                        textAlign: TextAlign.center,
+                                      ),
+                                      const SizedBox(height: 8),
+                                      
+                                      // Developer info
+                                      Text(
+                                        'by ${_currentDbSuggestion!.artist ?? 'Unknown Developer'}',
+                                        style: TextStyle(
+                                          fontSize: 15,
+                                          color: Colors.white.withOpacity(0.7),
+                                          fontWeight: FontWeight.w400,
+                                        ),
+                                        textAlign: TextAlign.center,
+                                      ),
+                                      const SizedBox(height: 16),
+                                      
+                                      // Description text
+                                      if (_currentDbSuggestion?.description?.isNotEmpty == true)
+                                        Padding(
+                                          padding: const EdgeInsets.only(bottom: 16),
+                                          child: Text(
+                                            _currentDbSuggestion!.description!,
+                                            style: const TextStyle(
+                                              fontSize: 14,
+                                              color: Colors.white,
+                                              height: 1.5,
+                                              fontWeight: FontWeight.w400,
+                                            ),
+                                            textAlign: TextAlign.center,
+                                          ),
+                                        ),
+                                      
+                                      Expanded(child: Container()),
+                                      
+                                      // Bot reasoning
+                                      if (_currentDbSuggestion?.botReasoning?.isNotEmpty == true)
+                                        Container(
+                                          width: double.infinity,
+                                          margin: const EdgeInsets.only(bottom: 24),
+                                          child: Column(
+                                            children: [
+                                              Row(
+                                                mainAxisAlignment: MainAxisAlignment.center,
+                                                children: [
+                                                  Icon(
+                                                    FontAwesomeIcons.robot,
+                                                    size: 16,
+                                                    color: const Color(0xFF8C86E2).withOpacity(0.7),
+                                                  ),
+                                                  const SizedBox(width: 8),
+                                                  Text(
+                                                    'Reasoning',
+                                                    style: TextStyle(
+                                                      color: const Color(0xFF8C86E2).withOpacity(0.7),
+                                                      fontWeight: FontWeight.w500,
+                                                      fontSize: 14,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                              const SizedBox(height: 8),
+                                              Container(
+                                                height: 1,
+                                                color: const Color(0xFF7B68EE).withOpacity(0.2),
+                                              ),
+                                              const SizedBox(height: 12),
+                                              Text(
+                                                _currentDbSuggestion!.botReasoning!,
+                                                style: TextStyle(
+                                                  color: Colors.white.withOpacity(0.6),
+                                                  fontSize: 14,
+                                                  height: 1.5,
+                                                ),
+                                                textAlign: TextAlign.center,
+                                              ),
+                                              
+                                              // Action buttons
+                                              const SizedBox(height: 24),
+                                              Padding(
+                                                padding: const EdgeInsets.symmetric(horizontal: 24),
+                                                child: Wrap(
+                                                  spacing: 8,
+                                                  runSpacing: 8,
+                                                  alignment: WrapAlignment.center,
+                                                  children: [
+                                                    // Like button
+                                                    ElevatedButton.icon(
+                                                      onPressed: _likeDbSuggestion,
+                                                      icon: const Icon(Icons.thumb_up, size: 16),
+                                                      label: const Text('Like', style: TextStyle(fontSize: 13)),
+                                                      style: ElevatedButton.styleFrom(
+                                                        backgroundColor: Colors.black.withOpacity(0.7),
+                                                        foregroundColor: Colors.white,
+                                                        elevation: 0,
+                                                        side: BorderSide(color: Colors.white.withOpacity(0.3), width: 1),
+                                                        shape: RoundedRectangleBorder(
+                                                          borderRadius: BorderRadius.circular(25),
+                                                        ),
+                                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                                        minimumSize: const Size(0, 44),
+                                                      ),
+                                                    ),
+                                                    
+                                                    // Dislike button
+                                                    ElevatedButton.icon(
+                                                      onPressed: _dislikeDbSuggestion,
+                                                      icon: const Icon(Icons.thumb_down, size: 16),
+                                                      label: const Text('Dislike', style: TextStyle(fontSize: 13)),
+                                                      style: ElevatedButton.styleFrom(
+                                                        backgroundColor: Colors.black.withOpacity(0.7),
+                                                        foregroundColor: Colors.white,
+                                                        elevation: 0,
+                                                        side: BorderSide(color: Colors.white.withOpacity(0.3), width: 1),
+                                                        shape: RoundedRectangleBorder(
+                                                          borderRadius: BorderRadius.circular(25),
+                                                        ),
+                                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                                        minimumSize: const Size(0, 44),
+                                                      ),
+                                                    ),
+                                                    
+                                                    // Favorite button
+                                                    ElevatedButton.icon(
+                                                      onPressed: _likeDbSuggestion,
+                                                      icon: const Icon(Icons.favorite, size: 16),
+                                                      label: const Text('Favorite', style: TextStyle(fontSize: 13)),
+                                                      style: ElevatedButton.styleFrom(
+                                                        backgroundColor: Colors.white.withOpacity(0.15),
+                                                        foregroundColor: Colors.white,
+                                                        elevation: 0,
+                                                        shape: RoundedRectangleBorder(
+                                                          borderRadius: BorderRadius.circular(25),
+                                                        ),
+                                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                                        minimumSize: const Size(0, 44),
+                                                      ),
+                                                    ),
+                                                    
+                                                    // Playlist button
+                                                    Builder(
+                                                      builder: (context) {
+                                                        final inPlaylist = _currentDbSuggestion != null && 
+                                                          _dbPlaylistSuggestions.any((item) => item.id == _currentDbSuggestion!.id);
+                                                        
+                                                        return ElevatedButton.icon(
+                                                          onPressed: inPlaylist 
+                                                            ? () => _currentDbSuggestion != null ? _removeFromPlaylist(_currentDbSuggestion!) : null
+                                                            : _addDbSuggestionToPlaylist,
+                                                          icon: Icon(
+                                                            inPlaylist ? Icons.playlist_add_check : Icons.playlist_add, 
+                                                            size: 16
+                                                          ),
+                                                          label: Text(
+                                                            inPlaylist ? 'In Playlist' : 'Playlist', 
+                                                            style: const TextStyle(fontSize: 13)
+                                                          ),
+                                                          style: ElevatedButton.styleFrom(
+                                                            backgroundColor: inPlaylist 
+                                                              ? Colors.blue.withOpacity(0.3)
+                                                              : Colors.white.withOpacity(0.15),
+                                                            foregroundColor: inPlaylist ? Colors.blue : Colors.white,
+                                                            elevation: 0,
+                                                            shape: RoundedRectangleBorder(
+                                                              borderRadius: BorderRadius.circular(25),
+                                                            ),
+                                                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                                            minimumSize: const Size(0, 44),
+                                                          ),
+                                                        );
+                                                      },
+                                                    ),
+                                                    
+                                                    // Skip button
+                                                    ElevatedButton.icon(
+                                                      onPressed: _skipDbSuggestion,
+                                                      icon: const Icon(Icons.skip_next, size: 16),
+                                                      label: const Text('Skip', style: TextStyle(fontSize: 13)),
+                                                      style: ElevatedButton.styleFrom(
+                                                        backgroundColor: Colors.white.withOpacity(0.15),
+                                                        foregroundColor: Colors.white,
+                                                        elevation: 0,
+                                                        shape: RoundedRectangleBorder(
+                                                          borderRadius: BorderRadius.circular(25),
+                                                        ),
+                                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                                        minimumSize: const Size(0, 44),
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                      ],
+                    ),
+                
+                // Playlist section
+                const SizedBox(height: 32),
+                const Center(
+                  child: Text(
+                    'Your Playlist',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                if (_isLoadingDbPlaylist)
+                  const Center(
+                    child: CircularProgressIndicator(
+                      color: Color(0xFFA855F7),
+                    ),
+                  )
+                else if (_dbPlaylistSuggestions.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 32),
+                    child: Center(
+                      child: Text(
+                        'No games in your playlist yet. Add suggestions to your playlist to see them here.',
+                        style: TextStyle(color: Colors.white54),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  )
+                else
+                  _buildDbPlaylistSection(),
+                
+                // Library section
+                const SizedBox(height: 32),
+                const Center(
+                  child: Text(
+                    'Your Library',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                if (_isLoadingDbLibrary)
+                  const Center(
+                    child: CircularProgressIndicator(
+                      color: Color(0xFFA855F7),
+                    ),
+                  )
+                else if (_dbLikedSuggestions.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 32),
+                    child: Center(
+                      child: Text(
+                        'No games in your library yet. Like or add suggestions to see them here.',
+                        style: TextStyle(color: Colors.white54),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  )
+                else
+                  _buildDbLibrarySection(),
+                ],
+              ),
+            );
+          },
+        ),
+      ],
     );
   }
 } 
