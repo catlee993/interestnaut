@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../common/scroll_content_wrapper.dart';
 import '../common/media_grid.dart';
+import '../common/media_library_grid.dart';
 import '../../models.dart';
 import '../../services/recommendation_service.dart';
 import '../../services/sqlite_db.dart';
@@ -72,6 +73,7 @@ class _MusicSectionState extends State<MusicSection> {
   Track? _dbSuggestedTrack;
   String? _dbSuggestionError;
   bool _isLoadingDbSuggestion = false;
+  bool _hasLikedCurrentSuggestion = false;
 
   // Playback state
   Track? _nowPlayingTrack;
@@ -607,7 +609,7 @@ class _MusicSectionState extends State<MusicSection> {
     }
   }
 
-  // Like a database suggestion (add to library)
+  // Like a database suggestion (mark as liked but stay on current)
   Future<void> _likeDbSuggestion() async {
     if (_currentDbSuggestion == null) return;
 
@@ -617,18 +619,49 @@ class _MusicSectionState extends State<MusicSection> {
         SuggestionStatus.liked,
       );
 
+      setState(() {
+        _hasLikedCurrentSuggestion = true;
+      });
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Added "${_currentDbSuggestion!.title}" to your library'),
+          content: Text('Liked "${_currentDbSuggestion!.title}"'),
           duration: const Duration(seconds: 2),
         ),
       );
 
-      // Reload library and get next suggestion
+      // Reload library to show the new liked item
       _loadDbLibrary();
-      _loadDbSuggestion();
     } catch (e) {
       debugPrint('Error liking DB suggestion: $e');
+    }
+  }
+
+  // Add to favorites (same as like but with different messaging)
+  Future<void> _addToFavorites() async {
+    if (_currentDbSuggestion == null) return;
+
+    try {
+      await _recommendationService.updateSuggestionStatus(
+        _currentDbSuggestion!.id,
+        SuggestionStatus.liked,
+      );
+
+      setState(() {
+        _hasLikedCurrentSuggestion = true;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Added "${_currentDbSuggestion!.title}" to your favorites'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+
+      // Reload library
+      _loadDbLibrary();
+    } catch (e) {
+      debugPrint('Error adding to favorites: $e');
     }
   }
 
@@ -651,27 +684,53 @@ class _MusicSectionState extends State<MusicSection> {
         SuggestionStatus.disliked,
       );
 
-      // Get next suggestion
-      _loadDbSuggestion();
+      // Get next suggestion (this will reset the like state)
+      _moveToNextSuggestion();
     } catch (e) {
       debugPrint('Error disliking DB suggestion: $e');
     }
   }
 
-  // Skip a database suggestion
+  // Skip a database suggestion (mark as skipped and move to next)
   Future<void> _skipDbSuggestion() async {
     if (_currentDbSuggestion == null) return;
 
     try {
-      await _recommendationService.updateSuggestionStatus(
-        _currentDbSuggestion!.id,
-        SuggestionStatus.skipped,
-      );
+      // Only mark as skipped if it hasn't been liked
+      if (!_hasLikedCurrentSuggestion) {
+        await _recommendationService.updateSuggestionStatus(
+          _currentDbSuggestion!.id,
+          SuggestionStatus.skipped,
+        );
+      }
 
-      // Get next suggestion
-      _loadDbSuggestion();
+      _moveToNextSuggestion();
     } catch (e) {
       debugPrint('Error skipping DB suggestion: $e');
+      setState(() {
+        _isLoadingDbSuggestion = false;
+      });
+    }
+  }
+
+  // Move to next suggestion (for both skip and next actions)
+  Future<void> _moveToNextSuggestion() async {
+    try {
+      setState(() {
+        _isLoadingDbSuggestion = true;
+        _dbSuggestedTrack = null;
+        _currentDbSuggestion = null;
+        _dbSuggestionError = null;
+        _hasLikedCurrentSuggestion = false; // Reset like state
+      });
+      
+      // Load next suggestion
+      _loadDbSuggestion();
+    } catch (e) {
+      debugPrint('Error moving to next suggestion: $e');
+      setState(() {
+        _isLoadingDbSuggestion = false;
+      });
     }
   }
 
@@ -771,14 +830,16 @@ class _MusicSectionState extends State<MusicSection> {
                   )
                 else
                     // Current suggestion container (only shows when there's a suggestion)
-                    Column(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(24),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF282828), // Surface color from React (--surface-color)
-                            borderRadius: BorderRadius.circular(16),
-                          ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16.0), // Match library sections
+                      child: Column(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(24),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF282828), // Surface color from React (--surface-color)
+                              borderRadius: BorderRadius.circular(16),
+                            ),
                           child: Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
@@ -920,16 +981,29 @@ class _MusicSectionState extends State<MusicSection> {
                                                   runSpacing: 8,
                                                   alignment: WrapAlignment.center,
                                                   children: [
-                                                    // Like button (black background)
+                                                    // Like button
                                                     ElevatedButton.icon(
-                                                      onPressed: _likeDbSuggestion,
-                                                      icon: const Icon(Icons.thumb_up, size: 16),
-                                                      label: const Text('Like', style: TextStyle(fontSize: 13)),
+                                                      onPressed: _hasLikedCurrentSuggestion ? null : _likeDbSuggestion,
+                                                      icon: Icon(
+                                                        _hasLikedCurrentSuggestion ? Icons.thumb_up : Icons.thumb_up_outlined, 
+                                                        size: 16
+                                                      ),
+                                                      label: Text(
+                                                        _hasLikedCurrentSuggestion ? 'Liked' : 'Like', 
+                                                        style: const TextStyle(fontSize: 13)
+                                                      ),
                                                       style: ElevatedButton.styleFrom(
-                                                        backgroundColor: Colors.black.withOpacity(0.7),
-                                                        foregroundColor: Colors.white,
+                                                        backgroundColor: _hasLikedCurrentSuggestion 
+                                                          ? Colors.green.withOpacity(0.3)
+                                                          : Colors.black.withOpacity(0.7),
+                                                        foregroundColor: _hasLikedCurrentSuggestion ? Colors.green : Colors.white,
                                                         elevation: 0,
-                                                        side: BorderSide(color: Colors.white.withOpacity(0.3), width: 1),
+                                                        side: BorderSide(
+                                                          color: _hasLikedCurrentSuggestion 
+                                                            ? Colors.green.withOpacity(0.5)
+                                                            : Colors.white.withOpacity(0.3), 
+                                                          width: 1
+                                                        ),
                                                         shape: RoundedRectangleBorder(
                                                           borderRadius: BorderRadius.circular(25),
                                                         ),
@@ -956,14 +1030,22 @@ class _MusicSectionState extends State<MusicSection> {
                                                       ),
                                                     ),
                                                     
-                                                    // Favorite button (gray background)
+                                                    // Favorite button
                                                     ElevatedButton.icon(
-                                                      onPressed: _likeDbSuggestion, // TODO: Create separate favorite function
-                                                      icon: const Icon(Icons.favorite, size: 16),
-                                                      label: const Text('Favorite', style: TextStyle(fontSize: 13)),
+                                                      onPressed: _hasLikedCurrentSuggestion ? null : _addToFavorites,
+                                                      icon: Icon(
+                                                        _hasLikedCurrentSuggestion ? Icons.favorite : Icons.favorite_border, 
+                                                        size: 16
+                                                      ),
+                                                      label: Text(
+                                                        _hasLikedCurrentSuggestion ? 'Favorited' : 'Favorite', 
+                                                        style: const TextStyle(fontSize: 13)
+                                                      ),
                                                       style: ElevatedButton.styleFrom(
-                                                        backgroundColor: Colors.white.withOpacity(0.15),
-                                                        foregroundColor: Colors.white,
+                                                        backgroundColor: _hasLikedCurrentSuggestion 
+                                                          ? Colors.red.withOpacity(0.3)
+                                                          : Colors.white.withOpacity(0.15),
+                                                        foregroundColor: _hasLikedCurrentSuggestion ? Colors.red : Colors.white,
                                                         elevation: 0,
                                                         shape: RoundedRectangleBorder(
                                                           borderRadius: BorderRadius.circular(25),
@@ -1007,14 +1089,24 @@ class _MusicSectionState extends State<MusicSection> {
                                                       },
                                                     ),
                                                     
-                                                    // Skip button with legacy skip icon
+                                                    // Skip/Next button
                                                     ElevatedButton.icon(
                                                       onPressed: _skipDbSuggestion,
-                                                      icon: const Icon(Icons.skip_next, size: 16),
-                                                      label: const Text('Skip', style: TextStyle(fontSize: 13)),
+                                                      icon: Icon(
+                                                        _hasLikedCurrentSuggestion ? Icons.arrow_forward : Icons.skip_next, 
+                                                        size: 16
+                                                      ),
+                                                      label: Text(
+                                                        _hasLikedCurrentSuggestion ? 'Next' : 'Skip', 
+                                                        style: const TextStyle(fontSize: 13)
+                                                      ),
                                                       style: ElevatedButton.styleFrom(
-                                                        backgroundColor: Colors.white.withOpacity(0.15),
-                                                        foregroundColor: Colors.white,
+                                                        backgroundColor: _hasLikedCurrentSuggestion 
+                                                          ? const Color(0xFF7B68EE).withOpacity(0.3)
+                                                          : Colors.white.withOpacity(0.15),
+                                                        foregroundColor: _hasLikedCurrentSuggestion 
+                                                          ? const Color(0xFF7B68EE) 
+                                                          : Colors.white,
                                                         elevation: 0,
                                                         shape: RoundedRectangleBorder(
                                                           borderRadius: BorderRadius.circular(25),
@@ -1039,6 +1131,7 @@ class _MusicSectionState extends State<MusicSection> {
                         const SizedBox(height: 24),
                       ],
                     ),
+                  ),
                 
                 // Library sections (always show regardless of suggestion availability)
                 const SizedBox(height: 32),
@@ -1227,9 +1320,24 @@ class _MusicSectionState extends State<MusicSection> {
     setState(() {
       _isLoadingDbSuggestion = true;
       _dbSuggestionError = null;
+      _hasLikedCurrentSuggestion = false; // Reset like state
     });
 
     try {
+      // First check if the music database is available
+      final databaseStatus = await _recommendationService.getMediaTypeStatus('music');
+      final isDatabaseAvailable = databaseStatus == 'available';
+      
+      if (!isDatabaseAvailable) {
+        setState(() {
+          _dbSuggestedTrack = null;
+          _currentDbSuggestion = null;
+          _dbSuggestionError = null; // No error, just database not installed
+          _isLoadingDbSuggestion = false;
+        });
+        return;
+      }
+      
       // Get pending music suggestions that are NOT in watchlist
       final suggestions = await _db.getPendingSuggestionsNotInWatchlist('music');
       
@@ -1257,18 +1365,43 @@ class _MusicSectionState extends State<MusicSection> {
           _isLoadingDbSuggestion = false;
         });
       } else {
-        setState(() {
-          _dbSuggestedTrack = null;
-          _currentDbSuggestion = null;
-          _dbSuggestionError = 'No suggestions available';
-          _isLoadingDbSuggestion = false;
-        });
+        // Try to generate a new suggestion on-demand
+        final newSuggestion = await _recommendationService.generateSuggestionOnDemand('music');
+        if (newSuggestion != null) {
+          // Convert MediaSuggestion to Track for compatibility
+          final track = Track(
+            id: newSuggestion.id.toString(),
+            name: newSuggestion.title ?? 'Unknown',
+            artists: [Artist(name: newSuggestion.artist ?? 'Unknown Artist')],
+            album: Album(
+              name: newSuggestion.album ?? 'Unknown Album',
+              images: newSuggestion.coverArtUrl?.isNotEmpty == true 
+                ? [ImageData(url: newSuggestion.coverArtUrl!, height: 300, width: 300)] 
+                : [],
+            ),
+            uri: '', // No Spotify URI for database suggestions
+            previewUrl: '',
+          );
+          
+          setState(() {
+            _dbSuggestedTrack = track;
+            _currentDbSuggestion = newSuggestion;
+            _isLoadingDbSuggestion = false;
+          });
+        } else {
+          setState(() {
+            _dbSuggestedTrack = null;
+            _currentDbSuggestion = null;
+            _dbSuggestionError = 'Unable to generate music suggestions. Make sure TinyLlama model is installed.';
+            _isLoadingDbSuggestion = false;
+          });
+        }
       }
     } catch (e) {
       setState(() {
         _dbSuggestedTrack = null;
         _currentDbSuggestion = null;
-        _dbSuggestionError = 'Failed to get suggestion';
+        _dbSuggestionError = 'Failed to get suggestion: $e';
         _isLoadingDbSuggestion = false;
       });
     }
@@ -1331,41 +1464,28 @@ class _MusicSectionState extends State<MusicSection> {
     }
   }
 
-  // Build DB playlist section with custom cards
+  // Build DB playlist section with reusable component
   Widget _buildDbPlaylistSection() {
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
-        childAspectRatio: 1.2, // Shorter cards - was 0.6, now 1.2 (half the height)
-        crossAxisSpacing: 16,
-        mainAxisSpacing: 16,
-      ),
-      itemCount: _dbPlaylistSuggestions.length,
-      itemBuilder: (context, index) {
-        final suggestion = _dbPlaylistSuggestions[index];
-        return _buildLibraryCard(suggestion, isWatchlist: true);
-      },
+    return MediaLibraryGrid(
+      suggestions: _dbPlaylistSuggestions,
+      mediaType: 'music',
+      isWatchlist: true,
+      onRemove: _removeFromWatchlist,
+      onLike: _likeWatchlistItem,
+      onDislike: _dislikeWatchlistItem,
+      onFavorite: _favoriteWatchlistItem,
     );
   }
 
-  // Build DB library section with custom cards
+  // Build DB library section with reusable component
   Widget _buildDbLibrarySection() {
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
-        childAspectRatio: 1.2, // Shorter cards - was 0.6, now 1.2 (half the height)
-        crossAxisSpacing: 16,
-        mainAxisSpacing: 16,
-      ),
-      itemCount: _dbLikedSuggestions.length,
-      itemBuilder: (context, index) {
-        final suggestion = _dbLikedSuggestions[index];
-        return _buildLibraryCard(suggestion, isWatchlist: false);
-      },
+    return MediaLibraryGrid(
+      suggestions: _dbLikedSuggestions,
+      mediaType: 'music',
+      isWatchlist: false,
+      onAddToWatchlist: _addLibraryItemToPlaylist,
+      onUnfavorite: _removeFromLibrary,
+      watchlistItems: _dbPlaylistSuggestions,
     );
   }
 
@@ -1790,6 +1910,45 @@ class _MusicSectionState extends State<MusicSection> {
           duration: const Duration(seconds: 2),
         ),
       );
+    }
+  }
+
+  // Add library item to playlist
+  Future<void> _addLibraryItemToPlaylist(MediaSuggestion suggestion) async {
+    try {
+      await _db.addToWatchlist(suggestion.id);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Added "${suggestion.title}" to ${_getWatchlistTerminology(isAction: true)}'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+
+      _loadDbPlaylist();
+    } catch (e) {
+      debugPrint('Error adding library item to ${_getWatchlistTerminology(isAction: true)}: $e');
+    }
+  }
+
+  // Remove from library
+  Future<void> _removeFromLibrary(MediaSuggestion suggestion) async {
+    try {
+      await _recommendationService.updateSuggestionStatus(
+        suggestion.id,
+        SuggestionStatus.skipped,
+      );
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Removed "${suggestion.title}" from library'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+
+      _loadDbLibrary();
+    } catch (e) {
+      debugPrint('Error removing from library: $e');
     }
   }
 

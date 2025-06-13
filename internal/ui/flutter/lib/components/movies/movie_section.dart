@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../common/scroll_content_wrapper.dart';
 import '../common/media_grid.dart';
 import '../common/install_library_card.dart';
+import '../common/media_library_grid.dart';
 import '../../models.dart';
 import '../../services/recommendation_service.dart';
 import '../../services/sqlite_db.dart';
@@ -21,6 +22,7 @@ class _MovieSectionState extends State<MovieSection> {
   MediaSuggestion? _currentDbSuggestion;
   String? _dbSuggestionError;
   bool _isLoadingDbSuggestion = false;
+  bool _hasLikedCurrentSuggestion = false;
 
   // Local DB library state (for liked suggestions)
   List<MediaSuggestion> _dbLikedSuggestions = [];
@@ -159,11 +161,49 @@ class _MovieSectionState extends State<MovieSection> {
         ),
       );
 
-      // Reload library and get next suggestion
+      setState(() {
+        _hasLikedCurrentSuggestion = true;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Liked "${_currentDbSuggestion!.title}"'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+
+      // Reload library to show the new liked item
       _loadDbLibrary();
-      _loadDbSuggestion();
     } catch (e) {
       debugPrint('Error liking DB suggestion: $e');
+    }
+  }
+
+  // Add to favorites (same as like but with different messaging)
+  Future<void> _addToFavorites() async {
+    if (_currentDbSuggestion == null) return;
+
+    try {
+      await _recommendationService.updateSuggestionStatus(
+        _currentDbSuggestion!.id,
+        SuggestionStatus.liked,
+      );
+
+      setState(() {
+        _hasLikedCurrentSuggestion = true;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Added "${_currentDbSuggestion!.title}" to your favorites'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+
+      // Reload library
+      _loadDbLibrary();
+    } catch (e) {
+      debugPrint('Error adding to favorites: $e');
     }
   }
 
@@ -235,25 +275,26 @@ class _MovieSectionState extends State<MovieSection> {
 
   // Build watchlist section
   Widget _buildDbWatchlistSection() {
-    return MediaGrid(
-      children: _dbWatchlistSuggestions.map((suggestion) {
-        return _buildSuggestionCard(
-          suggestion,
-          onRemove: () => _removeFromWatchlist(suggestion),
-          onLike: () => _likeWatchlistItem(suggestion),
-          onDislike: () => _dislikeWatchlistItem(suggestion),
-          showWatchlistActions: true,
-        );
-      }).toList(),
+    return MediaLibraryGrid(
+      suggestions: _dbWatchlistSuggestions,
+      mediaType: 'movie',
+      isWatchlist: true,
+      onRemove: _removeFromWatchlist,
+      onLike: _likeWatchlistItem,
+      onDislike: _dislikeWatchlistItem,
+      onFavorite: _favoriteWatchlistItem,
     );
   }
 
   // Build library section
   Widget _buildDbLibrarySection() {
-    return MediaGrid(
-      children: _dbLikedSuggestions.map((suggestion) {
-        return _buildSuggestionCard(suggestion);
-      }).toList(),
+    return MediaLibraryGrid(
+      suggestions: _dbLikedSuggestions,
+      mediaType: 'movie',
+      isWatchlist: false,
+      onAddToWatchlist: _addLibraryItemToWatchlist,
+      onUnfavorite: _removeFromLibrary,
+      watchlistItems: _dbWatchlistSuggestions,
     );
   }
 
@@ -446,6 +487,66 @@ class _MovieSectionState extends State<MovieSection> {
     }
   }
 
+  // Favorite watchlist item
+  Future<void> _favoriteWatchlistItem(MediaSuggestion suggestion) async {
+    try {
+      await _recommendationService.updateSuggestionStatus(
+        suggestion.id,
+        SuggestionStatus.liked,
+      );
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Added "${suggestion.title}" to favorites'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+
+      _loadDbLibrary();
+    } catch (e) {
+      debugPrint('Error favoriting watchlist item: $e');
+    }
+  }
+
+  // Add library item to watchlist
+  Future<void> _addLibraryItemToWatchlist(MediaSuggestion suggestion) async {
+    try {
+      await _db.addToWatchlist(suggestion.id);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Added "${suggestion.title}" to watchlist'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+
+      _loadDbWatchlist();
+    } catch (e) {
+      debugPrint('Error adding library item to watchlist: $e');
+    }
+  }
+
+  // Remove from library
+  Future<void> _removeFromLibrary(MediaSuggestion suggestion) async {
+    try {
+      await _recommendationService.updateSuggestionStatus(
+        suggestion.id,
+        SuggestionStatus.skipped,
+      );
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Removed "${suggestion.title}" from library'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+
+      _loadDbLibrary();
+    } catch (e) {
+      debugPrint('Error removing from library: $e');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Stack(
@@ -508,14 +609,16 @@ class _MovieSectionState extends State<MovieSection> {
                     )
                   else
                     // Current suggestion container
-                    Column(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(24),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF282828),
-                            borderRadius: BorderRadius.circular(16),
-                          ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16.0), // Match library sections
+                      child: Column(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(24),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF282828),
+                              borderRadius: BorderRadius.circular(16),
+                            ),
                           child: Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
@@ -653,14 +756,27 @@ class _MovieSectionState extends State<MovieSection> {
                                                   children: [
                                                     // Like button
                                                     ElevatedButton.icon(
-                                                      onPressed: _likeDbSuggestion,
-                                                      icon: const Icon(Icons.thumb_up, size: 16),
-                                                      label: const Text('Like', style: TextStyle(fontSize: 13)),
+                                                      onPressed: _hasLikedCurrentSuggestion ? null : _likeDbSuggestion,
+                                                      icon: Icon(
+                                                        _hasLikedCurrentSuggestion ? Icons.thumb_up : Icons.thumb_up_outlined, 
+                                                        size: 16
+                                                      ),
+                                                      label: Text(
+                                                        _hasLikedCurrentSuggestion ? 'Liked' : 'Like', 
+                                                        style: const TextStyle(fontSize: 13)
+                                                      ),
                                                       style: ElevatedButton.styleFrom(
-                                                        backgroundColor: Colors.black.withOpacity(0.7),
-                                                        foregroundColor: Colors.white,
+                                                        backgroundColor: _hasLikedCurrentSuggestion 
+                                                          ? Colors.green.withOpacity(0.3)
+                                                          : Colors.black.withOpacity(0.7),
+                                                        foregroundColor: _hasLikedCurrentSuggestion ? Colors.green : Colors.white,
                                                         elevation: 0,
-                                                        side: BorderSide(color: Colors.white.withOpacity(0.3), width: 1),
+                                                        side: BorderSide(
+                                                          color: _hasLikedCurrentSuggestion 
+                                                            ? Colors.green.withOpacity(0.5)
+                                                            : Colors.white.withOpacity(0.3), 
+                                                          width: 1
+                                                        ),
                                                         shape: RoundedRectangleBorder(
                                                           borderRadius: BorderRadius.circular(25),
                                                         ),
@@ -689,12 +805,20 @@ class _MovieSectionState extends State<MovieSection> {
                                                     
                                                     // Favorite button
                                                     ElevatedButton.icon(
-                                                      onPressed: _likeDbSuggestion,
-                                                      icon: const Icon(Icons.favorite, size: 16),
-                                                      label: const Text('Favorite', style: TextStyle(fontSize: 13)),
+                                                      onPressed: _hasLikedCurrentSuggestion ? null : _addToFavorites,
+                                                      icon: Icon(
+                                                        _hasLikedCurrentSuggestion ? Icons.favorite : Icons.favorite_border, 
+                                                        size: 16
+                                                      ),
+                                                      label: Text(
+                                                        _hasLikedCurrentSuggestion ? 'Favorited' : 'Favorite', 
+                                                        style: const TextStyle(fontSize: 13)
+                                                      ),
                                                       style: ElevatedButton.styleFrom(
-                                                        backgroundColor: Colors.white.withOpacity(0.15),
-                                                        foregroundColor: Colors.white,
+                                                        backgroundColor: _hasLikedCurrentSuggestion 
+                                                          ? Colors.red.withOpacity(0.3)
+                                                          : Colors.white.withOpacity(0.15),
+                                                        foregroundColor: _hasLikedCurrentSuggestion ? Colors.red : Colors.white,
                                                         elevation: 0,
                                                         shape: RoundedRectangleBorder(
                                                           borderRadius: BorderRadius.circular(25),
@@ -738,14 +862,24 @@ class _MovieSectionState extends State<MovieSection> {
                                                       },
                                                     ),
                                                     
-                                                    // Skip button
+                                                    // Skip/Next button
                                                     ElevatedButton.icon(
                                                       onPressed: _skipDbSuggestion,
-                                                      icon: const Icon(Icons.skip_next, size: 16),
-                                                      label: const Text('Skip', style: TextStyle(fontSize: 13)),
+                                                      icon: Icon(
+                                                        _hasLikedCurrentSuggestion ? Icons.arrow_forward : Icons.skip_next, 
+                                                        size: 16
+                                                      ),
+                                                      label: Text(
+                                                        _hasLikedCurrentSuggestion ? 'Next' : 'Skip', 
+                                                        style: const TextStyle(fontSize: 13)
+                                                      ),
                                                       style: ElevatedButton.styleFrom(
-                                                        backgroundColor: Colors.white.withOpacity(0.15),
-                                                        foregroundColor: Colors.white,
+                                                        backgroundColor: _hasLikedCurrentSuggestion 
+                                                          ? const Color(0xFF7B68EE).withOpacity(0.3)
+                                                          : Colors.white.withOpacity(0.15),
+                                                        foregroundColor: _hasLikedCurrentSuggestion 
+                                                          ? const Color(0xFF7B68EE) 
+                                                          : Colors.white,
                                                         elevation: 0,
                                                         shape: RoundedRectangleBorder(
                                                           borderRadius: BorderRadius.circular(25),
@@ -770,6 +904,7 @@ class _MovieSectionState extends State<MovieSection> {
                         const SizedBox(height: 24),
                       ],
                     ),
+                  ),
                 
                 // Watchlist section
                 const SizedBox(height: 32),

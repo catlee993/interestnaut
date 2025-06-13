@@ -42,40 +42,89 @@ class SQLiteDatabase {
   /// Get the database file path
   Future<String> _getDatabasePath() async {
     try {
-      if (Platform.isWindows) {
-        // On Windows, use the application support directory which is more appropriate
-        // for database files than the documents directory
-        final appDataDir = await getApplicationSupportDirectory();
-        final dbDir = Directory(pathLib.join(appDataDir.path, 'Interestnaut'));
-        
-        // Create the directory if it doesn't exist
-        if (!await dbDir.exists()) {
-          await dbDir.create(recursive: true);
-        }
-        
-        final path = pathLib.join(dbDir.path, 'interestnaut.db');
-        debugPrint('Windows SQLite database path: $path');
-        return path;
-      } else {
-        // For other platforms, use the documents directory as before
-        final documentsDirectory = await getApplicationDocumentsDirectory();
-        final path = pathLib.join(documentsDirectory.path, 'interestnaut.db');
-        return path;
+      // Use the same directory as vector databases for consistency
+      final appSupportDir = await getApplicationSupportDirectory();
+      final dbDir = Directory(pathLib.join(appSupportDir.path, 'com.example.flutterApp'));
+      
+      // Create the directory if it doesn't exist
+      if (!await dbDir.exists()) {
+        await dbDir.create(recursive: true);
       }
+      
+      final newPath = pathLib.join(dbDir.path, 'interestnaut.db');
+      
+      // Check if we need to migrate from the old location
+      await _migrateFromOldLocation(newPath);
+      
+      debugPrint('SQLite database path: $newPath');
+      return newPath;
     } catch (e) {
       debugPrint('Error getting database path: $e');
       rethrow;
     }
   }
 
+  /// Migrate database from old Documents location to new Application Support location
+  Future<void> _migrateFromOldLocation(String newPath) async {
+    try {
+      // Check if new database already exists
+      if (await File(newPath).exists()) {
+        return; // Already migrated or new installation
+      }
+      
+      // Check for old database in Documents directory
+      final documentsDir = await getApplicationDocumentsDirectory();
+      final oldPath = pathLib.join(documentsDir.path, 'interestnaut.db');
+      
+      if (await File(oldPath).exists()) {
+        debugPrint('Migrating database from $oldPath to $newPath');
+        
+        // Copy the old database to the new location
+        await File(oldPath).copy(newPath);
+        
+        // Optionally delete the old database (commented out for safety)
+        // await File(oldPath).delete();
+        
+        debugPrint('Database migration completed successfully');
+      }
+    } catch (e) {
+      debugPrint('Error during database migration: $e');
+      // Don't rethrow - we can continue with a new database if migration fails
+    }
+  }
+
   /// Create tables if they don't exist
   Future<void> _createTables() async {
     try {
+      // Create new schema tables
+      _db!.execute(createMediaTableQuery);
+      _db!.execute(insertDefaultMediaTypesQuery);
       _db!.execute(createRecommendationsTableQuery);
+      _db!.execute(createRecommendationMetadataTableQuery);
+      _db!.execute(createUserConstraintsTableQuery);
+      _db!.execute(createUserAddedFavoritesTableQuery);
       _db!.execute(createWatchlistTableQuery);
+      
+      // Run migrations for existing tables
+      await _runMigrations();
     } catch (e) {
       debugPrint('Error creating tables: $e');
       rethrow;
+    }
+  }
+
+  /// Run database migrations
+  Future<void> _runMigrations() async {
+    try {
+      // Add themes column to recommendations if it doesn't exist
+      try {
+        _db!.execute(addThemesToRecommendationsQuery);
+      } catch (e) {
+        // Column might already exist, ignore error
+        debugPrint('Themes column migration: $e');
+      }
+    } catch (e) {
+      debugPrint('Error running migrations: $e');
     }
   }
 
@@ -119,6 +168,7 @@ class SQLiteDatabase {
           suggestion.wikidataId,
           suggestion.botReasoning,
           suggestion.status.toString().split('.').last,
+          suggestion.themes,
           suggestion.createdAt.toIso8601String(),
           suggestion.updatedAt?.toIso8601String(),
         ]);
@@ -141,6 +191,7 @@ class SQLiteDatabase {
           suggestion.wikidataId,
           suggestion.botReasoning,
           suggestion.status.toString().split('.').last,
+          suggestion.themes,
           now,
           suggestion.id,
         ]);
@@ -272,9 +323,9 @@ class SQLiteDatabase {
     
     try {
       final stmt = _db!.prepare(countPendingMediaSuggestionsQuery);
-      final result = stmt.select([mediaType, 'pending']);
+      final result = stmt.select([mediaType]);
       
-      final count = result.isNotEmpty ? result.first['COUNT(*)'] as int : 0;
+      final count = result.isNotEmpty ? result.first['count'] as int : 0;
       stmt.dispose();
       return count;
     } catch (e) {
@@ -319,7 +370,7 @@ class SQLiteDatabase {
     await _ensureInitialized();
     
     try {
-      final stmt = _db!.prepare(getWatchlistQuery);
+      final stmt = _db!.prepare(getWatchlistItemsQuery);
       final result = stmt.select([mediaType]);
       
       final suggestions = result.map((row) => _mapRowToMediaSuggestion(row)).toList();
@@ -336,7 +387,7 @@ class SQLiteDatabase {
     await _ensureInitialized();
     
     try {
-      final stmt = _db!.prepare(getPendingSuggestionsNotInWatchlistQuery);
+      final stmt = _db!.prepare(getPendingMediaSuggestionsQuery);
       final result = stmt.select([mediaType]);
       
       final suggestions = result.map((row) => _mapRowToMediaSuggestion(row)).toList();
@@ -379,6 +430,7 @@ class SQLiteDatabase {
       wikiUrl: row['wiki_url'] as String?,
       wikidataId: row['wikidata_id'] as String?,
       botReasoning: row['bot_reasoning'] as String?,
+      themes: row['themes'] as String?,
       status: SuggestionStatus.values.firstWhere(
         (s) => s.toString().split('.').last == (row['status'] as String),
         orElse: () => SuggestionStatus.pending,
@@ -395,7 +447,25 @@ class SQLiteDatabase {
     await _ensureInitialized();
     
     try {
-      final stmt = _db!.prepare(deleteBadSuggestionsQuery);
+      // Custom cleanup query for bad suggestions
+      const cleanupQuery = '''
+        DELETE FROM recommendations 
+        WHERE title IS NULL 
+           OR title = '' 
+           OR title LIKE '%Why%' 
+           OR title LIKE '%What%'
+           OR title LIKE '%How%'
+           OR title LIKE '%Because%'
+           OR title LIKE 'http%'
+           OR artist IS NULL 
+           OR artist = ''
+           OR artist LIKE '%Why%'
+           OR artist LIKE '%What%'
+           OR artist LIKE '%How%'
+           OR artist LIKE '%Because%';
+      ''';
+      
+      final stmt = _db!.prepare(cleanupQuery);
       final result = stmt.execute([]);
       stmt.dispose();
       
@@ -410,6 +480,357 @@ class SQLiteDatabase {
     } catch (e) {
       debugPrint('Error cleaning up bad suggestions: $e');
       rethrow;
+    }
+  }
+
+  /// Get media type ID by name
+  Future<int?> getMediaTypeId(String mediaTypeName) async {
+    await _ensureInitialized();
+    
+    try {
+      final stmt = _db!.prepare(getMediaTypeIdQuery);
+      final result = stmt.select([mediaTypeName]);
+      
+      if (result.isEmpty) {
+        stmt.dispose();
+        return null;
+      }
+      
+      final id = result.first['id'] as int;
+      stmt.dispose();
+      return id;
+    } catch (e) {
+      debugPrint('Error getting media type ID: $e');
+      return null;
+    }
+  }
+
+  /// Get all media types
+  Future<List<Map<String, dynamic>>> getAllMediaTypes() async {
+    await _ensureInitialized();
+    
+    try {
+      final stmt = _db!.prepare(getAllMediaTypesQuery);
+      final result = stmt.select([]);
+      
+      final mediaTypes = result.map((row) => {
+        'id': row['id'] as int,
+        'name': row['name'] as String,
+      }).toList();
+      
+      stmt.dispose();
+      return mediaTypes;
+    } catch (e) {
+      debugPrint('Error getting all media types: $e');
+      return [];
+    }
+  }
+
+  /// Add user constraint
+  Future<bool> addUserConstraint(String mediaType, String constraint) async {
+    await _ensureInitialized();
+    
+    try {
+      final mediaTypeId = await getMediaTypeId(mediaType);
+      if (mediaTypeId == null) {
+        debugPrint('Media type not found: $mediaType');
+        return false;
+      }
+      
+      final stmt = _db!.prepare(insertUserConstraintQuery);
+      stmt.execute([mediaTypeId, constraint]);
+      stmt.dispose();
+      
+      return true;
+    } catch (e) {
+      debugPrint('Error adding user constraint: $e');
+      return false;
+    }
+  }
+
+  /// Get user constraints for a media type
+  Future<List<String>> getUserConstraints(String mediaType) async {
+    await _ensureInitialized();
+    
+    try {
+      final stmt = _db!.prepare(getUserConstraintsForMediaQuery);
+      final result = stmt.select([mediaType]);
+      
+      final constraints = result.map((row) => row['value'] as String).toList();
+      stmt.dispose();
+      return constraints;
+    } catch (e) {
+      debugPrint('Error getting user constraints: $e');
+      return [];
+    }
+  }
+
+  /// Get all user constraints
+  Future<List<Map<String, dynamic>>> getAllUserConstraints() async {
+    await _ensureInitialized();
+    
+    try {
+      final stmt = _db!.prepare(getAllUserConstraintsQuery);
+      final result = stmt.select([]);
+      
+      final constraints = result.map((row) => {
+        'id': row['id'] as int,
+        'media_type': row['media_type'] as String,
+        'value': row['value'] as String,
+      }).toList();
+      
+      stmt.dispose();
+      return constraints;
+    } catch (e) {
+      debugPrint('Error getting all user constraints: $e');
+      return [];
+    }
+  }
+
+  /// Delete user constraint
+  Future<bool> deleteUserConstraint(int constraintId) async {
+    await _ensureInitialized();
+    
+    try {
+      final stmt = _db!.prepare(deleteUserConstraintQuery);
+      stmt.execute([constraintId]);
+      stmt.dispose();
+      
+      return true;
+    } catch (e) {
+      debugPrint('Error deleting user constraint: $e');
+      return false;
+    }
+  }
+
+  /// Add user-added favorite
+  Future<int?> addUserFavorite({
+    required String title,
+    required String mediaType,
+    String? artist,
+    String? coverArtUrl,
+    String? themes,
+  }) async {
+    await _ensureInitialized();
+    
+    try {
+      final mediaTypeId = await getMediaTypeId(mediaType);
+      if (mediaTypeId == null) {
+        debugPrint('Media type not found: $mediaType');
+        return null;
+      }
+      
+      final stmt = _db!.prepare(insertUserAddedFavoriteQuery);
+      stmt.execute([title, mediaTypeId, artist, coverArtUrl, themes]);
+      
+      final id = _db!.lastInsertRowId;
+      stmt.dispose();
+      return id;
+    } catch (e) {
+      debugPrint('Error adding user favorite: $e');
+      return null;
+    }
+  }
+
+  /// Get user-added favorites for a media type
+  Future<List<Map<String, dynamic>>> getUserFavorites(String mediaType) async {
+    await _ensureInitialized();
+    
+    try {
+      final stmt = _db!.prepare(getUserAddedFavoritesForMediaQuery);
+      final result = stmt.select([mediaType]);
+      
+      final favorites = result.map((row) => {
+        'id': row['id'] as int,
+        'title': row['title'] as String,
+        'artist': row['artist'] as String?,
+        'cover_art_url': row['cover_art_url'] as String?,
+        'themes': row['themes'] as String?,
+        'created_at': row['created_at'] as String,
+      }).toList();
+      
+      stmt.dispose();
+      return favorites;
+    } catch (e) {
+      debugPrint('Error getting user favorites: $e');
+      return [];
+    }
+  }
+
+  /// Get all user-added favorites
+  Future<List<Map<String, dynamic>>> getAllUserFavorites() async {
+    await _ensureInitialized();
+    
+    try {
+      final stmt = _db!.prepare(getAllUserAddedFavoritesQuery);
+      final result = stmt.select([]);
+      
+      final favorites = result.map((row) => {
+        'id': row['id'] as int,
+        'title': row['title'] as String,
+        'artist': row['artist'] as String?,
+        'cover_art_url': row['cover_art_url'] as String?,
+        'themes': row['themes'] as String?,
+        'created_at': row['created_at'] as String,
+        'media_type': row['media_type'] as String,
+      }).toList();
+      
+      stmt.dispose();
+      return favorites;
+    } catch (e) {
+      debugPrint('Error getting all user favorites: $e');
+      return [];
+    }
+  }
+
+  /// Delete user-added favorite
+  Future<bool> deleteUserFavorite(int favoriteId) async {
+    await _ensureInitialized();
+    
+    try {
+      final stmt = _db!.prepare(deleteUserAddedFavoriteQuery);
+      stmt.execute([favoriteId]);
+      stmt.dispose();
+      
+      return true;
+    } catch (e) {
+      debugPrint('Error deleting user favorite: $e');
+      return false;
+    }
+  }
+
+  /// Add recommendation metadata
+  Future<bool> addRecommendationMetadata(int recommendationId, String key, String value) async {
+    await _ensureInitialized();
+    
+    try {
+      final stmt = _db!.prepare(insertRecommendationMetadataQuery);
+      stmt.execute([recommendationId, key, value]);
+      stmt.dispose();
+      
+      return true;
+    } catch (e) {
+      debugPrint('Error adding recommendation metadata: $e');
+      return false;
+    }
+  }
+
+  /// Get recommendation metadata
+  Future<Map<String, String>> getRecommendationMetadata(int recommendationId) async {
+    await _ensureInitialized();
+    
+    try {
+      final stmt = _db!.prepare(getRecommendationMetadataQuery);
+      final result = stmt.select([recommendationId]);
+      
+      final metadata = <String, String>{};
+      for (final row in result) {
+        metadata[row['key'] as String] = row['value'] as String;
+      }
+      
+      stmt.dispose();
+      return metadata;
+    } catch (e) {
+      debugPrint('Error getting recommendation metadata: $e');
+      return {};
+    }
+  }
+
+  /// Get specific recommendation metadata value
+  Future<String?> getRecommendationMetadataValue(int recommendationId, String key) async {
+    await _ensureInitialized();
+    
+    try {
+      final stmt = _db!.prepare(getRecommendationMetadataValueQuery);
+      final result = stmt.select([recommendationId, key]);
+      
+      if (result.isEmpty) {
+        stmt.dispose();
+        return null;
+      }
+      
+      final value = result.first['value'] as String;
+      stmt.dispose();
+      return value;
+    } catch (e) {
+      debugPrint('Error getting recommendation metadata value: $e');
+      return null;
+    }
+  }
+
+  /// Delete recommendation metadata
+  Future<bool> deleteRecommendationMetadata(int recommendationId) async {
+    await _ensureInitialized();
+    
+    try {
+      final stmt = _db!.prepare(deleteRecommendationMetadataQuery);
+      stmt.execute([recommendationId]);
+      stmt.dispose();
+      
+      return true;
+    } catch (e) {
+      debugPrint('Error deleting recommendation metadata: $e');
+      return false;
+    }
+  }
+
+  /// Get liked recommendations for learning user preferences
+  Future<List<MediaSuggestion>> getLikedRecommendations(String mediaType) async {
+    await _ensureInitialized();
+    
+    try {
+      final stmt = _db!.prepare(getLikedRecommendationsQuery);
+      final result = stmt.select([mediaType]);
+      
+      final suggestions = result.map((row) => _mapRowToMediaSuggestion(row)).toList();
+      stmt.dispose();
+      return suggestions;
+    } catch (e) {
+      debugPrint('Error getting liked recommendations: $e');
+      return [];
+    }
+  }
+
+  /// Get disliked recommendations for avoiding similar content
+  Future<List<MediaSuggestion>> getDislikedRecommendations(String mediaType) async {
+    await _ensureInitialized();
+    
+    try {
+      final stmt = _db!.prepare(getDislikedRecommendationsQuery);
+      final result = stmt.select([mediaType]);
+      
+      final suggestions = result.map((row) => _mapRowToMediaSuggestion(row)).toList();
+      stmt.dispose();
+      return suggestions;
+    } catch (e) {
+      debugPrint('Error getting disliked recommendations: $e');
+      return [];
+    }
+  }
+
+  /// Get user preference summary for a media type
+  Future<Map<String, dynamic>> getUserPreferenceSummary(String mediaType) async {
+    await _ensureInitialized();
+    
+    try {
+      final stmt = _db!.prepare(getUserPreferenceSummaryQuery);
+      final result = stmt.select([mediaType]);
+      
+      final summary = <String, dynamic>{};
+      for (final row in result) {
+        final status = row['status'] as String;
+        summary[status] = {
+          'count': row['count'] as int,
+          'themes': (row['all_themes'] as String?)?.split(',').where((t) => t.trim().isNotEmpty).toList() ?? [],
+          'artists': (row['all_artists'] as String?)?.split(',').where((a) => a.trim().isNotEmpty).toList() ?? [],
+        };
+      }
+      
+      stmt.dispose();
+      return summary;
+    } catch (e) {
+      debugPrint('Error getting user preference summary: $e');
+      return {};
     }
   }
 }

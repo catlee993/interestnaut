@@ -7,7 +7,7 @@ import 'llama_service.dart';
 import 'model_constants.dart';
 import '../models.dart';
 import 'package:interestnaut/services/wikipedia_service.dart';
-import '../components/music/spotify_service.dart';
+import '../components/music/spotify_service.dart'; 
 
 // --- Data Models ---
 
@@ -34,6 +34,7 @@ class MediaSuggestion {
   final String? wikiUrl;
   final String? wikidataId;
   final String? botReasoning; 
+  final String? themes;
   SuggestionStatus status;
   final DateTime createdAt;
   final DateTime? updatedAt;
@@ -50,6 +51,7 @@ class MediaSuggestion {
     this.wikiUrl,
     this.wikidataId,
     this.botReasoning,
+    this.themes,
     this.status = SuggestionStatus.pending,
     DateTime? createdAt,
     this.updatedAt,
@@ -68,6 +70,7 @@ class MediaSuggestion {
       wikiUrl: json['wiki_url'] as String?,
       wikidataId: json['wikidata_id'] as String?,
       botReasoning: json['bot_reasoning'] as String?,
+      themes: json['themes'] as String?,
       status: SuggestionStatus.values.firstWhere(
         (e) => e.toString().split('.').last == json['status'],
         orElse: () => SuggestionStatus.pending,
@@ -91,6 +94,7 @@ class MediaSuggestion {
         'wiki_url': wikiUrl,
         'wikidata_id': wikidataId,
         'bot_reasoning': botReasoning,
+        'themes': themes,
         'status': status.toString().split('.').last,
         'created_at': createdAt.toIso8601String(),
         'updated_at': updatedAt?.toIso8601String(),
@@ -283,7 +287,7 @@ class RecommendationService extends ChangeNotifier {
   Future<void> _fillSuggestionQueue(String mediaType) async {
     // Disabled automatic queue filling - suggestions are now generated on-demand only
     debugPrint('_fillSuggestionQueue disabled for $mediaType - use generateSuggestionOnDemand instead');
-    return;
+      return;
   }
   
   /// Build prompt with previous recommendations shown
@@ -542,6 +546,7 @@ class RecommendationService extends ChangeNotifier {
       
       // Get a random suggestion from the vector database
       final vectorDb = VectorDatabase();
+      await vectorDb.init(); // Initialize the vector database
       final randomResults = await vectorDb.getRandomMedia(mediaType: mediaType, limit: 1);
       
       if (randomResults.isEmpty) {
@@ -574,6 +579,7 @@ class RecommendationService extends ChangeNotifier {
         description: mediaResult.description,
         wikiUrl: mediaResult.wikiUrl,
         wikidataId: mediaResult.wikidataId,
+        themes: mediaResult.themes,
         botReasoning: response,
         status: SuggestionStatus.pending,
       );
@@ -596,6 +602,7 @@ class RecommendationService extends ChangeNotifier {
     try {
       // Check if vector database for this media type is available
       final vectorDb = VectorDatabase();
+      await vectorDb.init(); // Initialize the vector database
       return vectorDb.isMediaTypeEnabled(mediaType);
     } catch (e) {
       debugPrint('Error checking media type availability for $mediaType: $e');

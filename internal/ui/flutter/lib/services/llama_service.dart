@@ -15,7 +15,7 @@ class LlamaService {
   static final LlamaService _instance = LlamaService._internal();
   factory LlamaService() => _instance;
   LlamaService._internal();
-
+  
   // Update the default download URL to TinyLlama
   static const String _tinyllamaUrl = 'https://interestnaut.com/models/tinyllama-1.1b-chat-q4_0.gguf';
   
@@ -63,10 +63,10 @@ class LlamaService {
         _isInitialized = true;
         debugPrint('TinyLlama model downloaded successfully');
         return true;
-      } else {
+            } else {
         debugPrint('Failed to download TinyLlama: ${response.error}');
         return false;
-      }
+            }
     } catch (e) {
       debugPrint('Error downloading TinyLlama: $e');
       return false;
@@ -198,8 +198,8 @@ class LlamaService {
   Future<String> getModelPath() async {
     final modelDir = await LLMDownloaderService.getModelDirectory();
     return path.join(modelDir, kTinyLlamaModelFileName);
-  }
-
+      }
+      
   /// Check if service is initialized
   bool get isInitialized => _isInitialized;
 

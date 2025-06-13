@@ -375,41 +375,27 @@ class _MediaHeaderState extends State<MediaHeader> {
               ),
               // Add a custom search bar in the header
               Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: Row(
-                  children: [
-                    const SizedBox(width: 40), // Fixed left margin
-                    Expanded(
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF191919), // Fully opaque search bar background
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: custom.SearchBar(
-                          placeholder: activeMedia == 'music'
-                              ? 'Search tracks...'
-                              : activeMedia == 'movies'
-                                  ? 'Search movies...'
-                                  : activeMedia == 'tv'
-                                      ? 'Search TV shows...'
-                                      : activeMedia == 'books'
-                                          ? 'Search books...'
-                                          : 'Search games...',
-                          onSearch: widget.onSearch,
-                          onClear: widget.onClearSearch,
-                          initialValue: '',  // Add this parameter to match the updated SearchBar API
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w300,
-                            letterSpacing: 1.0,
-                            fontFamily: 'Inter',
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 40), // Fixed right margin - matches left
-                  ],
+                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16.0), // Match suggestion displays and library grids
+                child: custom.SearchBar(
+                  placeholder: activeMedia == 'music'
+                      ? 'Search tracks...'
+                      : activeMedia == 'movies'
+                          ? 'Search movies...'
+                          : activeMedia == 'tv'
+                              ? 'Search TV shows...'
+                              : activeMedia == 'books'
+                                  ? 'Search books...'
+                                  : 'Search games...',
+                  onSearch: widget.onSearch,
+                  onClear: widget.onClearSearch,
+                  initialValue: '',  // Add this parameter to match the updated SearchBar API
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w300,
+                    letterSpacing: 1.0,
+                    fontFamily: 'Inter',
+                  ),
                 ),
               ),
             ],

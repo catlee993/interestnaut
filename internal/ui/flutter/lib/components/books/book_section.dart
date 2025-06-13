@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../common/scroll_content_wrapper.dart';
 import '../common/media_grid.dart';
 import '../common/install_library_card.dart';
+import '../common/media_library_grid.dart';
 import '../../models.dart';
 import '../../services/recommendation_service.dart';
 import '../../services/sqlite_db.dart';
@@ -21,6 +22,7 @@ class _BookSectionState extends State<BookSection> {
   MediaSuggestion? _currentDbSuggestion;
   String? _dbSuggestionError;
   bool _isLoadingDbSuggestion = false;
+  bool _hasLikedCurrentSuggestion = false;
   bool _isDatabaseAvailable = false;
 
   // Local DB library state (for liked suggestions)
@@ -50,6 +52,7 @@ class _BookSectionState extends State<BookSection> {
     setState(() {
       _isLoadingDbSuggestion = true;
       _dbSuggestionError = null;
+      _hasLikedCurrentSuggestion = false; // Reset like state
     });
 
     try {
@@ -82,14 +85,14 @@ class _BookSectionState extends State<BookSection> {
         if (newSuggestion != null) {
           setState(() {
             _currentDbSuggestion = newSuggestion;
-            _isLoadingDbSuggestion = false;
-          });
-        } else {
-          setState(() {
-            _currentDbSuggestion = null;
+          _isLoadingDbSuggestion = false;
+        });
+      } else {
+        setState(() {
+          _currentDbSuggestion = null;
             _dbSuggestionError = 'Unable to generate book suggestions. Make sure TinyLlama model is installed.';
-            _isLoadingDbSuggestion = false;
-          });
+          _isLoadingDbSuggestion = false;
+        });
         }
       }
     } catch (e) {
@@ -144,7 +147,7 @@ class _BookSectionState extends State<BookSection> {
     }
   }
 
-  // Like a database suggestion (add to library)
+  // Like a database suggestion (mark as liked but stay on current)
   Future<void> _likeDbSuggestion() async {
     if (_currentDbSuggestion == null) return;
 
@@ -154,38 +157,49 @@ class _BookSectionState extends State<BookSection> {
         SuggestionStatus.liked,
       );
 
+      setState(() {
+        _hasLikedCurrentSuggestion = true;
+      });
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Added "${_currentDbSuggestion!.title}" to your library'),
+          content: Text('Liked "${_currentDbSuggestion!.title}"'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+
+      // Reload library to show the new liked item
+      _loadDbLibrary();
+    } catch (e) {
+      debugPrint('Error liking DB suggestion: $e');
+    }
+  }
+
+  // Add to favorites (same as like but with different messaging)
+  Future<void> _addToFavorites() async {
+    if (_currentDbSuggestion == null) return;
+
+    try {
+      await _recommendationService.updateSuggestionStatus(
+        _currentDbSuggestion!.id,
+        SuggestionStatus.liked,
+      );
+
+      setState(() {
+        _hasLikedCurrentSuggestion = true;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Added "${_currentDbSuggestion!.title}" to your favorites'),
           duration: const Duration(seconds: 2),
         ),
       );
 
       // Reload library
       _loadDbLibrary();
-      
-      // Generate next suggestion on-demand
-      setState(() {
-        _isLoadingDbSuggestion = true;
-        _currentDbSuggestion = null;
-        _dbSuggestionError = null;
-      });
-      
-      final newSuggestion = await _recommendationService.generateSuggestionOnDemand('book');
-      if (newSuggestion != null) {
-        setState(() {
-          _currentDbSuggestion = newSuggestion;
-          _isLoadingDbSuggestion = false;
-        });
-      } else {
-        // Fallback to loading existing suggestions
-        _loadDbSuggestion();
-      }
     } catch (e) {
-      debugPrint('Error liking DB suggestion: $e');
-      setState(() {
-        _isLoadingDbSuggestion = false;
-      });
+      debugPrint('Error adding to favorites: $e');
     }
   }
 
@@ -207,28 +221,44 @@ class _BookSectionState extends State<BookSection> {
         SuggestionStatus.disliked,
       );
 
-      // Get next suggestion
+      // Get next suggestion (this will reset the like state)
       _loadDbSuggestion();
     } catch (e) {
       debugPrint('Error disliking DB suggestion: $e');
     }
   }
 
-  // Skip a database suggestion
+  // Skip a database suggestion (mark as skipped and move to next)
   Future<void> _skipDbSuggestion() async {
     if (_currentDbSuggestion == null) return;
 
     try {
-      await _recommendationService.updateSuggestionStatus(
-        _currentDbSuggestion!.id,
-        SuggestionStatus.skipped,
-      );
+      // Only mark as skipped if it hasn't been liked
+      if (!_hasLikedCurrentSuggestion) {
+        await _recommendationService.updateSuggestionStatus(
+          _currentDbSuggestion!.id,
+          SuggestionStatus.skipped,
+        );
+      }
 
+      _moveToNextSuggestion();
+    } catch (e) {
+      debugPrint('Error skipping DB suggestion: $e');
+      setState(() {
+        _isLoadingDbSuggestion = false;
+      });
+    }
+  }
+
+  // Move to next suggestion (for both skip and next actions)
+  Future<void> _moveToNextSuggestion() async {
+    try {
       // Generate next suggestion on-demand
       setState(() {
         _isLoadingDbSuggestion = true;
         _currentDbSuggestion = null;
         _dbSuggestionError = null;
+        _hasLikedCurrentSuggestion = false; // Reset like state
       });
       
       final newSuggestion = await _recommendationService.generateSuggestionOnDemand('book');
@@ -242,7 +272,7 @@ class _BookSectionState extends State<BookSection> {
         _loadDbSuggestion();
       }
     } catch (e) {
-      debugPrint('Error skipping DB suggestion: $e');
+      debugPrint('Error moving to next suggestion: $e');
       setState(() {
         _isLoadingDbSuggestion = false;
       });
@@ -270,27 +300,88 @@ class _BookSectionState extends State<BookSection> {
     }
   }
 
-  // Build reading list section
+  // Favorite reading list item
+  Future<void> _favoriteReadingListItem(MediaSuggestion suggestion) async {
+    try {
+      await _recommendationService.updateSuggestionStatus(
+        suggestion.id,
+        SuggestionStatus.liked,
+      );
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Added "${suggestion.title}" to favorites'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+
+      _loadDbLibrary();
+    } catch (e) {
+      debugPrint('Error favoriting reading list item: $e');
+    }
+  }
+
+  // Add library item to reading list
+  Future<void> _addLibraryItemToReadingList(MediaSuggestion suggestion) async {
+    try {
+      await _db.addToWatchlist(suggestion.id);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Added "${suggestion.title}" to reading list'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+
+      _loadDbReadingList();
+    } catch (e) {
+      debugPrint('Error adding library item to reading list: $e');
+    }
+  }
+
+  // Remove from library
+  Future<void> _removeFromLibrary(MediaSuggestion suggestion) async {
+    try {
+      await _recommendationService.updateSuggestionStatus(
+        suggestion.id,
+        SuggestionStatus.skipped,
+      );
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Removed "${suggestion.title}" from library'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+
+      _loadDbLibrary();
+    } catch (e) {
+      debugPrint('Error removing from library: $e');
+    }
+  }
+
+  // Build reading list section with reusable component
   Widget _buildDbReadingListSection() {
-    return MediaGrid(
-      children: _dbReadingListSuggestions.map((suggestion) {
-        return _buildSuggestionCard(
-          suggestion,
-          onRemove: () => _removeFromReadingList(suggestion),
-          onLike: () => _likeReadingListItem(suggestion),
-          onDislike: () => _dislikeReadingListItem(suggestion),
-          showReadingListActions: true,
-        );
-      }).toList(),
+    return MediaLibraryGrid(
+      suggestions: _dbReadingListSuggestions,
+      mediaType: 'book',
+      isWatchlist: true,
+      onRemove: _removeFromReadingList,
+      onLike: _likeReadingListItem,
+      onDislike: _dislikeReadingListItem,
+      onFavorite: _favoriteReadingListItem,
     );
   }
 
-  // Build library section
+  // Build library section with reusable component
   Widget _buildDbLibrarySection() {
-    return MediaGrid(
-      children: _dbLikedSuggestions.map((suggestion) {
-        return _buildSuggestionCard(suggestion);
-      }).toList(),
+    return MediaLibraryGrid(
+      suggestions: _dbLikedSuggestions,
+      mediaType: 'book',
+      isWatchlist: false,
+      onAddToWatchlist: _addLibraryItemToReadingList,
+      onUnfavorite: _removeFromLibrary,
+      watchlistItems: _dbReadingListSuggestions,
     );
   }
 
@@ -543,12 +634,12 @@ class _BookSectionState extends State<BookSection> {
                         child: Column(
                           children: [
                             const Text(
-                              'No suggestions available',
-                              style: TextStyle(
-                                color: Colors.white54,
-                                fontSize: 16,
-                              ),
-                              textAlign: TextAlign.center,
+                          'No suggestions available',
+                          style: TextStyle(
+                            color: Colors.white54,
+                            fontSize: 16,
+                          ),
+                          textAlign: TextAlign.center,
                             ),
                             const SizedBox(height: 16),
                             ElevatedButton(
@@ -592,14 +683,16 @@ class _BookSectionState extends State<BookSection> {
                     )
                   else
                     // Current suggestion container
-                    Column(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(24),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF282828),
-                            borderRadius: BorderRadius.circular(16),
-                          ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16.0), // Match library sections
+                      child: Column(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(24),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF282828),
+                              borderRadius: BorderRadius.circular(16),
+                            ),
                           child: Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
@@ -737,14 +830,27 @@ class _BookSectionState extends State<BookSection> {
                                                   children: [
                                                     // Like button
                                                     ElevatedButton.icon(
-                                                      onPressed: _likeDbSuggestion,
-                                                      icon: const Icon(Icons.thumb_up, size: 16),
-                                                      label: const Text('Like', style: TextStyle(fontSize: 13)),
+                                                      onPressed: _hasLikedCurrentSuggestion ? null : _likeDbSuggestion,
+                                                      icon: Icon(
+                                                        _hasLikedCurrentSuggestion ? Icons.thumb_up : Icons.thumb_up_outlined, 
+                                                        size: 16
+                                                      ),
+                                                      label: Text(
+                                                        _hasLikedCurrentSuggestion ? 'Liked' : 'Like', 
+                                                        style: const TextStyle(fontSize: 13)
+                                                      ),
                                                       style: ElevatedButton.styleFrom(
-                                                        backgroundColor: Colors.black.withOpacity(0.7),
-                                                        foregroundColor: Colors.white,
+                                                        backgroundColor: _hasLikedCurrentSuggestion 
+                                                          ? Colors.green.withOpacity(0.3)
+                                                          : Colors.black.withOpacity(0.7),
+                                                        foregroundColor: _hasLikedCurrentSuggestion ? Colors.green : Colors.white,
                                                         elevation: 0,
-                                                        side: BorderSide(color: Colors.white.withOpacity(0.3), width: 1),
+                                                        side: BorderSide(
+                                                          color: _hasLikedCurrentSuggestion 
+                                                            ? Colors.green.withOpacity(0.5)
+                                                            : Colors.white.withOpacity(0.3), 
+                                                          width: 1
+                                                        ),
                                                         shape: RoundedRectangleBorder(
                                                           borderRadius: BorderRadius.circular(25),
                                                         ),
@@ -773,12 +879,20 @@ class _BookSectionState extends State<BookSection> {
                                                     
                                                     // Favorite button
                                                     ElevatedButton.icon(
-                                                      onPressed: _likeDbSuggestion,
-                                                      icon: const Icon(Icons.favorite, size: 16),
-                                                      label: const Text('Favorite', style: TextStyle(fontSize: 13)),
+                                                      onPressed: _hasLikedCurrentSuggestion ? null : _addToFavorites,
+                                                      icon: Icon(
+                                                        _hasLikedCurrentSuggestion ? Icons.favorite : Icons.favorite_border, 
+                                                        size: 16
+                                                      ),
+                                                      label: Text(
+                                                        _hasLikedCurrentSuggestion ? 'Favorited' : 'Favorite', 
+                                                        style: const TextStyle(fontSize: 13)
+                                                      ),
                                                       style: ElevatedButton.styleFrom(
-                                                        backgroundColor: Colors.white.withOpacity(0.15),
-                                                        foregroundColor: Colors.white,
+                                                        backgroundColor: _hasLikedCurrentSuggestion 
+                                                          ? Colors.red.withOpacity(0.3)
+                                                          : Colors.white.withOpacity(0.15),
+                                                        foregroundColor: _hasLikedCurrentSuggestion ? Colors.red : Colors.white,
                                                         elevation: 0,
                                                         shape: RoundedRectangleBorder(
                                                           borderRadius: BorderRadius.circular(25),
@@ -822,14 +936,24 @@ class _BookSectionState extends State<BookSection> {
                                                       },
                                                     ),
                                                     
-                                                    // Skip button
+                                                    // Skip/Next button
                                                     ElevatedButton.icon(
                                                       onPressed: _skipDbSuggestion,
-                                                      icon: const Icon(Icons.skip_next, size: 16),
-                                                      label: const Text('Skip', style: TextStyle(fontSize: 13)),
+                                                      icon: Icon(
+                                                        _hasLikedCurrentSuggestion ? Icons.arrow_forward : Icons.skip_next, 
+                                                        size: 16
+                                                      ),
+                                                      label: Text(
+                                                        _hasLikedCurrentSuggestion ? 'Next' : 'Skip', 
+                                                        style: const TextStyle(fontSize: 13)
+                                                      ),
                                                       style: ElevatedButton.styleFrom(
-                                                        backgroundColor: Colors.white.withOpacity(0.15),
-                                                        foregroundColor: Colors.white,
+                                                        backgroundColor: _hasLikedCurrentSuggestion 
+                                                          ? const Color(0xFF7B68EE).withOpacity(0.3)
+                                                          : Colors.white.withOpacity(0.15),
+                                                        foregroundColor: _hasLikedCurrentSuggestion 
+                                                          ? const Color(0xFF7B68EE) 
+                                                          : Colors.white,
                                                         elevation: 0,
                                                         shape: RoundedRectangleBorder(
                                                           borderRadius: BorderRadius.circular(25),
@@ -854,6 +978,7 @@ class _BookSectionState extends State<BookSection> {
                         const SizedBox(height: 24),
                       ],
                     ),
+                  ),
                 
                 // Reading list section
                 const SizedBox(height: 32),

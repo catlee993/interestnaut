@@ -3,6 +3,8 @@ import 'package:path/path.dart' as path;
 import 'continuous_playback_switch.dart';
 import '../../services/llm_downloader_service.dart';
 import '../../services/model_constants.dart';
+import '../../db/vector_db.dart';
+import 'user_constraints_dialog.dart';
 
 /// A widget that displays the settings drawer overlay.
 /// This should be placed at a top level in the widget tree, not inside a constrained container.
@@ -22,6 +24,9 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
   bool _continuousPlayback = false;
   bool _isDownloadingModel = false;
   bool _hasModel = false;
+  bool _isDownloadingDatabases = false;
+  String _downloadStatus = '';
+  double _downloadProgress = 0.0;
 
   @override
   void initState() {
@@ -138,6 +143,60 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
     }
   }
 
+  /// Download all vector databases
+  Future<void> _downloadAllDatabases() async {
+    if (_isDownloadingDatabases) return;
+
+    setState(() {
+      _isDownloadingDatabases = true;
+      _downloadStatus = 'Starting download...';
+      _downloadProgress = 0.0;
+    });
+
+    try {
+      final vectorDb = VectorDatabase();
+      
+      // Show initial toast
+      _showToast('Downloading all vector databases. This may take a while...');
+
+      final success = await vectorDb.downloadAllDatabases(
+        onProgress: (mediaType, progress) {
+          if (mounted) {
+            setState(() {
+              _downloadStatus = 'Downloading $mediaType...';
+              _downloadProgress = progress;
+            });
+          }
+        },
+      );
+
+      if (mounted) {
+        setState(() {
+          _isDownloadingDatabases = false;
+          _downloadStatus = '';
+          _downloadProgress = 0.0;
+        });
+
+        if (success) {
+          // Enable all downloaded databases
+          await vectorDb.enableAllDownloadedMediaTypes();
+          _showToast('All vector databases downloaded successfully!');
+        } else {
+          _showToast('Some databases failed to download. Check logs for details.', isError: true);
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isDownloadingDatabases = false;
+          _downloadStatus = '';
+          _downloadProgress = 0.0;
+        });
+        _showToast('Error downloading databases: $e', isError: true);
+      }
+    }
+  }
+
   /// Show a toast message to the user
   void _showToast(String message, {bool isError = false}) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -242,6 +301,117 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
                                 ],
                               )
                             : Text(_hasModel ? 'Installed' : 'Install Model'),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    const Divider(color: Colors.white24),
+                    const SizedBox(height: 24),
+                    
+                    // Vector Databases Section
+                    const Text(
+                      'Vector Databases',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Download all media databases (Books, Music, Movies, TV Shows, Games) for offline recommendations',
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: 14,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    
+                    // Download progress
+                    if (_isDownloadingDatabases) ...[
+                      Text(
+                        _downloadStatus,
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 13,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      LinearProgressIndicator(
+                        value: _downloadProgress,
+                        backgroundColor: Colors.white24,
+                        valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF7B68EE)),
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+                    
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: _isDownloadingDatabases ? null : _downloadAllDatabases,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF7B68EE),
+                          foregroundColor: Colors.white,
+                          disabledBackgroundColor: Colors.grey.shade700,
+                          disabledForegroundColor: Colors.grey.shade400,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                        child: _isDownloadingDatabases
+                            ? const Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                  SizedBox(width: 8),
+                                  Text('Downloading...'),
+                                ],
+                              )
+                            : const Text('Download All Databases'),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    const Divider(color: Colors.white24),
+                    const SizedBox(height: 24),
+                    
+                    // User Preferences Section
+                    const Text(
+                      'User Preferences',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Set preferences to customize your recommendations',
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: 14,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          showDialog(
+                            context: context,
+                            builder: (context) => const UserConstraintsDialog(),
+                          );
+                        },
+                        icon: const Icon(Icons.tune),
+                        label: const Text('Manage Preferences'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF7B68EE),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
                       ),
                     ),
                   ],
