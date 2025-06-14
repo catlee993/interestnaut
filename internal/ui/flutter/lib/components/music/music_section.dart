@@ -16,6 +16,7 @@ import 'suggestions/suggestion_display.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import '../../utils/text_utils.dart';
 
+
 // A helper class to adapt Track to MediaItem for compatibility
 class TrackAdapter {
   static MediaItem toMediaItem(Track track) {
@@ -761,478 +762,64 @@ class _MusicSectionState extends State<MusicSection> {
   // Build the main music section UI
   @override
   Widget build(BuildContext context) {
-    const double headerHeight = 145;
     return Stack(
       children: [
-        // Main content (text, lists, errors) now all inside ScrollContentWrapper
-        ScrollContentWrapper(
+        // Main content using universal layout system
+        MediaSectionLayout(
           headerHeight: 106.0,
           builder: (scrollOffset) {
             return Padding(
               padding: const EdgeInsets.only(bottom: 100), // Add padding for playbar
               child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                SizedBox(
-                  width: 1,
-                  height: 1,
-                  child: SpotifyWebPlayer(
-                    key: _webPlayerKey,
-                    spotifyService: _spotifyService,
-                    visible: false,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                  // Database suggestion section
-                Center(
-                  child: Opacity(
-                    opacity: (scrollOffset <= 70) ? 1.0 : 0.0,
-                    child: const Text(
-                      'Suggested for You',
-                      style: TextStyle(
-                        fontSize: 24.0,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                      ),
-                      textAlign: TextAlign.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(
+                    width: 1,
+                    height: 1,
+                    child: SpotifyWebPlayer(
+                      key: _webPlayerKey,
+                      spotifyService: _spotifyService,
+                      visible: false,
                     ),
                   ),
-                ),
-                const SizedBox(height: 12),
-                  if (_isLoadingDbSuggestion)
-                  const SizedBox.shrink()
-                  else if (_dbSuggestionError != null)
-                  Center(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 24),
-                      child: Text(
-                          'Error: $_dbSuggestionError',
-                        style: const TextStyle(
-                          color: Colors.white54,
-                          fontSize: 16,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                    ),
-                  )
-                  else if (_dbSuggestedTrack == null)
-                  const Center(
-                    child: Padding(
-                      padding: EdgeInsets.symmetric(vertical: 24),
-                      child: Text(
-                        'No suggestions available',
-                        style: TextStyle(
-                          color: Colors.white54,
-                          fontSize: 16,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                    ),
-                  )
-                else
-                    // Current suggestion container (only shows when there's a suggestion)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16.0), // Match library sections
-                      child: Column(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(24),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF282828), // Surface color from React (--surface-color)
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              // Album art (takes full height)
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(12),
-                                child: Container(
-                                  width: 300,
-                                  height: 450, // Match movie poster height
-                                  color: Colors.grey[900],
-                                  child: _dbSuggestedTrack!.album.images.isNotEmpty
-                                    ? Image.network(
-                                        _dbSuggestedTrack!.album.images.first.url,
-                                        fit: BoxFit.cover,
-                                        errorBuilder: (context, error, stackTrace) {
-                                          return const Center(
-                                            child: Icon(
-                                              Icons.music_note,
-                                              size: 48,
-                                              color: Colors.white54,
-                                            ),
-                                          );
-                                        },
-                                      )
-                                    : const Center(
-                                        child: Icon(
-                                          Icons.music_note,
-                                          size: 48,
-                                          color: Colors.white54,
-                                        ),
-                                      ),
-                                ),
-                              ),
-                              const SizedBox(width: 24),
-                              
-                              // Track info (centered alignment)
-                              Expanded(
-                                child: SizedBox(
-                                  height: 450, // Match the album art height
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.center, // Center everything
-                                    children: [
-                                      // Track title
-                                      Text(
-                                        _dbSuggestedTrack!.name,
-                                        style: const TextStyle(
-                                          fontSize: 24,
-                                          fontWeight: FontWeight.w600,
-                                          color: Colors.white,
-                                        ),
-                                        textAlign: TextAlign.center,
-                                      ),
-                                      const SizedBox(height: 8),
-                                      
-                                      // Artist and Album info
-                                      Text(
-                                        '${TextUtils.formatArtistNames(_dbSuggestedTrack!.artists.first.name)} • ${_dbSuggestedTrack!.album.name}',
-                                        style: TextStyle(
-                                          fontSize: 15,
-                                          color: Colors.white.withOpacity(0.7),
-                                          fontWeight: FontWeight.w400,
-                                        ),
-                                        textAlign: TextAlign.center,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                      const SizedBox(height: 16),
-                                      
-                                      // Description text (same color as title) - scrollable with max height
-                                      if (_currentDbSuggestion?.description?.isNotEmpty == true)
-                                        Container(
-                                          constraints: const BoxConstraints(maxHeight: 120), // Limit description height
-                                          child: Padding(
-                                            padding: const EdgeInsets.only(bottom: 8), // Reduced padding
-                                            child: SingleChildScrollView(
-                                              child: Text(
-                                                _currentDbSuggestion!.description!,
-                                                style: const TextStyle(
-                                                  fontSize: 14,
-                                                  color: Colors.white, // Same as title
-                                                  height: 1.5,
-                                                  fontWeight: FontWeight.w400,
-                                                ),
-                                                textAlign: TextAlign.center,
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                      
-                                      const SizedBox(height: 16),
-                                      
-                                      // Bot reasoning (no background, clean styling) - scrollable
-                                      if (_currentDbSuggestion?.botReasoning?.isNotEmpty == true)
-                                        Container(
-                                          width: double.infinity,
-                                          constraints: const BoxConstraints(maxHeight: 180), // Limit reasoning height
-                                          margin: const EdgeInsets.only(bottom: 24),
-                                          child: Column(
-                                            children: [
-                                              // Reasoning header with Font Awesome robot icon
-                                              Row(
-                                                mainAxisAlignment: MainAxisAlignment.center,
-                                                children: [
-                                                  Icon(
-                                                    FontAwesomeIcons.robot, // Clean robot icon from Font Awesome
-                                                    size: 16,
-                                                    color: const Color(0xFF8C86E2).withOpacity(0.7), // rgba(140, 134, 258, 0.7)
-                                                  ),
-                                                  const SizedBox(width: 8),
-                                                  Text(
-                                                    'Reasoning',
-                                                    style: TextStyle(
-                                                      color: const Color(0xFF8C86E2).withOpacity(0.7),
-                                                      fontWeight: FontWeight.w500,
-                                                      fontSize: 14,
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                              const SizedBox(height: 8),
-                                              
-                                              // Divider line
-                                              Container(
-                                                height: 1,
-                                                color: const Color(0xFF7B68EE).withOpacity(0.2), // Primary color with opacity
-                                              ),
-                                              const SizedBox(height: 12),
-                                              
-                                              // Reasoning text - scrollable
-                                              Expanded(
-                                                child: SingleChildScrollView(
-                                                  child: Text(
-                                                    _currentDbSuggestion!.botReasoning!,
-                                                    style: TextStyle(
-                                                      color: Colors.white.withOpacity(0.6), // More gray
-                                                      fontSize: 14,
-                                                      height: 1.5,
-                                                    ),
-                                                    textAlign: TextAlign.center,
-                                                  ),
-                                                ),
-                                              ),
-                                              
-                                              // Action buttons (moved inside container)
-                                              const SizedBox(height: 24),
-                                              Padding(
-                                                padding: const EdgeInsets.symmetric(horizontal: 24), // Center between image and container edge
-                                                child: Wrap(
-                                                  spacing: 8,
-                                                  runSpacing: 8,
-                                                  alignment: WrapAlignment.center,
-                                                  children: [
-                                                    // Like button
-                                                    ElevatedButton.icon(
-                                                      onPressed: _hasLikedCurrentSuggestion ? null : _likeDbSuggestion,
-                                                      icon: Icon(
-                                                        _hasLikedCurrentSuggestion ? Icons.thumb_up : Icons.thumb_up_outlined, 
-                                                        size: 16
-                                                      ),
-                                                      label: Text(
-                                                        _hasLikedCurrentSuggestion ? 'Liked' : 'Like', 
-                                                        style: const TextStyle(fontSize: 13)
-                                                      ),
-                                                      style: ElevatedButton.styleFrom(
-                                                        backgroundColor: _hasLikedCurrentSuggestion 
-                                                          ? Colors.green.withOpacity(0.3)
-                                                          : Colors.black.withOpacity(0.7),
-                                                        foregroundColor: _hasLikedCurrentSuggestion ? Colors.green : Colors.white,
-                                                        elevation: 0,
-                                                        side: BorderSide(
-                                                          color: _hasLikedCurrentSuggestion 
-                                                            ? Colors.green.withOpacity(0.5)
-                                                            : Colors.white.withOpacity(0.3), 
-                                                          width: 1
-                                                        ),
-                                                        shape: RoundedRectangleBorder(
-                                                          borderRadius: BorderRadius.circular(25),
-                                                        ),
-                                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                                        minimumSize: const Size(0, 44),
-                                                      ),
-                                                    ),
-                                                    
-                                                    // Dislike button (black background)
-                                                    ElevatedButton.icon(
-                                                      onPressed: _dislikeDbSuggestion,
-                                                      icon: const Icon(Icons.thumb_down, size: 16),
-                                                      label: const Text('Dislike', style: TextStyle(fontSize: 13)),
-                                                      style: ElevatedButton.styleFrom(
-                                                        backgroundColor: Colors.black.withOpacity(0.7),
-                                                        foregroundColor: Colors.white,
-                                                        elevation: 0,
-                                                        side: BorderSide(color: Colors.white.withOpacity(0.3), width: 1),
-                                                        shape: RoundedRectangleBorder(
-                                                          borderRadius: BorderRadius.circular(25),
-                                                        ),
-                                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                                        minimumSize: const Size(0, 44),
-                                                      ),
-                                                    ),
-                                                    
-                                                    // Favorite button
-                                                    ElevatedButton.icon(
-                                                      onPressed: _hasLikedCurrentSuggestion ? null : _addToFavorites,
-                                                      icon: Icon(
-                                                        _hasLikedCurrentSuggestion ? Icons.favorite : Icons.favorite_border, 
-                                                        size: 16
-                                                      ),
-                                                      label: Text(
-                                                        _hasLikedCurrentSuggestion ? 'Favorited' : 'Favorite', 
-                                                        style: const TextStyle(fontSize: 13)
-                                                      ),
-                                                      style: ElevatedButton.styleFrom(
-                                                        backgroundColor: _hasLikedCurrentSuggestion 
-                                                          ? Colors.red.withOpacity(0.3)
-                                                          : Colors.white.withOpacity(0.15),
-                                                        foregroundColor: _hasLikedCurrentSuggestion ? Colors.red : Colors.white,
-                                                        elevation: 0,
-                                                        shape: RoundedRectangleBorder(
-                                                          borderRadius: BorderRadius.circular(25),
-                                                        ),
-                                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                                        minimumSize: const Size(0, 44),
-                                                      ),
-                                                    ),
-                                                    
-                                                    // Playlist button - dynamic state based on whether current suggestion is in playlist
-                                                    Builder(
-                                                      builder: (context) {
-                                                        final inPlaylist = _currentDbSuggestion != null && 
-                                                          _dbPlaylistSuggestions.any((item) => item.id == _currentDbSuggestion!.id);
-                                                        
-                                                        return ElevatedButton.icon(
-                                                          onPressed: inPlaylist 
-                                                            ? () => _currentDbSuggestion != null ? _removeFromWatchlist(_currentDbSuggestion!) : null
-                                                            : _addDbSuggestionToPlaylist,
-                                                          icon: Icon(
-                                                            inPlaylist ? Icons.playlist_add_check : Icons.playlist_add, 
-                                                            size: 16
-                                                          ),
-                                                          label: Text(
-                                                            inPlaylist ? 'In Playlist' : 'Playlist', 
-                                                            style: const TextStyle(fontSize: 13)
-                                                          ),
-                                                          style: ElevatedButton.styleFrom(
-                                                            backgroundColor: inPlaylist 
-                                                              ? Colors.blue.withOpacity(0.3)
-                                                              : Colors.white.withOpacity(0.15),
-                                                            foregroundColor: inPlaylist ? Colors.blue : Colors.white,
-                                                            elevation: 0,
-                                                            shape: RoundedRectangleBorder(
-                                                              borderRadius: BorderRadius.circular(25),
-                                                            ),
-                                                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                                            minimumSize: const Size(0, 44),
-                                                          ),
-                                                        );
-                                                      },
-                                                    ),
-                                                    
-                                                    // Skip/Next button
-                                                    ElevatedButton.icon(
-                                                      onPressed: _skipDbSuggestion,
-                                                      icon: Icon(
-                                                        _hasLikedCurrentSuggestion ? Icons.arrow_forward : Icons.skip_next, 
-                                                        size: 16
-                                                      ),
-                                                      label: Text(
-                                                        _hasLikedCurrentSuggestion ? 'Next' : 'Skip', 
-                                                        style: const TextStyle(fontSize: 13)
-                                                      ),
-                                                      style: ElevatedButton.styleFrom(
-                                                        backgroundColor: _hasLikedCurrentSuggestion 
-                                                          ? const Color(0xFF7B68EE).withOpacity(0.3)
-                                                          : Colors.white.withOpacity(0.15),
-                                                        foregroundColor: _hasLikedCurrentSuggestion 
-                                                          ? const Color(0xFF7B68EE) 
-                                                          : Colors.white,
-                                                        elevation: 0,
-                                                        shape: RoundedRectangleBorder(
-                                                          borderRadius: BorderRadius.circular(25),
-                                                        ),
-                                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                                        minimumSize: const Size(0, 44),
-                                                      ),
-                                                    ),
-                                                  ],
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ],
+                  
+                  // Title with consistent spacing
+                  ComponentSpacing(
+                    child: Center(
+                      child: Opacity(
+                        opacity: (scrollOffset <= 70) ? 1.0 : 0.0,
+                        child: const Text(
+                          'Suggested for You',
+                          style: TextStyle(
+                            fontSize: 24.0,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
                           ),
+                          textAlign: TextAlign.center,
                         ),
-                        const SizedBox(height: 24),
-                      ],
-                    ),
-                  ),
-                
-                // Library sections (always show regardless of suggestion availability)
-                const SizedBox(height: 32),
-                
-                // Your Playlist section
-                Center(
-                  child: Text(
-                    _getWatchlistSectionTitle(),
-                    style: const TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                if (_isLoadingDbPlaylist)
-                  const Center(
-                    child: CircularProgressIndicator(
-                      color: Color(0xFFA855F7),
-                    ),
-                  )
-                else if (_dbPlaylistSuggestions.isEmpty)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 32),
-                    child: Center(
-                      child: Text(
-                        'No tracks in your ${_getWatchlistTerminology()} yet. Add suggestions to your ${_getWatchlistTerminology()} to see them here.',
-                        style: const TextStyle(color: Colors.white54),
-                        textAlign: TextAlign.center,
                       ),
                     ),
-                  )
-                else
-                  _buildDbPlaylistSection(),
-                
-                // Your Library section (for liked DB suggestions)
-                const SizedBox(height: 32),
-                const Center(
-                  child: Text(
-                    'Your Library',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                    ),
                   ),
-                ),
-                const SizedBox(height: 16),
-                if (_isLoadingDbLibrary)
-                  const Center(
-                    child: CircularProgressIndicator(
-                      color: Color(0xFFA855F7),
-                    ),
-                  )
-                else if (_dbLikedSuggestions.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 32),
-                    child: Center(
-                      child: Text(
-                        'No tracks in your library yet. Like or add suggestions to see them here.',
-                        style: TextStyle(color: Colors.white54),
-                        textAlign: TextAlign.center,
-                      ),
-                    ),
-                  )
-                else
-                  _buildDbLibrarySection(),
-                
-                // Your Spotify Liked Tracks section (existing library)
-                const SizedBox(height: 32),
-                const Center(
-                  child: Text(
-                    'Your Spotify Liked Tracks',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                    ),
+                  
+                  // Suggestion content with consistent spacing
+                  ComponentSpacing(
+                    child: _buildSuggestionContent(scrollOffset),
                   ),
-                ),
-                const SizedBox(height: 16),
-                if (!_isAuthenticated)
-                  _buildAuthPrompt()
-                else if (_isLoadingLibrary)
-                  const Center(
-                    child: CircularProgressIndicator(
-                      color: Color(0xFFA855F7),
-                    ),
-                  )
-                else
-                  _buildLibrarySection(),
+                  
+                  // Playlist section with proper spacing
+                  SectionSpacing(
+                    child: _buildPlaylistSection(),
+                  ),
+                  
+                  // Library section with proper spacing
+                  SectionSpacing(
+                    child: _buildDbLibrarySectionWrapper(),
+                  ),
+                  
+                  // Spotify library section with proper spacing
+                  SectionSpacing(
+                    child: _buildSpotifyLibrarySection(),
+                  ),
                 ],
               ),
             );
@@ -1263,6 +850,442 @@ class _MusicSectionState extends State<MusicSection> {
             return const SizedBox.shrink();
           }
         }),
+      ],
+    );
+  }
+
+  // Helper method to build suggestion content
+  Widget _buildSuggestionContent(double scrollOffset) {
+    if (_isLoadingDbSuggestion) {
+      return const SizedBox.shrink();
+    } else if (_dbSuggestionError != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 24),
+          child: Text(
+            'Error: $_dbSuggestionError',
+            style: const TextStyle(
+              color: Colors.white54,
+              fontSize: 16,
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ),
+      );
+    } else if (_dbSuggestedTrack == null) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.symmetric(vertical: 24),
+          child: Text(
+            'No suggestions available',
+            style: TextStyle(
+              color: Colors.white54,
+              fontSize: 16,
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ),
+      );
+    } else {
+      // Current suggestion container (no extra horizontal padding - handled by MediaSectionLayout)
+      return Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: const Color(0xFF282828), // Surface color from React (--surface-color)
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Album art (takes full height)
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    width: 300,
+                    height: 450, // Match movie poster height
+                    color: Colors.grey[900],
+                    child: _dbSuggestedTrack!.album.images.isNotEmpty
+                      ? Image.network(
+                          _dbSuggestedTrack!.album.images.first.url,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) {
+                            return const Center(
+                              child: Icon(
+                                Icons.music_note,
+                                size: 48,
+                                color: Colors.white54,
+                              ),
+                            );
+                          },
+                        )
+                      : const Center(
+                          child: Icon(
+                            Icons.music_note,
+                            size: 48,
+                            color: Colors.white54,
+                          ),
+                        ),
+                  ),
+                ),
+                const SizedBox(width: 24),
+                
+                // Track info (centered alignment)
+                Expanded(
+                  child: SizedBox(
+                    height: 450, // Match the album art height
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.center, // Center everything
+                      children: [
+                        // Track title
+                        Text(
+                          _dbSuggestedTrack!.name,
+                          style: const TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 8),
+                        
+                        // Artist and Album info
+                        Text(
+                          '${TextUtils.formatArtistNames(_dbSuggestedTrack!.artists.first.name)} • ${_dbSuggestedTrack!.album.name}',
+                          style: TextStyle(
+                            fontSize: 15,
+                            color: Colors.white.withOpacity(0.7),
+                            fontWeight: FontWeight.w400,
+                          ),
+                          textAlign: TextAlign.center,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 16),
+                        
+                        // Description text (same color as title) - scrollable with max height
+                        if (_currentDbSuggestion?.description?.isNotEmpty == true)
+                          Container(
+                            constraints: const BoxConstraints(maxHeight: 120), // Limit description height
+                            child: Padding(
+                              padding: const EdgeInsets.only(bottom: 8), // Reduced padding
+                              child: SingleChildScrollView(
+                                child: Text(
+                                  _currentDbSuggestion!.description!,
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    color: Colors.white, // Same as title
+                                    height: 1.5,
+                                    fontWeight: FontWeight.w400,
+                                  ),
+                                  textAlign: TextAlign.center,
+                                ),
+                              ),
+                            ),
+                          ),
+                        
+                        const SizedBox(height: 16),
+                        
+                        // Bot reasoning (no background, clean styling) - scrollable
+                        if (_currentDbSuggestion?.botReasoning?.isNotEmpty == true)
+                          Expanded(
+                            child: Container(
+                              width: double.infinity,
+                              margin: const EdgeInsets.only(bottom: 24),
+                              child: Column(
+                                children: [
+                                  // Reasoning header with Font Awesome robot icon
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(
+                                        FontAwesomeIcons.robot, // Clean robot icon from Font Awesome
+                                        size: 16,
+                                        color: const Color(0xFF8C86E2).withOpacity(0.7), // rgba(140, 134, 258, 0.7)
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        'Reasoning',
+                                        style: TextStyle(
+                                          color: const Color(0xFF8C86E2).withOpacity(0.7),
+                                          fontWeight: FontWeight.w500,
+                                          fontSize: 14,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 8),
+                                  
+                                  // Reasoning text - scrollable
+                                  Expanded(
+                                    child: SingleChildScrollView(
+                                      child: Text(
+                                        _currentDbSuggestion!.botReasoning!,
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          color: const Color(0xFF8C86E2).withOpacity(0.8),
+                                          height: 1.4,
+                                          fontWeight: FontWeight.w400,
+                                        ),
+                                        textAlign: TextAlign.center,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        
+                        // Action buttons - wrap layout like other media sections
+                        const SizedBox(height: 24),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 24),
+                          child: Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            alignment: WrapAlignment.center,
+                            children: [
+                              // Like button
+                              ElevatedButton.icon(
+                                onPressed: _hasLikedCurrentSuggestion ? null : _likeDbSuggestion,
+                                icon: Icon(
+                                  _hasLikedCurrentSuggestion ? Icons.thumb_up : Icons.thumb_up_outlined, 
+                                  size: 16
+                                ),
+                                label: Text(
+                                  _hasLikedCurrentSuggestion ? 'Liked' : 'Like', 
+                                  style: const TextStyle(fontSize: 13)
+                                ),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: _hasLikedCurrentSuggestion 
+                                    ? Colors.green.withOpacity(0.3)
+                                    : Colors.white.withOpacity(0.15),
+                                  foregroundColor: _hasLikedCurrentSuggestion ? Colors.green : Colors.white,
+                                  elevation: 0,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(25),
+                                  ),
+                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                  minimumSize: const Size(0, 44),
+                                ),
+                              ),
+                              
+                              // Dislike button
+                              ElevatedButton.icon(
+                                onPressed: _dislikeDbSuggestion,
+                                icon: const Icon(Icons.thumb_down, size: 16),
+                                label: const Text('Dislike', style: TextStyle(fontSize: 13)),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.white.withOpacity(0.15),
+                                  foregroundColor: Colors.white,
+                                  elevation: 0,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(25),
+                                  ),
+                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                  minimumSize: const Size(0, 44),
+                                ),
+                              ),
+                              
+                              // Favorite button
+                              ElevatedButton.icon(
+                                onPressed: _hasLikedCurrentSuggestion ? null : _addToFavorites,
+                                icon: Icon(
+                                  _hasLikedCurrentSuggestion ? Icons.favorite : Icons.favorite_border, 
+                                  size: 16
+                                ),
+                                label: Text(
+                                  _hasLikedCurrentSuggestion ? 'Favorited' : 'Favorite', 
+                                  style: const TextStyle(fontSize: 13)
+                                ),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: _hasLikedCurrentSuggestion 
+                                    ? Colors.red.withOpacity(0.3)
+                                    : Colors.white.withOpacity(0.15),
+                                  foregroundColor: _hasLikedCurrentSuggestion ? Colors.red : Colors.white,
+                                  elevation: 0,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(25),
+                                  ),
+                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                  minimumSize: const Size(0, 44),
+                                ),
+                              ),
+                              
+                              // Playlist button
+                              Builder(
+                                builder: (context) {
+                                  final inPlaylist = _currentDbSuggestion != null && 
+                                    _dbPlaylistSuggestions.any((item) => item.id == _currentDbSuggestion!.id);
+                                  
+                                  return ElevatedButton.icon(
+                                    onPressed: inPlaylist 
+                                      ? () => _currentDbSuggestion != null ? _removeFromWatchlist(_currentDbSuggestion!) : null
+                                      : _addDbSuggestionToPlaylist,
+                                    icon: Icon(
+                                      inPlaylist ? Icons.playlist_add_check : Icons.playlist_add, 
+                                      size: 16
+                                    ),
+                                    label: Text(
+                                      inPlaylist ? 'In Playlist' : 'Playlist', 
+                                      style: const TextStyle(fontSize: 13)
+                                    ),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: inPlaylist 
+                                        ? Colors.blue.withOpacity(0.3)
+                                        : Colors.white.withOpacity(0.15),
+                                      foregroundColor: inPlaylist ? Colors.blue : Colors.white,
+                                      elevation: 0,
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(25),
+                                      ),
+                                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                      minimumSize: const Size(0, 44),
+                                    ),
+                                  );
+                                },
+                              ),
+                              
+                              // Skip/Next button
+                              ElevatedButton.icon(
+                                onPressed: _skipDbSuggestion,
+                                icon: Icon(
+                                  _hasLikedCurrentSuggestion ? Icons.arrow_forward : Icons.skip_next, 
+                                  size: 16
+                                ),
+                                label: Text(
+                                  _hasLikedCurrentSuggestion ? 'Next' : 'Skip', 
+                                  style: const TextStyle(fontSize: 13)
+                                ),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: _hasLikedCurrentSuggestion 
+                                    ? const Color(0xFF7B68EE).withOpacity(0.3)
+                                    : Colors.white.withOpacity(0.15),
+                                  foregroundColor: _hasLikedCurrentSuggestion 
+                                    ? const Color(0xFF7B68EE) 
+                                    : Colors.white,
+                                  elevation: 0,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(25),
+                                  ),
+                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                  minimumSize: const Size(0, 44),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
+    }
+  }
+
+  // Helper method to build playlist section
+  Widget _buildPlaylistSection() {
+    return Column(
+      children: [
+        const Center(
+          child: Text(
+            'Your Playlist',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+        ComponentSpacing(
+          child: _isLoadingDbPlaylist
+            ? const Center(
+                child: CircularProgressIndicator(
+                  color: Color(0xFFA855F7),
+                ),
+              )
+            : _dbPlaylistSuggestions.isEmpty
+              ? const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 32),
+                  child: Center(
+                    child: Text(
+                      'No tracks in your playlist yet. Add suggestions to your playlist to see them here.',
+                      style: TextStyle(color: Colors.white54),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                )
+              : _buildDbPlaylistSection(),
+        ),
+      ],
+    );
+  }
+
+  // Helper method to build database library section
+  Widget _buildDbLibrarySectionWrapper() {
+    return Column(
+      children: [
+        const Center(
+          child: Text(
+            'Your Library',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+        ComponentSpacing(
+          child: _isLoadingDbLibrary
+            ? const Center(
+                child: CircularProgressIndicator(
+                  color: Color(0xFFA855F7),
+                ),
+              )
+            : _dbLikedSuggestions.isEmpty
+              ? const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 32),
+                  child: Center(
+                    child: Text(
+                      'No tracks in your library yet. Like or add suggestions to see them here.',
+                      style: TextStyle(color: Colors.white54),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                )
+              : _buildDbLibrarySection(),
+        ),
+      ],
+    );
+  }
+
+  // Helper method to build Spotify library section
+  Widget _buildSpotifyLibrarySection() {
+    return Column(
+      children: [
+        const Center(
+          child: Text(
+            'Your Spotify Liked Tracks',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+        ComponentSpacing(
+          child: !_isAuthenticated
+            ? _buildAuthPrompt()
+            : _isLoadingLibrary
+              ? const Center(
+                  child: CircularProgressIndicator(
+                    color: Color(0xFFA855F7),
+                  ),
+                )
+              : _buildLibrarySection(),
+        ),
       ],
     );
   }
@@ -1498,231 +1521,6 @@ class _MusicSectionState extends State<MusicSection> {
       onAddToWatchlist: _addLibraryItemToPlaylist,
       onUnfavorite: _removeFromLibrary,
       watchlistItems: _dbPlaylistSuggestions,
-    );
-  }
-
-  // Build individual library card
-  Widget _buildLibraryCard(MediaSuggestion suggestion, {bool isWatchlist = false}) {
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: const Color(0xFF7B68EE).withOpacity(0.3),
-          width: 2,
-        ),
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(12),
-        child: Stack(
-          children: [
-            // Full image background
-            Positioned.fill(
-              child: suggestion.coverArtUrl?.isNotEmpty == true
-                ? Image.network(
-                    suggestion.coverArtUrl!,
-                    fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) {
-                      return Container(
-                        color: const Color(0xFF7B68EE).withOpacity(0.1),
-                        child: const Center(
-                          child: Icon(
-                            Icons.music_note,
-                            size: 60,
-                            color: Colors.white54,
-                          ),
-                        ),
-                      );
-                    },
-                  )
-                : Container(
-                    color: const Color(0xFF7B68EE).withOpacity(0.1),
-                    child: const Center(
-                      child: Icon(
-                        Icons.music_note,
-                        size: 60,
-                        color: Colors.white54,
-                      ),
-                    ),
-                  ),
-            ),
-            
-            // Gradient overlay
-            Positioned.fill(
-              child: Container(
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Colors.transparent,
-                      Color(0x40000000), // rgba(0,0,0,0.25) at 70%
-                      Color(0x66000000), // rgba(0,0,0,0.4) at 85%
-                      Color(0x99000000), // rgba(0,0,0,0.6) at 95%
-                      Colors.black,      // rgba(0,0,0,1) at 100%
-                    ],
-                    stops: [0.0, 0.70, 0.85, 0.95, 1.0],
-                  ),
-                ),
-              ),
-            ),
-            
-            // Remove button for watchlist/saved views (top-right)
-            if (isWatchlist)
-              Positioned(
-                top: 8,
-                right: 8,
-                child: GestureDetector(
-                  onTap: () => _removeFromWatchlist(suggestion),
-                  child: Container(
-                    width: 24,
-                    height: 24,
-                    child: CustomPaint(
-                      painter: XButtonPainter(),
-                    ),
-                  ),
-                ),
-              ),
-            
-            // Content overlay at bottom
-            Positioned(
-              bottom: 0,
-              left: 0,
-              right: 0,
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // Title
-                    Text(
-                      suggestion.title ?? 'Unknown',
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.white,
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 4),
-                    
-                    // Year and rating info
-                    if (suggestion.createdAt != null)
-                      Text(
-                        suggestion.createdAt!.year.toString(),
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.white.withOpacity(0.8),
-                        ),
-                      ),
-                    
-                    const SizedBox(height: 8),
-                    
-                    // Action buttons row
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        // Left side - metadata
-                        if (suggestion.artist?.isNotEmpty == true)
-                          Flexible(
-                            child: Text(
-                              suggestion.artist!,
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.white.withOpacity(0.8),
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        
-                        // Right side - action buttons
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (!isWatchlist) ...[
-                              // Add to playlist button (playlist icon) - blue with checkmark if in watchlist, white if not
-                              Builder(
-                                builder: (context) {
-                                  // Check if this suggestion is already in our loaded playlist
-                                  final inWatchlist = _dbPlaylistSuggestions.any((item) => item.id == suggestion.id);
-                                  return IconButton(
-                                    onPressed: () => inWatchlist 
-                                      ? _removeFromWatchlist(suggestion)
-                                      : _addToWatchlist(suggestion),
-                                    icon: Icon(
-                                      inWatchlist ? Icons.playlist_add_check : Icons.playlist_add,
-                                      color: inWatchlist ? Colors.blue : Colors.white,
-                                      size: 20,
-                                    ),
-                                    padding: EdgeInsets.zero,
-                                    constraints: const BoxConstraints(
-                                      minWidth: 32,
-                                      minHeight: 32,
-                                    ),
-                                  );
-                                },
-                              ),
-                            ] else ...[
-                              // Like button for watchlist items (removes from watchlist only)
-                              IconButton(
-                                onPressed: () => _likeWatchlistItem(suggestion),
-                                icon: const Icon(
-                                  Icons.thumb_up,
-                                  color: Colors.white70,
-                                  size: 20,
-                                ),
-                                padding: EdgeInsets.zero,
-                                constraints: const BoxConstraints(
-                                  minWidth: 32,
-                                  minHeight: 32,
-                                ),
-                              ),
-                              
-                              // Dislike button for watchlist items
-                              IconButton(
-                                onPressed: () => _dislikeWatchlistItem(suggestion),
-                                icon: const Icon(
-                                  Icons.thumb_down,
-                                  color: Colors.white70,
-                                  size: 20,
-                                ),
-                                padding: EdgeInsets.zero,
-                                constraints: const BoxConstraints(
-                                  minWidth: 32,
-                                  minHeight: 32,
-                                ),
-                              ),
-                            ],
-                            
-                            // Purple heart to unfavorite/remove from library
-                            IconButton(
-                              onPressed: () => isWatchlist 
-                                ? _favoriteWatchlistItem(suggestion)
-                                : _unfavoriteSuggestion(suggestion),
-                              icon: const Icon(
-                                Icons.favorite,
-                                color: Color(0xFF7B68EE), // Primary purple color
-                                size: 20,
-                              ),
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(
-                                minWidth: 32,
-                                minHeight: 32,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 

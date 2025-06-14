@@ -225,48 +225,42 @@ class _MediaHeaderState extends State<MediaHeader> {
           child: Column(
             children: [
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 0), // Match search bar padding
                 child: SizedBox(
                   height: 46,
                   child: Row(
                     children: [
-                      // Left section: Media selector with fixed width
-                      SizedBox(
-                        width: 200,
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: GestureDetector(
-                            key: _menuKey,
-                            onTap: _showMediaMenu,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(4),
-                                color: Colors.transparent,
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Transform(
-                                    transform: Matrix4.identity()..scale(1.1, 1.0),
-                                    alignment: Alignment.center,
-                                    child: Text(
-                                      _getMediaDisplayName(activeMedia),
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w300,
-                                        letterSpacing: 1.2,
-                                        fontFamily: 'Inter',
-                                        height: 1.1,
-                                      ),
-                                    ),
+                      // Left section: Media selector aligned with search bar left edge
+                      GestureDetector(
+                        key: _menuKey,
+                        onTap: _showMediaMenu,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(4),
+                            color: Colors.transparent,
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Transform(
+                                transform: Matrix4.identity()..scale(1.1, 1.0),
+                                alignment: Alignment.center,
+                                child: Text(
+                                  _getMediaDisplayName(activeMedia),
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w300,
+                                    letterSpacing: 1.2,
+                                    fontFamily: 'Inter',
+                                    height: 1.1,
                                   ),
-                                  const SizedBox(width: 2),
-                                  const Icon(Icons.arrow_drop_down, color: Colors.white, size: 18),
-                                ],
+                                ),
                               ),
-                            ),
+                              const SizedBox(width: 2),
+                              const Icon(Icons.arrow_drop_down, color: Colors.white, size: 18),
+                            ],
                           ),
                         ),
                       ),
@@ -315,59 +309,53 @@ class _MediaHeaderState extends State<MediaHeader> {
                           ),
                         ),
                       ),
-                      // Right section: Additional controls and settings with fixed width
-                      SizedBox(
-                        width: 200,
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          children: [
-                            // Show Spotify-specific controls when in music section
-                            if (activeMedia == 'music')
-                              Flexible(
-                                child: _isAuthenticated 
-                                  ? SpotifyUserControl(
-                                      user: _userProfile,
-                                      onClearAuth: _handleClearAuth,
-                                    )
-                                  : SpotifyConnectButton(
-                                      onConnect: () async {
-                                        try {
-                                          await _spotifyService.authenticate(context);
-                                          // No need to manually update state - we're listening to the event stream
-                                        } catch (e) {
-                                          debugPrint('Error initiating Spotify auth: $e');
-                                          if (mounted) {
-                                            ScaffoldMessenger.of(context).showSnackBar(
-                                              SnackBar(
-                                                content: Text('Failed to connect to Spotify: $e'),
-                                                duration: const Duration(seconds: 5),
-                                              ),
-                                            );
-                                          }
-                                        }
-                                      },
-                                    ),
-                              ),
-                            // Keep any non-Spotify additional controls that might be provided
-                            if (widget.additionalControl != null && activeMedia != 'music')
-                              Flexible(
-                                child: widget.additionalControl!,
-                              ),
-                            IconButton(
-                              icon: const Icon(Icons.settings, color: Color(0xFF7b68ee), size: 20),
-                              onPressed: () {
-                                // Use the showSettingsDrawer function to display drawer as overlay
-                                showSettingsDrawer(context);
-                              },
-                              padding: const EdgeInsets.all(2),
-                              splashRadius: 18,
-                              tooltip: 'Settings',
-                              style: IconButton.styleFrom(
-                                hoverColor: const Color.fromRGBO(123, 104, 238, 0.1),
-                              ),
+                      // Right section: Settings button aligned with search bar right edge
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          // Show Spotify-specific controls when in music section
+                          if (activeMedia == 'music')
+                            _isAuthenticated 
+                              ? SpotifyUserControl(
+                                  user: _userProfile,
+                                  onClearAuth: _handleClearAuth,
+                                )
+                              : SpotifyConnectButton(
+                                  onConnect: () async {
+                                    try {
+                                      await _spotifyService.authenticate(context);
+                                      // No need to manually update state - we're listening to the event stream
+                                    } catch (e) {
+                                      debugPrint('Error initiating Spotify auth: $e');
+                                      if (mounted) {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          SnackBar(
+                                            content: Text('Failed to connect to Spotify: $e'),
+                                            duration: const Duration(seconds: 5),
+                                          ),
+                                        );
+                                      }
+                                    }
+                                  },
+                                ),
+                          // Keep any non-Spotify additional controls that might be provided
+                          if (widget.additionalControl != null && activeMedia != 'music')
+                            widget.additionalControl!,
+                          const SizedBox(width: 8), // Small spacing before settings
+                          IconButton(
+                            icon: const Icon(Icons.settings, color: Color(0xFF7b68ee), size: 20),
+                            onPressed: () {
+                              // Use the showSettingsDrawer function to display drawer as overlay
+                              showSettingsDrawer(context);
+                            },
+                            padding: const EdgeInsets.all(2),
+                            splashRadius: 18,
+                            tooltip: 'Settings',
+                            style: IconButton.styleFrom(
+                              hoverColor: const Color.fromRGBO(123, 104, 238, 0.1),
                             ),
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
                     ],
                   ),

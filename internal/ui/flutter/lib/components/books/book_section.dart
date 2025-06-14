@@ -1,13 +1,11 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../common/scroll_content_wrapper.dart';
-import '../common/media_grid.dart';
 import '../common/install_library_card.dart';
 import '../common/media_library_grid.dart';
-import '../../models.dart';
+import '../common/consistent_layout_wrapper.dart';
 import '../../services/recommendation_service.dart';
 import '../../services/sqlite_db.dart';
-import 'book_card.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import '../../utils/text_utils.dart';
 
@@ -568,6 +566,460 @@ class _BookSectionState extends State<BookSection> {
     }
   }
 
+  // Helper method to build suggestion content
+  Widget _buildSuggestionContent(double scrollOffset) {
+    if (_isLoadingDbSuggestion) {
+      return const SizedBox.shrink();
+    } else if (!_isDatabaseAvailable) {
+      // Show install library card when database is not available
+      return Center(
+        child: InstallLibraryCard(
+          mediaType: 'book',
+          onInstalled: () {
+            // Reload suggestions after database is installed
+            setState(() {
+              _isDatabaseAvailable = true;
+            });
+            _loadDbSuggestion();
+          },
+        ),
+      );
+    } else if (_dbSuggestionError != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 24),
+          child: Text(
+            'Error: $_dbSuggestionError',
+            style: const TextStyle(
+              color: Colors.white54,
+              fontSize: 16,
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ),
+      );
+    } else if (_currentDbSuggestion == null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 24),
+          child: Column(
+            children: [
+              const Text(
+                'No suggestions available',
+                style: TextStyle(
+                  color: Colors.white54,
+                  fontSize: 16,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: _isLoadingDbSuggestion ? null : () async {
+                  setState(() {
+                    _isLoadingDbSuggestion = true;
+                  });
+                  
+                  final newSuggestion = await _recommendationService.generateSuggestionOnDemand('book');
+                  if (newSuggestion != null) {
+                    setState(() {
+                      _currentDbSuggestion = newSuggestion;
+                      _isLoadingDbSuggestion = false;
+                    });
+                  } else {
+                    setState(() {
+                      _dbSuggestionError = 'Unable to generate book suggestions. Make sure TinyLlama model is installed.';
+                      _isLoadingDbSuggestion = false;
+                    });
+                  }
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                ),
+                child: _isLoadingDbSuggestion
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Text('Get a Suggestion'),
+              ),
+            ],
+          ),
+        ),
+      );
+    } else {
+      // Current suggestion container using SuggestionDisplayWrapper
+      return SuggestionDisplayWrapper(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Book cover
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Container(
+                width: 300,
+                height: 450,
+                color: Colors.grey[900],
+                child: _currentDbSuggestion!.coverArtUrl != null
+                  ? Image.network(
+                      _currentDbSuggestion!.coverArtUrl!,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) {
+                        return const Center(
+                          child: Icon(
+                            Icons.book,
+                            size: 48,
+                            color: Colors.white54,
+                          ),
+                        );
+                      },
+                    )
+                  : const Center(
+                      child: Icon(
+                        Icons.book,
+                        size: 48,
+                        color: Colors.white54,
+                      ),
+                    ),
+              ),
+            ),
+            const SizedBox(width: 24),
+            
+            // Book info
+            Expanded(
+              child: SizedBox(
+                height: 450,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    // Book title
+                    Text(
+                      _currentDbSuggestion!.title ?? 'Unknown Title',
+                      style: const TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 8),
+                    
+                    // Author info
+                    Text(
+                      'by ${TextUtils.formatArtistNames(_currentDbSuggestion!.artist)}',
+                      style: TextStyle(
+                        fontSize: 15,
+                        color: Colors.white.withOpacity(0.7),
+                        fontWeight: FontWeight.w400,
+                      ),
+                      textAlign: TextAlign.center,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 16),
+                    
+                    // Description text - scrollable with max height
+                    if (_currentDbSuggestion?.description?.isNotEmpty == true)
+                      Container(
+                        constraints: const BoxConstraints(maxHeight: 120),
+                        child: Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: SingleChildScrollView(
+                            child: Text(
+                              _currentDbSuggestion!.description!,
+                              style: const TextStyle(
+                                fontSize: 14,
+                                color: Colors.white,
+                                height: 1.5,
+                                fontWeight: FontWeight.w400,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                        ),
+                      ),
+                    
+                    const SizedBox(height: 16),
+                    
+                    // Bot reasoning - scrollable
+                    if (_currentDbSuggestion?.botReasoning?.isNotEmpty == true)
+                      Expanded(
+                        child: Container(
+                          width: double.infinity,
+                          margin: const EdgeInsets.only(bottom: 16),
+                          child: Column(
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    FontAwesomeIcons.robot,
+                                    size: 16,
+                                    color: const Color(0xFF8C86E2).withOpacity(0.7),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'Reasoning',
+                                    style: TextStyle(
+                                      color: const Color(0xFF8C86E2).withOpacity(0.7),
+                                      fontWeight: FontWeight.w500,
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Container(
+                                height: 1,
+                                color: const Color(0xFF7B68EE).withOpacity(0.2),
+                              ),
+                              const SizedBox(height: 12),
+                              Expanded(
+                                child: SingleChildScrollView(
+                                  child: Text(
+                                    _currentDbSuggestion!.botReasoning!,
+                                    style: TextStyle(
+                                      color: Colors.white.withOpacity(0.6),
+                                      fontSize: 14,
+                                      height: 1.5,
+                                    ),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    
+                    // Action buttons using ActionButtonsWrapper
+                    ActionButtonsWrapper(
+                      children: [
+                        // Like button
+                        ElevatedButton.icon(
+                          onPressed: _hasLikedCurrentSuggestion ? null : _likeDbSuggestion,
+                          icon: Icon(
+                            _hasLikedCurrentSuggestion ? Icons.thumb_up : Icons.thumb_up_outlined, 
+                            size: 16
+                          ),
+                          label: Text(
+                            _hasLikedCurrentSuggestion ? 'Liked' : 'Like', 
+                            style: const TextStyle(fontSize: 13)
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: _hasLikedCurrentSuggestion 
+                              ? Colors.green.withOpacity(0.3)
+                              : Colors.black.withOpacity(0.7),
+                            foregroundColor: _hasLikedCurrentSuggestion ? Colors.green : Colors.white,
+                            elevation: 0,
+                            side: BorderSide(
+                              color: _hasLikedCurrentSuggestion 
+                                ? Colors.green.withOpacity(0.5)
+                                : Colors.white.withOpacity(0.3), 
+                              width: 1
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(25),
+                            ),
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                            minimumSize: const Size(0, 44),
+                          ),
+                        ),
+                        
+                        // Dislike button
+                        ElevatedButton.icon(
+                          onPressed: _dislikeDbSuggestion,
+                          icon: const Icon(Icons.thumb_down, size: 16),
+                          label: const Text('Dislike', style: TextStyle(fontSize: 13)),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.black.withOpacity(0.7),
+                            foregroundColor: Colors.white,
+                            elevation: 0,
+                            side: BorderSide(color: Colors.white.withOpacity(0.3), width: 1),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(25),
+                            ),
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                            minimumSize: const Size(0, 44),
+                          ),
+                        ),
+                        
+                        // Favorite button
+                        ElevatedButton.icon(
+                          onPressed: _hasLikedCurrentSuggestion ? null : _addToFavorites,
+                          icon: Icon(
+                            _hasLikedCurrentSuggestion ? Icons.favorite : Icons.favorite_border, 
+                            size: 16
+                          ),
+                          label: Text(
+                            _hasLikedCurrentSuggestion ? 'Favorited' : 'Favorite', 
+                            style: const TextStyle(fontSize: 13)
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: _hasLikedCurrentSuggestion 
+                              ? Colors.red.withOpacity(0.3)
+                              : Colors.white.withOpacity(0.15),
+                            foregroundColor: _hasLikedCurrentSuggestion ? Colors.red : Colors.white,
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(25),
+                            ),
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                            minimumSize: const Size(0, 44),
+                          ),
+                        ),
+                        
+                        // Reading list button
+                        Builder(
+                          builder: (context) {
+                            final inReadingList = _currentDbSuggestion != null && 
+                              _dbReadingListSuggestions.any((item) => item.id == _currentDbSuggestion!.id);
+                            
+                            return ElevatedButton.icon(
+                              onPressed: inReadingList 
+                                ? () => _currentDbSuggestion != null ? _removeFromReadingList(_currentDbSuggestion!) : null
+                                : _addDbSuggestionToReadingList,
+                              icon: Icon(
+                                inReadingList ? Icons.bookmark_added : Icons.bookmark_add, 
+                                size: 16
+                              ),
+                              label: Text(
+                                inReadingList ? 'In Reading List' : 'Reading List', 
+                                style: const TextStyle(fontSize: 13)
+                              ),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: inReadingList 
+                                  ? Colors.blue.withOpacity(0.3)
+                                  : Colors.white.withOpacity(0.15),
+                                foregroundColor: inReadingList ? Colors.blue : Colors.white,
+                                elevation: 0,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(25),
+                                ),
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                minimumSize: const Size(0, 44),
+                              ),
+                            );
+                          },
+                        ),
+                        
+                        // Skip/Next button
+                        ElevatedButton.icon(
+                          onPressed: _skipDbSuggestion,
+                          icon: Icon(
+                            _hasLikedCurrentSuggestion ? Icons.arrow_forward : Icons.skip_next, 
+                            size: 16
+                          ),
+                          label: Text(
+                            _hasLikedCurrentSuggestion ? 'Next' : 'Skip', 
+                            style: const TextStyle(fontSize: 13)
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: _hasLikedCurrentSuggestion 
+                              ? const Color(0xFF7B68EE).withOpacity(0.3)
+                              : Colors.white.withOpacity(0.15),
+                            foregroundColor: _hasLikedCurrentSuggestion 
+                              ? const Color(0xFF7B68EE) 
+                              : Colors.white,
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(25),
+                            ),
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                            minimumSize: const Size(0, 44),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+  }
+
+  // Helper method to build reading list section
+  Widget _buildReadingListSection() {
+    return Column(
+      children: [
+        const Center(
+          child: Text(
+            'Your Reading List',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        if (_isLoadingDbReadingList)
+          const Center(
+            child: CircularProgressIndicator(
+              color: Color(0xFFA855F7),
+            ),
+          )
+        else if (_dbReadingListSuggestions.isEmpty)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 32),
+            child: Center(
+              child: Text(
+                'No books in your reading list yet. Add suggestions to your reading list to see them here.',
+                style: TextStyle(color: Colors.white54),
+                textAlign: TextAlign.center,
+              ),
+            ),
+          )
+        else
+          _buildDbReadingListSection(),
+      ],
+    );
+  }
+
+  // Helper method to build library section
+  Widget _buildLibrarySection() {
+    return Column(
+      children: [
+        const Center(
+          child: Text(
+            'Your Library',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        if (_isLoadingDbLibrary)
+          const Center(
+            child: CircularProgressIndicator(
+              color: Color(0xFFA855F7),
+            ),
+          )
+        else if (_dbLikedSuggestions.isEmpty)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 32),
+            child: Center(
+              child: Text(
+                'No books in your library yet. Like or add suggestions to see them here.',
+                style: TextStyle(color: Colors.white54),
+                textAlign: TextAlign.center,
+              ),
+            ),
+          )
+        else
+          _buildDbLibrarySection(),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Stack(
@@ -576,14 +1028,11 @@ class _BookSectionState extends State<BookSection> {
         ScrollContentWrapper(
           headerHeight: 106.0,
           builder: (scrollOffset) {
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 100),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const SizedBox(height: 12),
-                  // Database suggestion section
-                  Center(
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                ComponentSpacing(
+                  child: Center(
                     child: Opacity(
                       opacity: (scrollOffset <= 70) ? 1.0 : 0.0,
                       child: const Text(
@@ -597,467 +1046,22 @@ class _BookSectionState extends State<BookSection> {
                       ),
                     ),
                   ),
-                  const SizedBox(height: 12),
-                  if (_isLoadingDbSuggestion)
-                    const SizedBox.shrink()
-                  else if (!_isDatabaseAvailable)
-                    // Show install library card when database is not available
-                    Center(
-                      child: InstallLibraryCard(
-                        mediaType: 'book',
-                        onInstalled: () {
-                          // Reload suggestions after database is installed
-                          setState(() {
-                            _isDatabaseAvailable = true;
-                          });
-                          _loadDbSuggestion();
-                        },
-                      ),
-                    )
-                  else if (_dbSuggestionError != null)
-                    Center(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 24),
-                        child: Text(
-                          'Error: $_dbSuggestionError',
-                          style: const TextStyle(
-                            color: Colors.white54,
-                            fontSize: 16,
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                      ),
-                    )
-                  else if (_currentDbSuggestion == null)
-                    Center(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 24),
-                        child: Column(
-                          children: [
-                            const Text(
-                          'No suggestions available',
-                          style: TextStyle(
-                            color: Colors.white54,
-                            fontSize: 16,
-                          ),
-                          textAlign: TextAlign.center,
-                            ),
-                            const SizedBox(height: 16),
-                            ElevatedButton(
-                              onPressed: _isLoadingDbSuggestion ? null : () async {
-                                setState(() {
-                                  _isLoadingDbSuggestion = true;
-                                });
-                                
-                                final newSuggestion = await _recommendationService.generateSuggestionOnDemand('book');
-                                if (newSuggestion != null) {
-                                  setState(() {
-                                    _currentDbSuggestion = newSuggestion;
-                                    _isLoadingDbSuggestion = false;
-                                  });
-                                } else {
-                                  setState(() {
-                                    _dbSuggestionError = 'Unable to generate book suggestions. Make sure TinyLlama model is installed.';
-                                    _isLoadingDbSuggestion = false;
-                                  });
-                                }
-                              },
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.blue,
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                              ),
-                              child: _isLoadingDbSuggestion
-                                  ? const SizedBox(
-                                      width: 16,
-                                      height: 16,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        color: Colors.white,
-                                      ),
-                                    )
-                                  : const Text('Get a Suggestion'),
-                            ),
-                          ],
-                        ),
-                      ),
-                    )
-                  else
-                    // Current suggestion container
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16.0), // Match library sections
-                      child: Column(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(24),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF282828),
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              // Book cover
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(12),
-                                child: Container(
-                                  width: 300,
-                                  height: 450,
-                                  color: Colors.grey[900],
-                                  child: _currentDbSuggestion!.coverArtUrl != null
-                                    ? Image.network(
-                                        _currentDbSuggestion!.coverArtUrl!,
-                                        fit: BoxFit.cover,
-                                        errorBuilder: (context, error, stackTrace) {
-                                          return const Center(
-                                            child: Icon(
-                                              Icons.book,
-                                              size: 48,
-                                              color: Colors.white54,
-                                            ),
-                                          );
-                                        },
-                                      )
-                                    : const Center(
-                                        child: Icon(
-                                          Icons.book,
-                                          size: 48,
-                                          color: Colors.white54,
-                                        ),
-                                      ),
-                                ),
-                              ),
-                              const SizedBox(width: 24),
-                              
-                              // Book info
-                              Expanded(
-                                child: SizedBox(
-                                  height: 450,
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.center,
-                                    children: [
-                                      // Book title
-                                      Text(
-                                        _currentDbSuggestion!.title ?? 'Unknown Title',
-                                        style: const TextStyle(
-                                          fontSize: 24,
-                                          fontWeight: FontWeight.w600,
-                                          color: Colors.white,
-                                        ),
-                                        textAlign: TextAlign.center,
-                                      ),
-                                      const SizedBox(height: 8),
-                                      
-                                      // Author info
-                                      Text(
-                                        'by ${TextUtils.formatArtistNames(_currentDbSuggestion!.artist)}',
-                                        style: TextStyle(
-                                          fontSize: 15,
-                                          color: Colors.white.withOpacity(0.7),
-                                          fontWeight: FontWeight.w400,
-                                        ),
-                                        textAlign: TextAlign.center,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                      const SizedBox(height: 16),
-                                      
-                                      // Description text - scrollable with max height
-                                      if (_currentDbSuggestion?.description?.isNotEmpty == true)
-                                        Container(
-                                          constraints: const BoxConstraints(maxHeight: 120), // Limit description height
-                                          child: Padding(
-                                            padding: const EdgeInsets.only(bottom: 8), // Reduced padding
-                                            child: SingleChildScrollView(
-                                              child: Text(
-                                                _currentDbSuggestion!.description!,
-                                                style: const TextStyle(
-                                                  fontSize: 14,
-                                                  color: Colors.white,
-                                                  height: 1.5,
-                                                  fontWeight: FontWeight.w400,
-                                                ),
-                                                textAlign: TextAlign.center,
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                      
-                                      const SizedBox(height: 16),
-                                      
-                                      // Bot reasoning - scrollable
-                                      if (_currentDbSuggestion?.botReasoning?.isNotEmpty == true)
-                                        Container(
-                                          width: double.infinity,
-                                          constraints: const BoxConstraints(maxHeight: 180), // Limit reasoning height
-                                          margin: const EdgeInsets.only(bottom: 24),
-                                          child: Column(
-                                            children: [
-                                              Row(
-                                                mainAxisAlignment: MainAxisAlignment.center,
-                                                children: [
-                                                  Icon(
-                                                    FontAwesomeIcons.robot,
-                                                    size: 16,
-                                                    color: const Color(0xFF8C86E2).withOpacity(0.7),
-                                                  ),
-                                                  const SizedBox(width: 8),
-                                                  Text(
-                                                    'Reasoning',
-                                                    style: TextStyle(
-                                                      color: const Color(0xFF8C86E2).withOpacity(0.7),
-                                                      fontWeight: FontWeight.w500,
-                                                      fontSize: 14,
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                              const SizedBox(height: 8),
-                                              Container(
-                                                height: 1,
-                                                color: const Color(0xFF7B68EE).withOpacity(0.2),
-                                              ),
-                                              const SizedBox(height: 12),
-                                              Expanded(
-                                                child: SingleChildScrollView(
-                                                  child: Text(
-                                                    _currentDbSuggestion!.botReasoning!,
-                                                    style: TextStyle(
-                                                      color: Colors.white.withOpacity(0.6),
-                                                      fontSize: 14,
-                                                      height: 1.5,
-                                                    ),
-                                                    textAlign: TextAlign.center,
-                                                  ),
-                                                ),
-                                              ),
-                                              
-                                              // Action buttons
-                                              const SizedBox(height: 24),
-                                              Padding(
-                                                padding: const EdgeInsets.symmetric(horizontal: 24),
-                                                child: Wrap(
-                                                  spacing: 8,
-                                                  runSpacing: 8,
-                                                  alignment: WrapAlignment.center,
-                                                  children: [
-                                                    // Like button
-                                                    ElevatedButton.icon(
-                                                      onPressed: _hasLikedCurrentSuggestion ? null : _likeDbSuggestion,
-                                                      icon: Icon(
-                                                        _hasLikedCurrentSuggestion ? Icons.thumb_up : Icons.thumb_up_outlined, 
-                                                        size: 16
-                                                      ),
-                                                      label: Text(
-                                                        _hasLikedCurrentSuggestion ? 'Liked' : 'Like', 
-                                                        style: const TextStyle(fontSize: 13)
-                                                      ),
-                                                      style: ElevatedButton.styleFrom(
-                                                        backgroundColor: _hasLikedCurrentSuggestion 
-                                                          ? Colors.green.withOpacity(0.3)
-                                                          : Colors.black.withOpacity(0.7),
-                                                        foregroundColor: _hasLikedCurrentSuggestion ? Colors.green : Colors.white,
-                                                        elevation: 0,
-                                                        side: BorderSide(
-                                                          color: _hasLikedCurrentSuggestion 
-                                                            ? Colors.green.withOpacity(0.5)
-                                                            : Colors.white.withOpacity(0.3), 
-                                                          width: 1
-                                                        ),
-                                                        shape: RoundedRectangleBorder(
-                                                          borderRadius: BorderRadius.circular(25),
-                                                        ),
-                                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                                        minimumSize: const Size(0, 44),
-                                                      ),
-                                                    ),
-                                                    
-                                                    // Dislike button
-                                                    ElevatedButton.icon(
-                                                      onPressed: _dislikeDbSuggestion,
-                                                      icon: const Icon(Icons.thumb_down, size: 16),
-                                                      label: const Text('Dislike', style: TextStyle(fontSize: 13)),
-                                                      style: ElevatedButton.styleFrom(
-                                                        backgroundColor: Colors.black.withOpacity(0.7),
-                                                        foregroundColor: Colors.white,
-                                                        elevation: 0,
-                                                        side: BorderSide(color: Colors.white.withOpacity(0.3), width: 1),
-                                                        shape: RoundedRectangleBorder(
-                                                          borderRadius: BorderRadius.circular(25),
-                                                        ),
-                                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                                        minimumSize: const Size(0, 44),
-                                                      ),
-                                                    ),
-                                                    
-                                                    // Favorite button
-                                                    ElevatedButton.icon(
-                                                      onPressed: _hasLikedCurrentSuggestion ? null : _addToFavorites,
-                                                      icon: Icon(
-                                                        _hasLikedCurrentSuggestion ? Icons.favorite : Icons.favorite_border, 
-                                                        size: 16
-                                                      ),
-                                                      label: Text(
-                                                        _hasLikedCurrentSuggestion ? 'Favorited' : 'Favorite', 
-                                                        style: const TextStyle(fontSize: 13)
-                                                      ),
-                                                      style: ElevatedButton.styleFrom(
-                                                        backgroundColor: _hasLikedCurrentSuggestion 
-                                                          ? Colors.red.withOpacity(0.3)
-                                                          : Colors.white.withOpacity(0.15),
-                                                        foregroundColor: _hasLikedCurrentSuggestion ? Colors.red : Colors.white,
-                                                        elevation: 0,
-                                                        shape: RoundedRectangleBorder(
-                                                          borderRadius: BorderRadius.circular(25),
-                                                        ),
-                                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                                        minimumSize: const Size(0, 44),
-                                                      ),
-                                                    ),
-                                                    
-                                                    // Reading list button
-                                                    Builder(
-                                                      builder: (context) {
-                                                        final inReadingList = _currentDbSuggestion != null && 
-                                                          _dbReadingListSuggestions.any((item) => item.id == _currentDbSuggestion!.id);
-                                                        
-                                                        return ElevatedButton.icon(
-                                                          onPressed: inReadingList 
-                                                            ? () => _currentDbSuggestion != null ? _removeFromReadingList(_currentDbSuggestion!) : null
-                                                            : _addDbSuggestionToReadingList,
-                                                          icon: Icon(
-                                                            inReadingList ? Icons.bookmark_added : Icons.bookmark_add, 
-                                                            size: 16
-                                                          ),
-                                                          label: Text(
-                                                            inReadingList ? 'In Reading List' : 'Reading List', 
-                                                            style: const TextStyle(fontSize: 13)
-                                                          ),
-                                                          style: ElevatedButton.styleFrom(
-                                                            backgroundColor: inReadingList 
-                                                              ? Colors.blue.withOpacity(0.3)
-                                                              : Colors.white.withOpacity(0.15),
-                                                            foregroundColor: inReadingList ? Colors.blue : Colors.white,
-                                                            elevation: 0,
-                                                            shape: RoundedRectangleBorder(
-                                                              borderRadius: BorderRadius.circular(25),
-                                                            ),
-                                                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                                            minimumSize: const Size(0, 44),
-                                                          ),
-                                                        );
-                                                      },
-                                                    ),
-                                                    
-                                                    // Skip/Next button
-                                                    ElevatedButton.icon(
-                                                      onPressed: _skipDbSuggestion,
-                                                      icon: Icon(
-                                                        _hasLikedCurrentSuggestion ? Icons.arrow_forward : Icons.skip_next, 
-                                                        size: 16
-                                                      ),
-                                                      label: Text(
-                                                        _hasLikedCurrentSuggestion ? 'Next' : 'Skip', 
-                                                        style: const TextStyle(fontSize: 13)
-                                                      ),
-                                                      style: ElevatedButton.styleFrom(
-                                                        backgroundColor: _hasLikedCurrentSuggestion 
-                                                          ? const Color(0xFF7B68EE).withOpacity(0.3)
-                                                          : Colors.white.withOpacity(0.15),
-                                                        foregroundColor: _hasLikedCurrentSuggestion 
-                                                          ? const Color(0xFF7B68EE) 
-                                                          : Colors.white,
-                                                        elevation: 0,
-                                                        shape: RoundedRectangleBorder(
-                                                          borderRadius: BorderRadius.circular(25),
-                                                        ),
-                                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                                        minimumSize: const Size(0, 44),
-                                                      ),
-                                                    ),
-                                                  ],
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 24),
-                      ],
-                    ),
-                  ),
-                
-                // Reading list section
-                const SizedBox(height: 32),
-                const Center(
-                  child: Text(
-                    'Your Reading List',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
                 ),
-                const SizedBox(height: 16),
-                if (_isLoadingDbReadingList)
-                  const Center(
-                    child: CircularProgressIndicator(
-                      color: Color(0xFFA855F7),
-                    ),
-                  )
-                else if (_dbReadingListSuggestions.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 32),
-                    child: Center(
-                      child: Text(
-                        'No books in your reading list yet. Add suggestions to your reading list to see them here.',
-                        style: TextStyle(color: Colors.white54),
-                        textAlign: TextAlign.center,
-                      ),
-                    ),
-                  )
-                else
-                  _buildDbReadingListSection(),
                 
-                // Library section
-                const SizedBox(height: 32),
-                const Center(
-                  child: Text(
-                    'Your Library',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
+                // Suggestion content
+                ComponentSpacing(
+                  child: _buildSuggestionContent(scrollOffset),
                 ),
-                const SizedBox(height: 16),
-                if (_isLoadingDbLibrary)
-                  const Center(
-                    child: CircularProgressIndicator(
-                      color: Color(0xFFA855F7),
-                    ),
-                  )
-                else if (_dbLikedSuggestions.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 32),
-                    child: Center(
-                      child: Text(
-                        'No books in your library yet. Like or add suggestions to see them here.',
-                        style: TextStyle(color: Colors.white54),
-                        textAlign: TextAlign.center,
-                      ),
-                    ),
-                  )
-                else
-                  _buildDbLibrarySection(),
-                ],
-              ),
+                
+                // Library sections with proper spacing
+                SectionSpacing(
+                  child: _buildReadingListSection(),
+                ),
+                
+                SectionSpacing(
+                  child: _buildLibrarySection(),
+                ),
+              ],
             );
           },
         ),
