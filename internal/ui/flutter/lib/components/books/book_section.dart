@@ -9,6 +9,7 @@ import '../../services/recommendation_service.dart';
 import '../../services/sqlite_db.dart';
 import 'book_card.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import '../../utils/text_utils.dart';
 
 class BookSection extends StatefulWidget {
   const BookSection({super.key});
@@ -749,38 +750,46 @@ class _BookSectionState extends State<BookSection> {
                                       
                                       // Author info
                                       Text(
-                                        'by ${_currentDbSuggestion!.artist ?? 'Unknown Author'}',
+                                        'by ${TextUtils.formatArtistNames(_currentDbSuggestion!.artist)}',
                                         style: TextStyle(
                                           fontSize: 15,
                                           color: Colors.white.withOpacity(0.7),
                                           fontWeight: FontWeight.w400,
                                         ),
                                         textAlign: TextAlign.center,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
                                       ),
                                       const SizedBox(height: 16),
                                       
-                                      // Description text
+                                      // Description text - scrollable with max height
                                       if (_currentDbSuggestion?.description?.isNotEmpty == true)
-                                        Padding(
-                                          padding: const EdgeInsets.only(bottom: 16),
-                                          child: Text(
-                                            _currentDbSuggestion!.description!,
-                                            style: const TextStyle(
-                                              fontSize: 14,
-                                              color: Colors.white,
-                                              height: 1.5,
-                                              fontWeight: FontWeight.w400,
+                                        Container(
+                                          constraints: const BoxConstraints(maxHeight: 120), // Limit description height
+                                          child: Padding(
+                                            padding: const EdgeInsets.only(bottom: 8), // Reduced padding
+                                            child: SingleChildScrollView(
+                                              child: Text(
+                                                _currentDbSuggestion!.description!,
+                                                style: const TextStyle(
+                                                  fontSize: 14,
+                                                  color: Colors.white,
+                                                  height: 1.5,
+                                                  fontWeight: FontWeight.w400,
+                                                ),
+                                                textAlign: TextAlign.center,
+                                              ),
                                             ),
-                                            textAlign: TextAlign.center,
                                           ),
                                         ),
                                       
-                                      Expanded(child: Container()),
+                                      const SizedBox(height: 16),
                                       
-                                      // Bot reasoning
+                                      // Bot reasoning - scrollable
                                       if (_currentDbSuggestion?.botReasoning?.isNotEmpty == true)
                                         Container(
                                           width: double.infinity,
+                                          constraints: const BoxConstraints(maxHeight: 180), // Limit reasoning height
                                           margin: const EdgeInsets.only(bottom: 24),
                                           child: Column(
                                             children: [
@@ -809,14 +818,18 @@ class _BookSectionState extends State<BookSection> {
                                                 color: const Color(0xFF7B68EE).withOpacity(0.2),
                                               ),
                                               const SizedBox(height: 12),
-                                              Text(
-                                                _currentDbSuggestion!.botReasoning!,
-                                                style: TextStyle(
-                                                  color: Colors.white.withOpacity(0.6),
-                                                  fontSize: 14,
-                                                  height: 1.5,
+                                              Expanded(
+                                                child: SingleChildScrollView(
+                                                  child: Text(
+                                                    _currentDbSuggestion!.botReasoning!,
+                                                    style: TextStyle(
+                                                      color: Colors.white.withOpacity(0.6),
+                                                      fontSize: 14,
+                                                      height: 1.5,
+                                                    ),
+                                                    textAlign: TextAlign.center,
+                                                  ),
                                                 ),
-                                                textAlign: TextAlign.center,
                                               ),
                                               
                                               // Action buttons

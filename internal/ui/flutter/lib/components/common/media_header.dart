@@ -375,7 +375,7 @@ class _MediaHeaderState extends State<MediaHeader> {
               ),
               // Add a custom search bar in the header
               Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16.0), // Match suggestion displays and library grids
+                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 24.0), // Even more padding to make search bar narrower
                 child: custom.SearchBar(
                   placeholder: activeMedia == 'music'
                       ? 'Search tracks...'

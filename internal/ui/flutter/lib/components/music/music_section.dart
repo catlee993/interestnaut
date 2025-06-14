@@ -14,6 +14,7 @@ import 'player/spotify_web_player.dart';
 import 'spotify_service.dart';
 import 'suggestions/suggestion_display.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import '../../utils/text_utils.dart';
 
 // A helper class to adapt Track to MediaItem for compatibility
 class TrackAdapter {
@@ -896,39 +897,46 @@ class _MusicSectionState extends State<MusicSection> {
                                       
                                       // Artist and Album info
                                       Text(
-                                        '${_dbSuggestedTrack!.artists.first.name} • ${_dbSuggestedTrack!.album.name}',
+                                        '${TextUtils.formatArtistNames(_dbSuggestedTrack!.artists.first.name)} • ${_dbSuggestedTrack!.album.name}',
                                         style: TextStyle(
                                           fontSize: 15,
                                           color: Colors.white.withOpacity(0.7),
                                           fontWeight: FontWeight.w400,
                                         ),
                                         textAlign: TextAlign.center,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
                                       ),
                                       const SizedBox(height: 16),
                                       
-                                      // Description text (same color as title)
+                                      // Description text (same color as title) - scrollable with max height
                                       if (_currentDbSuggestion?.description?.isNotEmpty == true)
-                                        Padding(
-                                          padding: const EdgeInsets.only(bottom: 16),
-                                          child: Text(
-                                            _currentDbSuggestion!.description!,
-                                            style: const TextStyle(
-                                              fontSize: 14,
-                                              color: Colors.white, // Same as title
-                                              height: 1.5,
-                                              fontWeight: FontWeight.w400,
+                                        Container(
+                                          constraints: const BoxConstraints(maxHeight: 120), // Limit description height
+                                          child: Padding(
+                                            padding: const EdgeInsets.only(bottom: 8), // Reduced padding
+                                            child: SingleChildScrollView(
+                                              child: Text(
+                                                _currentDbSuggestion!.description!,
+                                                style: const TextStyle(
+                                                  fontSize: 14,
+                                                  color: Colors.white, // Same as title
+                                                  height: 1.5,
+                                                  fontWeight: FontWeight.w400,
+                                                ),
+                                                textAlign: TextAlign.center,
+                                              ),
                                             ),
-                                            textAlign: TextAlign.center,
                                           ),
                                         ),
                                       
-                                      // Use Expanded to push reasoning to bottom
-                                      Expanded(child: Container()),
+                                      const SizedBox(height: 16),
                                       
-                                      // Bot reasoning (no background, clean styling)
+                                      // Bot reasoning (no background, clean styling) - scrollable
                                       if (_currentDbSuggestion?.botReasoning?.isNotEmpty == true)
                                         Container(
                                           width: double.infinity,
+                                          constraints: const BoxConstraints(maxHeight: 180), // Limit reasoning height
                                           margin: const EdgeInsets.only(bottom: 24),
                                           child: Column(
                                             children: [
@@ -961,15 +969,19 @@ class _MusicSectionState extends State<MusicSection> {
                                               ),
                                               const SizedBox(height: 12),
                                               
-                                              // Reasoning text
-                                              Text(
-                                                _currentDbSuggestion!.botReasoning!,
-                                                style: TextStyle(
-                                                  color: Colors.white.withOpacity(0.6), // More gray
-                                                  fontSize: 14,
-                                                  height: 1.5,
+                                              // Reasoning text - scrollable
+                                              Expanded(
+                                                child: SingleChildScrollView(
+                                                  child: Text(
+                                                    _currentDbSuggestion!.botReasoning!,
+                                                    style: TextStyle(
+                                                      color: Colors.white.withOpacity(0.6), // More gray
+                                                      fontSize: 14,
+                                                      height: 1.5,
+                                                    ),
+                                                    textAlign: TextAlign.center,
+                                                  ),
                                                 ),
-                                                textAlign: TextAlign.center,
                                               ),
                                               
                                               // Action buttons (moved inside container)
