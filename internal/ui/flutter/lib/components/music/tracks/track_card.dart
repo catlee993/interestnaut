@@ -311,13 +311,13 @@ class _TrackCardState extends State<TrackCard> {
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0), // Reduced vertical padding
                 decoration: BoxDecoration(
-                  // Gradient background instead of flat color
+                  // Gradient background - reversed: dark at top, light at bottom
                   gradient: LinearGradient(
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
                     colors: [
-                      const Color.fromRGBO(40, 40, 40, 0.95), // Slightly lighter at top
-                      const Color.fromRGBO(28, 28, 28, 0.98), // Darker at bottom
+                      const Color.fromRGBO(35, 35, 35, 0.96), // Less dark at top - more subtle
+                      const Color.fromRGBO(40, 40, 40, 0.95), // Lighter at bottom
                     ],
                   ),
                   borderRadius: const BorderRadius.only(
@@ -335,8 +335,10 @@ class _TrackCardState extends State<TrackCard> {
                   // Subtle top border to separate from artwork
                   border: Border(
                     top: BorderSide(
-                      color: Colors.white.withOpacity(0.08),
-                      width: 0.5,
+                      color: _isHovered 
+                          ? const Color.fromRGBO(123, 104, 238, 0.8) // Brighter purple on hover
+                          : const Color.fromRGBO(123, 104, 238, 0.4), // Subtle purple normally
+                      width: _isHovered ? 1.5 : 1.0, // Slightly thicker on hover
                     ),
                   ),
                 ),

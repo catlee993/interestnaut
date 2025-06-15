@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../models.dart';
-import '../tracks/track_card.dart';
+import '../tracks/search_result_card.dart';
 import '../../common/media_grid.dart';
 
 class SearchSection extends StatelessWidget {
@@ -63,7 +63,7 @@ class SearchSection extends StatelessWidget {
       );
     }
 
-    // Display search results in a MediaGrid with 4 columns
+    // Display search results in a MediaGrid with 3 columns using SearchResultCard
     return Padding(
       padding: const EdgeInsets.all(16.0),
       child: SingleChildScrollView(
@@ -94,7 +94,7 @@ class SearchSection extends StatelessWidget {
             MediaGrid(
               columns: 3,  // Using 3 columns for better readability
               children: searchResults
-                  .map((track) => TrackCard(
+                  .map((track) => SearchResultCard(
                         track: track,
                         isSaved: false,
                         onPlay: (t) => onPlay(t),
