@@ -17,6 +17,7 @@ import 'components/movies/movie_section.dart';
 import 'components/books/book_section.dart';
 import 'components/tv/tv_show_section.dart';
 import 'components/common/media_header.dart';
+import 'components/common/media_grid.dart';
 import 'components/music/spotify_service.dart';
 import 'services/llama_service.dart';
 import 'services/wikidata_service.dart';
@@ -606,159 +607,121 @@ class _WikidataSearchSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (isLoading) {
-      return const Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            CircularProgressIndicator(),
-            SizedBox(height: 16),
-            Text(
-              'Searching Wikidata...',
-              style: TextStyle(color: Colors.white70),
-            ),
-          ],
+      return const Padding(
+        padding: EdgeInsets.all(24.0),
+        child: Center(
+          child: CircularProgressIndicator(
+            valueColor: AlwaysStoppedAnimation(Colors.white70),
+          ),
         ),
       );
     }
 
     if (error != null) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.error_outline,
-              color: Colors.red,
-              size: 48,
-            ),
-            SizedBox(height: 16),
-            Text(
-              error!,
-              style: TextStyle(color: Colors.red),
-              textAlign: TextAlign.center,
-            ),
-            SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: onRetry,
-              child: Text('Retry'),
-            ),
-          ],
+      return Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                error!,
+                style: const TextStyle(color: Colors.white),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: onRetry,
+                child: const Text('Retry'),
+              ),
+            ],
+          ),
         ),
       );
     }
 
     if (searchResults.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.search_off,
-              color: Colors.white54,
-              size: 48,
-            ),
-            SizedBox(height: 16),
-            Text(
-              'No results found',
-              style: TextStyle(color: Colors.white70),
-            ),
-          ],
+      return const Padding(
+        padding: EdgeInsets.all(24.0),
+        child: Center(
+          child: Text(
+            'No results found',
+            style: TextStyle(color: Colors.white70),
+          ),
         ),
       );
     }
 
-    return ListView.builder(
-      itemCount: searchResults.length,
-      itemBuilder: (context, index) {
-        final item = searchResults[index];
-        return Card(
-          margin: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          color: Colors.white.withOpacity(0.1),
-          child: ListTile(
-            leading: item.imageUrl != null
-                ? ClipRRect(
-                    borderRadius: BorderRadius.circular(4),
-                    child: Image.network(
-                      item.imageUrl!,
-                      width: 50,
-                      height: 50,
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) {
-                        return Container(
-                          width: 50,
-                          height: 50,
-                          color: Colors.grey.withOpacity(0.3),
-                          child: Icon(
-                            _getMediaIcon(mediaType),
-                            color: Colors.white54,
-                          ),
-                        );
-                      },
-                    ),
-                  )
-                : Container(
-                    width: 50,
-                    height: 50,
-                    decoration: BoxDecoration(
-                      color: Colors.grey.withOpacity(0.3),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Icon(
-                      _getMediaIcon(mediaType),
-                      color: Colors.white54,
-                    ),
-                  ),
-            title: Text(
-              item.title,
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w500,
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            subtitle: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+    // Use the same layout as Spotify search results
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                if (item.artist != null)
-                  Text(
-                    item.artist!,
-                    style: TextStyle(color: Colors.white70),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                Padding(
+                  padding: const EdgeInsets.only(left: 16.0, bottom: 16.0),
+                  child: Text(
+                    'Search Results: ${searchResults.length} ${mediaType}s',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
-                if (item.description != null)
-                  Text(
-                    item.description!,
-                    style: TextStyle(color: Colors.white60, fontSize: 12),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-              ],
-            ),
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                IconButton(
-                  icon: Icon(Icons.favorite_border, color: Colors.white70),
-                  onPressed: () => onSave(item),
-                  tooltip: 'Add to favorites',
                 ),
                 IconButton(
-                  icon: Icon(Icons.remove_circle_outline, color: Colors.white70),
-                  onPressed: () => onRemove(item),
-                  tooltip: 'Remove',
+                  icon: const Icon(Icons.close, color: Colors.white),
+                  onPressed: onClose,
+                  tooltip: 'Close search',
                 ),
               ],
             ),
-          ),
-        );
-      },
+            MediaGrid(
+              columns: 4, // Same as Spotify search
+              children: searchResults
+                  .map((result) => _WikidataCard(
+                        result: result,
+                        mediaType: mediaType,
+                        onSave: () => onSave(result),
+                        onRemove: () => onRemove(result),
+                      ))
+                  .toList(),
+            ),
+          ],
+        ),
+      ),
     );
   }
+}
 
-  IconData _getMediaIcon(String mediaType) {
-    switch (mediaType.toLowerCase()) {
+// Card component that matches TrackCard layout for Wikidata results
+class _WikidataCard extends StatefulWidget {
+  final WikidataSearchResult result;
+  final String mediaType;
+  final VoidCallback onSave;
+  final VoidCallback onRemove;
+
+  const _WikidataCard({
+    Key? key,
+    required this.result,
+    required this.mediaType,
+    required this.onSave,
+    required this.onRemove,
+  }) : super(key: key);
+
+  @override
+  State<_WikidataCard> createState() => _WikidataCardState();
+}
+
+class _WikidataCardState extends State<_WikidataCard> {
+  bool _isHovered = false;
+
+  IconData _getMediaIcon() {
+    switch (widget.mediaType.toLowerCase()) {
       case 'book':
       case 'books':
         return Icons.book;
@@ -781,5 +744,177 @@ class _WikidataSearchSection extends StatelessWidget {
       default:
         return Icons.help_outline;
     }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      onEnter: (_) => setState(() => _isHovered = true),
+      onExit: (_) => setState(() => _isHovered = false),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeInOut,
+        transform: _isHovered 
+            ? Matrix4.translationValues(0, -4, 0)
+            : Matrix4.translationValues(0, 0, 0),
+        decoration: BoxDecoration(
+          color: AppTheme.surfaceColor,
+          borderRadius: BorderRadius.circular(AppTheme.cardBorderRadius),
+          border: Border.all(
+            color: _isHovered 
+                ? const Color.fromRGBO(123, 104, 238, 0.5)
+                : const Color.fromRGBO(123, 104, 238, 0.3),
+            width: 2,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.3),
+              blurRadius: 8,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: AspectRatio(
+          aspectRatio: 1, // Same 1:1 aspect ratio as TrackCard
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(AppTheme.cardBorderRadius),
+            child: Stack(
+              children: [
+                // Image background
+                Positioned.fill(
+                  child: widget.result.imageUrl != null && widget.result.imageUrl!.isNotEmpty
+                      ? Image.network(
+                          widget.result.imageUrl!,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) {
+                            return Container(
+                              color: AppTheme.cardBackgroundColor,
+                              child: Center(
+                                child: Icon(_getMediaIcon(), size: 48, color: Colors.white54),
+                              ),
+                            );
+                          },
+                        )
+                      : Container(
+                          color: AppTheme.cardBackgroundColor,
+                          child: Center(
+                            child: Icon(_getMediaIcon(), size: 48, color: Colors.white54),
+                          ),
+                        ),
+                ),
+                
+                // Same gradient overlay as TrackCard
+                Positioned.fill(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.bottomCenter,
+                        end: Alignment.topCenter,
+                        colors: [
+                          Colors.black.withOpacity(0.9),
+                          Colors.black.withOpacity(0.6),
+                          Colors.black.withOpacity(0.4),
+                          Colors.black.withOpacity(0.2),
+                          Colors.transparent,
+                        ],
+                        stops: const [0.0, 0.3, 0.6, 0.8, 1.0],
+                      ),
+                    ),
+                  ),
+                ),
+                
+                // Controls and text overlay (same layout as TrackCard)
+                Positioned(
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Row(
+                      children: [
+                        // Info button instead of play button
+                        Container(
+                          width: 42,
+                          height: 42,
+                          decoration: BoxDecoration(
+                            color: AppTheme.primaryColor,
+                            borderRadius: BorderRadius.circular(21),
+                          ),
+                          child: IconButton(
+                            icon: const Icon(
+                              Icons.info_outline,
+                              size: 20,
+                              color: Colors.white,
+                            ),
+                            onPressed: () {
+                              // Show more info or open Wikipedia link
+                              final url = widget.result.additionalData?['url'];
+                              if (url != null) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text('Wikipedia: $url'),
+                                    duration: const Duration(seconds: 3),
+                                  ),
+                                );
+                              }
+                            },
+                            tooltip: "More info",
+                            padding: EdgeInsets.zero,
+                          ),
+                        ),
+                        
+                        // Title and artist info (same layout as TrackCard)
+                        Expanded(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 12.0),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  widget.result.title,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w500,
+                                    fontSize: 16,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                Text(
+                                  widget.result.artist ?? 'Unknown ${widget.mediaType}',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 14,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        
+                        // Save button (same style as TrackCard)
+                        TextButton(
+                          onPressed: widget.onSave,
+                          style: TextButton.styleFrom(
+                            foregroundColor: Colors.white,
+                            minimumSize: const Size(10, 10),
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                            textStyle: const TextStyle(fontSize: 14),
+                          ),
+                          child: const Text('Save'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
