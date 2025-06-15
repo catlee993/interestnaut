@@ -964,78 +964,104 @@ class _MusicSectionState extends State<MusicSection> {
                         ),
                         const SizedBox(height: 16),
                         
-                        // Description text (same color as title) - scrollable with max height
-                        if (_currentDbSuggestion?.description?.isNotEmpty == true)
-                          Container(
-                            constraints: const BoxConstraints(maxHeight: 120), // Limit description height
-                            child: Padding(
-                              padding: const EdgeInsets.only(bottom: 8), // Reduced padding
-                              child: SingleChildScrollView(
-                                child: Text(
-                                  _currentDbSuggestion!.description!,
-                                  style: const TextStyle(
-                                    fontSize: 14,
-                                    color: Colors.white, // Same as title
-                                    height: 1.5,
-                                    fontWeight: FontWeight.w400,
-                                  ),
-                                  textAlign: TextAlign.center,
+                        // Flexible content area for description and reasoning
+                        Expanded(
+                          child: Column(
+                            children: [
+                              // Description text - flexible height based on reasoning length
+                              if (_currentDbSuggestion?.description?.isNotEmpty == true)
+                                Builder(
+                                  builder: (context) {
+                                    // Calculate reasoning length to determine description space
+                                    final reasoningLength = _currentDbSuggestion?.botReasoning?.length ?? 0;
+                                    final isReasoningShort = reasoningLength < 200; // Threshold for "short" reasoning
+                                    final maxDescriptionHeight = isReasoningShort ? 180.0 : 120.0; // More space if reasoning is short
+                                    
+                                    return Container(
+                                      constraints: BoxConstraints(maxHeight: maxDescriptionHeight),
+                                      child: Padding(
+                                        padding: const EdgeInsets.only(bottom: 8),
+                                        child: SingleChildScrollView(
+                                          child: Text(
+                                            _currentDbSuggestion!.description!,
+                                            style: const TextStyle(
+                                              fontSize: 14,
+                                              color: Colors.white,
+                                              height: 1.5,
+                                              fontWeight: FontWeight.w400,
+                                            ),
+                                            textAlign: TextAlign.center,
+                                          ),
+                                        ),
+                                      ),
+                                    );
+                                  },
                                 ),
-                              ),
-                            ),
-                          ),
-                        
-                        const SizedBox(height: 16),
-                        
-                        // Bot reasoning (no background, clean styling) - scrollable
-                        if (_currentDbSuggestion?.botReasoning?.isNotEmpty == true)
-                          Expanded(
-                            child: Container(
-                              width: double.infinity,
-                              margin: const EdgeInsets.only(bottom: 24),
-                              child: Column(
-                                children: [
-                                  // Reasoning header with Font Awesome robot icon
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      Icon(
-                                        FontAwesomeIcons.robot, // Clean robot icon from Font Awesome
-                                        size: 16,
-                                        color: const Color(0xFF8C86E2).withOpacity(0.7), // rgba(140, 134, 258, 0.7)
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Text(
-                                        'Reasoning',
-                                        style: TextStyle(
-                                          color: const Color(0xFF8C86E2).withOpacity(0.7),
-                                          fontWeight: FontWeight.w500,
-                                          fontSize: 14,
+                              
+                              const SizedBox(height: 16),
+                              
+                              // Bot reasoning - takes remaining space but ensures minimum padding
+                              if (_currentDbSuggestion?.botReasoning?.isNotEmpty == true)
+                                Expanded(
+                                  child: Container(
+                                    width: double.infinity,
+                                    margin: const EdgeInsets.only(bottom: 24), // Ensure bottom padding
+                                    child: Column(
+                                      children: [
+                                        // Reasoning header with Font Awesome robot icon
+                                        Row(
+                                          mainAxisAlignment: MainAxisAlignment.center,
+                                          children: [
+                                            Icon(
+                                              FontAwesomeIcons.robot,
+                                              size: 16,
+                                              color: const Color(0xFF8C86E2).withOpacity(0.7),
+                                            ),
+                                            const SizedBox(width: 8),
+                                            Text(
+                                              'Reasoning',
+                                              style: TextStyle(
+                                                color: const Color(0xFF8C86E2).withOpacity(0.7),
+                                                fontWeight: FontWeight.w500,
+                                                fontSize: 14,
+                                              ),
+                                            ),
+                                          ],
                                         ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 8),
-                                  
-                                  // Reasoning text - scrollable
-                                  Expanded(
-                                    child: SingleChildScrollView(
-                                      child: Text(
-                                        _currentDbSuggestion!.botReasoning!,
-                                        style: TextStyle(
-                                          fontSize: 13,
-                                          color: const Color(0xFF8C86E2).withOpacity(0.8),
-                                          height: 1.4,
-                                          fontWeight: FontWeight.w400,
+                                        const SizedBox(height: 8),
+                                        
+                                        // Reasoning text - scrollable with constraints to prevent overflow
+                                        Expanded(
+                                          child: LayoutBuilder(
+                                            builder: (context, constraints) {
+                                              return Container(
+                                                constraints: BoxConstraints(
+                                                  maxHeight: constraints.maxHeight,
+                                                  minHeight: 40, // Minimum height for reasoning
+                                                ),
+                                                child: SingleChildScrollView(
+                                                  child: Text(
+                                                    _currentDbSuggestion!.botReasoning!,
+                                                    style: TextStyle(
+                                                      fontSize: 13,
+                                                      color: const Color(0xFF8C86E2).withOpacity(0.8),
+                                                      height: 1.4,
+                                                      fontWeight: FontWeight.w400,
+                                                    ),
+                                                    textAlign: TextAlign.center,
+                                                  ),
+                                                ),
+                                              );
+                                            },
+                                          ),
                                         ),
-                                        textAlign: TextAlign.center,
-                                      ),
+                                      ],
                                     ),
                                   ),
-                                ],
-                              ),
-                            ),
+                                ),
+                            ],
                           ),
+                        ),
                         
                         // Action buttons - wrap layout like other media sections
                         const SizedBox(height: 24),

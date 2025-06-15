@@ -19,6 +19,7 @@ import 'components/tv/tv_show_section.dart';
 import 'components/common/media_header.dart';
 import 'components/music/spotify_service.dart';
 import 'services/llama_service.dart';
+import 'services/wikidata_service.dart';
 import 'services/recommendation_service.dart';
 import 'services/ffi_init.dart';
 import 'services/go_bindings.dart';
@@ -265,7 +266,7 @@ class _InterestnautAppState extends State<InterestnautApp> {
               onMediaChange: _handleMediaChange,
             ),
           ),
-          if (_isSearchActive && _currentMediaType == 'music')
+          if (_isSearchActive)
             _buildSearchOverlay(context),
         ],
       ),
@@ -336,8 +337,9 @@ class _InterestnautAppState extends State<InterestnautApp> {
               minHeight: 300,
               maxHeight: MediaQuery.of(context).size.height * 0.7,
             ),
-            child: _MusicSearchHandler(
+            child: _UnifiedSearchHandler(
               searchQuery: _searchQuery,
+              mediaType: _currentMediaType,
               onClearSearch: _clearSearch,
             ),
           ),
@@ -347,38 +349,53 @@ class _InterestnautAppState extends State<InterestnautApp> {
   }
 }
 
-// A separate widget to handle Spotify search state and display
-class _MusicSearchHandler extends StatefulWidget {
+// A unified search handler that uses Spotify for music and Wikidata for other media types
+class _UnifiedSearchHandler extends StatefulWidget {
   final String searchQuery;
+  final String mediaType;
   final VoidCallback onClearSearch;
 
-  const _MusicSearchHandler({
+  const _UnifiedSearchHandler({
     Key? key,
     required this.searchQuery,
+    required this.mediaType,
     required this.onClearSearch,
   }) : super(key: key);
 
   @override
-  State<_MusicSearchHandler> createState() => _MusicSearchHandlerState();
+  State<_UnifiedSearchHandler> createState() => _UnifiedSearchHandlerState();
 }
 
-class _MusicSearchHandlerState extends State<_MusicSearchHandler> {
+class _UnifiedSearchHandlerState extends State<_UnifiedSearchHandler> {
   final SpotifyService _spotifyService = SpotifyService();
-  List<SimpleTrack> _searchResults = [];
+  final WikidataService _wikidataService = WikidataService();
+  
+  List<dynamic> _searchResults = []; // Can be SimpleTrack or WikidataSearchResult
   bool _isLoading = false;
   String? _error;
+  bool _isSpotifyActive = false;
 
   @override
   void initState() {
     super.initState();
+    _checkSpotifyStatus();
     _performSearch(widget.searchQuery);
   }
 
   @override
-  void didUpdateWidget(_MusicSearchHandler oldWidget) {
+  void didUpdateWidget(_UnifiedSearchHandler oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.searchQuery != oldWidget.searchQuery) {
+    if (widget.searchQuery != oldWidget.searchQuery || widget.mediaType != oldWidget.mediaType) {
+      _checkSpotifyStatus();
       _performSearch(widget.searchQuery);
+    }
+  }
+
+  Future<void> _checkSpotifyStatus() async {
+    if (widget.mediaType == 'music') {
+      _isSpotifyActive = _spotifyService.isAuthenticated;
+    } else {
+      _isSpotifyActive = false;
     }
   }
 
@@ -398,82 +415,134 @@ class _MusicSearchHandlerState extends State<_MusicSearchHandler> {
     });
 
     try {
-      final results = await _spotifyService.searchTracks(query);
-      if (mounted) {
-        setState(() {
-          _searchResults = results;
-          _isLoading = false;
-        });
+      if (widget.mediaType == 'music' && _isSpotifyActive) {
+        // Use Spotify for music when authenticated
+        final results = await _spotifyService.searchTracks(query);
+        if (mounted) {
+          setState(() {
+            _searchResults = results;
+            _isLoading = false;
+          });
+        }
+      } else {
+        // Use Wikidata for all other cases
+        debugPrint('🔍 Starting Wikidata search for "$query" in ${widget.mediaType}');
+        try {
+          final results = await _wikidataService.search(query, widget.mediaType);
+          debugPrint('✅ Wikidata search returned ${results.length} results');
+          if (mounted) {
+            setState(() {
+              _searchResults = results;
+              _isLoading = false;
+            });
+          }
+        } catch (e) {
+          debugPrint('❌ Wikidata search error: $e');
+          if (mounted) {
+            setState(() {
+              _searchResults = [];
+              _isLoading = false;
+              _error = 'Search failed: $e';
+            });
+          }
+        }
       }
     } catch (e) {
-      debugPrint('Error searching tracks: $e');
+      debugPrint('Error searching ${widget.mediaType}: $e');
       if (mounted) {
         setState(() {
-          _error = 'Failed to search tracks: $e';
+          _error = 'Failed to search ${widget.mediaType}: $e';
           _isLoading = false;
         });
       }
     }
   }
 
-  Future<void> _handlePlay(SimpleTrack track) async {
-    try {
-      await _spotifyService.playTrack(track.uri);
-    } catch (e) {
-      debugPrint('Error playing track: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to play track: $e'),
-            duration: const Duration(seconds: 3),
-          ),
-        );
+  Future<void> _handlePlay(dynamic item) async {
+    if (item is SimpleTrack) {
+      try {
+        await _spotifyService.playTrack(item.uri);
+      } catch (e) {
+        debugPrint('Error playing track: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Failed to play track: $e'),
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
       }
     }
+    // For Wikidata results, we don't have play functionality
   }
 
-  Future<void> _handleSave(SimpleTrack track) async {
-    try {
-      await _spotifyService.saveTrack(track.id);
+  Future<void> _handleSave(dynamic item) async {
+    if (item is SimpleTrack) {
+      try {
+        await _spotifyService.saveTrack(item.id);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Added "${item.name}" to your library'),
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
+      } catch (e) {
+        debugPrint('Error saving track: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Failed to save track: $e'),
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
+      }
+    } else if (item is WikidataSearchResult) {
+      // For Wikidata results, add to favorites/watchlist
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Added "${track.name}" to your library'),
+            content: Text('Added "${item.title}" to your favorites'),
             duration: const Duration(seconds: 2),
           ),
         );
       }
-    } catch (e) {
-      debugPrint('Error saving track: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to save track: $e'),
-            duration: const Duration(seconds: 3),
-          ),
-        );
-      }
     }
   }
 
-  Future<void> _handleRemove(SimpleTrack track) async {
-    try {
-      await _spotifyService.removeTrack(track.id);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Removed "${track.name}" from your library'),
-            duration: const Duration(seconds: 2),
-          ),
-        );
+  Future<void> _handleRemove(dynamic item) async {
+    if (item is SimpleTrack) {
+      try {
+        await _spotifyService.removeTrack(item.id);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Removed "${item.name}" from your library'),
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
+      } catch (e) {
+        debugPrint('Error removing track: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Failed to remove track: $e'),
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
       }
-    } catch (e) {
-      debugPrint('Error removing track: $e');
+    } else if (item is WikidataSearchResult) {
+      // For Wikidata results, remove from favorites/watchlist
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to remove track: $e'),
-            duration: const Duration(seconds: 3),
+            content: Text('Removed "${item.title}" from your favorites'),
+            duration: const Duration(seconds: 2),
           ),
         );
       }
@@ -482,16 +551,235 @@ class _MusicSearchHandlerState extends State<_MusicSearchHandler> {
 
   @override
   Widget build(BuildContext context) {
-    return SearchSection(
-      searchResults: _searchResults,
-      isLoading: _isLoading,
-      error: _error,
-      onSearch: _performSearch,
-      onPlay: _handlePlay,
-      onSave: _handleSave,
-      onRemove: _handleRemove,
-      onRetry: () => _performSearch(widget.searchQuery),
-      onClose: widget.onClearSearch,
+    if (widget.mediaType == 'music' && _isSpotifyActive) {
+      // Use existing SearchSection for Spotify results
+      return SearchSection(
+        searchResults: _searchResults.cast<SimpleTrack>(),
+        isLoading: _isLoading,
+        error: _error,
+        onSearch: _performSearch,
+        onPlay: _handlePlay,
+        onSave: _handleSave,
+        onRemove: _handleRemove,
+        onRetry: () => _performSearch(widget.searchQuery),
+        onClose: widget.onClearSearch,
+      );
+    } else {
+      // Create a new search section for Wikidata results
+      return _WikidataSearchSection(
+        searchResults: _searchResults.cast<WikidataSearchResult>(),
+        mediaType: widget.mediaType,
+        isLoading: _isLoading,
+        error: _error,
+        onSave: _handleSave,
+        onRemove: _handleRemove,
+        onRetry: () => _performSearch(widget.searchQuery),
+        onClose: widget.onClearSearch,
+      );
+    }
+  }
+}
+
+// Widget to display Wikidata search results
+class _WikidataSearchSection extends StatelessWidget {
+  final List<WikidataSearchResult> searchResults;
+  final String mediaType;
+  final bool isLoading;
+  final String? error;
+  final Function(WikidataSearchResult) onSave;
+  final Function(WikidataSearchResult) onRemove;
+  final VoidCallback onRetry;
+  final VoidCallback onClose;
+
+  const _WikidataSearchSection({
+    Key? key,
+    required this.searchResults,
+    required this.mediaType,
+    required this.isLoading,
+    this.error,
+    required this.onSave,
+    required this.onRemove,
+    required this.onRetry,
+    required this.onClose,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    if (isLoading) {
+      return const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 16),
+            Text(
+              'Searching Wikidata...',
+              style: TextStyle(color: Colors.white70),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (error != null) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.error_outline,
+              color: Colors.red,
+              size: 48,
+            ),
+            SizedBox(height: 16),
+            Text(
+              error!,
+              style: TextStyle(color: Colors.red),
+              textAlign: TextAlign.center,
+            ),
+            SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: onRetry,
+              child: Text('Retry'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (searchResults.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.search_off,
+              color: Colors.white54,
+              size: 48,
+            ),
+            SizedBox(height: 16),
+            Text(
+              'No results found',
+              style: TextStyle(color: Colors.white70),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.builder(
+      itemCount: searchResults.length,
+      itemBuilder: (context, index) {
+        final item = searchResults[index];
+        return Card(
+          margin: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          color: Colors.white.withOpacity(0.1),
+          child: ListTile(
+            leading: item.imageUrl != null
+                ? ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: Image.network(
+                      item.imageUrl!,
+                      width: 50,
+                      height: 50,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) {
+                        return Container(
+                          width: 50,
+                          height: 50,
+                          color: Colors.grey.withOpacity(0.3),
+                          child: Icon(
+                            _getMediaIcon(mediaType),
+                            color: Colors.white54,
+                          ),
+                        );
+                      },
+                    ),
+                  )
+                : Container(
+                    width: 50,
+                    height: 50,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.withOpacity(0.3),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Icon(
+                      _getMediaIcon(mediaType),
+                      color: Colors.white54,
+                    ),
+                  ),
+            title: Text(
+              item.title,
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w500,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (item.artist != null)
+                  Text(
+                    item.artist!,
+                    style: TextStyle(color: Colors.white70),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                if (item.description != null)
+                  Text(
+                    item.description!,
+                    style: TextStyle(color: Colors.white60, fontSize: 12),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+              ],
+            ),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  icon: Icon(Icons.favorite_border, color: Colors.white70),
+                  onPressed: () => onSave(item),
+                  tooltip: 'Add to favorites',
+                ),
+                IconButton(
+                  icon: Icon(Icons.remove_circle_outline, color: Colors.white70),
+                  onPressed: () => onRemove(item),
+                  tooltip: 'Remove',
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
+  }
+
+  IconData _getMediaIcon(String mediaType) {
+    switch (mediaType.toLowerCase()) {
+      case 'book':
+      case 'books':
+        return Icons.book;
+      case 'music':
+      case 'song':
+      case 'album':
+        return Icons.music_note;
+      case 'movie':
+      case 'movies':
+      case 'film':
+        return Icons.movie;
+      case 'tv':
+      case 'television':
+      case 'show':
+        return Icons.tv;
+      case 'game':
+      case 'games':
+      case 'videogame':
+        return Icons.games;
+      default:
+        return Icons.help_outline;
+    }
   }
 }
