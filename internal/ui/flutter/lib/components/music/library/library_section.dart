@@ -35,31 +35,37 @@ class LibrarySection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          if (showHeader) ...[
-            const Center(
-              child: Text(
-                'Your Library', 
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white)
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (showHeader)
+          const Padding(
+            padding: EdgeInsets.only(left: 16.0, bottom: 16.0),
+            child: Text(
+              'Your Library',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
               ),
             ),
-            const SizedBox(height: 16),
-          ],
-          if (savedTracks.isEmpty)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 32),
+          ),
+        if (savedTracks.isEmpty) ...[
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 32),
+            child: Center(
               child: Text(
                 'No saved tracks yet. Search for tracks to add them to your library.',
                 style: TextStyle(color: Colors.white54),
                 textAlign: TextAlign.center,
               ),
-            )
-          else ...[
+            ),
+          ),
+        ] else ...[
             MediaGrid(
+              columns: 2, // Use 2 columns for better spacing
+              spacing: 24.0, // Add more spacing between cards
+              childAspectRatio: 0.88, // Just enough height for square artwork + controls without too much extra space
               children: savedTracks
                   .map((track) {
                     // Convert Track to SimpleTrack for TrackCard compatibility
@@ -80,47 +86,32 @@ class LibrarySection extends StatelessWidget {
                       onPlay: (t) => onPlay(track), // Pass original track to onPlay
                       onSave: (t) => onSave(track), // Pass original track to onSave
                       onRemove: (t) => onRemove(track), // Pass original track to onRemove
+                      layout: TrackCardLayout.library, // Use library layout for liked songs
                     );
                   })
                   .toList(),
             ),
             const SizedBox(height: 16),
+            // Pagination controls
             Row(
-              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                SizedBox(
-                  width: 100, // Fixed width for both buttons
-                  child: OutlinedButton(
-                    onPressed: currentPage == 1 ? null : onPrevPage,
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: const Color(0xFFA855F7),
-                      side: const BorderSide(color: Color(0xFFA855F7)),
-                    ),
-                    child: const Text('Previous'),
-                  ),
+                ElevatedButton(
+                  onPressed: currentPage > 1 ? onPrevPage : null,
+                  child: const Text('Previous'),
                 ),
-                const SizedBox(width: 16),
                 Text(
-                  'Page $currentPage of ${((totalTracks + itemsPerPage - 1) / itemsPerPage).floor()}',
-                  style: const TextStyle(color: Colors.white70),
+                  'Page $currentPage of ${(totalTracks / itemsPerPage).ceil()}',
+                  style: const TextStyle(color: Colors.white),
                 ),
-                const SizedBox(width: 16),
-                SizedBox(
-                  width: 100, // Same fixed width as Previous button
-                  child: OutlinedButton(
-                    onPressed: currentPage * itemsPerPage >= totalTracks ? null : onNextPage,
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: const Color(0xFFA855F7),
-                      side: const BorderSide(color: Color(0xFFA855F7)),
-                    ),
-                    child: const Text('Next'),
-                  ),
+                ElevatedButton(
+                  onPressed: currentPage * itemsPerPage < totalTracks ? onNextPage : null,
+                  child: const Text('Next'),
                 ),
               ],
             ),
           ],
-        ],
-      ),
+      ],
     );
   }
 }

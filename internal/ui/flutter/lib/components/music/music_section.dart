@@ -1292,6 +1292,7 @@ class _MusicSectionState extends State<MusicSection> {
   Widget _buildSpotifyLibrarySection() {
     return Column(
       children: [
+        const SizedBox(height: 32.0), // Add spacing before the title
         const Center(
           child: Text(
             'Your Spotify Liked Tracks',
@@ -1301,6 +1302,7 @@ class _MusicSectionState extends State<MusicSection> {
             ),
           ),
         ),
+        const SizedBox(height: 24.0), // Add more spacing between title and content
         ComponentSpacing(
           child: !_isAuthenticated
             ? _buildAuthPrompt()

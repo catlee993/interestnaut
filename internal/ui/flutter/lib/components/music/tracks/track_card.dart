@@ -3,6 +3,8 @@ import '../../../theme.dart';
 import '../../../models.dart';
 import '../../common/icons.dart';
 
+enum TrackCardLayout { search, library }
+
 class TrackCard extends StatefulWidget {
   final dynamic track; // SimpleTrack or full Track
   final bool isSaved;
@@ -10,6 +12,7 @@ class TrackCard extends StatefulWidget {
   final Function(dynamic) onPlay;
   final Function(dynamic)? onSave;
   final Function(dynamic)? onRemove;
+  final TrackCardLayout layout;
 
   const TrackCard({
     Key? key,
@@ -19,6 +22,7 @@ class TrackCard extends StatefulWidget {
     required this.onPlay,
     this.onSave,
     this.onRemove,
+    this.layout = TrackCardLayout.search,
   }) : super(key: key);
 
   @override
@@ -102,178 +106,331 @@ class _TrackCardState extends State<TrackCard> {
             ),
           ],
         ),
-        child: AspectRatio(
-          aspectRatio: 1, // 1:1 aspect ratio as in React
+        child: widget.layout == TrackCardLayout.library 
+            ? _buildLibraryLayout(info, canPlay)
+            : _buildSearchLayout(info, canPlay),
+      ),
+    );
+  }
+
+  Widget _buildSearchLayout(Map<String, dynamic> info, bool canPlay) {
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Playing indicator at the top
+          Container(
+            height: 3,
+            width: double.infinity,
+            decoration: BoxDecoration(
+              color: widget.isPlaying ? AppTheme.primaryColor : Colors.transparent,
+              borderRadius: BorderRadius.circular(1.5),
+            ),
+          ),
+          const SizedBox(height: 12),
+          
+          // Album artwork - no overlays, rounded corners per Spotify guidelines
+          Expanded(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(4), // 4px for large devices per Spotify guidelines
+              child: Container(
+                width: double.infinity,
+                child: info['albumArtUrl'] != null && info['albumArtUrl'].isNotEmpty
+                    ? Image.network(
+                        info['albumArtUrl'],
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) {
+                          return Container(
+                            color: AppTheme.cardBackgroundColor,
+                            child: const Center(
+                              child: Icon(Icons.music_note, size: 48, color: Colors.white54),
+                            ),
+                          );
+                        },
+                      )
+                    : Container(
+                        color: AppTheme.cardBackgroundColor,
+                        child: const Center(
+                          child: Icon(Icons.music_note, size: 48, color: Colors.white54),
+                        ),
+                      ),
+              ),
+            ),
+          ),
+          
+          const SizedBox(height: 12),
+          
+          // Track title - separate from artwork
+          Text(
+            info['name'] ?? 'Unknown Track',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w500,
+              fontSize: 16,
+            ),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+          
+          const SizedBox(height: 4),
+          
+          // Artist name
+          Text(
+            info['artist'] ?? 'Unknown Artist',
+            style: const TextStyle(
+              color: Colors.white70,
+              fontSize: 14,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          
+          if (!canPlay) ...[
+            const SizedBox(height: 4),
+            const Text(
+              'Playback unavailable',
+              style: TextStyle(
+                color: Colors.red,
+                fontSize: 12,
+              ),
+            ),
+          ],
+          
+          const SizedBox(height: 12),
+          
+          // Controls row - separate from artwork
+          Row(
+            children: [
+              // Play button
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: AppTheme.primaryColor,
+                  borderRadius: BorderRadius.circular(21),
+                ),
+                child: IconButton(
+                  icon: Icon(
+                    widget.isPlaying ? AppIcons.pause : AppIcons.play,
+                    size: AppIcons.iconSizeSmall,
+                    color: Colors.white,
+                  ),
+                  onPressed: canPlay ? () => widget.onPlay(widget.track) : null,
+                  tooltip: !canPlay
+                      ? "Playback unavailable"
+                      : widget.isPlaying
+                          ? "Pause"
+                          : info['uri'] != null
+                              ? "Play full song"
+                              : "Play preview",
+                  color: Colors.white,
+                  padding: EdgeInsets.zero,
+                ),
+              ),
+              
+              const Spacer(),
+              
+              // Save/Remove button
+              widget.isSaved
+                  ? TextButton(
+                      onPressed: widget.onRemove != null 
+                          ? () => widget.onRemove!(widget.track)
+                          : null,
+                      style: TextButton.styleFrom(
+                        foregroundColor: AppTheme.errorColor,
+                        minimumSize: const Size(10, 10),
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        textStyle: const TextStyle(fontSize: 14),
+                      ),
+                      child: const Text('Remove'),
+                    )
+                  : TextButton(
+                      onPressed: widget.onSave != null 
+                          ? () => widget.onSave!(widget.track)
+                          : null,
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        minimumSize: const Size(10, 10),
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        textStyle: const TextStyle(fontSize: 14),
+                      ),
+                      child: const Text('Save'),
+                    ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLibraryLayout(Map<String, dynamic> info, bool canPlay) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Playing indicator at the very top
+        Container(
+          height: 3,
+          width: double.infinity,
+          decoration: BoxDecoration(
+            color: widget.isPlaying ? AppTheme.primaryColor : Colors.transparent,
+            borderRadius: BorderRadius.circular(1.5),
+          ),
+        ),
+        
+        // Album artwork - perfect square component independent of controls
+        AspectRatio(
+          aspectRatio: 1.0, // Perfect square
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(AppTheme.cardBorderRadius),
-            child: Stack(
-              children: [
-                // Album art background
-                Positioned.fill(
-                  child: info['albumArtUrl'] != null && info['albumArtUrl'].isNotEmpty
-                      ? Image.network(
-                          info['albumArtUrl'],
-                          fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) {
-                            return Container(
-                              color: AppTheme.cardBackgroundColor,
-                              child: const Center(
-                                child: Icon(Icons.music_note, size: 48, color: Colors.white54),
-                              ),
-                            );
-                          },
-                        )
-                      : Container(
+            borderRadius: const BorderRadius.only(
+              topLeft: Radius.circular(4),
+              topRight: Radius.circular(4),
+            ),
+            child: Container(
+              width: double.infinity,
+              height: double.infinity,
+              child: info['albumArtUrl'] != null && info['albumArtUrl'].isNotEmpty
+                  ? Image.network(
+                      info['albumArtUrl'],
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) {
+                        return Container(
                           color: AppTheme.cardBackgroundColor,
                           child: const Center(
                             child: Icon(Icons.music_note, size: 48, color: Colors.white54),
                           ),
-                        ),
-                ),
-                
-                // Playing indicator at the top
-                Positioned(
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 200),
-                    height: 3, // Reduced from 4 to match MUI
-                    color: widget.isPlaying ? AppTheme.primaryColor : Colors.transparent,
-                  ),
-                ),
-                
-                // Gradient overlay - updated to match MUI
-                Positioned.fill(
-                  child: Container(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.bottomCenter,
-                        end: Alignment.topCenter,
-                        colors: [
-                          Colors.black.withOpacity(0.9),
-                          Colors.black.withOpacity(0.6),
-                          Colors.black.withOpacity(0.4),
-                          Colors.black.withOpacity(0.2),
-                          Colors.transparent,
-                        ],
-                        stops: const [0.0, 0.3, 0.6, 0.8, 1.0],
+                        );
+                      },
+                    )
+                  : Container(
+                      color: AppTheme.cardBackgroundColor,
+                      child: const Center(
+                        child: Icon(Icons.music_note, size: 48, color: Colors.white54),
                       ),
                     ),
-                  ),
-                ),
-                
-                // Controls and text overlay
-                Positioned(
-                  bottom: 0,
-                  left: 0,
-                  right: 0,
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Row(
-                      children: [
-                        // Play button
-                        Container(
-                          width: 42,
-                          height: 42,
-                          decoration: BoxDecoration(
-                            color: AppTheme.primaryColor,
-                            borderRadius: BorderRadius.circular(21),
-                          ),
-                          child: IconButton(
-                            icon: Icon(
-                              widget.isPlaying ? AppIcons.pause : AppIcons.play,
-                              size: AppIcons.iconSizeSmall,
-                              color: Colors.white,
-                            ),
-                            onPressed: canPlay ? () => widget.onPlay(widget.track) : null,
-                            tooltip: !canPlay
-                                ? "Playback unavailable"
-                                : widget.isPlaying
-                                    ? "Pause"
-                                    : info['uri'] != null
-                                        ? "Play full song"
-                                        : "Play preview",
-                            color: Colors.white,
-                            padding: EdgeInsets.zero,
-                          ),
-                        ),
-                        
-                        // Track info
-                        Expanded(
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 12.0),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  info['name'] ?? 'Unknown Track',
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.w500,
-                                    fontSize: 16,
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                Text(
-                                  info['artist'] ?? 'Unknown Artist',
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 14,
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                if (!canPlay)
-                                  const Text(
-                                    'Playback unavailable',
-                                    style: TextStyle(
-                                      color: Colors.red,
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ),
-                        ),
-                        
-                        // Save/Remove button
-                        widget.isSaved
-                            ? TextButton(
-                                onPressed: widget.onRemove != null 
-                                    ? () => widget.onRemove!(widget.track)
-                                    : null,
-                                style: TextButton.styleFrom(
-                                  foregroundColor: AppTheme.errorColor,
-                                  minimumSize: const Size(10, 10),
-                                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                                  textStyle: const TextStyle(fontSize: 14),
-                                ),
-                                child: const Text('Remove'),
-                              )
-                            : TextButton(
-                                onPressed: widget.onSave != null 
-                                    ? () => widget.onSave!(widget.track)
-                                    : null,
-                                style: TextButton.styleFrom(
-                                  foregroundColor: Colors.white,
-                                  minimumSize: const Size(10, 10),
-                                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                                  textStyle: const TextStyle(fontSize: 14),
-                                ),
-                                child: const Text('Save'),
-                              ),
-                      ],
-                    ),
-                  ),
-                ),
+            ),
+          ),
+        ),
+        
+        // Purple border separator
+        Container(
+          height: 2,
+          width: double.infinity,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                const Color.fromRGBO(123, 104, 238, 0.8),
+                const Color.fromRGBO(123, 104, 238, 1.0),
+                const Color.fromRGBO(123, 104, 238, 0.8),
               ],
             ),
           ),
         ),
-      ),
+        
+        // Controls panel at bottom - very compact
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0), // Slightly more comfortable vertical padding
+          decoration: BoxDecoration(
+            color: AppTheme.surfaceColor,
+            borderRadius: const BorderRadius.only(
+              bottomLeft: Radius.circular(4),
+              bottomRight: Radius.circular(4),
+            ),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              // Play button - smaller
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: AppTheme.primaryColor,
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                child: IconButton(
+                  icon: Icon(
+                    widget.isPlaying ? AppIcons.pause : AppIcons.play,
+                    size: 16, // Smaller icon
+                    color: Colors.white,
+                  ),
+                  onPressed: canPlay ? () => widget.onPlay(widget.track) : null,
+                  tooltip: !canPlay
+                      ? "Playback unavailable"
+                      : widget.isPlaying
+                          ? "Pause"
+                          : info['uri'] != null
+                              ? "Play full song"
+                              : "Play preview",
+                  color: Colors.white,
+                  padding: EdgeInsets.zero,
+                ),
+              ),
+              
+              // Title and artist centered between controls - more compact
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8.0), // Reduced padding
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        info['name'] ?? 'Unknown Track',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w500,
+                          fontSize: 14, // Smaller font
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 1), // Reduced spacing
+                      Text(
+                        info['artist'] ?? 'Unknown Artist',
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 12, // Smaller font
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                      ),
+                      if (!canPlay) ...[
+                        const SizedBox(height: 1),
+                        const Text(
+                          'Playback unavailable',
+                          style: TextStyle(
+                            color: Colors.red,
+                            fontSize: 10, // Smaller font
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              
+              // Remove button - smaller
+              TextButton(
+                onPressed: widget.onRemove != null 
+                    ? () => widget.onRemove!(widget.track)
+                    : null,
+                style: TextButton.styleFrom(
+                  foregroundColor: AppTheme.errorColor,
+                  minimumSize: const Size(10, 10),
+                  padding: const EdgeInsets.symmetric(horizontal: 6), // Reduced padding
+                  textStyle: const TextStyle(fontSize: 12), // Smaller font
+                ),
+                child: const Text('Remove'),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 } 

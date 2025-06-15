@@ -681,7 +681,7 @@ class _WikidataSearchSection extends StatelessWidget {
               ],
             ),
             MediaGrid(
-              columns: 4, // Same as Spotify search
+              columns: 3, // Using 3 columns for better readability
               children: searchResults
                   .map((result) => _WikidataCard(
                         result: result,
@@ -774,144 +774,119 @@ class _WikidataCardState extends State<_WikidataCard> {
             ),
           ],
         ),
-        child: AspectRatio(
-          aspectRatio: 1, // Same 1:1 aspect ratio as TrackCard
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(AppTheme.cardBorderRadius),
-            child: Stack(
-              children: [
-                // Image background
-                Positioned.fill(
-                  child: widget.result.imageUrl != null && widget.result.imageUrl!.isNotEmpty
-                      ? Image.network(
-                          widget.result.imageUrl!,
-                          fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) {
-                            return Container(
-                              color: AppTheme.cardBackgroundColor,
-                              child: Center(
-                                child: Icon(_getMediaIcon(), size: 48, color: Colors.white54),
-                              ),
-                            );
-                          },
-                        )
-                      : Container(
-                          color: AppTheme.cardBackgroundColor,
-                          child: Center(
-                            child: Icon(_getMediaIcon(), size: 48, color: Colors.white54),
-                          ),
-                        ),
-                ),
-                
-                // Same gradient overlay as TrackCard
-                Positioned.fill(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Media artwork - no overlays, rounded corners per Spotify guidelines
+              Expanded(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(4), // 4px for large devices per Spotify guidelines
                   child: Container(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.bottomCenter,
-                        end: Alignment.topCenter,
-                        colors: [
-                          Colors.black.withOpacity(0.9),
-                          Colors.black.withOpacity(0.6),
-                          Colors.black.withOpacity(0.4),
-                          Colors.black.withOpacity(0.2),
-                          Colors.transparent,
-                        ],
-                        stops: const [0.0, 0.3, 0.6, 0.8, 1.0],
-                      ),
-                    ),
-                  ),
-                ),
-                
-                // Controls and text overlay (same layout as TrackCard)
-                Positioned(
-                  bottom: 0,
-                  left: 0,
-                  right: 0,
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Row(
-                      children: [
-                        // Info button instead of play button
-                        Container(
-                          width: 42,
-                          height: 42,
-                          decoration: BoxDecoration(
-                            color: AppTheme.primaryColor,
-                            borderRadius: BorderRadius.circular(21),
-                          ),
-                          child: IconButton(
-                            icon: const Icon(
-                              Icons.info_outline,
-                              size: 20,
-                              color: Colors.white,
-                            ),
-                            onPressed: () {
-                              // Show more info or open Wikipedia link
-                              final url = widget.result.additionalData?['url'];
-                              if (url != null) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text('Wikipedia: $url'),
-                                    duration: const Duration(seconds: 3),
-                                  ),
-                                );
-                              }
+                    width: double.infinity,
+                    child: widget.result.imageUrl != null && widget.result.imageUrl!.isNotEmpty
+                        ? Image.network(
+                            widget.result.imageUrl!,
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) {
+                              return Container(
+                                color: AppTheme.cardBackgroundColor,
+                                child: Center(
+                                  child: Icon(_getMediaIcon(), size: 48, color: Colors.white54),
+                                ),
+                              );
                             },
-                            tooltip: "More info",
-                            padding: EdgeInsets.zero,
-                          ),
-                        ),
-                        
-                        // Title and artist info (same layout as TrackCard)
-                        Expanded(
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 12.0),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  widget.result.title,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.w500,
-                                    fontSize: 16,
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                Text(
-                                  widget.result.artist ?? 'Unknown ${widget.mediaType}',
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 14,
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ],
+                          )
+                        : Container(
+                            color: AppTheme.cardBackgroundColor,
+                            child: Center(
+                              child: Icon(_getMediaIcon(), size: 48, color: Colors.white54),
                             ),
                           ),
-                        ),
-                        
-                        // Save button (same style as TrackCard)
-                        TextButton(
-                          onPressed: widget.onSave,
-                          style: TextButton.styleFrom(
-                            foregroundColor: Colors.white,
-                            minimumSize: const Size(10, 10),
-                            padding: const EdgeInsets.symmetric(horizontal: 8),
-                            textStyle: const TextStyle(fontSize: 14),
-                          ),
-                          child: const Text('Save'),
-                        ),
-                      ],
-                    ),
                   ),
                 ),
-              ],
-            ),
+              ),
+              
+              const SizedBox(height: 12),
+              
+              // Title - separate from artwork
+              Text(
+                widget.result.title,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w500,
+                  fontSize: 16,
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+              
+              const SizedBox(height: 4),
+              
+              // Artist/Creator name
+              Text(
+                widget.result.artist ?? 'Unknown ${widget.mediaType}',
+                style: const TextStyle(
+                  color: Colors.white70,
+                  fontSize: 14,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              
+              const SizedBox(height: 12),
+              
+              // Controls row - separate from artwork
+              Row(
+                children: [
+                  // Info button instead of play button
+                  Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      color: AppTheme.primaryColor,
+                      borderRadius: BorderRadius.circular(21),
+                    ),
+                    child: IconButton(
+                      icon: const Icon(
+                        Icons.info_outline,
+                        size: 20,
+                        color: Colors.white,
+                      ),
+                      onPressed: () {
+                        // Show more info or open Wikipedia link
+                        final url = widget.result.additionalData?['url'];
+                        if (url != null) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Wikipedia: $url'),
+                              duration: const Duration(seconds: 3),
+                            ),
+                          );
+                        }
+                      },
+                      tooltip: "More info",
+                      padding: EdgeInsets.zero,
+                    ),
+                  ),
+                  
+                  const Spacer(),
+                  
+                  // Save button (same style as TrackCard)
+                  TextButton(
+                    onPressed: widget.onSave,
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      minimumSize: const Size(10, 10),
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      textStyle: const TextStyle(fontSize: 14),
+                    ),
+                    child: const Text('Save'),
+                  ),
+                ],
+              ),
+            ],
           ),
         ),
       ),

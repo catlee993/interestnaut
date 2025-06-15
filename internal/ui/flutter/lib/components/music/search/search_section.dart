@@ -92,7 +92,7 @@ class SearchSection extends StatelessWidget {
               ],
             ),
             MediaGrid(
-              columns: 4,  // Using 4 columns as requested
+              columns: 3,  // Using 3 columns for better readability
               children: searchResults
                   .map((track) => TrackCard(
                         track: track,
