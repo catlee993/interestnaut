@@ -51,6 +51,19 @@ class _TVShowSectionState extends State<TVShowSection> {
     });
 
     try {
+      // First check if the TV show database is available
+      final databaseStatus = await _recommendationService.getMediaTypeStatus('tv_show');
+      final isDatabaseAvailable = databaseStatus == 'available';
+      
+      if (!isDatabaseAvailable) {
+        setState(() {
+          _currentDbSuggestion = null;
+          _dbSuggestionError = null; // No error, just database not installed
+          _isLoadingDbSuggestion = false;
+        });
+        return;
+      }
+      
       final suggestions = await _recommendationService.getSuggestions(
         'tv_show',
         status: SuggestionStatus.pending,
@@ -62,11 +75,20 @@ class _TVShowSectionState extends State<TVShowSection> {
           _isLoadingDbSuggestion = false;
         });
       } else {
-        setState(() {
-          _currentDbSuggestion = null;
-          _dbSuggestionError = 'No TV show suggestions available';
-          _isLoadingDbSuggestion = false;
-        });
+        // Try to generate a new suggestion on-demand
+        final newSuggestion = await _recommendationService.generateSuggestionOnDemand('tv_show');
+        if (newSuggestion != null) {
+          setState(() {
+            _currentDbSuggestion = newSuggestion;
+            _isLoadingDbSuggestion = false;
+          });
+        } else {
+          setState(() {
+            _currentDbSuggestion = null;
+            _dbSuggestionError = 'Unable to generate TV show suggestions. Make sure TinyLlama model is installed.';
+            _isLoadingDbSuggestion = false;
+          });
+        }
       }
     } catch (e) {
       setState(() {
@@ -443,13 +465,23 @@ class _TVShowSectionState extends State<TVShowSection> {
                     Center(
                       child: Padding(
                         padding: const EdgeInsets.symmetric(vertical: 24),
-                        child: Text(
-                          'Error: $_dbSuggestionError',
-                          style: const TextStyle(
-                            color: Colors.white54,
-                            fontSize: 16,
-                          ),
-                          textAlign: TextAlign.center,
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              'Error: $_dbSuggestionError',
+                              style: const TextStyle(
+                                color: Colors.white54,
+                                fontSize: 16,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: 16),
+                            ElevatedButton(
+                              onPressed: _loadDbSuggestion,
+                              child: const Text('Try Again'),
+                            ),
+                          ],
                         ),
                       ),
                     )

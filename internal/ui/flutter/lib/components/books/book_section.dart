@@ -588,13 +588,23 @@ class _BookSectionState extends State<BookSection> {
       return Center(
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 24),
-          child: Text(
-            'Error: $_dbSuggestionError',
-            style: const TextStyle(
-              color: Colors.white54,
-              fontSize: 16,
-            ),
-            textAlign: TextAlign.center,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                'Error: $_dbSuggestionError',
+                style: const TextStyle(
+                  color: Colors.white54,
+                  fontSize: 16,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: _loadDbSuggestion,
+                child: const Text('Try Again'),
+              ),
+            ],
           ),
         ),
       );
