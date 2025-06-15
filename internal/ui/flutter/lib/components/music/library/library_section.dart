@@ -62,12 +62,21 @@ class LibrarySection extends StatelessWidget {
             ),
           ),
         ] else ...[
-            MediaGrid(
-              columns: 2, // Use 2 columns for better spacing
-              spacing: 24.0, // Add more spacing between cards
-              childAspectRatio: 0.88, // Just enough height for square artwork + controls without too much extra space
-              children: savedTracks
-                  .map((track) {
+            LayoutBuilder(
+              builder: (context, constraints) {
+                // Calculate card width based on 2 columns and spacing
+                final availableWidth = constraints.maxWidth - 24.0; // Account for spacing
+                final cardWidth = (availableWidth - 24.0) / 2; // 2 columns with 24px gap
+                
+                // Calculate card height: square artwork + controls space
+                final artworkSize = cardWidth;
+                final controlsHeight = 60.0; // Fixed height for controls
+                final cardHeight = artworkSize + controlsHeight;
+                
+                return Wrap(
+                  spacing: 24.0,
+                  runSpacing: 24.0,
+                  children: savedTracks.map((track) {
                     // Convert Track to SimpleTrack for TrackCard compatibility
                     final simpleTrack = SimpleTrack(
                       id: track.id,
@@ -79,34 +88,55 @@ class LibrarySection extends StatelessWidget {
                       previewUrl: track.previewUrl,
                     );
                     
-                    return TrackCard(
-                      track: simpleTrack,
+                    return SizedBox(
+                      width: cardWidth,
+                      height: cardHeight,
+                      child: TrackCard(
+                        track: simpleTrack,
                         isSaved: true,
                         isPlaying: !isPlaybackPaused && nowPlayingTrack?.id == track.id,
-                      onPlay: (t) => onPlay(track), // Pass original track to onPlay
-                      onSave: (t) => onSave(track), // Pass original track to onSave
-                      onRemove: (t) => onRemove(track), // Pass original track to onRemove
-                      layout: TrackCardLayout.library, // Use library layout for liked songs
+                        onPlay: (t) => onPlay(track), // Pass original track to onPlay
+                        onSave: (t) => onSave(track), // Pass original track to onSave
+                        onRemove: (t) => onRemove(track), // Pass original track to onRemove
+                        layout: TrackCardLayout.library, // Use library layout for liked songs
+                      ),
                     );
-                  })
-                  .toList(),
+                  }).toList(),
+                );
+              },
             ),
             const SizedBox(height: 16),
-            // Pagination controls
+            // Pagination controls - original styling with OutlinedButton
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                ElevatedButton(
-                  onPressed: currentPage > 1 ? onPrevPage : null,
-                  child: const Text('Previous'),
+                SizedBox(
+                  width: 100, // Fixed width for both buttons
+                  child: OutlinedButton(
+                    onPressed: currentPage == 1 ? null : onPrevPage,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFFA855F7),
+                      side: const BorderSide(color: Color(0xFFA855F7)),
+                    ),
+                    child: const Text('Previous'),
+                  ),
                 ),
+                const SizedBox(width: 16),
                 Text(
-                  'Page $currentPage of ${(totalTracks / itemsPerPage).ceil()}',
-                  style: const TextStyle(color: Colors.white),
+                  'Page $currentPage of ${((totalTracks + itemsPerPage - 1) / itemsPerPage).floor()}',
+                  style: const TextStyle(color: Colors.white70),
                 ),
-                ElevatedButton(
-                  onPressed: currentPage * itemsPerPage < totalTracks ? onNextPage : null,
-                  child: const Text('Next'),
+                const SizedBox(width: 16),
+                SizedBox(
+                  width: 100, // Same fixed width as Previous button
+                  child: OutlinedButton(
+                    onPressed: currentPage * itemsPerPage >= totalTracks ? null : onNextPage,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFFA855F7),
+                      side: const BorderSide(color: Color(0xFFA855F7)),
+                    ),
+                    child: const Text('Next'),
+                  ),
                 ),
               ],
             ),
