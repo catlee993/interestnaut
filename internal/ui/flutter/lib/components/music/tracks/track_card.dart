@@ -306,122 +306,155 @@ class _TrackCardState extends State<TrackCard> {
               ),
             ),
             
-            // Purple border separator
-            Container(
-              height: 2,
-              width: double.infinity,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    const Color.fromRGBO(123, 104, 238, 0.8),
-                    const Color.fromRGBO(123, 104, 238, 1.0),
-                    const Color.fromRGBO(123, 104, 238, 0.8),
-                  ],
-                ),
-              ),
-            ),
-            
-            // Controls panel at bottom - balanced spacing above and below controls
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0), // Balanced vertical padding for equal spacing above and below play button
-              decoration: BoxDecoration(
-                color: AppTheme.surfaceColor,
-                borderRadius: const BorderRadius.only(
-                  bottomLeft: Radius.circular(4),
-                  bottomRight: Radius.circular(4),
-                ),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  // Play button - smaller
-                  Container(
-                    width: 36,
-                    height: 36,
-                    decoration: BoxDecoration(
-                      color: AppTheme.primaryColor,
-                      borderRadius: BorderRadius.circular(18),
+            // Controls panel at bottom - sleeker design with gradient and transparency
+            Expanded(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0), // Reduced vertical padding
+                decoration: BoxDecoration(
+                  // Gradient background instead of flat color
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      const Color.fromRGBO(40, 40, 40, 0.95), // Slightly lighter at top
+                      const Color.fromRGBO(28, 28, 28, 0.98), // Darker at bottom
+                    ],
+                  ),
+                  borderRadius: const BorderRadius.only(
+                    bottomLeft: Radius.circular(AppTheme.cardBorderRadius),
+                    bottomRight: Radius.circular(AppTheme.cardBorderRadius),
+                  ),
+                  // Add subtle shadow for depth
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.2),
+                      blurRadius: 3,
+                      offset: const Offset(0, -1),
                     ),
-                    child: IconButton(
-                      icon: Icon(
-                        widget.isPlaying ? AppIcons.pause : AppIcons.play,
-                        size: 16, // Smaller icon
-                        color: Colors.white,
-                      ),
-                      onPressed: canPlay ? () => widget.onPlay(widget.track) : null,
-                      tooltip: !canPlay
-                          ? "Playback unavailable"
-                          : widget.isPlaying
-                              ? "Pause"
-                              : info['uri'] != null
-                                  ? "Play full song"
-                                  : "Play preview",
-                      color: Colors.white,
-                      padding: EdgeInsets.zero,
+                  ],
+                  // Subtle top border to separate from artwork
+                  border: Border(
+                    top: BorderSide(
+                      color: Colors.white.withOpacity(0.08),
+                      width: 0.5,
                     ),
                   ),
-                  
-                  // Title and artist centered between controls - more compact
-                  Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 8.0), // Reduced padding
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            info['name'] ?? 'Unknown Track',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w500,
-                              fontSize: 14, // Smaller font
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.center,
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.max,
+                  children: [
+                    // Play button - enhanced with glow effect
+                    Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: AppTheme.primaryColor,
+                        borderRadius: BorderRadius.circular(18),
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppTheme.primaryColor.withOpacity(0.3),
+                            blurRadius: 8,
+                            spreadRadius: 0,
                           ),
-                          const SizedBox(height: 1), // Reduced spacing
-                          Text(
-                            info['artist'] ?? 'Unknown Artist',
-                            style: const TextStyle(
-                              color: Colors.white70,
-                              fontSize: 12, // Smaller font
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.center,
-                          ),
-                          if (!canPlay) ...[
-                            const SizedBox(height: 1),
-                            const Text(
-                              'Playback unavailable',
-                              style: TextStyle(
-                                color: Colors.red,
-                                fontSize: 10, // Smaller font
-                              ),
-                              textAlign: TextAlign.center,
-                            ),
-                          ],
                         ],
                       ),
+                      child: IconButton(
+                        icon: Icon(
+                          widget.isPlaying ? AppIcons.pause : AppIcons.play,
+                          size: 16, // Smaller icon
+                          color: Colors.white,
+                        ),
+                        onPressed: canPlay ? () => widget.onPlay(widget.track) : null,
+                        tooltip: !canPlay
+                            ? "Playback unavailable"
+                            : widget.isPlaying
+                                ? "Pause"
+                                : info['uri'] != null
+                                    ? "Play full song"
+                                    : "Play preview",
+                        color: Colors.white,
+                        padding: EdgeInsets.zero,
+                      ),
                     ),
-                  ),
-                  
-                  // Remove button - smaller
-                  TextButton(
-                    onPressed: widget.onRemove != null 
-                        ? () => widget.onRemove!(widget.track)
-                        : null,
-                    style: TextButton.styleFrom(
-                      foregroundColor: AppTheme.errorColor,
-                      minimumSize: const Size(10, 10),
-                      padding: const EdgeInsets.symmetric(horizontal: 6), // Reduced padding
-                      textStyle: const TextStyle(fontSize: 12), // Smaller font
+                    
+                    // Title and artist centered between controls - more compact
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8.0), // Reduced padding
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              info['name'] ?? 'Unknown Track',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w500,
+                                fontSize: 14,
+                                shadows: [
+                                  Shadow(
+                                    color: Colors.black.withOpacity(0.5),
+                                    offset: const Offset(0, 1),
+                                    blurRadius: 2,
+                                  ),
+                                ],
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: 1),
+                            Text(
+                              info['artist'] ?? 'Unknown Artist',
+                              style: TextStyle(
+                                color: Colors.white70,
+                                fontSize: 12,
+                                shadows: [
+                                  Shadow(
+                                    color: Colors.black.withOpacity(0.3),
+                                    offset: const Offset(0, 1),
+                                    blurRadius: 1,
+                                  ),
+                                ],
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              textAlign: TextAlign.center,
+                            ),
+                            if (!canPlay) ...[
+                              const SizedBox(height: 1),
+                              const Text(
+                                'Playback unavailable',
+                                style: TextStyle(
+                                  color: Colors.red,
+                                  fontSize: 10, // Smaller font
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
                     ),
-                    child: const Text('Remove'),
-                  ),
-                ],
+                    
+                    // Remove button - clean text only
+                    TextButton(
+                      onPressed: widget.onRemove != null 
+                          ? () => widget.onRemove!(widget.track)
+                          : null,
+                      style: TextButton.styleFrom(
+                        foregroundColor: AppTheme.errorColor,
+                        minimumSize: const Size(10, 10),
+                        padding: const EdgeInsets.symmetric(horizontal: 6),
+                        textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+                      ),
+                      child: const Text('Remove'),
+                    ),
+                  ],
+                ),
               ),
             ),
           ],
