@@ -90,19 +90,27 @@ class _TrackCardState extends State<TrackCard> {
             ? Matrix4.translationValues(0, -4, 0)
             : Matrix4.translationValues(0, 0, 0),
         decoration: BoxDecoration(
-          color: AppTheme.surfaceColor,
+          // Add subtle purple background tint like MediaLibraryCard
+          color: const Color(0xFF7B68EE).withOpacity(0.05),
           borderRadius: BorderRadius.circular(AppTheme.cardBorderRadius),
           border: Border.all(
             color: _isHovered 
-                ? const Color.fromRGBO(123, 104, 238, 0.5)
-                : const Color.fromRGBO(123, 104, 238, 0.3),
+                ? const Color(0xFF7B68EE).withOpacity(0.6) // Stronger purple on hover
+                : const Color(0xFF7B68EE).withOpacity(0.4), // More prominent purple normally
             width: 2,
           ),
+          // Add purple glow effect to match library cards
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.3),
+              color: const Color(0xFF7B68EE).withOpacity(0.2),
               blurRadius: 8,
-              offset: const Offset(0, 4),
+              spreadRadius: 1,
+              offset: const Offset(0, 2),
+            ),
+            BoxShadow(
+              color: Colors.black.withOpacity(0.3),
+              blurRadius: 4,
+              offset: const Offset(0, 2),
             ),
           ],
         ),
@@ -288,9 +296,11 @@ class _TrackCardState extends State<TrackCard> {
                     ? Image.network(
                         info['albumArtUrl'],
                         fit: BoxFit.cover,
+                        width: artworkSize,
+                        height: artworkSize,
                         errorBuilder: (context, error, stackTrace) {
                           return Container(
-                            color: AppTheme.cardBackgroundColor,
+                            color: const Color(0xFF7B68EE).withOpacity(0.1), // Purple fallback like MediaLibraryCard
                             child: const Center(
                               child: Icon(Icons.music_note, size: 48, color: Colors.white54),
                             ),
@@ -298,7 +308,7 @@ class _TrackCardState extends State<TrackCard> {
                         },
                       )
                     : Container(
-                        color: AppTheme.cardBackgroundColor,
+                        color: const Color(0xFF7B68EE).withOpacity(0.1), // Purple fallback like MediaLibraryCard
                         child: const Center(
                           child: Icon(Icons.music_note, size: 48, color: Colors.white54),
                         ),
@@ -311,14 +321,18 @@ class _TrackCardState extends State<TrackCard> {
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0), // Reduced vertical padding
                 decoration: BoxDecoration(
-                  // Gradient background - reversed: dark at top, light at bottom
+                  // Gradient background - exact same as MediaLibraryCard watchlist items
                   gradient: LinearGradient(
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
                     colors: [
-                      const Color.fromRGBO(35, 35, 35, 0.96), // Less dark at top - more subtle
-                      const Color.fromRGBO(40, 40, 40, 0.95), // Lighter at bottom
+                      Colors.transparent,
+                      const Color(0x40000000), // rgba(0,0,0,0.25) at 70%
+                      const Color(0x66000000), // rgba(0,0,0,0.4) at 85%
+                      const Color(0x99000000), // rgba(0,0,0,0.6) at 95%
+                      Colors.black,             // rgba(0,0,0,1) at 100%
                     ],
+                    stops: [0.0, 0.70, 0.85, 0.95, 1.0],
                   ),
                   borderRadius: const BorderRadius.only(
                     bottomLeft: Radius.circular(AppTheme.cardBorderRadius),
@@ -336,7 +350,7 @@ class _TrackCardState extends State<TrackCard> {
                   border: Border(
                     top: BorderSide(
                       color: _isHovered 
-                          ? const Color.fromRGBO(123, 104, 238, 0.8) // Brighter purple on hover
+                          ? const Color.fromRGBO(123, 104, 238, 0.41) // Brighter purple on hover
                           : const Color.fromRGBO(123, 104, 238, 0.4), // Subtle purple normally
                       width: _isHovered ? 1.5 : 1.0, // Slightly thicker on hover
                     ),
