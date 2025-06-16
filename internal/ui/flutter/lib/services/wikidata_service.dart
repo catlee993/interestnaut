@@ -30,65 +30,63 @@ class WikidataService {
   static const String _wikipediaEndpoint = 'https://en.wikipedia.org/w/api.php';
   static const Duration _timeout = Duration(seconds: 5);
 
-  /// Search using Wikipedia API
+  /// Search using Wikimedia Core API for better results with thumbnails
   Future<List<WikidataSearchResult>> search(String query, String mediaType, {int limit = 20}) async {
     try {
-      // Create more specific search queries based on media type
+      // Create media-type specific search query
       String enhancedQuery;
       List<String> filterKeywords = [];
+      List<String> excludePatterns = [];
       
       switch (mediaType.toLowerCase()) {
         case 'book':
         case 'books':
-          enhancedQuery = '$query (book OR novel OR "written by")';
+          enhancedQuery = '$query book';  // Simplified
           filterKeywords = ['book', 'novel', 'author', 'written', 'published'];
           break;
         case 'music':
         case 'song':
         case 'album':
-          enhancedQuery = '$query (song OR album OR music OR "performed by")';
-          filterKeywords = ['song', 'album', 'music', 'artist', 'performed', 'singer'];
+          enhancedQuery = '$query music';  // Simplified
+          filterKeywords = ['song', 'album', 'music', 'artist', 'band'];
           break;
         case 'movie':
         case 'movies':
         case 'film':
-          enhancedQuery = '$query (film OR movie OR "directed by")';
-          filterKeywords = ['film', 'movie', 'director', 'directed', 'cinema'];
+          enhancedQuery = '$query film';  // Simplified
+          filterKeywords = ['film', 'movie', 'directed', 'cinema'];
           break;
         case 'tv':
         case 'television':
         case 'show':
-          enhancedQuery = '$query (television OR "TV series" OR "TV show" OR "created by")';
-          filterKeywords = ['television', 'series', 'show', 'episode', 'created', 'network'];
+          enhancedQuery = '$query television';  // Simplified
+          filterKeywords = ['television', 'series', 'show', 'episode'];
           break;
         case 'game':
         case 'games':
         case 'videogame':
-          enhancedQuery = '$query ("video game" OR game OR "developed by")';
-          filterKeywords = ['game', 'video', 'developed', 'developer', 'gaming'];
+          enhancedQuery = '$query game';  // Simplified
+          filterKeywords = ['game', 'video', 'developed'];
           break;
         default:
           enhancedQuery = query;
           filterKeywords = [];
       }
 
-      final uri = Uri.parse(_wikipediaEndpoint).replace(queryParameters: {
-        'action': 'query',
-        'generator': 'search',
-        'gsrsearch': enhancedQuery,
-        'gsrprop': 'snippet',
-        'prop': 'pageimages|extracts|info',
-        'exintro': '1',
-        'explaintext': '1',
-        'piprop': 'thumbnail',
-        'pithumbsize': '200',
-        'inprop': 'url',
+      // Use Wikipedia OpenSearch API which is more reliable
+      final uri = Uri.parse('https://en.wikipedia.org/w/api.php').replace(queryParameters: {
+        'action': 'opensearch',
+        'search': enhancedQuery,
+        'limit': '20',
+        'namespace': '0',
         'format': 'json',
-        'origin': '*',
-        'gsrlimit': (limit * 2).toString(), // Get more results to filter
       });
 
-      debugPrint('[WIKIPEDIA] Searching: $enhancedQuery');
+      debugPrint('[WIKIPEDIA] ===== SEARCH DEBUG =====');
+      debugPrint('[WIKIPEDIA] Original query: $query');
+      debugPrint('[WIKIPEDIA] Media type: $mediaType');
+      debugPrint('[WIKIPEDIA] Enhanced query: $enhancedQuery');
+      debugPrint('[WIKIPEDIA] URL: $uri');
 
       final response = await http.get(
         uri,
@@ -97,77 +95,110 @@ class WikidataService {
         },
       ).timeout(_timeout);
 
+      debugPrint('[WIKIPEDIA] Response status: ${response.statusCode}');
+      debugPrint('[WIKIPEDIA] Response body length: ${response.body.length}');
+      debugPrint('[WIKIPEDIA] Response body: ${response.body}');
+
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        final pages = data['query']?['pages'] as Map<String, dynamic>?;
+        debugPrint('[WIKIPEDIA] Parsed JSON structure: ${data.runtimeType}');
         
-        if (pages == null) {
-          debugPrint('[WIKIPEDIA] No pages found');
-          return [];
-        }
-
-        final results = <WikidataSearchResult>[];
-        
-        for (final pageData in pages.values) {
-          final pageId = pageData['pageid']?.toString() ?? '';
-          final title = pageData['title']?.toString() ?? '';
-          final extract = pageData['extract']?.toString() ?? '';
-          final thumbnail = pageData['thumbnail']?['source']?.toString();
-          final url = pageData['fullurl']?.toString() ?? '';
-
-          // Skip disambiguation pages and other non-content pages
-          if (title.contains('disambiguation') || 
-              title.contains('(disambiguation)') ||
-              title.contains('List of') ||
-              title.contains('Category:') ||
-              extract.isEmpty) {
-            continue;
+        // OpenSearch returns [query, [titles], [descriptions], [urls]]
+        if (data is List && data.length >= 4) {
+          final titles = data[1] as List<dynamic>?;
+          final descriptions = data[2] as List<dynamic>?;
+          final urls = data[3] as List<dynamic>?;
+          
+          if (titles == null || titles.isEmpty) {
+            debugPrint('[WIKIPEDIA] ERROR: No titles found');
+            return [];
           }
 
-          // Filter by media type relevance
-          if (filterKeywords.isNotEmpty) {
-            final lowerTitle = title.toLowerCase();
-            final lowerExtract = extract.toLowerCase();
-            final hasRelevantKeyword = filterKeywords.any((keyword) => 
-              lowerTitle.contains(keyword) || lowerExtract.contains(keyword));
+          debugPrint('[WIKIPEDIA] Found ${titles.length} raw results');
+          final results = <WikidataSearchResult>[];
+          
+          for (int i = 0; i < titles.length && i < limit; i++) {
+            final title = titles[i]?.toString() ?? '';
+            final description = (descriptions != null && i < descriptions.length) 
+                ? descriptions[i]?.toString() ?? '' 
+                : '';
+            final url = (urls != null && i < urls.length) 
+                ? urls[i]?.toString() ?? '' 
+                : '';
             
-            if (!hasRelevantKeyword) {
-              continue; // Skip irrelevant results
+            debugPrint('[WIKIPEDIA] ===== PROCESSING RESULT $i =====');
+            debugPrint('[WIKIPEDIA] Title: $title');
+            debugPrint('[WIKIPEDIA] Description: $description');
+            debugPrint('[WIKIPEDIA] URL: $url');
+            
+            // Skip disambiguation pages
+            if (title.contains('disambiguation')) {
+              debugPrint('[WIKIPEDIA] SKIPPING: disambiguation page');
+              continue;
+            }
+            
+            // Get image from Wikipedia page summary API
+            String? imageUrl;
+            try {
+              final wikipediaTitle = title.replaceAll(' ', '_');
+              final pageImageUrl = 'https://en.wikipedia.org/api/rest_v1/page/summary/$wikipediaTitle';
+              debugPrint('[WIKIPEDIA] Fetching image from: $pageImageUrl');
+              
+              final imageResponse = await http.get(Uri.parse(pageImageUrl)).timeout(Duration(seconds: 5));
+              if (imageResponse.statusCode == 200) {
+                final imageData = json.decode(imageResponse.body);
+                if (imageData['thumbnail'] != null && imageData['thumbnail']['source'] != null) {
+                  imageUrl = imageData['thumbnail']['source'].toString();
+                  debugPrint('[WIKIPEDIA] Found image: $imageUrl');
+                } else {
+                  debugPrint('[WIKIPEDIA] No thumbnail in summary API response');
+                }
+              } else {
+                debugPrint('[WIKIPEDIA] Summary API returned ${imageResponse.statusCode}');
+              }
+            } catch (e) {
+              debugPrint('[WIKIPEDIA] Image fetch failed: $e');
+            }
+
+            results.add(WikidataSearchResult(
+              id: i.toString(),
+              title: title,
+              artist: null,
+              description: description,
+              imageUrl: imageUrl,
+              releaseDate: null,
+              genre: null,
+              additionalData: {
+                'source': 'wikipedia',
+                'url': url.isNotEmpty ? url : 'https://en.wikipedia.org/wiki/${title.replaceAll(' ', '_')}',
+              },
+            ));
+
+            debugPrint('[WIKIPEDIA] ✅ ADDED RESULT: $title');
+
+            if (results.length >= limit) {
+              break;
             }
           }
 
-          // Try to extract creator/artist info from the extract
-          String? artist = _extractCreatorFromText(extract, mediaType);
-
-          results.add(WikidataSearchResult(
-            id: pageId,
-            title: title,
-            artist: artist,
-            description: extract.length > 200 ? '${extract.substring(0, 200)}...' : extract,
-            imageUrl: thumbnail,
-            releaseDate: null,
-            genre: null,
-            additionalData: {
-              'source': 'wikipedia',
-              'url': url,
-              'full_extract': extract,
-            },
-          ));
-
-          // Stop when we have enough results
-          if (results.length >= limit) {
-            break;
+          debugPrint('[WIKIPEDIA] ===== FINAL SUMMARY =====');
+          debugPrint('[WIKIPEDIA] Total results added: ${results.length}');
+          for (int i = 0; i < results.length; i++) {
+            debugPrint('[WIKIPEDIA] Result $i: ${results[i].title}');
           }
+          return results;
+        } else {
+          debugPrint('[WIKIPEDIA] ERROR: Unexpected response format');
+          debugPrint('[WIKIPEDIA] Response: $data');
+          return [];
         }
-
-        debugPrint('[WIKIPEDIA] Found ${results.length} filtered results');
-        return results;
       } else {
-        debugPrint('[WIKIPEDIA] Error response: ${response.statusCode}');
+        debugPrint('[WIKIPEDIA] HTTP Error: ${response.statusCode}');
         return [];
       }
-    } catch (e) {
-      debugPrint('[WIKIPEDIA] Error: $e');
+    } catch (e, stackTrace) {
+      debugPrint('[WIKIPEDIA] Exception: $e');
+      debugPrint('[WIKIPEDIA] Stack trace: $stackTrace');
       return [];
     }
   }

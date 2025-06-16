@@ -13,7 +13,7 @@ import (
 const (
 	// Base API endpoint for Wikipedia
 	wikipediaAPIEndpoint = "https://en.wikipedia.org/w/api.php"
-	
+
 	// Request timeout in seconds
 	requestTimeout = 30
 )
@@ -36,10 +36,11 @@ func NewClient(userAgent string) *Client {
 
 // SearchResult represents a search result from Wikipedia
 type SearchResult struct {
-	Title       string
-	PageID      int
-	Snippet     string
-	URL         string
+	Title    string
+	PageID   int
+	Snippet  string
+	URL      string
+	ImageURL string
 }
 
 // PageInfo represents detailed information about a Wikipedia page
@@ -58,7 +59,7 @@ func (c *Client) Search(ctx context.Context, query string, limit int) ([]SearchR
 	if limit <= 0 {
 		limit = 10
 	}
-	
+
 	params := url.Values{}
 	params.Set("action", "query")
 	params.Set("format", "json")
@@ -68,46 +69,46 @@ func (c *Client) Search(ctx context.Context, query string, limit int) ([]SearchR
 	params.Set("srlimit", fmt.Sprintf("%d", limit))
 	params.Set("srprop", "snippet")
 	params.Set("origin", "*")
-	
+
 	apiURL := fmt.Sprintf("%s?%s", wikipediaAPIEndpoint, params.Encode())
-	
+
 	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
-	
+
 	req.Header.Set("User-Agent", c.userAgent)
 	req.Header.Set("Accept", "application/json")
-	
+
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute request: %w", err)
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("API request failed with status: %s", resp.Status)
 	}
-	
+
 	var result struct {
 		Query struct {
 			Search []struct {
-				Title       string `json:"title"`
-				PageID      int    `json:"pageid"`
-				Snippet     string `json:"snippet"`
+				Title   string `json:"title"`
+				PageID  int    `json:"pageid"`
+				Snippet string `json:"snippet"`
 			} `json:"search"`
 		} `json:"query"`
 	}
-	
+
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
-	
+
 	var searchResults []SearchResult
 	for _, item := range result.Query.Search {
 		// Create a clean URL-friendly title
 		urlTitle := strings.ReplaceAll(item.Title, " ", "_")
-		
+
 		searchResults = append(searchResults, SearchResult{
 			Title:   item.Title,
 			PageID:  item.PageID,
@@ -115,7 +116,79 @@ func (c *Client) Search(ctx context.Context, query string, limit int) ([]SearchR
 			URL:     fmt.Sprintf("https://en.wikipedia.org/wiki/%s", url.PathEscape(urlTitle)),
 		})
 	}
-	
+
+	return searchResults, nil
+}
+
+// SearchWithThumbnails searches Wikipedia using the Wikimedia Core API with thumbnail support
+func (c *Client) SearchWithThumbnails(ctx context.Context, query string, limit int) ([]SearchResult, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+
+	// Use Wikimedia Core API for better results with thumbnails
+	apiURL := fmt.Sprintf("https://api.wikimedia.org/core/v1/wikipedia/en/search/title?q=%s&limit=%d",
+		url.QueryEscape(query), limit)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("User-Agent", c.userAgent)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("API request failed with status: %s", resp.Status)
+	}
+
+	var result struct {
+		Pages []struct {
+			ID          int    `json:"id"`
+			Key         string `json:"key"`
+			Title       string `json:"title"`
+			Excerpt     string `json:"excerpt"`
+			Description string `json:"description"`
+			Thumbnail   *struct {
+				URL string `json:"url"`
+			} `json:"thumbnail"`
+		} `json:"pages"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	var searchResults []SearchResult
+	for _, item := range result.Pages {
+		// Create a clean URL-friendly title
+		urlTitle := strings.ReplaceAll(item.Title, " ", "_")
+
+		// Get thumbnail URL if available
+		var thumbnailURL string
+		if item.Thumbnail != nil && item.Thumbnail.URL != "" {
+			// Convert protocol-relative URL to HTTPS
+			thumbnailURL = item.Thumbnail.URL
+			if strings.HasPrefix(thumbnailURL, "//") {
+				thumbnailURL = "https:" + thumbnailURL
+			}
+		}
+
+		searchResults = append(searchResults, SearchResult{
+			Title:    item.Title,
+			PageID:   item.ID,
+			Snippet:  item.Description, // Use description as snippet
+			URL:      fmt.Sprintf("https://en.wikipedia.org/wiki/%s", url.PathEscape(urlTitle)),
+			ImageURL: thumbnailURL, // Add image URL to search result
+		})
+	}
+
 	return searchResults, nil
 }
 
@@ -135,27 +208,27 @@ func (c *Client) GetPageInfoByTitle(ctx context.Context, title string) (*PageInf
 	params.Set("explaintext", "1")
 	params.Set("inprop", "url")
 	params.Set("origin", "*")
-	
+
 	apiURL := fmt.Sprintf("%s?%s", wikipediaAPIEndpoint, params.Encode())
-	
+
 	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
-	
+
 	req.Header.Set("User-Agent", c.userAgent)
 	req.Header.Set("Accept", "application/json")
-	
+
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute request: %w", err)
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("API request failed with status: %s", resp.Status)
 	}
-	
+
 	var result struct {
 		Query struct {
 			Pages map[string]struct {
@@ -172,36 +245,74 @@ func (c *Client) GetPageInfoByTitle(ctx context.Context, title string) (*PageInf
 			} `json:"pages"`
 		} `json:"query"`
 	}
-	
+
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
-	
+
 	// Wikipedia returns pages as a map with page IDs as keys
 	for _, page := range result.Query.Pages {
 		pageInfo := &PageInfo{
-			Title:      page.Title,
-			PageID:     page.PageID,
-			URL:        page.FullURL,
-			Extract:    page.Extract,
+			Title:       page.Title,
+			PageID:      page.PageID,
+			URL:         page.FullURL,
+			Extract:     page.Extract,
 			InfoboxData: make(map[string]string),
 		}
-		
+
 		// Extract categories
 		for _, category := range page.Categories {
 			// Remove "Category:" prefix
 			categoryName := strings.TrimPrefix(category.Title, "Category:")
 			pageInfo.Categories = append(pageInfo.Categories, categoryName)
 		}
-		
+
 		// Get the first image as the main image
 		if len(page.Images) > 0 {
-			// Filter out non-relevant images
+			// Prioritize infobox images and main content images
+			var foundImage bool
 			for _, img := range page.Images {
 				imgTitle := strings.ToLower(img.Title)
-				if !strings.Contains(imgTitle, "icon") && 
-				   !strings.Contains(imgTitle, "logo") && 
-				   !strings.Contains(imgTitle, "symbol") {
+
+				// Skip common non-content images
+				if strings.Contains(imgTitle, "commons-logo") ||
+					strings.Contains(imgTitle, "wikimedia") ||
+					strings.Contains(imgTitle, "edit-icon") ||
+					strings.Contains(imgTitle, "symbol") ||
+					strings.Contains(imgTitle, "icon") ||
+					strings.Contains(imgTitle, "logo") ||
+					strings.Contains(imgTitle, "flag") ||
+					strings.Contains(imgTitle, "coat of arms") {
+					continue
+				}
+
+				// Prioritize poster, cover, and main images
+				isPriority := strings.Contains(imgTitle, "poster") ||
+					strings.Contains(imgTitle, "cover") ||
+					strings.Contains(imgTitle, "dvd") ||
+					strings.Contains(imgTitle, "blu-ray") ||
+					strings.Contains(imgTitle, "theatrical") ||
+					strings.Contains(imgTitle, "release") ||
+					strings.Contains(imgTitle, ".jpg") ||
+					strings.Contains(imgTitle, ".png")
+
+				imageURL, err := c.getImageURL(ctx, img.Title)
+				if err == nil && imageURL != "" {
+					pageInfo.ImageURL = imageURL
+					foundImage = true
+					if isPriority {
+						break // Use priority images immediately
+					}
+				}
+			}
+
+			// If no image found, try a different approach - get the page's main image
+			if !foundImage && len(page.Images) > 0 {
+				// Just try the first few images
+				for i, img := range page.Images {
+					if i >= 3 { // Only try first 3 images
+						break
+					}
 					imageURL, err := c.getImageURL(ctx, img.Title)
 					if err == nil && imageURL != "" {
 						pageInfo.ImageURL = imageURL
@@ -210,16 +321,16 @@ func (c *Client) GetPageInfoByTitle(ctx context.Context, title string) (*PageInf
 				}
 			}
 		}
-		
+
 		// Get infobox data
 		infoboxData, err := c.getInfoboxData(ctx, page.Title)
 		if err == nil {
 			pageInfo.InfoboxData = infoboxData
 		}
-		
+
 		return pageInfo, nil
 	}
-	
+
 	return nil, fmt.Errorf("page not found")
 }
 
@@ -234,27 +345,27 @@ func (c *Client) getPageInfoByID(ctx context.Context, pageID int) (*PageInfo, er
 	params.Set("explaintext", "1")
 	params.Set("inprop", "url")
 	params.Set("origin", "*")
-	
+
 	apiURL := fmt.Sprintf("%s?%s", wikipediaAPIEndpoint, params.Encode())
-	
+
 	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
-	
+
 	req.Header.Set("User-Agent", c.userAgent)
 	req.Header.Set("Accept", "application/json")
-	
+
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute request: %w", err)
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("API request failed with status: %s", resp.Status)
 	}
-	
+
 	var result struct {
 		Query struct {
 			Pages map[string]struct {
@@ -271,40 +382,78 @@ func (c *Client) getPageInfoByID(ctx context.Context, pageID int) (*PageInfo, er
 			} `json:"pages"`
 		} `json:"query"`
 	}
-	
+
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
-	
+
 	pageIDStr := fmt.Sprintf("%d", pageID)
 	page, exists := result.Query.Pages[pageIDStr]
 	if !exists {
 		return nil, fmt.Errorf("page with ID %d not found", pageID)
 	}
-	
+
 	pageInfo := &PageInfo{
-		Title:      page.Title,
-		PageID:     page.PageID,
-		URL:        page.FullURL,
-		Extract:    page.Extract,
+		Title:       page.Title,
+		PageID:      page.PageID,
+		URL:         page.FullURL,
+		Extract:     page.Extract,
 		InfoboxData: make(map[string]string),
 	}
-	
+
 	// Extract categories
 	for _, category := range page.Categories {
 		// Remove "Category:" prefix
 		categoryName := strings.TrimPrefix(category.Title, "Category:")
 		pageInfo.Categories = append(pageInfo.Categories, categoryName)
 	}
-	
+
 	// Get the first image as the main image
 	if len(page.Images) > 0 {
-		// Filter out non-relevant images
+		// Prioritize infobox images and main content images
+		var foundImage bool
 		for _, img := range page.Images {
 			imgTitle := strings.ToLower(img.Title)
-			if !strings.Contains(imgTitle, "icon") && 
-			   !strings.Contains(imgTitle, "logo") && 
-			   !strings.Contains(imgTitle, "symbol") {
+
+			// Skip common non-content images
+			if strings.Contains(imgTitle, "commons-logo") ||
+				strings.Contains(imgTitle, "wikimedia") ||
+				strings.Contains(imgTitle, "edit-icon") ||
+				strings.Contains(imgTitle, "symbol") ||
+				strings.Contains(imgTitle, "icon") ||
+				strings.Contains(imgTitle, "logo") ||
+				strings.Contains(imgTitle, "flag") ||
+				strings.Contains(imgTitle, "coat of arms") {
+				continue
+			}
+
+			// Prioritize poster, cover, and main images
+			isPriority := strings.Contains(imgTitle, "poster") ||
+				strings.Contains(imgTitle, "cover") ||
+				strings.Contains(imgTitle, "dvd") ||
+				strings.Contains(imgTitle, "blu-ray") ||
+				strings.Contains(imgTitle, "theatrical") ||
+				strings.Contains(imgTitle, "release") ||
+				strings.Contains(imgTitle, ".jpg") ||
+				strings.Contains(imgTitle, ".png")
+
+			imageURL, err := c.getImageURL(ctx, img.Title)
+			if err == nil && imageURL != "" {
+				pageInfo.ImageURL = imageURL
+				foundImage = true
+				if isPriority {
+					break // Use priority images immediately
+				}
+			}
+		}
+
+		// If no image found, try a different approach - get the page's main image
+		if !foundImage && len(page.Images) > 0 {
+			// Just try the first few images
+			for i, img := range page.Images {
+				if i >= 3 { // Only try first 3 images
+					break
+				}
 				imageURL, err := c.getImageURL(ctx, img.Title)
 				if err == nil && imageURL != "" {
 					pageInfo.ImageURL = imageURL
@@ -313,66 +462,86 @@ func (c *Client) getPageInfoByID(ctx context.Context, pageID int) (*PageInfo, er
 			}
 		}
 	}
-	
+
 	// Get infobox data
 	infoboxData, err := c.getInfoboxData(ctx, page.Title)
 	if err == nil {
 		pageInfo.InfoboxData = infoboxData
 	}
-	
+
 	return pageInfo, nil
 }
 
 // getImageURL retrieves the URL for a Wikipedia image
 func (c *Client) getImageURL(ctx context.Context, imageTitle string) (string, error) {
+	// Clean the image title
+	imageTitle = strings.TrimSpace(imageTitle)
+	if !strings.HasPrefix(imageTitle, "File:") {
+		imageTitle = "File:" + imageTitle
+	}
+
 	params := url.Values{}
 	params.Set("action", "query")
 	params.Set("format", "json")
 	params.Set("titles", imageTitle)
 	params.Set("prop", "imageinfo")
-	params.Set("iiprop", "url")
+	params.Set("iiprop", "url|size")
+	params.Set("iiurlwidth", "300") // Get a reasonable size
 	params.Set("origin", "*")
-	
+
 	apiURL := fmt.Sprintf("%s?%s", wikipediaAPIEndpoint, params.Encode())
-	
+
 	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
-	
+
 	req.Header.Set("User-Agent", c.userAgent)
 	req.Header.Set("Accept", "application/json")
-	
+
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to execute request: %w", err)
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("API request failed with status: %s", resp.Status)
 	}
-	
+
 	var result struct {
 		Query struct {
 			Pages map[string]struct {
 				ImageInfo []struct {
-					URL string `json:"url"`
+					URL      string `json:"url"`
+					ThumbURL string `json:"thumburl"`
+					Width    int    `json:"width"`
+					Height   int    `json:"height"`
 				} `json:"imageinfo"`
 			} `json:"pages"`
 		} `json:"query"`
 	}
-	
+
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return "", fmt.Errorf("failed to decode response: %w", err)
 	}
-	
+
 	for _, page := range result.Query.Pages {
 		if len(page.ImageInfo) > 0 {
-			return page.ImageInfo[0].URL, nil
+			imageInfo := page.ImageInfo[0]
+
+			// Prefer thumbnail URL if available (better for display)
+			if imageInfo.ThumbURL != "" {
+				return imageInfo.ThumbURL, nil
+			}
+
+			// Fall back to original URL
+			if imageInfo.URL != "" {
+				return imageInfo.URL, nil
+			}
 		}
 	}
-	
+
 	return "", fmt.Errorf("image info not found")
 }
 
@@ -384,27 +553,27 @@ func (c *Client) getInfoboxData(ctx context.Context, title string) (map[string]s
 	params.Set("page", title)
 	params.Set("prop", "templates")
 	params.Set("origin", "*")
-	
+
 	apiURL := fmt.Sprintf("%s?%s", wikipediaAPIEndpoint, params.Encode())
-	
+
 	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
-	
+
 	req.Header.Set("User-Agent", c.userAgent)
 	req.Header.Set("Accept", "application/json")
-	
+
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute request: %w", err)
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("API request failed with status: %s", resp.Status)
 	}
-	
+
 	// Now get the parsed wikitext to extract infobox properties
 	params = url.Values{}
 	params.Set("action", "parse")
@@ -412,31 +581,31 @@ func (c *Client) getInfoboxData(ctx context.Context, title string) (map[string]s
 	params.Set("page", title)
 	params.Set("prop", "parsetree")
 	params.Set("origin", "*")
-	
+
 	apiURL = fmt.Sprintf("%s?%s", wikipediaAPIEndpoint, params.Encode())
-	
+
 	req, err = http.NewRequestWithContext(ctx, "GET", apiURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
-	
+
 	req.Header.Set("User-Agent", c.userAgent)
 	req.Header.Set("Accept", "application/json")
-	
+
 	resp, err = c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute request: %w", err)
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("API request failed with status: %s", resp.Status)
 	}
-	
+
 	// This is a simplified approach - in a real implementation, we would properly parse the XML
 	// or use a more sophisticated method to extract infobox data. For demonstration purposes,
 	// we'll use a simpler approach here:
-	
+
 	// Make another request to get just the content in a more processable format
 	params = url.Values{}
 	params.Set("action", "parse")
@@ -444,23 +613,23 @@ func (c *Client) getInfoboxData(ctx context.Context, title string) (map[string]s
 	params.Set("page", title)
 	params.Set("prop", "wikitext")
 	params.Set("origin", "*")
-	
+
 	apiURL = fmt.Sprintf("%s?%s", wikipediaAPIEndpoint, params.Encode())
-	
+
 	req, err = http.NewRequestWithContext(ctx, "GET", apiURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
-	
+
 	req.Header.Set("User-Agent", c.userAgent)
 	req.Header.Set("Accept", "application/json")
-	
+
 	resp, err = c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute request: %w", err)
 	}
 	defer resp.Body.Close()
-	
+
 	var result struct {
 		Parse struct {
 			Wikitext struct {
@@ -468,17 +637,17 @@ func (c *Client) getInfoboxData(ctx context.Context, title string) (map[string]s
 			} `json:"wikitext"`
 		} `json:"parse"`
 	}
-	
+
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
-	
+
 	wikitext := result.Parse.Wikitext.Content
-	
+
 	// Extract the infobox data using a simple regex approach
 	// In a production environment, you would want to use a proper wikitext parser
 	infoboxData := parseInfoboxData(wikitext)
-	
+
 	return infoboxData, nil
 }
 
@@ -486,22 +655,22 @@ func (c *Client) getInfoboxData(ctx context.Context, title string) (map[string]s
 // In a real implementation, this would be much more robust
 func parseInfoboxData(wikitext string) map[string]string {
 	data := make(map[string]string)
-	
+
 	// Look for infobox section
 	infoboxStart := strings.Index(wikitext, "{{Infobox")
 	if infoboxStart == -1 {
 		// Try other common infobox templates
 		infoboxStart = strings.Index(wikitext, "{{infobox")
 	}
-	
+
 	if infoboxStart == -1 {
 		return data
 	}
-	
+
 	// Find the end of the infobox
 	braceCount := 0
 	infoboxEnd := infoboxStart
-	
+
 	for i := infoboxStart; i < len(wikitext); i++ {
 		if wikitext[i] == '{' && i+1 < len(wikitext) && wikitext[i+1] == '{' {
 			braceCount++
@@ -515,9 +684,9 @@ func parseInfoboxData(wikitext string) map[string]string {
 			}
 		}
 	}
-	
+
 	infoboxText := wikitext[infoboxStart:infoboxEnd]
-	
+
 	// Parse key-value pairs
 	lines := strings.Split(infoboxText, "\n")
 	for _, line := range lines {
@@ -525,23 +694,23 @@ func parseInfoboxData(wikitext string) map[string]string {
 		if !strings.Contains(line, "=") {
 			continue
 		}
-		
+
 		parts := strings.SplitN(line, "=", 2)
 		if len(parts) != 2 {
 			continue
 		}
-		
+
 		key := strings.TrimSpace(parts[0])
 		value := strings.TrimSpace(parts[1])
-		
+
 		// Clean up value (remove wiki markup)
 		value = cleanWikiMarkup(value)
-		
+
 		if key != "" && value != "" {
 			data[key] = value
 		}
 	}
-	
+
 	return data
 }
 
@@ -553,53 +722,53 @@ func cleanWikiMarkup(text string) string {
 		if linkStart == -1 {
 			break
 		}
-		
+
 		linkEnd := strings.Index(text[linkStart:], "]]")
 		if linkEnd == -1 {
 			break
 		}
-		
+
 		linkEnd += linkStart
-		
-		link := text[linkStart+2:linkEnd]
+
+		link := text[linkStart+2 : linkEnd]
 		displayText := link
-		
+
 		// Handle pipe links [[page|display]]
 		if strings.Contains(link, "|") {
 			parts := strings.SplitN(link, "|", 2)
 			displayText = parts[1]
 		}
-		
+
 		text = text[:linkStart] + displayText + text[linkEnd+2:]
 	}
-	
+
 	// Remove '''bold'''
 	text = strings.ReplaceAll(text, "'''", "")
-	
+
 	// Remove ''italic''
 	text = strings.ReplaceAll(text, "''", "")
-	
+
 	// Remove <ref>...</ref>
 	for {
 		refStart := strings.Index(text, "<ref")
 		if refStart == -1 {
 			break
 		}
-		
+
 		refEnd := strings.Index(text[refStart:], "</ref>")
 		if refEnd == -1 {
 			break
 		}
-		
+
 		refEnd += refStart + 6
 		text = text[:refStart] + text[refEnd:]
 	}
-	
+
 	// Remove {{templates}}
 	braceStack := 0
 	var cleanText strings.Builder
 	i := 0
-	
+
 	for i < len(text) {
 		if i+1 < len(text) && text[i:i+2] == "{{" {
 			braceStack++
@@ -614,6 +783,6 @@ func cleanWikiMarkup(text string) string {
 			i++
 		}
 	}
-	
+
 	return strings.TrimSpace(cleanText.String())
 }

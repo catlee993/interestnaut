@@ -10,6 +10,7 @@ import (
 	"interestnaut/internal/app/db"
 	"interestnaut/internal/app/wikidata"
 	"interestnaut/internal/app/wikipedia"
+	"strings"
 )
 
 // Suggestion represents a media suggestion
@@ -1090,73 +1091,125 @@ func (s *Service) SearchForExternalSuggestions(ctx context.Context, query string
 	// First try Wikidata
 	wdResults, err := s.wikidataClient.SearchEntities(ctx, query, wdMediaType, "en")
 
-	// If Wikidata fails, try Wikipedia
+	// If Wikidata fails, try Wikipedia with more targeted search
 	if err != nil || len(wdResults) == 0 {
-		// Enhance query with media type
-		enhancedQuery := query
+		// Skip Wikipedia search for music since Spotify handles that
+		if mediaType == db.MediaTypeMusic {
+			return []Suggestion{}, nil
+		}
+
+		// Create more targeted search queries that focus on actual media items
+		var searchQueries []string
 		switch mediaType {
-		case db.MediaTypeMusic:
-			enhancedQuery += " music OR song OR album"
 		case db.MediaTypeBook:
-			enhancedQuery += " book OR novel"
+			// Search for specific book titles and authors - be very specific to avoid author biography pages
+			searchQueries = []string{
+				fmt.Sprintf(`"%s" novel -author -biography`, query),
+				fmt.Sprintf(`"%s" book -author -biography`, query),
+				fmt.Sprintf(`"%s" (novel) -author`, query), // Many books have (novel) disambiguation
+				fmt.Sprintf(`"%s" fiction -author`, query), // For fiction books
+			}
 		case db.MediaTypeMovie:
-			enhancedQuery += " film OR movie"
+			// Search for specific movie titles - exclude actor/director pages
+			searchQueries = []string{
+				fmt.Sprintf(`"%s" film -actor -actress -director -biography`, query),
+				fmt.Sprintf(`"%s" movie -actor -actress -director -biography`, query),
+				fmt.Sprintf(`"%s" (%d film) -actor -director`, query, 2024), // Try recent year
+				fmt.Sprintf(`"%s" (%d film) -actor -director`, query, 2023), // Try previous year
+				fmt.Sprintf(`"%s" (film) -actor -director`, query),          // Common disambiguation pattern
+			}
 		case db.MediaTypeShow:
-			enhancedQuery += " TV series OR television show"
+			// Search for specific TV show titles - exclude actor pages
+			searchQueries = []string{
+				fmt.Sprintf(`"%s" television series -actor -actress`, query),
+				fmt.Sprintf(`"%s" TV series -actor -actress`, query),
+				fmt.Sprintf(`"%s" (TV series) -actor -actress`, query), // Many shows have (TV series) disambiguation
+				fmt.Sprintf(`"%s" (American TV series) -actor`, query), // Common pattern
+				fmt.Sprintf(`"%s" show -actor -actress`, query),
+			}
 		case db.MediaTypeVideoGame:
-			enhancedQuery += " video game"
+			// Search for specific video game titles - exclude developer company pages
+			searchQueries = []string{
+				fmt.Sprintf(`"%s" video game -developer -company`, query),
+				fmt.Sprintf(`"%s" (video game) -developer -company`, query), // Many games have (video game) disambiguation
+				fmt.Sprintf(`"%s" game -developer -company -biography`, query),
+				fmt.Sprintf(`"%s" (%d video game) -developer`, query, 2024), // Try recent year
+				fmt.Sprintf(`"%s" (%d video game) -developer`, query, 2023), // Try previous year
+			}
+		default:
+			searchQueries = []string{query}
 		}
 
-		wpResults, err := s.wikipediaClient.Search(ctx, enhancedQuery, limit)
-		if err != nil {
-			return nil, err
-		}
+		var allSuggestions []Suggestion
 
-		var suggestions []Suggestion
-		for _, result := range wpResults {
-			// Get more details from Wikipedia
-			pageInfo, err := s.wikipediaClient.GetPageInfo(ctx, result.PageID)
+		// Try each search query until we get enough results
+		for _, searchQuery := range searchQueries {
+			// Use Wikimedia Core API for better results with thumbnails
+			wpResults, err := s.wikipediaClient.SearchWithThumbnails(ctx, searchQuery, limit*2)
 			if err != nil {
 				continue
 			}
 
-			// Extract creator info based on media type
-			var subtitle string
-			switch mediaType {
-			case db.MediaTypeMusic:
-				if artist, ok := pageInfo.InfoboxData["artist"]; ok {
-					subtitle = artist
+			for _, result := range wpResults {
+				// Skip non-media pages with better filtering
+				if s.shouldSkipWikipediaResult(result.Title, result.Snippet, mediaType) {
+					continue
 				}
-			case db.MediaTypeBook:
-				if author, ok := pageInfo.InfoboxData["author"]; ok {
-					subtitle = author
+
+				// Get more details from Wikipedia if needed (for subtitle extraction)
+				pageInfo, err := s.wikipediaClient.GetPageInfo(ctx, result.PageID)
+				var subtitle string
+				if err == nil {
+					// Extract creator info based on media type
+					switch mediaType {
+					case db.MediaTypeMusic:
+						if artist, ok := pageInfo.InfoboxData["artist"]; ok {
+							subtitle = artist
+						} else if performer, ok := pageInfo.InfoboxData["performer"]; ok {
+							subtitle = performer
+						}
+					case db.MediaTypeBook:
+						if author, ok := pageInfo.InfoboxData["author"]; ok {
+							subtitle = author
+						}
+					case db.MediaTypeMovie, db.MediaTypeShow:
+						if director, ok := pageInfo.InfoboxData["director"]; ok {
+							subtitle = director
+						}
+					case db.MediaTypeVideoGame:
+						if developer, ok := pageInfo.InfoboxData["developer"]; ok {
+							subtitle = developer
+						}
+					}
 				}
-			case db.MediaTypeMovie, db.MediaTypeShow:
-				if director, ok := pageInfo.InfoboxData["director"]; ok {
-					subtitle = director
+
+				// Use thumbnail from search result, fallback to page image if available
+				imageURL := result.ImageURL
+				if imageURL == "" && pageInfo != nil {
+					imageURL = pageInfo.ImageURL
 				}
-			case db.MediaTypeVideoGame:
-				if developer, ok := pageInfo.InfoboxData["developer"]; ok {
-					subtitle = developer
+
+				allSuggestions = append(allSuggestions, Suggestion{
+					MediaID:   0, // Not in database yet
+					MediaType: mediaType,
+					Title:     result.Title,
+					Subtitle:  subtitle,
+					ImageURL:  imageURL,
+					Reason:    fmt.Sprintf("Found by searching for: %s", query),
+					Source:    "wikipedia",
+				})
+
+				if len(allSuggestions) >= limit {
+					break
 				}
 			}
 
-			suggestions = append(suggestions, Suggestion{
-				MediaID:   -1, // Not in database yet
-				MediaType: mediaType,
-				Title:     pageInfo.Title,
-				Subtitle:  subtitle,
-				ImageURL:  pageInfo.ImageURL,
-				Reason:    fmt.Sprintf("Found by searching for: %s", query),
-				Source:    "wikipedia",
-			})
-
-			if len(suggestions) >= limit {
+			if len(allSuggestions) >= limit {
 				break
 			}
 		}
 
-		return suggestions, nil
+		return allSuggestions[:min(len(allSuggestions), limit)], nil
 	}
 
 	// Process Wikidata results
@@ -1180,7 +1233,7 @@ func (s *Service) SearchForExternalSuggestions(ctx context.Context, query string
 		}
 
 		suggestions = append(suggestions, Suggestion{
-			MediaID:   -1, // Not in database yet
+			MediaID:   0, // Not in database yet
 			MediaType: mediaType,
 			Title:     info.Title,
 			Subtitle:  subtitle,
@@ -1195,6 +1248,285 @@ func (s *Service) SearchForExternalSuggestions(ctx context.Context, query string
 	}
 
 	return suggestions, nil
+}
+
+// shouldSkipWikipediaResult determines if a Wikipedia search result should be skipped
+func (s *Service) shouldSkipWikipediaResult(title, snippet string, mediaType db.MediaType) bool {
+	lowerTitle := strings.ToLower(title)
+	lowerSnippet := strings.ToLower(snippet)
+
+	// Skip people/person pages - this is the main issue with getting actors instead of movies
+	peoplePatterns := []string{
+		"is an american actor",
+		"is an actor",
+		"is an actress",
+		"is a director",
+		"is a producer",
+		"is a writer",
+		"is a screenwriter",
+		"is an author",
+		"is a novelist",
+		"is a musician",
+		"is a singer",
+		"is an artist",
+		"is a developer",
+		"is a game designer",
+		"born in",
+		"born on",
+		"(born ",
+		"(died ",
+		"american actor",
+		"american actress",
+		"american director",
+		"american author",
+		"american musician",
+		"british actor",
+		"british actress",
+		"british director",
+		"english actor",
+		"english actress",
+		"filmography",
+		"discography",
+		"bibliography",
+		"career",
+		"personal life",
+		"early life",
+	}
+
+	for _, pattern := range peoplePatterns {
+		if strings.Contains(lowerTitle, pattern) || strings.Contains(lowerSnippet, pattern) {
+			return true
+		}
+	}
+
+	// Skip disambiguation pages, lists, categories, and other metadata pages
+	skipPatterns := []string{
+		"disambiguation",
+		"(disambiguation)",
+		"list of",
+		"category:",
+		"template:",
+		"portal:",
+		"wikipedia:",
+		"file:",
+		"user:",
+		"talk:",
+		"awards",
+		"timeline",
+		"chronology",
+		"genre",
+		"festival",
+		"industry",
+		"company",
+		"corporation",
+		"studio",        // General studio pages
+		"network",       // General network pages
+		"soundtrack",    // Skip soundtrack pages for movies
+		"cast of",       // Skip cast pages
+		"characters in", // Skip character pages
+	}
+
+	for _, pattern := range skipPatterns {
+		if strings.Contains(lowerTitle, pattern) || strings.Contains(lowerSnippet, pattern) {
+			return true
+		}
+	}
+
+	// Media-specific filtering (excluding music since Spotify handles that)
+	switch mediaType {
+	case db.MediaTypeBook:
+		// Skip publishing industry and book-related metadata pages
+		bookSkipPatterns := []string{
+			"publishing company",
+			"publisher",
+			"literary award",
+			"book award",
+			"book review",
+			"literary genre",
+			"literary movement",
+			"book series", // Skip series overview pages
+			"bibliography",
+			"booklist",
+			"reading list",
+			"book club",
+			"literary criticism",
+			"author", // Skip author biography pages when searching for books
+		}
+		for _, pattern := range bookSkipPatterns {
+			if strings.Contains(lowerTitle, pattern) || strings.Contains(lowerSnippet, pattern) {
+				return true
+			}
+		}
+
+	case db.MediaTypeMovie:
+		// Skip film industry and movie-related metadata pages
+		movieSkipPatterns := []string{
+			"film studio",
+			"production company",
+			"film industry",
+			"film genre",
+			"film award",
+			"movie award",
+			"filmography",
+			"film festival",
+			"movie theater",
+			"cinema",
+			"box office",
+			"film criticism",
+			"film review",
+			"actor",    // Skip actor pages when searching for movies
+			"actress",  // Skip actress pages when searching for movies
+			"director", // Skip director biography pages when searching for movies
+		}
+		for _, pattern := range movieSkipPatterns {
+			if strings.Contains(lowerTitle, pattern) || strings.Contains(lowerSnippet, pattern) {
+				return true
+			}
+		}
+
+	case db.MediaTypeShow:
+		// Skip TV industry and show-related metadata pages
+		showSkipPatterns := []string{
+			"television network",
+			"tv network",
+			"broadcasting",
+			"television station",
+			"tv station",
+			"television genre",
+			"tv genre",
+			"television award",
+			"tv award",
+			"episode list",
+			"season",
+			"television criticism",
+			"tv guide",
+			"actor",   // Skip actor pages when searching for shows
+			"actress", // Skip actress pages when searching for shows
+		}
+		for _, pattern := range showSkipPatterns {
+			if strings.Contains(lowerTitle, pattern) || strings.Contains(lowerSnippet, pattern) {
+				return true
+			}
+		}
+
+	case db.MediaTypeVideoGame:
+		// Skip gaming industry and game-related metadata pages
+		gameSkipPatterns := []string{
+			"video game company",
+			"game developer",
+			"game publisher",
+			"game engine",
+			"gaming platform",
+			"video game console",
+			"video game genre",
+			"game award",
+			"gaming award",
+			"video game industry",
+			"esports",
+			"gaming tournament",
+			"game review",
+			"gaming magazine",
+			"developer", // Skip developer company pages when searching for games
+		}
+		for _, pattern := range gameSkipPatterns {
+			if strings.Contains(lowerTitle, pattern) || strings.Contains(lowerSnippet, pattern) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// shouldSkipPageContent determines if a Wikipedia page should be skipped based on its content
+func (s *Service) shouldSkipPageContent(extract string, mediaType db.MediaType) bool {
+	if extract == "" {
+		return true
+	}
+
+	lowerExtract := strings.ToLower(extract)
+
+	// Look for positive indicators that this is actually a media item
+	var positiveIndicators []string
+	switch mediaType {
+	case db.MediaTypeBook:
+		positiveIndicators = []string{
+			"novel by",
+			"book by",
+			"written by",
+			"authored by",
+			"published by",
+			"is a novel",
+			"is a book",
+			"fiction novel",
+			"non-fiction book",
+			"bestselling novel",
+			"bestselling book",
+			"literary work",
+		}
+	case db.MediaTypeMovie:
+		positiveIndicators = []string{
+			"film directed by",
+			"movie directed by",
+			"directed by",
+			"starring",
+			"is a film",
+			"is a movie",
+			"motion picture",
+			"theatrical release",
+			"box office",
+			"film stars",
+			"movie stars",
+		}
+	case db.MediaTypeShow:
+		positiveIndicators = []string{
+			"television series",
+			"tv series",
+			"television show",
+			"tv show",
+			"created by",
+			"aired on",
+			"broadcast on",
+			"premiered on",
+			"is a television",
+			"is a tv",
+			"episode",
+			"season",
+		}
+	case db.MediaTypeVideoGame:
+		positiveIndicators = []string{
+			"video game developed by",
+			"game developed by",
+			"published by",
+			"released for",
+			"is a video game",
+			"is a game",
+			"gameplay",
+			"playable",
+			"gaming platform",
+			"console game",
+			"pc game",
+			"mobile game",
+		}
+	}
+
+	// If we find positive indicators, keep the result
+	for _, indicator := range positiveIndicators {
+		if strings.Contains(lowerExtract, indicator) {
+			return false
+		}
+	}
+
+	// If no positive indicators found, it's likely not a specific media item
+	return true
+}
+
+// min returns the minimum of two integers
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // SaveSuggestionToDatabase saves an external suggestion to the local database
