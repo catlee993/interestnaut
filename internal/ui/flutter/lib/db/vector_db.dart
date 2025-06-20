@@ -286,14 +286,14 @@ class VectorDatabase {
 
     try {
       final db = _shards[mediaType]!;
-      
+      final hasAlbum = mediaType == 'music';      
       // Use sqlite-vec if available, fallback to manual similarity
       final query = '''
         SELECT 
           media_id,
           title,
           artist,
-          album,
+          ${hasAlbum ? 'album,' : ''}
           description,
           themes,
           wiki_url,
@@ -320,7 +320,7 @@ class VectorDatabase {
         mediaId: row['media_id'] as String,
         title: row['title'] as String,
         artist: row['artist'] as String?,
-        album: row['album'] as String?,
+        album: hasAlbum ? row['album'] as String? : null,
         description: row['description'] as String?,
         themes: row['themes'] as String?,
         wikiUrl: row['wiki_url'] as String?,
@@ -351,13 +351,13 @@ class VectorDatabase {
 
     try {
       final db = _shards[mediaType]!;
-      
+      final hasAlbum = mediaType == 'music';      
       final query = '''
         SELECT 
           media_id,
           title,
           artist,
-          album,
+          ${hasAlbum ? 'album,' : ''}
           description,
           themes,
           wiki_url,
@@ -381,7 +381,7 @@ class VectorDatabase {
         mediaId: row['media_id'] as String,
         title: row['title'] as String,
         artist: row['artist'] as String?,
-        album: row['album'] as String?,
+        album: hasAlbum ? row['album'] as String? : null,
         description: row['description'] as String?,
         themes: row['themes'] as String?,
         wikiUrl: row['wiki_url'] as String?,
@@ -412,13 +412,13 @@ class VectorDatabase {
 
     try {
       final db = _shards[mediaType]!;
-      
+      final hasAlbum = mediaType == 'music';      
       final query = '''
         SELECT 
           media_id,
           title,
           artist,
-          album,
+          ${hasAlbum ? 'album,' : ''}
           description,
           themes,
           wiki_url,
@@ -436,7 +436,7 @@ class VectorDatabase {
         mediaId: row['media_id'] as String,
         title: row['title'] as String,
         artist: row['artist'] as String?,
-        album: row['album'] as String?,
+        album: hasAlbum ? row['album'] as String? : null,
         description: row['description'] as String?,
         themes: row['themes'] as String?,
         wikiUrl: row['wiki_url'] as String?,
@@ -452,6 +452,164 @@ class VectorDatabase {
       debugPrint('Error getting random media: $e');
       return [];
     }
+  }
+
+  /// Search media using FTS5 full-text search (for music and movies)
+  Future<List<MediaSearchResult>> searchByText({
+    required String query,
+    required String mediaType,
+    int limit = 20,
+  }) async {
+    await _ensureInitialized();
+    
+    if (!_shards.containsKey(mediaType)) {
+      return [];
+    }
+
+    if (query.trim().isEmpty) {
+      return [];
+    }
+
+    try {
+      final db = _shards[mediaType]!;
+      final hasAlbum = mediaType == 'music';      
+      // Check if FTS5 table exists for this media type
+      final tableCheckStmt = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='media_fts'");
+      final tableCheckResult = tableCheckStmt.select([]);
+      tableCheckStmt.dispose();
+      
+      if (tableCheckResult.isEmpty) {
+        debugPrint('FTS5 table not available for $mediaType, falling back to basic search');
+        return _fallbackTextSearch(query, mediaType, limit);
+      }
+      
+      // Clean and prepare the search query for FTS5
+      final cleanQuery = _prepareFTSQuery(query);
+      
+      
+      final searchQuery = '''
+        SELECT 
+          v.media_id,
+          v.title,
+          v.artist,
+          ${hasAlbum ? 'v.album,' : ''}
+          v.description,
+          v.themes,
+          v.wiki_url,
+          v.wikidata_id,
+          v.image_url,
+          fts.rank
+        FROM media_fts fts
+        JOIN media_vectors v ON v.rowid = fts.rowid
+        WHERE media_fts MATCH ?
+        ORDER BY rank
+        LIMIT ?
+      ''';
+      
+      final stmt = db.prepare(searchQuery);
+      final result = stmt.select([cleanQuery, limit]);
+      
+      final results = result.map((row) {
+        // Convert FTS5 rank to similarity score (higher rank = lower similarity)
+        final rank = row['rank'] as double;
+        final similarity = (1.0 / (1.0 + (-rank / 10.0))).clamp(0.0, 1.0);
+        
+        return MediaSearchResult(
+          mediaId: row['media_id'] as String,
+          title: row['title'] as String,
+          artist: row['artist'] as String?,
+          album: mediaType == 'music' ? row['album'] as String? : null,
+          description: row['description'] as String?,
+          themes: row['themes'] as String?,
+          wikiUrl: row['wiki_url'] as String?,
+          wikidataId: row['wikidata_id'] as String?,
+          coverArtUrl: row['image_url'] as String?,
+          similarity: similarity,
+          mediaType: mediaType,
+        );
+      }).toList();
+      
+      stmt.dispose();
+      
+      debugPrint('🔍 FTS5 search for "$query" in $mediaType: found ${results.length} results');
+      return results;
+    } catch (e) {
+      debugPrint('Error in FTS5 search: $e');
+      // Fallback to basic search if FTS5 fails
+      return _fallbackTextSearch(query, mediaType, limit);
+    }
+  }
+
+  /// Prepare query for FTS5 search
+  String _prepareFTSQuery(String query) {
+    // Clean the query and handle special characters
+    var cleanQuery = query.trim().toLowerCase();
+    cleanQuery = cleanQuery.replaceAll('-', ' ').trim();
+    
+    // For single words, add prefix matching with *
+    return '$cleanQuery*';
+  }
+
+  /// Fallback text search using LIKE for databases without FTS5
+  Future<List<MediaSearchResult>> _fallbackTextSearch(String query, String mediaType, int limit) async {
+    final db = _shards[mediaType]!;
+      final hasAlbum = mediaType == 'music';    
+    
+    final searchQuery = '''
+      SELECT 
+        media_id,
+        title,
+        artist,
+        ${hasAlbum ? 'album,' : ''}
+        description,
+        themes,
+        wiki_url,
+        wikidata_id,
+        image_url,
+        (
+          CASE WHEN LOWER(title) LIKE LOWER(?) || '%' THEN 100
+          WHEN LOWER(title) LIKE '%' || LOWER(?) || '%' THEN 80
+          WHEN LOWER(COALESCE(artist, '')) LIKE LOWER(?) || '%' THEN 70
+          WHEN LOWER(COALESCE(artist, '')) LIKE '%' || LOWER(?) || '%' THEN 60
+          WHEN LOWER(COALESCE(themes, '')) LIKE '%' || LOWER(?) || '%' THEN 40
+          ELSE 20 END
+        ) as relevance_score
+      FROM media_vectors 
+      WHERE (
+        LOWER(title) LIKE '%' || LOWER(?) || '%' OR
+        LOWER(COALESCE(artist, '')) LIKE '%' || LOWER(?) || '%' OR
+        LOWER(COALESCE(themes, '')) LIKE '%' || LOWER(?) || '%'
+      )
+      ORDER BY relevance_score DESC, title ASC
+      LIMIT ?
+    ''';
+    
+    final params = [query, query, query, query, query, query, query, query, limit];
+    
+    final stmt = db.prepare(searchQuery);
+    final result = stmt.select(params);
+    
+    final results = result.map((row) {
+      final relevanceScore = row['relevance_score'] as int;
+      final similarity = (relevanceScore / 100.0).clamp(0.0, 1.0);
+      
+      return MediaSearchResult(
+        mediaId: row['media_id'] as String,
+        title: row['title'] as String,
+        artist: row['artist'] as String?,
+        album: hasAlbum ? row['album'] as String? : null,
+        description: row['description'] as String?,
+        themes: row['themes'] as String?,
+        wikiUrl: row['wiki_url'] as String?,
+        wikidataId: row['wikidata_id'] as String?,
+        coverArtUrl: row['image_url'] as String?,
+        similarity: similarity,
+        mediaType: mediaType,
+      );
+    }).toList();
+    
+    stmt.dispose();
+    return results;
   }
 
   /// Check if a media type is available locally

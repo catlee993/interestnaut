@@ -21,11 +21,13 @@ import 'components/common/media_grid.dart';
 import 'components/music/spotify_service.dart';
 import 'services/llama_service.dart';
 import 'services/wikidata_service.dart';
+import 'services/wikipedia_service.dart';
 import 'services/recommendation_service.dart';
 import 'services/ffi_init.dart';
 import 'services/go_bindings.dart';
 import 'models.dart';
 import 'theme.dart';
+import 'db/vector_db.dart'; // Import for VectorDatabase
 
 /// Entry point for the Flutter app
 Future<void> main() async {
@@ -426,19 +428,85 @@ class _UnifiedSearchHandlerState extends State<_UnifiedSearchHandler> {
           });
         }
       } else {
-        // Use Wikidata for all other cases
-        debugPrint('🔍 Starting Wikidata search for "$query" in ${widget.mediaType}');
+        // Use vector database search for all media types
+        debugPrint('🔍 Starting vector database search for "$query" in ${widget.mediaType}');
         try {
-          final results = await _wikidataService.search(query, widget.mediaType);
-          debugPrint('✅ Wikidata search returned ${results.length} results');
-          if (mounted) {
-            setState(() {
-              _searchResults = results;
-              _isLoading = false;
-            });
+          final vectorDb = VectorDatabase();
+          await vectorDb.init();
+          
+          // Convert media type to vector database format
+          String dbMediaType;
+          switch (widget.mediaType.toLowerCase()) {
+            case 'music':
+              dbMediaType = 'music';
+              break;
+            case 'movie':
+            case 'movies':
+              dbMediaType = 'movie';
+              break;
+            case 'tv':
+            case 'show':
+            case 'shows':
+              dbMediaType = 'tv_show';
+              break;
+            case 'book':
+            case 'books':
+              dbMediaType = 'book';
+              break;
+            case 'game':
+            case 'games':
+              dbMediaType = 'video_game';
+              break;
+            default:
+              dbMediaType = widget.mediaType;
+          }
+          
+          // Check if this media type is available in vector database
+          if (vectorDb.isMediaTypeAvailable(dbMediaType)) {
+            final results = await vectorDb.searchByText(
+              query: query,
+              mediaType: dbMediaType,
+              limit: 20,
+            );
+            
+            // Convert MediaSearchResult to WikidataSearchResult for UI compatibility
+            final convertedResults = results.map((result) => WikidataSearchResult(
+              id: result.mediaId,
+              title: result.title,
+              artist: result.artist,
+              description: result.description,
+              imageUrl: result.coverArtUrl,
+              releaseDate: null,
+              genre: null,
+              additionalData: {
+                'source': 'vector_database',
+                'similarity': result.similarity,
+                'themes': result.themes,
+                'wikiUrl': result.wikiUrl,
+                'wikidataId': result.wikidataId,
+              },
+            )).toList();
+            
+            debugPrint('✅ Vector database search returned ${convertedResults.length} results');
+            if (mounted) {
+              setState(() {
+                _searchResults = convertedResults;
+                _isLoading = false;
+              });
+            }
+          } else {
+            // No fallback - just return empty results with a message
+            debugPrint('⚠️ Vector database not available for $dbMediaType');
+            if (mounted) {
+              setState(() {
+                _searchResults = [];
+                _isLoading = false;
+                _error = 'Search database not available for ${widget.mediaType}. Please install the ${widget.mediaType} database first.';
+              });
+            }
           }
         } catch (e) {
-          debugPrint('❌ Wikidata search error: $e');
+          debugPrint('❌ Vector database search error: $e');
           if (mounted) {
             setState(() {
               _searchResults = [];
@@ -475,7 +543,7 @@ class _UnifiedSearchHandlerState extends State<_UnifiedSearchHandler> {
         }
       }
     }
-    // For Wikidata results, we don't have play functionality
+    // For Wikipedia results, we don't have play functionality
   }
 
   Future<void> _handleSave(dynamic item) async {
@@ -501,8 +569,8 @@ class _UnifiedSearchHandlerState extends State<_UnifiedSearchHandler> {
           );
         }
       }
-    } else if (item is WikidataSearchResult) {
-      // For Wikidata results, add to favorites/watchlist
+    } else if (item is WikipediaSearchResult) {
+      // For Wikipedia results, add to favorites/watchlist
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -537,8 +605,8 @@ class _UnifiedSearchHandlerState extends State<_UnifiedSearchHandler> {
           );
         }
       }
-    } else if (item is WikidataSearchResult) {
-      // For Wikidata results, remove from favorites/watchlist
+    } else if (item is WikipediaSearchResult) {
+      // For Wikipedia results, remove from favorites/watchlist
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -566,14 +634,14 @@ class _UnifiedSearchHandlerState extends State<_UnifiedSearchHandler> {
         onClose: widget.onClearSearch,
       );
     } else {
-      // Create a new search section for Wikidata results
+      // Create a new search section for Wikipedia results
       return _WikidataSearchSection(
         searchResults: _searchResults.cast<WikidataSearchResult>(),
         mediaType: widget.mediaType,
         isLoading: _isLoading,
         error: _error,
-        onSave: _handleSave,
-        onRemove: _handleRemove,
+        onAddToFavorites: _handleSave,
+        onAddToWatchlist: _handleRemove,
         onRetry: () => _performSearch(widget.searchQuery),
         onClose: widget.onClearSearch,
       );
@@ -581,14 +649,14 @@ class _UnifiedSearchHandlerState extends State<_UnifiedSearchHandler> {
   }
 }
 
-// Widget to display Wikidata search results
+// Widget to display Wikipedia search results
 class _WikidataSearchSection extends StatelessWidget {
   final List<WikidataSearchResult> searchResults;
   final String mediaType;
   final bool isLoading;
   final String? error;
-  final Function(WikidataSearchResult) onSave;
-  final Function(WikidataSearchResult) onRemove;
+  final Function(WikidataSearchResult) onAddToFavorites;
+  final Function(WikidataSearchResult) onAddToWatchlist;
   final VoidCallback onRetry;
   final VoidCallback onClose;
 
@@ -598,8 +666,8 @@ class _WikidataSearchSection extends StatelessWidget {
     required this.mediaType,
     required this.isLoading,
     this.error,
-    required this.onSave,
-    required this.onRemove,
+    required this.onAddToFavorites,
+    required this.onAddToWatchlist,
     required this.onRetry,
     required this.onClose,
   }) : super(key: key);
@@ -686,8 +754,8 @@ class _WikidataSearchSection extends StatelessWidget {
                   .map((result) => _WikidataCard(
                         result: result,
                         mediaType: mediaType,
-                        onSave: () => onSave(result),
-                        onRemove: () => onRemove(result),
+                        onAddToFavorites: () => onAddToFavorites(result),
+                        onAddToWatchlist: () => onAddToWatchlist(result),
                       ))
                   .toList(),
             ),
@@ -698,19 +766,19 @@ class _WikidataSearchSection extends StatelessWidget {
   }
 }
 
-// Card component that matches TrackCard layout for Wikidata results
+// Card component that matches SearchResultCard layout for Wikipedia results
 class _WikidataCard extends StatefulWidget {
   final WikidataSearchResult result;
   final String mediaType;
-  final VoidCallback onSave;
-  final VoidCallback onRemove;
+  final VoidCallback onAddToFavorites;
+  final VoidCallback onAddToWatchlist;
 
   const _WikidataCard({
     Key? key,
     required this.result,
     required this.mediaType,
-    required this.onSave,
-    required this.onRemove,
+    required this.onAddToFavorites,
+    required this.onAddToWatchlist,
   }) : super(key: key);
 
   @override
@@ -746,6 +814,31 @@ class _WikidataCardState extends State<_WikidataCard> {
     }
   }
 
+  String _getWatchlistTerminology() {
+    switch (widget.mediaType.toLowerCase()) {
+      case 'music':
+      case 'song':
+      case 'album':
+        return 'Playlist';
+      case 'movie':
+      case 'movies':
+      case 'film':
+      case 'tv':
+      case 'television':
+      case 'show':
+        return 'Watchlist';
+      case 'book':
+      case 'books':
+        return 'Reading List';
+      case 'game':
+      case 'games':
+      case 'videogame':
+        return 'Wishlist';
+      default:
+        return 'List';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return MouseRegion(
@@ -758,7 +851,15 @@ class _WikidataCardState extends State<_WikidataCard> {
             ? Matrix4.translationValues(0, -4, 0)
             : Matrix4.translationValues(0, 0, 0),
         decoration: BoxDecoration(
-          color: AppTheme.surfaceColor,
+          // Uniform gradient background like SearchResultCard
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              const Color.fromRGBO(28, 28, 28, 0.98), // Darker at top
+              const Color.fromRGBO(40, 40, 40, 0.95), // Lighter at bottom
+            ],
+          ),
           borderRadius: BorderRadius.circular(AppTheme.cardBorderRadius),
           border: Border.all(
             color: _isHovered 
@@ -774,120 +875,163 @@ class _WikidataCardState extends State<_WikidataCard> {
             ),
           ],
         ),
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Media artwork - no overlays, rounded corners per Spotify guidelines
-              Expanded(
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(4), // 4px for large devices per Spotify guidelines
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            // Reserve space for controls at bottom (~60px) and calculate artwork size
+            final controlsHeight = 60.0;
+            final availableHeight = constraints.maxHeight - controlsHeight;
+            final maxArtworkSize = constraints.maxWidth * 0.75; // Reduced from 85% to 75%
+            final artworkSize = availableHeight > maxArtworkSize ? maxArtworkSize : availableHeight;
+            
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                // Media artwork - size calculated to fit properly
+                Expanded(
                   child: Container(
-                    width: double.infinity,
-                    child: widget.result.imageUrl != null && widget.result.imageUrl!.isNotEmpty
-                        ? Image.network(
-                            widget.result.imageUrl!,
-                            fit: BoxFit.cover,
-                            errorBuilder: (context, error, stackTrace) {
-                              return Container(
-                                color: AppTheme.cardBackgroundColor,
-                                child: Center(
-                                  child: Icon(_getMediaIcon(), size: 48, color: Colors.white54),
+                    margin: const EdgeInsets.only(top: 6.0),
+                    child: Center(
+                      child: SizedBox(
+                        width: artworkSize,
+                        height: artworkSize,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(4), // 4px for large devices per Spotify guidelines
+                          child: widget.result.imageUrl != null && widget.result.imageUrl!.isNotEmpty
+                              ? Image.network(
+                                  widget.result.imageUrl!,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (context, error, stackTrace) {
+                                    return Container(
+                                      color: AppTheme.cardBackgroundColor,
+                                      child: Center(
+                                        child: Icon(_getMediaIcon(), size: 48, color: Colors.white54),
+                                      ),
+                                    );
+                                  },
+                                )
+                              : Container(
+                                  color: AppTheme.cardBackgroundColor,
+                                  child: Center(
+                                    child: Icon(_getMediaIcon(), size: 48, color: Colors.white54),
+                                  ),
                                 ),
-                              );
-                            },
-                          )
-                        : Container(
-                            color: AppTheme.cardBackgroundColor,
-                            child: Center(
-                              child: Icon(_getMediaIcon(), size: 48, color: Colors.white54),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                
+                // Controls panel at bottom - Spotify-style layout with buttons flanking text
+                SizedBox(
+                  height: controlsHeight,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(4.0, 4.0, 4.0, 4.0),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        // Add to Watchlist button - blue bookmark (left side)
+                        Container(
+                          decoration: BoxDecoration(
+                            color: Colors.blue.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: IconButton(
+                            icon: const Icon(
+                              Icons.bookmark_add,
+                              color: Colors.blue,
+                              size: 16,
+                            ),
+                            padding: const EdgeInsets.all(4),
+                            constraints: const BoxConstraints(
+                              minWidth: 28,
+                              minHeight: 28,
+                            ),
+                            onPressed: widget.onAddToWatchlist,
+                            tooltip: 'Add to ${_getWatchlistTerminology()}',
+                          ),
+                        ),
+                        
+                        // Title and artist/director centered between controls
+                        Expanded(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6.0),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  widget.result.title,
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w500,
+                                    fontSize: 11,
+                                    shadows: [
+                                      Shadow(
+                                        color: Colors.black.withOpacity(0.5),
+                                        offset: const Offset(0, 1),
+                                        blurRadius: 2,
+                                      ),
+                                    ],
+                                  ),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  textAlign: TextAlign.center,
+                                ),
+                                if (widget.result.artist != null) ...[
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    widget.result.artist!,
+                                    style: TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 9,
+                                      shadows: [
+                                        Shadow(
+                                          color: Colors.black.withOpacity(0.3),
+                                          offset: const Offset(0, 1),
+                                          blurRadius: 1,
+                                        ),
+                                      ],
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    textAlign: TextAlign.center,
+                                  ),
+                                ],
+                              ],
                             ),
                           ),
-                  ),
-                ),
-              ),
-              
-              const SizedBox(height: 12),
-              
-              // Title - separate from artwork
-              Text(
-                widget.result.title,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w500,
-                  fontSize: 16,
-                ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-              
-              const SizedBox(height: 4),
-              
-              // Artist/Creator name
-              Text(
-                widget.result.artist ?? 'Unknown ${widget.mediaType}',
-                style: const TextStyle(
-                  color: Colors.white70,
-                  fontSize: 14,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              
-              const SizedBox(height: 12),
-              
-              // Controls row - separate from artwork
-              Row(
-                children: [
-                  // Info button instead of play button
-                  Container(
-                    width: 42,
-                    height: 42,
-                    decoration: BoxDecoration(
-                      color: AppTheme.primaryColor,
-                      borderRadius: BorderRadius.circular(21),
-                    ),
-                    child: IconButton(
-                      icon: const Icon(
-                        Icons.info_outline,
-                        size: 20,
-                        color: Colors.white,
-                      ),
-                      onPressed: () {
-                        // Show more info or open Wikipedia link
-                        final url = widget.result.additionalData?['url'];
-                        if (url != null) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text('Wikipedia: $url'),
-                              duration: const Duration(seconds: 3),
+                        ),
+                        
+                        // Add to Favorites button - purple heart (right side)
+                        Container(
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF7B68EE).withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: IconButton(
+                            icon: const Icon(
+                              Icons.favorite,
+                              color: Color(0xFF7B68EE), // Primary purple color
+                              size: 16,
                             ),
-                          );
-                        }
-                      },
-                      tooltip: "More info",
-                      padding: EdgeInsets.zero,
+                            padding: const EdgeInsets.all(4),
+                            constraints: const BoxConstraints(
+                              minWidth: 28,
+                              minHeight: 28,
+                            ),
+                            onPressed: widget.onAddToFavorites,
+                            tooltip: 'Add to Favorites',
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  
-                  const Spacer(),
-                  
-                  // Save button (same style as TrackCard)
-                  TextButton(
-                    onPressed: widget.onSave,
-                    style: TextButton.styleFrom(
-                      foregroundColor: Colors.white,
-                      minimumSize: const Size(10, 10),
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                      textStyle: const TextStyle(fontSize: 14),
-                    ),
-                    child: const Text('Save'),
-                  ),
-                ],
-              ),
-            ],
-          ),
+                ),
+              ],
+            );
+          },
         ),
       ),
     );
