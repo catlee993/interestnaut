@@ -4,7 +4,9 @@ import '../common/scroll_content_wrapper.dart';
 import '../common/media_grid.dart';
 import '../common/media_library_grid.dart';
 import '../common/suggestion_action_buttons.dart';
+import '../common/loading_suggestion.dart';
 import '../../services/recommendation_service.dart';
+import '../../services/recommendation_event_service.dart';
 import '../../services/sqlite_db.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 
@@ -32,11 +34,20 @@ class _GameSectionState extends State<GameSection> {
   bool _isLoadingDbPlaylist = false;
 
   final RecommendationService _recommendationService = RecommendationService();
+  final RecommendationEventService _eventService = RecommendationEventService();
   final SQLiteDatabase _db = SQLiteDatabase();
 
   @override
   void initState() {
     super.initState();
+    
+    // Listen for recommendation events
+    _eventService.eventsForMediaType('video_game').listen((event) {
+      if (event.type == RecommendationEventType.suggestionReady) {
+        debugPrint('🎉 Game suggestion ready: ${event.suggestion?.title}');
+        _loadDbSuggestion(); // Reload to get the new suggestion
+      }
+    });
     
     // Load initial DB suggestion
     _loadDbSuggestion();
@@ -53,6 +64,9 @@ class _GameSectionState extends State<GameSection> {
       _hasLikedCurrentSuggestion = false; // Reset like state
       _hasFavoritedCurrentSuggestion = false; // Reset favorite state
     });
+
+    // Give the UI a chance to update and show the loading state
+    await Future.delayed(const Duration(milliseconds: 50));
 
     try {
       // First check if the video game database is available
@@ -80,12 +94,12 @@ class _GameSectionState extends State<GameSection> {
         });
       } else {
         // Try to generate a new suggestion on-demand
-        final newSuggestion = await _recommendationService.generateSuggestionOnDemand('video_game');
-        if (newSuggestion != null) {
+        final loadingSuggestion = await _recommendationService.generateSuggestionOnDemand('video_game');
+        if (loadingSuggestion != null) {
+          // Don't set the loading suggestion as current - just keep loading state
           setState(() {
-            _currentDbSuggestion = newSuggestion;
-            _isLoadingDbSuggestion = false;
-            // Reset button states for the new suggestion
+            _currentDbSuggestion = null; // Clear current suggestion
+            _isLoadingDbSuggestion = true; // Keep loading until real suggestion arrives
             _hasLikedCurrentSuggestion = false;
             _hasFavoritedCurrentSuggestion = false;
           });
@@ -94,7 +108,6 @@ class _GameSectionState extends State<GameSection> {
             _currentDbSuggestion = null;
             _dbSuggestionError = 'Unable to generate video game suggestions. Make sure TinyLlama model is installed.';
             _isLoadingDbSuggestion = false;
-            // Reset button states when no suggestion available
             _hasLikedCurrentSuggestion = false;
             _hasFavoritedCurrentSuggestion = false;
           });
@@ -548,7 +561,7 @@ class _GameSectionState extends State<GameSection> {
                   ),
                   const SizedBox(height: 12),
                   if (_isLoadingDbSuggestion)
-                    const SizedBox.shrink()
+                    const LoadingSuggestion(mediaType: 'video_game')
                   else if (_dbSuggestionError != null)
                     Center(
                       child: Padding(

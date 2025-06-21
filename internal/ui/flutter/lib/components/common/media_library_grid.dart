@@ -38,9 +38,9 @@ class MediaLibraryGrid extends StatelessWidget {
     return GridView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 3, // Keep 3 columns as requested
-        childAspectRatio: 1.2, // Keep the same aspect ratio
+        childAspectRatio: _getAspectRatio(), // Dynamic aspect ratio based on media type
         crossAxisSpacing: 16,
         mainAxisSpacing: 16,
       ),
@@ -64,5 +64,21 @@ class MediaLibraryGrid extends StatelessWidget {
       );
     },
     );
+  }
+
+  /// Get the appropriate aspect ratio for the media type
+  double _getAspectRatio() {
+    switch (mediaType) {
+      case 'music':
+        return 1.0; // Square aspect ratio for albums
+      case 'movie':
+      case 'tv_show':
+      case 'book':
+        return 0.7; // Poster aspect ratio (taller rectangles)
+      case 'video_game':
+        return 0.8; // Game cover aspect ratio
+      default:
+        return 1.2; // Default aspect ratio
+    }
   }
 } 

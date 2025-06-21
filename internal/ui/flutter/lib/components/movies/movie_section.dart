@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import '../common/scroll_content_wrapper.dart';
 import '../common/media_library_grid.dart';
 import '../common/suggestion_action_buttons.dart';
+import '../common/loading_suggestion.dart';
 import '../../services/recommendation_service.dart';
+import '../../services/recommendation_event_service.dart';
 import '../../services/sqlite_db.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import '../../utils/text_utils.dart';
@@ -33,11 +35,20 @@ class _MovieSectionState extends State<MovieSection> {
   bool _isLoadingDbWatchlist = false;
 
   final RecommendationService _recommendationService = RecommendationService();
+  final RecommendationEventService _eventService = RecommendationEventService();
   final SQLiteDatabase _db = SQLiteDatabase();
 
   @override
   void initState() {
     super.initState();
+    
+    // Listen for recommendation events
+    _eventService.eventsForMediaType('movie').listen((event) {
+      if (event.type == RecommendationEventType.suggestionReady) {
+        debugPrint('🎉 Movie suggestion ready: ${event.suggestion?.title}');
+        _loadDbSuggestion(); // Reload to get the new suggestion
+      }
+    });
     
     // Load initial DB suggestion
     _loadDbSuggestion();
@@ -68,6 +79,9 @@ class _MovieSectionState extends State<MovieSection> {
       _hasFavoritedCurrentSuggestion = false; // Reset favorite state
     });
     debugPrint('📱 _loadDbSuggestion button states reset - after: liked=$_hasLikedCurrentSuggestion, favorited=$_hasFavoritedCurrentSuggestion');
+
+    // Give the UI a chance to update and show the loading state
+    await Future.delayed(const Duration(milliseconds: 50));
 
     try {
       debugPrint('📱 _loadDbSuggestion checking database status');
@@ -107,13 +121,13 @@ class _MovieSectionState extends State<MovieSection> {
       } else {
         debugPrint('📱 _loadDbSuggestion no pending suggestions, generating on-demand');
         // Try to generate a new suggestion on-demand
-        final newSuggestion = await _recommendationService.generateSuggestionOnDemand('movie');
-        if (newSuggestion != null) {
-          debugPrint('📱 _loadDbSuggestion generated new suggestion: ${newSuggestion.title}');
+        final loadingSuggestion = await _recommendationService.generateSuggestionOnDemand('movie');
+        if (loadingSuggestion != null) {
+          debugPrint('📱 _loadDbSuggestion started background generation');
+          // Don't set the loading suggestion as current - just keep loading state
           setState(() {
-            _currentDbSuggestion = newSuggestion;
-            _isLoadingDbSuggestion = false;
-            // Reset button states for the new suggestion
+            _currentDbSuggestion = null; // Clear current suggestion
+            _isLoadingDbSuggestion = true; // Keep loading until real suggestion arrives
             _hasLikedCurrentSuggestion = false;
             _hasFavoritedCurrentSuggestion = false;
           });
@@ -839,7 +853,7 @@ class _MovieSectionState extends State<MovieSection> {
   // Helper method to build suggestion content
   Widget _buildSuggestionContent(double scrollOffset) {
     if (_isLoadingDbSuggestion) {
-      return const SizedBox.shrink();
+      return const LoadingSuggestion(mediaType: 'movie');
     } else if (_dbSuggestionError != null) {
       return Center(
         child: Padding(

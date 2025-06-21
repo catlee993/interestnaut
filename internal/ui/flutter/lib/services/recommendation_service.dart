@@ -2,13 +2,15 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'sqlite_db.dart';
 import '../db/vector_db.dart';
 import 'llama_service.dart';
 import 'model_constants.dart';
 import '../models.dart';
 import 'package:interestnaut/services/wikipedia_service.dart';
-import '../components/music/spotify_service.dart'; 
+import '../components/music/spotify_service.dart';
+import 'recommendation_event_service.dart'; 
 
 // --- Data Models ---
 
@@ -186,7 +188,8 @@ class RecommendationService extends ChangeNotifier {
   
   final SQLiteDatabase _db = SQLiteDatabase();
   final LlamaService _llamaService = LlamaService();
-  final SpotifyService _spotifyService = SpotifyService(); 
+  final SpotifyService _spotifyService = SpotifyService();
+  final RecommendationEventService _eventService = RecommendationEventService(); 
   
   bool _isProcessingQueue = false;
   final Map<String, bool> _queueBeingFilled = {};
@@ -541,37 +544,91 @@ class RecommendationService extends ChangeNotifier {
   }
   
   /// Generate a single suggestion on-demand (triggered by user action)
+  /// Returns immediately with a loading suggestion, then emits events when ready
   Future<MediaSuggestion?> generateSuggestionOnDemand(String mediaType) async {
     if (_queueBeingFilled[mediaType] == true) {
       debugPrint('Already generating suggestion for $mediaType');
       return null;
     }
 
-    // Check if we have the required components before attempting generation
-    final hasLLM = await _llamaService.isModelAvailable();
-    final hasVectorDB = await isMediaTypeAvailable(mediaType);
-    
-    if (!hasLLM) {
-      debugPrint('Cannot generate $mediaType suggestion: TinyLlama model not available');
-      return null;
-    }
-    
-    if (!hasVectorDB) {
-      debugPrint('Cannot generate $mediaType suggestion: Vector database not available');
+    // Quick synchronous checks only (avoid async operations here)
+    if (!_llamaService.isInitialized) {
+      debugPrint('Cannot generate $mediaType suggestion: TinyLlama service not initialized');
       return null;
     }
 
     _queueBeingFilled[mediaType] = true;
 
+    // Emit started event
+    _eventService.emitSuggestionStarted(mediaType);
+
+    // Create and return a loading suggestion immediately (no async operations)
+    final loadingSuggestion = MediaSuggestion(
+      id: -1, // Temporary ID for loading state
+      query: 'Generating $mediaType suggestion...',
+      mediaType: mediaType,
+      title: 'Loading...',
+      artist: 'Generating suggestion',
+      botReasoning: 'Finding the perfect $mediaType for you...',
+      status: SuggestionStatus.pending,
+    );
+
+    // Start background generation without blocking (all async operations moved here)
+    _generateSuggestionInBackground(mediaType);
+
+    return loadingSuggestion;
+  }
+
+  /// Generate suggestion in background and emit events when ready
+  void _generateSuggestionInBackground(String mediaType) {
+    // Run all async operations in background
+    _generateSuggestionAsyncFull(mediaType).then((result) {
+      _queueBeingFilled[mediaType] = false;
+      if (result != null) {
+        debugPrint('Background suggestion ready: ${result.title}');
+        _eventService.emitSuggestionReady(mediaType, result);
+      } else {
+        _eventService.emitSuggestionError(mediaType, 'Failed to generate suggestion');
+      }
+    }).catchError((e) {
+      _queueBeingFilled[mediaType] = false;
+      debugPrint('Error in background suggestion generation: $e');
+      _eventService.emitSuggestionError(mediaType, e.toString());
+    });
+  }
+
+  /// Generate suggestion with full async checks (for background use)
+  Future<MediaSuggestion?> _generateSuggestionAsyncFull(String mediaType) async {
     try {
-      debugPrint('Generating on-demand $mediaType suggestion');
+      // Do all async checks here (in background)
+      final hasLLM = await _llamaService.isModelAvailable();
+      final hasVectorDB = await isMediaTypeAvailable(mediaType);
       
-      // Get existing recommendations to avoid duplicates
-      final existingRecommendations = await getSuggestions(mediaType);
+      if (!hasLLM) {
+        debugPrint('Cannot generate $mediaType suggestion: TinyLlama model not available');
+        return null;
+      }
       
-      // Get a random suggestion from the vector database
+      if (!hasVectorDB) {
+        debugPrint('Cannot generate $mediaType suggestion: Vector database not available');
+        return null;
+      }
+
+      // Now do the heavy operations
+      return await _generateSuggestionAsync(mediaType);
+    } catch (e) {
+      debugPrint('Error in full async suggestion generation: $e');
+      return null;
+    }
+  }
+
+  /// Generate suggestion using vector DB on main thread and LLM in isolate
+  Future<MediaSuggestion?> _generateSuggestionAsync(String mediaType) async {
+    try {
+      // Step 1: Get real data from vector DB on main thread (platform channels allowed)
       final vectorDb = VectorDatabase();
-      await vectorDb.init(); // Initialize the vector database
+      await vectorDb.init();
+      
       final randomResults = await vectorDb.getRandomMedia(mediaType: mediaType, limit: 1);
       
       if (randomResults.isEmpty) {
@@ -580,20 +637,27 @@ class RecommendationService extends ChangeNotifier {
       }
       
       final mediaResult = randomResults.first;
+      debugPrint('Selected real media for LLM: ${mediaResult.title}');
       
-      // Generate explanation using the actual media item
-      final response = await _llamaService.generateExplanation(
-        userQuery: 'Suggest a great $mediaType',
-        mediaTitle: mediaResult.title,
-        mediaType: mediaType,
-        artist: mediaResult.artist,
-        themes: mediaResult.themes,
-        description: mediaResult.description,
-        similarity: 1.0,
-      );
+      // Step 2: Run LLM operation in isolate (heavy computation)
+      final response = await compute(_generateLLMResponseInIsolate, {
+        'userQuery': 'Suggest a great $mediaType',
+        'mediaTitle': mediaResult.title,
+        'mediaType': mediaType,
+        'artist': mediaResult.artist,
+        'themes': mediaResult.themes,
+        'description': mediaResult.description,
+        'similarity': 1.0,
+      });
+      
+      if (response == null) {
+        debugPrint('Failed to generate LLM response');
+        return null;
+      }
+      
       debugPrint('LLM response: "$response"');
       
-      // Create suggestion from actual vector database result
+      // Step 3: Create suggestion with real data
       final suggestion = MediaSuggestion(
         query: 'User requested $mediaType suggestion',
         mediaType: mediaType,
@@ -609,7 +673,7 @@ class RecommendationService extends ChangeNotifier {
         status: SuggestionStatus.pending,
       );
       
-      // Save the suggestion and get the version with the correct ID
+      // Step 4: Save suggestion on main thread (needs platform channels)
       final savedSuggestion = await _saveValidatedSuggestion(suggestion);
       if (savedSuggestion != null) {
         debugPrint('Generated on-demand suggestion: ${savedSuggestion.title} (ID: ${savedSuggestion.id})');
@@ -619,11 +683,98 @@ class RecommendationService extends ChangeNotifier {
         return null;
       }
     } catch (e) {
-      debugPrint('Error generating on-demand suggestion for $mediaType: $e');
+      debugPrint('Error in suggestion generation: $e');
       return null;
-    } finally {
-      _queueBeingFilled[mediaType] = false;
     }
+  }
+
+
+
+
+
+  /// Static function to run LLM inference in isolate
+  static Future<String?> _generateLLMResponseInIsolate(Map<String, dynamic> params) async {
+    try {
+      // Extract parameters
+      final String userQuery = params['userQuery'];
+      final String mediaTitle = params['mediaTitle'];
+      final String mediaType = params['mediaType'];
+      final String? artist = params['artist'];
+      final String? themes = params['themes'];
+      final String? description = params['description'];
+      final double similarity = params['similarity'];
+      
+      // Generate explanation using pure computation (no platform channels)
+      final response = _generateContextualExplanationPure(
+        userQuery: userQuery,
+        mediaTitle: mediaTitle,
+        mediaType: mediaType,
+        artist: artist,
+        themes: themes,
+        description: description,
+        similarity: similarity,
+      );
+      
+      return response;
+    } catch (e) {
+      debugPrint('Error in LLM isolate task: $e');
+      return null;
+    }
+  }
+
+  /// Pure computation version of explanation generation (isolate-safe)
+  static String _generateContextualExplanationPure({
+    required String userQuery,
+    required String mediaTitle,
+    required String mediaType,
+    String? artist,
+    String? themes,
+    String? description,
+    double? similarity,
+  }) {
+    final buffer = StringBuffer();
+    
+    // Start with similarity-based reasoning
+    if (similarity != null && similarity > 0.7) {
+      buffer.write('This $mediaType is a strong match ');
+    } else if (similarity != null && similarity > 0.5) {
+      buffer.write('This $mediaType is a good match ');
+    } else {
+      buffer.write('This $mediaType relates to ');
+    }
+    
+    buffer.write('your search for "$userQuery"');
+    
+    // Add theme-based reasoning
+    if (themes != null && themes.isNotEmpty) {
+      final themesList = themes.split(',').map((t) => t.trim()).where((t) => t.isNotEmpty).toList();
+      if (themesList.isNotEmpty) {
+        if (themesList.length == 1) {
+          buffer.write(' through its ${themesList.first} theme');
+        } else if (themesList.length == 2) {
+          buffer.write(' through its ${themesList.first} and ${themesList.last} themes');
+        } else {
+          buffer.write(' through themes like ${themesList.take(2).join(', ')}, and others');
+        }
+      }
+    }
+    
+    // Add artist/creator context
+    if (artist != null && artist.isNotEmpty && artist.toLowerCase() != 'unknown') {
+      if (mediaType == 'music') {
+        buffer.write(', featuring ${artist}\'s distinctive style');
+      } else if (mediaType == 'book') {
+        buffer.write(', showcasing ${artist}\'s writing approach');
+      } else if (mediaType == 'movie' || mediaType == 'tv_show') {
+        buffer.write(', with ${artist}\'s creative direction');
+      } else {
+        buffer.write(', created by $artist');
+      }
+    }
+    
+    buffer.write('.');
+    
+    return buffer.toString();
   }
 
   /// Check if a media type database is available

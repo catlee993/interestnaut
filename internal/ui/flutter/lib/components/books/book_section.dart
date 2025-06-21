@@ -3,9 +3,11 @@ import 'package:flutter/material.dart';
 import '../common/scroll_content_wrapper.dart' as wrapper;
 import '../common/media_library_grid.dart';
 import '../common/suggestion_action_buttons.dart';
+import '../common/loading_suggestion.dart';
 import '../common/media_section_layout.dart';
 import '../../models.dart';
 import '../../services/recommendation_service.dart';
+import '../../services/recommendation_event_service.dart';
 import '../../services/sqlite_db.dart';
 import 'book_card.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
@@ -38,12 +40,21 @@ class _BookSectionState extends State<BookSection> {
   bool _showLibrary = true;
 
   final RecommendationService _recommendationService = RecommendationService();
+  final RecommendationEventService _eventService = RecommendationEventService();
   final SQLiteDatabase _db = SQLiteDatabase();
   final GlobalKey _searchResultsKey = GlobalKey();
 
   @override
   void initState() {
     super.initState();
+    
+    // Listen for recommendation events
+    _eventService.eventsForMediaType('book').listen((event) {
+      if (event.type == RecommendationEventType.suggestionReady) {
+        debugPrint('🎉 Book suggestion ready: ${event.suggestion?.title}');
+        _loadDbSuggestion(); // Reload to get the new suggestion
+      }
+    });
     
     // Load initial DB suggestion
     _loadDbSuggestion();
@@ -72,6 +83,9 @@ class _BookSectionState extends State<BookSection> {
       _hasFavoritedCurrentSuggestion = false; // Reset favorite state
     });
 
+    // Give the UI a chance to update and show the loading state
+    await Future.delayed(const Duration(milliseconds: 50));
+
     try {
       // First check if the book database is available
       final databaseStatus = await _recommendationService.getMediaTypeStatus('book');
@@ -98,13 +112,14 @@ class _BookSectionState extends State<BookSection> {
         });
       } else {
         // Try to generate a new suggestion on-demand
-        final newSuggestion = await _recommendationService.generateSuggestionOnDemand('book');
-        if (newSuggestion != null) {
-          debugPrint('📱 _loadDbSuggestion setting currentSuggestion: ${newSuggestion.title} (ID: ${newSuggestion.id})');
+        final loadingSuggestion = await _recommendationService.generateSuggestionOnDemand('book');
+        
+        if (loadingSuggestion != null) {
+          debugPrint('📱 _loadDbSuggestion started background generation');
+          // Don't set the loading suggestion as current - just keep loading state
           setState(() {
-            _currentDbSuggestion = newSuggestion;
-            _isLoadingDbSuggestion = false;
-            // Reset button states for the new suggestion
+            _currentDbSuggestion = null; // Clear current suggestion
+            _isLoadingDbSuggestion = true; // Keep loading state until real suggestion arrives
             _hasLikedCurrentSuggestion = false;
             _hasFavoritedCurrentSuggestion = false;
           });
@@ -540,6 +555,21 @@ class _BookSectionState extends State<BookSection> {
     return wrapper.ScrollContentWrapper(
       builder: (context) => Column(
         children: [
+          // Title
+          const Center(
+            child: Text(
+              'Suggested for You',
+              style: TextStyle(
+                fontSize: 24.0,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ),
+          
+          const SizedBox(height: 24),
+          
           // Suggestion section
           _buildSuggestionContent(),
           
@@ -563,11 +593,7 @@ class _BookSectionState extends State<BookSection> {
   // Helper method to build suggestion content
   Widget _buildSuggestionContent() {
     if (_isLoadingDbSuggestion) {
-      return const Center(
-        child: CircularProgressIndicator(
-          color: Color(0xFFA855F7),
-        ),
-      );
+      return const LoadingSuggestion(mediaType: 'book');
     } else if (_dbSuggestionError != null) {
       return Center(
         child: Column(
@@ -607,13 +633,16 @@ class _BookSectionState extends State<BookSection> {
               onPressed: _isLoadingDbSuggestion ? null : () async {
                 setState(() {
                   _isLoadingDbSuggestion = true;
+                  _dbSuggestionError = null;
                 });
                 
-                final newSuggestion = await _recommendationService.generateSuggestionOnDemand('book');
-                if (newSuggestion != null) {
+                final loadingSuggestion = await _recommendationService.generateSuggestionOnDemand('book');
+                
+                if (loadingSuggestion != null) {
+                  // Don't set the loading suggestion as current - just keep loading state
                   setState(() {
-                    _currentDbSuggestion = newSuggestion;
-                    _isLoadingDbSuggestion = false;
+                    _currentDbSuggestion = null; // Clear current suggestion
+                    // Keep _isLoadingDbSuggestion = true until real suggestion arrives
                   });
                 } else {
                   setState(() {

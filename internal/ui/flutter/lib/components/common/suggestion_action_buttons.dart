@@ -43,7 +43,7 @@ class SuggestionActionButtons extends StatelessWidget {
         return 'Watchlist';
       case 'game':
       case 'video_game':
-        return 'Wishlist';
+        return 'Playlist';
       default:
         return 'List';
     }
@@ -61,7 +61,7 @@ class SuggestionActionButtons extends StatelessWidget {
         return 'watchlist';
       case 'game':
       case 'video_game':
-        return 'wishlist';
+        return 'playlist';
       default:
         return 'list';
     }

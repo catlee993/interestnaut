@@ -5,8 +5,10 @@ import '../common/scroll_content_wrapper.dart';
 
 import '../common/media_library_grid.dart';
 import '../common/suggestion_action_buttons.dart';
+import '../common/loading_suggestion.dart';
 import '../../models.dart';
 import '../../services/recommendation_service.dart';
+import '../../services/recommendation_event_service.dart';
 import '../../services/sqlite_db.dart';
 import 'library/library_section.dart';
 
@@ -101,6 +103,7 @@ class _MusicSectionState extends State<MusicSection> {
   // Keep services and other components
   final SpotifyService _spotifyService = SpotifyService();
   final RecommendationService _recommendationService = RecommendationService();
+  final RecommendationEventService _eventService = RecommendationEventService();
   final SQLiteDatabase _db = SQLiteDatabase();
 
   StreamSubscription? _authSubscription;
@@ -110,12 +113,14 @@ class _MusicSectionState extends State<MusicSection> {
   StreamSubscription? _spotifyEventsTrackSubscription;
   StreamSubscription? _spotifyEventsPlaybackSubscription;
   StreamSubscription? _playerReadySubscription;
+  StreamSubscription? _recommendationEventSubscription;
 
   @override
   void initState() {
     super.initState();
     
     _setupListeners();
+    _setupRecommendationEventListener();
     _checkAuthentication();
     
     // Load initial DB suggestion
@@ -123,6 +128,35 @@ class _MusicSectionState extends State<MusicSection> {
     // Load DB library and playlist
     _loadDbLibrary();
     _loadDbPlaylist();
+  }
+
+  void _setupRecommendationEventListener() {
+    // Listen for recommendation events for music
+    _recommendationEventSubscription = _eventService.eventsForMediaType('music').listen((event) {
+      if (!mounted) return;
+      
+      // Defer all UI updates to next frame to avoid blocking
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        
+        switch (event.type) {
+          case RecommendationEventType.suggestionReady:
+            if (event.suggestion != null) {
+              _updateWithRealSuggestion(event.suggestion!);
+            }
+            break;
+          case RecommendationEventType.suggestionError:
+            setState(() {
+              _dbSuggestionError = event.error ?? 'Unknown error';
+              _isLoadingDbSuggestion = false;
+            });
+            break;
+          case RecommendationEventType.suggestionStarted:
+            // Already handled by the loading suggestion
+            break;
+        }
+      });
+    });
   }
 
   void _setupListeners() {
@@ -234,6 +268,7 @@ class _MusicSectionState extends State<MusicSection> {
     _spotifyEventsTrackSubscription?.cancel();
     _spotifyEventsPlaybackSubscription?.cancel();
     _playerReadySubscription?.cancel();
+    _recommendationEventSubscription?.cancel();
     super.dispose();
   }
 
@@ -920,7 +955,7 @@ class _MusicSectionState extends State<MusicSection> {
   // Helper method to build suggestion content
   Widget _buildSuggestionContent(double scrollOffset) {
     if (_isLoadingDbSuggestion) {
-      return const SizedBox.shrink();
+      return const LoadingSuggestion(mediaType: 'music');
     } else if (_dbSuggestionError != null) {
       return Center(
         child: Padding(
@@ -962,34 +997,40 @@ class _MusicSectionState extends State<MusicSection> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Album art (takes full height)
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: Container(
-                    width: 300,
-                    height: 450, // Match movie poster height
-                    color: Colors.grey[900],
-                    child: _dbSuggestedTrack!.album.images.isNotEmpty
-                      ? Image.network(
-                          _dbSuggestedTrack!.album.images.first.url,
-                          fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) {
-                            return const Center(
+                // Album art container (same height as other media, but square art centered inside)
+                Container(
+                  width: 300,
+                  height: 450, // Match other media types
+                  child: Center(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: Container(
+                        width: 300,
+                        height: 300, // Square aspect ratio for album art
+                        color: Colors.grey[900],
+                        child: _dbSuggestedTrack!.album.images.isNotEmpty
+                          ? Image.network(
+                              _dbSuggestedTrack!.album.images.first.url,
+                              fit: BoxFit.cover,
+                              errorBuilder: (context, error, stackTrace) {
+                                return const Center(
+                                  child: Icon(
+                                    Icons.music_note,
+                                    size: 48,
+                                    color: Colors.white54,
+                                  ),
+                                );
+                              },
+                            )
+                          : const Center(
                               child: Icon(
                                 Icons.music_note,
                                 size: 48,
                                 color: Colors.white54,
                               ),
-                            );
-                          },
-                        )
-                      : const Center(
-                          child: Icon(
-                            Icons.music_note,
-                            size: 48,
-                            color: Colors.white54,
-                          ),
-                        ),
+                            ),
+                      ),
+                    ),
                   ),
                 ),
                 const SizedBox(width: 24),
@@ -997,7 +1038,7 @@ class _MusicSectionState extends State<MusicSection> {
                 // Track info (centered alignment)
                 Expanded(
                   child: SizedBox(
-                    height: 450, // Match the album art height
+                    height: 450, // Match other media types
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.center, // Center everything
                       children: [
@@ -1337,6 +1378,9 @@ class _MusicSectionState extends State<MusicSection> {
       _hasFavoritedCurrentSuggestion = false; // Reset favorite state
     });
 
+    // Give the UI a chance to update and show the loading state
+    await Future.delayed(const Duration(milliseconds: 50));
+
     try {
       // First check if the music database is available
       final databaseStatus = await _recommendationService.getMediaTypeStatus('music');
@@ -1380,27 +1424,29 @@ class _MusicSectionState extends State<MusicSection> {
         });
       } else {
         // Try to generate a new suggestion on-demand
-        final newSuggestion = await _recommendationService.generateSuggestionOnDemand('music');
-        if (newSuggestion != null) {
-          // Convert MediaSuggestion to Track for compatibility
-          final track = Track(
-            id: newSuggestion.id.toString(),
-            name: newSuggestion.title ?? 'Unknown',
-            artists: [Artist(name: newSuggestion.artist ?? 'Unknown Artist')],
+        final loadingSuggestion = await _recommendationService.generateSuggestionOnDemand('music');
+        
+        if (loadingSuggestion != null) {
+          // Convert loading suggestion to Track for compatibility
+          final loadingTrack = Track(
+            id: loadingSuggestion.id.toString(),
+            name: loadingSuggestion.title ?? 'Loading...',
+            artists: [Artist(name: loadingSuggestion.artist ?? 'Generating suggestion')],
             album: Album(
-              name: newSuggestion.album ?? 'Unknown Album',
-              images: newSuggestion.coverArtUrl?.isNotEmpty == true 
-                ? [ImageData(url: newSuggestion.coverArtUrl!, height: 300, width: 300)] 
-                : [],
+              name: 'Loading...',
+              images: [],
             ),
-            uri: '', // No Spotify URI for database suggestions
+            uri: '', // No Spotify URI for loading suggestions
             previewUrl: '',
           );
           
+          // Don't set the loading suggestion as current - just keep loading state
           setState(() {
-            _dbSuggestedTrack = track;
-            _currentDbSuggestion = newSuggestion;
-            _isLoadingDbSuggestion = false;
+            _dbSuggestedTrack = null; // Clear current track
+            _currentDbSuggestion = null; // Clear current suggestion
+            _isLoadingDbSuggestion = true; // Keep loading state until real suggestion arrives
+            _hasLikedCurrentSuggestion = false;
+            _hasFavoritedCurrentSuggestion = false;
           });
         } else {
           setState(() {
@@ -1419,6 +1465,34 @@ class _MusicSectionState extends State<MusicSection> {
         _isLoadingDbSuggestion = false;
       });
     }
+  }
+
+  // Helper method to update UI with real suggestion (optimized for performance)
+  void _updateWithRealSuggestion(MediaSuggestion realSuggestion) {
+    // Convert MediaSuggestion to Track for compatibility (lightweight operation)
+    final track = Track(
+      id: realSuggestion.id.toString(),
+      name: realSuggestion.title ?? 'Unknown',
+      artists: [Artist(name: realSuggestion.artist ?? 'Unknown Artist')],
+      album: Album(
+        name: realSuggestion.album ?? 'Unknown Album',
+        images: realSuggestion.coverArtUrl?.isNotEmpty == true 
+          ? [ImageData(url: realSuggestion.coverArtUrl!, height: 300, width: 300)] 
+          : [],
+      ),
+      uri: '', // No Spotify URI for database suggestions
+      previewUrl: '',
+    );
+    
+    // Simple setState with minimal work
+    setState(() {
+      _dbSuggestedTrack = track;
+      _currentDbSuggestion = realSuggestion;
+      _isLoadingDbSuggestion = false;
+      // Reset button states for the new suggestion
+      _hasLikedCurrentSuggestion = false;
+      _hasFavoritedCurrentSuggestion = false;
+    });
   }
 
   // Load favorited suggestions from database (only added/favorited items)

@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../common/scroll_content_wrapper.dart';
-import '../common/media_grid.dart';
+import '../common/media_library_grid.dart';
 import '../common/suggestion_action_buttons.dart';
+import '../common/loading_suggestion.dart';
 import '../../services/recommendation_service.dart';
+import '../../services/recommendation_event_service.dart';
 import '../../services/sqlite_db.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 
@@ -31,11 +33,20 @@ class _TVShowSectionState extends State<TVShowSection> {
   bool _isLoadingDbWatchlist = false;
 
   final RecommendationService _recommendationService = RecommendationService();
+  final RecommendationEventService _eventService = RecommendationEventService();
   final SQLiteDatabase _db = SQLiteDatabase();
 
   @override
   void initState() {
     super.initState();
+    
+    // Listen for recommendation events
+    _eventService.eventsForMediaType('tv_show').listen((event) {
+      if (event.type == RecommendationEventType.suggestionReady) {
+        debugPrint('🎉 TV Show suggestion ready: ${event.suggestion?.title}');
+        _loadDbSuggestion(); // Reload to get the new suggestion
+      }
+    });
     
     // Load initial DB suggestion
     _loadDbSuggestion();
@@ -53,6 +64,9 @@ class _TVShowSectionState extends State<TVShowSection> {
       _hasFavoritedCurrentSuggestion = false; // Reset favorite state
     });
 
+    // Give the UI a chance to update and show the loading state
+    await Future.delayed(const Duration(milliseconds: 50));
+
     try {
       // First check if the TV show database is available
       final databaseStatus = await _recommendationService.getMediaTypeStatus('tv_show');
@@ -68,8 +82,13 @@ class _TVShowSectionState extends State<TVShowSection> {
       }
       
       final suggestions = await _db.getPendingSuggestionsNotInWatchlist('tv_show');
+      debugPrint('📱 _loadDbSuggestion found ${suggestions.length} total pending, ${suggestions.length} after filtering current');
       
       if (suggestions.isNotEmpty) {
+        debugPrint('📱 _loadDbSuggestion using suggestion: ${suggestions.first.title} (media_type: ${suggestions.first.mediaType})');
+        if (suggestions.first.mediaType != 'tv_show') {
+          debugPrint('⚠️ WARNING: Found suggestion with wrong media type! Expected tv_show, got ${suggestions.first.mediaType}');
+        }
         setState(() {
           _currentDbSuggestion = suggestions.first;
           _isLoadingDbSuggestion = false;
@@ -79,12 +98,12 @@ class _TVShowSectionState extends State<TVShowSection> {
         });
       } else {
         // Try to generate a new suggestion on-demand
-        final newSuggestion = await _recommendationService.generateSuggestionOnDemand('tv_show');
-        if (newSuggestion != null) {
+        final loadingSuggestion = await _recommendationService.generateSuggestionOnDemand('tv_show');
+        if (loadingSuggestion != null) {
+          // Don't set the loading suggestion as current - just keep loading state
           setState(() {
-            _currentDbSuggestion = newSuggestion;
-            _isLoadingDbSuggestion = false;
-            // Reset button states for the new suggestion
+            _currentDbSuggestion = null; // Clear current suggestion
+            _isLoadingDbSuggestion = true; // Keep loading until real suggestion arrives
             _hasLikedCurrentSuggestion = false;
             _hasFavoritedCurrentSuggestion = false;
           });
@@ -93,7 +112,6 @@ class _TVShowSectionState extends State<TVShowSection> {
             _currentDbSuggestion = null;
             _dbSuggestionError = 'Unable to generate TV show suggestions. Make sure TinyLlama model is installed.';
             _isLoadingDbSuggestion = false;
-            // Reset button states when no suggestion available
             _hasLikedCurrentSuggestion = false;
             _hasFavoritedCurrentSuggestion = false;
           });
@@ -342,25 +360,26 @@ class _TVShowSectionState extends State<TVShowSection> {
 
   // Build watchlist section
   Widget _buildDbWatchlistSection() {
-    return MediaGrid(
-      children: _dbWatchlistSuggestions.map((suggestion) {
-        return _buildSuggestionCard(
-          suggestion,
-          onRemove: () => _removeFromWatchlist(suggestion),
-          onLike: () => _likeWatchlistItem(suggestion),
-          onDislike: () => _dislikeWatchlistItem(suggestion),
-          showWatchlistActions: true,
-        );
-      }).toList(),
+    return MediaLibraryGrid(
+      suggestions: _dbWatchlistSuggestions,
+      mediaType: 'tv_show',
+      isWatchlist: true,
+      onRemove: _removeFromWatchlist,
+      onLike: _likeWatchlistItem,
+      onDislike: _dislikeWatchlistItem,
+      onFavorite: _favoriteWatchlistItem,
     );
   }
 
   // Build library section
   Widget _buildDbLibrarySection() {
-    return MediaGrid(
-      children: _dbLikedSuggestions.map((suggestion) {
-        return _buildSuggestionCard(suggestion);
-      }).toList(),
+    return MediaLibraryGrid(
+      suggestions: _dbLikedSuggestions,
+      mediaType: 'tv_show',
+      isWatchlist: false,
+      onAddToWatchlist: _addLibraryItemToWatchlist,
+      onUnfavorite: _removeFromLibrary,
+      watchlistItems: _dbWatchlistSuggestions,
     );
   }
 
@@ -554,7 +573,7 @@ class _TVShowSectionState extends State<TVShowSection> {
     try {
       await _recommendationService.updateSuggestionStatus(
         suggestion.id,
-        SuggestionStatus.skipped,
+        SuggestionStatus.pending,  // Use pending so it can appear in suggestions again
       );
 
       // If the removed item is the currently displayed suggestion, update the state
@@ -574,6 +593,51 @@ class _TVShowSectionState extends State<TVShowSection> {
       _loadDbLibrary();
     } catch (e) {
       debugPrint('Error removing from library: $e');
+    }
+  }
+
+  // Favorite a watchlist item
+  Future<void> _favoriteWatchlistItem(MediaSuggestion suggestion) async {
+    try {
+      // Remove from watchlist table
+      await _db.removeFromWatchlist(suggestion.id);
+      
+      // Set status to added (favorited)
+      await _recommendationService.updateSuggestionStatus(
+        suggestion.id,
+        SuggestionStatus.added,
+      );
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Added "${suggestion.title}" to favorites'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+      
+      // Refresh both sections
+      _loadDbWatchlist();
+      _loadDbLibrary();
+    } catch (e) {
+      debugPrint('Error favoriting watchlist item: $e');
+    }
+  }
+
+  // Add library item to watchlist
+  Future<void> _addLibraryItemToWatchlist(MediaSuggestion suggestion) async {
+    try {
+      await _db.addToWatchlist(suggestion.id);
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Added "${suggestion.title}" to watchlist'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+      
+      _loadDbWatchlist();
+    } catch (e) {
+      debugPrint('Error adding library item to watchlist: $e');
     }
   }
 
@@ -606,7 +670,7 @@ class _TVShowSectionState extends State<TVShowSection> {
                   ),
                   const SizedBox(height: 12),
                   if (_isLoadingDbSuggestion)
-                    const SizedBox.shrink()
+                    const LoadingSuggestion(mediaType: 'tv_show')
                   else if (_dbSuggestionError != null)
                     Center(
                       child: Padding(
