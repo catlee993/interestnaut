@@ -2,17 +2,18 @@ import 'dart:ui';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../common/scroll_content_wrapper.dart';
-import '../common/media_grid.dart';
+
 import '../common/media_library_grid.dart';
+import '../common/suggestion_action_buttons.dart';
 import '../../models.dart';
 import '../../services/recommendation_service.dart';
 import '../../services/sqlite_db.dart';
 import 'library/library_section.dart';
-import 'tracks/track_card.dart';
+
 import 'player/spotify_player_view.dart';
 import 'player/spotify_web_player.dart';
 import 'spotify_service.dart';
-import 'suggestions/suggestion_display.dart';
+
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import '../../utils/text_utils.dart';
 
@@ -753,7 +754,7 @@ class _MusicSectionState extends State<MusicSection> {
 
       // Refresh both playlist and main suggestions
       _loadDbPlaylist();
-      _loadDbSuggestion(); // This will get the next suggestion
+      
     } catch (e) {
       debugPrint('Error adding DB suggestion to playlist: $e');
     }
@@ -1063,144 +1064,29 @@ class _MusicSectionState extends State<MusicSection> {
                           ),
                         ),
                         
-                        // Action buttons - wrap layout like other media sections
+                        // Action buttons using generic component
                         const SizedBox(height: 24),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 24),
-                          child: Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            alignment: WrapAlignment.center,
-                            children: [
-                              // Like button
-                              ElevatedButton.icon(
-                                onPressed: _hasLikedCurrentSuggestion ? null : _likeDbSuggestion,
-                                icon: Icon(
-                                  _hasLikedCurrentSuggestion ? Icons.thumb_up : Icons.thumb_up_outlined, 
-                                  size: 16
-                                ),
-                                label: Text(
-                                  _hasLikedCurrentSuggestion ? 'Liked' : 'Like', 
-                                  style: const TextStyle(fontSize: 13)
-                                ),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: _hasLikedCurrentSuggestion 
-                                    ? Colors.green.withOpacity(0.3)
-                                    : Colors.white.withOpacity(0.15),
-                                  foregroundColor: _hasLikedCurrentSuggestion ? Colors.green : Colors.white,
-                                  elevation: 0,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(25),
-                                  ),
-                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                  minimumSize: const Size(0, 44),
-                                ),
-                              ),
-                              
-                              // Dislike button
-                              ElevatedButton.icon(
-                                onPressed: _dislikeDbSuggestion,
-                                icon: const Icon(Icons.thumb_down, size: 16),
-                                label: const Text('Dislike', style: TextStyle(fontSize: 13)),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.white.withOpacity(0.15),
-                                  foregroundColor: Colors.white,
-                                  elevation: 0,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(25),
-                                  ),
-                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                  minimumSize: const Size(0, 44),
-                                ),
-                              ),
-                              
-                              // Favorite button
-                              ElevatedButton.icon(
-                                onPressed: _hasLikedCurrentSuggestion ? null : _addToFavorites,
-                                icon: Icon(
-                                  _hasLikedCurrentSuggestion ? Icons.favorite : Icons.favorite_border, 
-                                  size: 16
-                                ),
-                                label: Text(
-                                  _hasLikedCurrentSuggestion ? 'Favorited' : 'Favorite', 
-                                  style: const TextStyle(fontSize: 13)
-                                ),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: _hasLikedCurrentSuggestion 
-                                    ? Colors.red.withOpacity(0.3)
-                                    : Colors.white.withOpacity(0.15),
-                                  foregroundColor: _hasLikedCurrentSuggestion ? Colors.red : Colors.white,
-                                  elevation: 0,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(25),
-                                  ),
-                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                  minimumSize: const Size(0, 44),
-                                ),
-                              ),
-                              
-                              // Playlist button
-                              Builder(
-                                builder: (context) {
-                                  final inPlaylist = _currentDbSuggestion != null && 
-                                    _dbPlaylistSuggestions.any((item) => item.id == _currentDbSuggestion!.id);
-                                  
-                                  return ElevatedButton.icon(
-                                    onPressed: inPlaylist 
-                                      ? () => _currentDbSuggestion != null ? _removeFromWatchlist(_currentDbSuggestion!) : null
-                                      : _addDbSuggestionToPlaylist,
-                                    icon: Icon(
-                                      inPlaylist ? Icons.playlist_add_check : Icons.playlist_add, 
-                                      size: 16
-                                    ),
-                                    label: Text(
-                                      inPlaylist ? 'In Playlist' : 'Playlist', 
-                                      style: const TextStyle(fontSize: 13)
-                                    ),
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: inPlaylist 
-                                        ? Colors.blue.withOpacity(0.3)
-                                        : Colors.white.withOpacity(0.15),
-                                      foregroundColor: inPlaylist ? Colors.blue : Colors.white,
-                                      elevation: 0,
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(25),
-                                      ),
-                                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                      minimumSize: const Size(0, 44),
-                                    ),
-                                  );
-                                },
-                              ),
-                              
-                              // Skip/Next button
-                              ElevatedButton.icon(
-                                onPressed: _skipDbSuggestion,
-                                icon: Icon(
-                                  _hasLikedCurrentSuggestion ? Icons.arrow_forward : Icons.skip_next, 
-                                  size: 16
-                                ),
-                                label: Text(
-                                  _hasLikedCurrentSuggestion ? 'Next' : 'Skip', 
-                                  style: const TextStyle(fontSize: 13)
-                                ),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: _hasLikedCurrentSuggestion 
-                                    ? const Color(0xFF7B68EE).withOpacity(0.3)
-                                    : Colors.white.withOpacity(0.15),
-                                  foregroundColor: _hasLikedCurrentSuggestion 
-                                    ? const Color(0xFF7B68EE) 
-                                    : Colors.white,
-                                  elevation: 0,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(25),
-                                  ),
-                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                  minimumSize: const Size(0, 44),
-                                ),
-                              ),
-                            ],
-                          ),
+                        SuggestionActionButtons(
+                          mediaType: 'music',
+                          hasLikedCurrentSuggestion: _hasLikedCurrentSuggestion,
+                          isInWatchlist: _currentDbSuggestion != null && 
+                            _dbPlaylistSuggestions.any((item) => item.id == _currentDbSuggestion!.id),
+                          isProcessing: _isLoadingDbSuggestion,
+                          onLike: _likeDbSuggestion,
+                          onDislike: _dislikeDbSuggestion,
+                          onFavorite: _addToFavorites,
+                          onAddToWatchlist: () {
+                            final inPlaylist = _currentDbSuggestion != null && 
+                              _dbPlaylistSuggestions.any((item) => item.id == _currentDbSuggestion!.id);
+                            if (inPlaylist) {
+                              if (_currentDbSuggestion != null) {
+                                _removeFromWatchlist(_currentDbSuggestion!);
+                              }
+                            } else {
+                              _addDbSuggestionToPlaylist();
+                            }
+                          },
+                          onSkip: _skipDbSuggestion,
                         ),
                       ],
                     ),

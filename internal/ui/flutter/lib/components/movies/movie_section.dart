@@ -1,13 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../common/scroll_content_wrapper.dart';
-import '../common/media_grid.dart';
-import '../common/install_library_card.dart';
 import '../common/media_library_grid.dart';
-import '../../models.dart';
+import '../common/suggestion_action_buttons.dart';
 import '../../services/recommendation_service.dart';
 import '../../services/sqlite_db.dart';
-import 'movie_card.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import '../../utils/text_utils.dart';
 
@@ -171,19 +168,16 @@ class _MovieSectionState extends State<MovieSection> {
 
   // Like a database suggestion (add to library)
   Future<void> _likeDbSuggestion() async {
-    if (_currentDbSuggestion == null) return;
+    if (_currentDbSuggestion == null || _isLoadingDbSuggestion) return;
+
+    setState(() {
+      _isLoadingDbSuggestion = true;
+    });
 
     try {
       await _recommendationService.updateSuggestionStatus(
         _currentDbSuggestion!.id,
         SuggestionStatus.liked,
-      );
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Added "${_currentDbSuggestion!.title}" to your library'),
-          duration: const Duration(seconds: 2),
-        ),
       );
 
       setState(() {
@@ -201,6 +195,10 @@ class _MovieSectionState extends State<MovieSection> {
       _loadDbLibrary();
     } catch (e) {
       debugPrint('Error liking DB suggestion: $e');
+    } finally {
+      setState(() {
+        _isLoadingDbSuggestion = false;
+      });
     }
   }
 
@@ -292,7 +290,7 @@ class _MovieSectionState extends State<MovieSection> {
 
       // Refresh both watchlist and main suggestions
       _loadDbWatchlist();
-      _loadDbSuggestion(); // This will get the next suggestion
+      
     } catch (e) {
       debugPrint('Error adding DB suggestion to watchlist: $e');
     }
@@ -811,100 +809,28 @@ class _MovieSectionState extends State<MovieSection> {
                         ),
                       ),
                     
-                    // Action buttons - single horizontal line
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        // Like button
-                        ElevatedButton.icon(
-                          onPressed: _hasLikedCurrentSuggestion ? null : _likeDbSuggestion,
-                          icon: Icon(
-                            _hasLikedCurrentSuggestion ? Icons.thumb_up : Icons.thumb_up_outlined, 
-                            size: 16
-                          ),
-                          label: Text(
-                            _hasLikedCurrentSuggestion ? 'Liked' : 'Like', 
-                            style: const TextStyle(fontSize: 13)
-                          ),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: _hasLikedCurrentSuggestion 
-                              ? Colors.green.withOpacity(0.3)
-                              : Colors.white.withOpacity(0.15),
-                            foregroundColor: _hasLikedCurrentSuggestion ? Colors.green : Colors.white,
-                            elevation: 0,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(25),
-                            ),
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                            minimumSize: const Size(0, 44),
-                          ),
-                        ),
-                        
-                        const SizedBox(width: 12),
-                        
-                        // Watchlist button
-                        Builder(
-                          builder: (context) {
-                            final inWatchlist = _currentDbSuggestion != null && 
-                              _dbWatchlistSuggestions.any((item) => item.id == _currentDbSuggestion!.id);
-                            
-                            return ElevatedButton.icon(
-                              onPressed: inWatchlist 
-                                ? () => _currentDbSuggestion != null ? _removeFromWatchlist(_currentDbSuggestion!) : null
-                                : _addDbSuggestionToWatchlist,
-                              icon: Icon(
-                                inWatchlist ? Icons.bookmark_added : Icons.bookmark_add, 
-                                size: 16
-                              ),
-                              label: Text(
-                                inWatchlist ? 'In Watchlist' : 'Watchlist', 
-                                style: const TextStyle(fontSize: 13)
-                              ),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: inWatchlist 
-                                  ? Colors.blue.withOpacity(0.3)
-                                  : Colors.white.withOpacity(0.15),
-                                foregroundColor: inWatchlist ? Colors.blue : Colors.white,
-                                elevation: 0,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(25),
-                                ),
-                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                minimumSize: const Size(0, 44),
-                              ),
-                            );
-                          },
-                        ),
-                        
-                        const SizedBox(width: 12),
-                        
-                        // Skip/Next button
-                        ElevatedButton.icon(
-                          onPressed: _skipDbSuggestion,
-                          icon: Icon(
-                            _hasLikedCurrentSuggestion ? Icons.arrow_forward : Icons.skip_next, 
-                            size: 16
-                          ),
-                          label: Text(
-                            _hasLikedCurrentSuggestion ? 'Next' : 'Skip', 
-                            style: const TextStyle(fontSize: 13)
-                          ),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: _hasLikedCurrentSuggestion 
-                              ? const Color(0xFF7B68EE).withOpacity(0.3)
-                              : Colors.white.withOpacity(0.15),
-                            foregroundColor: _hasLikedCurrentSuggestion 
-                              ? const Color(0xFF7B68EE) 
-                              : Colors.white,
-                            elevation: 0,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(25),
-                            ),
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                            minimumSize: const Size(0, 44),
-                          ),
-                        ),
-                      ],
+                    // Action buttons using generic component
+                    SuggestionActionButtons(
+                      mediaType: 'movie',
+                      hasLikedCurrentSuggestion: _hasLikedCurrentSuggestion,
+                      isInWatchlist: _currentDbSuggestion != null && 
+                        _dbWatchlistSuggestions.any((item) => item.id == _currentDbSuggestion!.id),
+                      isProcessing: _isLoadingDbSuggestion,
+                      onLike: _likeDbSuggestion,
+                      onDislike: _dislikeDbSuggestion,
+                      onFavorite: _addToFavorites,
+                      onAddToWatchlist: () {
+                        final inWatchlist = _currentDbSuggestion != null && 
+                          _dbWatchlistSuggestions.any((item) => item.id == _currentDbSuggestion!.id);
+                        if (inWatchlist) {
+                          if (_currentDbSuggestion != null) {
+                            _removeFromWatchlist(_currentDbSuggestion!);
+                          }
+                        } else {
+                          _addDbSuggestionToWatchlist();
+                        }
+                      },
+                      onSkip: _skipDbSuggestion,
                     ),
                   ],
                 ),

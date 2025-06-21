@@ -2,10 +2,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../common/scroll_content_wrapper.dart';
 import '../common/media_grid.dart';
-import '../../models.dart';
+import '../common/suggestion_action_buttons.dart';
 import '../../services/recommendation_service.dart';
 import '../../services/sqlite_db.dart';
-import 'game_card.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 
 class GameSection extends StatefulWidget {
@@ -20,6 +19,7 @@ class _GameSectionState extends State<GameSection> {
   MediaSuggestion? _currentDbSuggestion;
   String? _dbSuggestionError;
   bool _isLoadingDbSuggestion = false;
+  bool _hasLikedCurrentSuggestion = false; // Add this to track like state
 
   // Local DB library state (for liked suggestions)
   List<MediaSuggestion> _dbLikedSuggestions = [];
@@ -152,17 +152,47 @@ class _GameSectionState extends State<GameSection> {
         SuggestionStatus.liked,
       );
 
+      setState(() {
+        _hasLikedCurrentSuggestion = true;
+      });
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Added "${_currentDbSuggestion!.title}" to your library'),
+          content: Text('Liked "${_currentDbSuggestion!.title}"'),
           duration: const Duration(seconds: 2),
         ),
       );
 
       _loadDbLibrary();
-      _loadDbSuggestion();
     } catch (e) {
       debugPrint('Error liking DB suggestion: $e');
+    }
+  }
+
+  // Add to favorites (same as like but with different messaging)
+  Future<void> _addToFavorites() async {
+    if (_currentDbSuggestion == null) return;
+
+    try {
+      await _recommendationService.updateSuggestionStatus(
+        _currentDbSuggestion!.id,
+        SuggestionStatus.liked,
+      );
+
+      setState(() {
+        _hasLikedCurrentSuggestion = true;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Added "${_currentDbSuggestion!.title}" to your favorites'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+
+      _loadDbLibrary();
+    } catch (e) {
+      debugPrint('Error adding to favorites: $e');
     }
   }
 
@@ -634,120 +664,29 @@ class _GameSectionState extends State<GameSection> {
                                                 textAlign: TextAlign.center,
                                               ),
                                               
-                                              // Action buttons
+                                              // Action buttons using generic component
                                               const SizedBox(height: 24),
-                                              Padding(
-                                                padding: const EdgeInsets.symmetric(horizontal: 24),
-                                                child: Wrap(
-                                                  spacing: 8,
-                                                  runSpacing: 8,
-                                                  alignment: WrapAlignment.center,
-                                                  children: [
-                                                    // Like button
-                                                    ElevatedButton.icon(
-                                                      onPressed: _likeDbSuggestion,
-                                                      icon: const Icon(Icons.thumb_up, size: 16),
-                                                      label: const Text('Like', style: TextStyle(fontSize: 13)),
-                                                      style: ElevatedButton.styleFrom(
-                                                        backgroundColor: Colors.black.withOpacity(0.7),
-                                                        foregroundColor: Colors.white,
-                                                        elevation: 0,
-                                                        side: BorderSide(color: Colors.white.withOpacity(0.3), width: 1),
-                                                        shape: RoundedRectangleBorder(
-                                                          borderRadius: BorderRadius.circular(25),
-                                                        ),
-                                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                                        minimumSize: const Size(0, 44),
-                                                      ),
-                                                    ),
-                                                    
-                                                    // Dislike button
-                                                    ElevatedButton.icon(
-                                                      onPressed: _dislikeDbSuggestion,
-                                                      icon: const Icon(Icons.thumb_down, size: 16),
-                                                      label: const Text('Dislike', style: TextStyle(fontSize: 13)),
-                                                      style: ElevatedButton.styleFrom(
-                                                        backgroundColor: Colors.black.withOpacity(0.7),
-                                                        foregroundColor: Colors.white,
-                                                        elevation: 0,
-                                                        side: BorderSide(color: Colors.white.withOpacity(0.3), width: 1),
-                                                        shape: RoundedRectangleBorder(
-                                                          borderRadius: BorderRadius.circular(25),
-                                                        ),
-                                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                                        minimumSize: const Size(0, 44),
-                                                      ),
-                                                    ),
-                                                    
-                                                    // Favorite button
-                                                    ElevatedButton.icon(
-                                                      onPressed: _likeDbSuggestion,
-                                                      icon: const Icon(Icons.favorite, size: 16),
-                                                      label: const Text('Favorite', style: TextStyle(fontSize: 13)),
-                                                      style: ElevatedButton.styleFrom(
-                                                        backgroundColor: Colors.white.withOpacity(0.15),
-                                                        foregroundColor: Colors.white,
-                                                        elevation: 0,
-                                                        shape: RoundedRectangleBorder(
-                                                          borderRadius: BorderRadius.circular(25),
-                                                        ),
-                                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                                        minimumSize: const Size(0, 44),
-                                                      ),
-                                                    ),
-                                                    
-                                                    // Playlist button
-                                                    Builder(
-                                                      builder: (context) {
-                                                        final inPlaylist = _currentDbSuggestion != null && 
-                                                          _dbPlaylistSuggestions.any((item) => item.id == _currentDbSuggestion!.id);
-                                                        
-                                                        return ElevatedButton.icon(
-                                                          onPressed: inPlaylist 
-                                                            ? () => _currentDbSuggestion != null ? _removeFromPlaylist(_currentDbSuggestion!) : null
-                                                            : _addDbSuggestionToPlaylist,
-                                                          icon: Icon(
-                                                            inPlaylist ? Icons.playlist_add_check : Icons.playlist_add, 
-                                                            size: 16
-                                                          ),
-                                                          label: Text(
-                                                            inPlaylist ? 'In Playlist' : 'Playlist', 
-                                                            style: const TextStyle(fontSize: 13)
-                                                          ),
-                                                          style: ElevatedButton.styleFrom(
-                                                            backgroundColor: inPlaylist 
-                                                              ? Colors.blue.withOpacity(0.3)
-                                                              : Colors.white.withOpacity(0.15),
-                                                            foregroundColor: inPlaylist ? Colors.blue : Colors.white,
-                                                            elevation: 0,
-                                                            shape: RoundedRectangleBorder(
-                                                              borderRadius: BorderRadius.circular(25),
-                                                            ),
-                                                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                                            minimumSize: const Size(0, 44),
-                                                          ),
-                                                        );
-                                                      },
-                                                    ),
-                                                    
-                                                    // Skip button
-                                                    ElevatedButton.icon(
-                                                      onPressed: _skipDbSuggestion,
-                                                      icon: const Icon(Icons.skip_next, size: 16),
-                                                      label: const Text('Skip', style: TextStyle(fontSize: 13)),
-                                                      style: ElevatedButton.styleFrom(
-                                                        backgroundColor: Colors.white.withOpacity(0.15),
-                                                        foregroundColor: Colors.white,
-                                                        elevation: 0,
-                                                        shape: RoundedRectangleBorder(
-                                                          borderRadius: BorderRadius.circular(25),
-                                                        ),
-                                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                                        minimumSize: const Size(0, 44),
-                                                      ),
-                                                    ),
-                                                  ],
-                                                ),
+                                              SuggestionActionButtons(
+                                                mediaType: 'video_game',
+                                                hasLikedCurrentSuggestion: _hasLikedCurrentSuggestion, // Use the new state
+                                                isInWatchlist: _currentDbSuggestion != null && 
+                                                  _dbPlaylistSuggestions.any((item) => item.id == _currentDbSuggestion!.id),
+                                                isProcessing: _isLoadingDbSuggestion,
+                                                onLike: _likeDbSuggestion,
+                                                onDislike: _dislikeDbSuggestion,
+                                                onFavorite: _addToFavorites, // Use the new method
+                                                onAddToWatchlist: () {
+                                                  final inPlaylist = _currentDbSuggestion != null && 
+                                                    _dbPlaylistSuggestions.any((item) => item.id == _currentDbSuggestion!.id);
+                                                  if (inPlaylist) {
+                                                    if (_currentDbSuggestion != null) {
+                                                      _removeFromPlaylist(_currentDbSuggestion!);
+                                                    }
+                                                  } else {
+                                                    _addDbSuggestionToPlaylist();
+                                                  }
+                                                },
+                                                onSkip: _skipDbSuggestion,
                                               ),
                                             ],
                                           ),

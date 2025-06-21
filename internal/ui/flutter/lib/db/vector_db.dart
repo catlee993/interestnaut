@@ -486,7 +486,6 @@ class VectorDatabase {
       // Clean and prepare the search query for FTS5
       final cleanQuery = _prepareFTSQuery(query);
       
-      
       final searchQuery = '''
         SELECT 
           v.media_id,
@@ -532,6 +531,13 @@ class VectorDatabase {
       stmt.dispose();
       
       debugPrint('🔍 FTS5 search for "$query" in $mediaType: found ${results.length} results');
+      
+      // If FTS5 returns no results for queries with short fragments, try LIKE-based search
+      if (results.isEmpty && query.contains(' ') && query.split(' ').any((word) => word.length <= 2)) {
+        debugPrint('🔄 FTS5 found no results for query with short fragments, trying LIKE search...');
+        return _fallbackTextSearch(query, mediaType, limit);
+      }
+      
       return results;
     } catch (e) {
       debugPrint('Error in FTS5 search: $e');
@@ -543,17 +549,18 @@ class VectorDatabase {
   /// Prepare query for FTS5 search
   String _prepareFTSQuery(String query) {
     // Clean the query and handle special characters
-    var cleanQuery = query.trim().toLowerCase();
-    cleanQuery = cleanQuery.replaceAll('-', ' ').trim();
+    final cleanQuery = query.trim().toLowerCase();
     
-    // For single words, add prefix matching with *
+    // Always use prefix matching for flexible search
     return '$cleanQuery*';
   }
 
   /// Fallback text search using LIKE for databases without FTS5
   Future<List<MediaSearchResult>> _fallbackTextSearch(String query, String mediaType, int limit) async {
     final db = _shards[mediaType]!;
-      final hasAlbum = mediaType == 'music';    
+    
+    // Build query based on media type (music has album, others don't)
+    final hasAlbum = mediaType == 'music';
     
     final searchQuery = '''
       SELECT 
