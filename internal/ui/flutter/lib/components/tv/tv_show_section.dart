@@ -20,6 +20,7 @@ class _TVShowSectionState extends State<TVShowSection> {
   String? _dbSuggestionError;
   bool _isLoadingDbSuggestion = false;
   bool _hasLikedCurrentSuggestion = false; // Add this to track like state
+  bool _hasFavoritedCurrentSuggestion = false; // Add this to track favorite state
 
   // Local DB library state (for liked suggestions)
   List<MediaSuggestion> _dbLikedSuggestions = [];
@@ -49,6 +50,7 @@ class _TVShowSectionState extends State<TVShowSection> {
       _isLoadingDbSuggestion = true;
       _dbSuggestionError = null;
       _hasLikedCurrentSuggestion = false; // Reset like state
+      _hasFavoritedCurrentSuggestion = false; // Reset favorite state
     });
 
     try {
@@ -177,11 +179,11 @@ class _TVShowSectionState extends State<TVShowSection> {
     try {
       await _recommendationService.updateSuggestionStatus(
         _currentDbSuggestion!.id,
-        SuggestionStatus.liked,
+        SuggestionStatus.added,
       );
 
       setState(() {
-        _hasLikedCurrentSuggestion = true;
+        _hasFavoritedCurrentSuggestion = true;
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -194,6 +196,33 @@ class _TVShowSectionState extends State<TVShowSection> {
       _loadDbLibrary();
     } catch (e) {
       debugPrint('Error adding to favorites: $e');
+    }
+  }
+
+  // Remove from favorites
+  Future<void> _removeFromFavorites() async {
+    if (_currentDbSuggestion == null) return;
+
+    try {
+      await _recommendationService.updateSuggestionStatus(
+        _currentDbSuggestion!.id,
+        SuggestionStatus.pending,
+      );
+
+      setState(() {
+        _hasFavoritedCurrentSuggestion = false;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Removed "${_currentDbSuggestion!.title}" from favorites'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+
+      _loadDbLibrary();
+    } catch (e) {
+      debugPrint('Error removing from favorites: $e');
     }
   }
 
@@ -467,6 +496,34 @@ class _TVShowSectionState extends State<TVShowSection> {
     }
   }
 
+  // Remove from library
+  Future<void> _removeFromLibrary(MediaSuggestion suggestion) async {
+    try {
+      await _recommendationService.updateSuggestionStatus(
+        suggestion.id,
+        SuggestionStatus.pending,
+      );
+
+      // If the removed item is the currently displayed suggestion, update the state
+      if (_currentDbSuggestion != null && _currentDbSuggestion!.id == suggestion.id) {
+        setState(() {
+          _hasFavoritedCurrentSuggestion = false;
+        });
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Removed "${suggestion.title}" from library'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+
+      _loadDbLibrary();
+    } catch (e) {
+      debugPrint('Error removing from library: $e');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Stack(
@@ -675,12 +732,14 @@ class _TVShowSectionState extends State<TVShowSection> {
                                               SuggestionActionButtons(
                                                 mediaType: 'tv_show',
                                                 hasLikedCurrentSuggestion: _hasLikedCurrentSuggestion, // Use _hasLikedCurrentSuggestion
+                                                hasFavoritedCurrentSuggestion: _hasFavoritedCurrentSuggestion,
                                                 isInWatchlist: _currentDbSuggestion != null && 
                                                   _dbWatchlistSuggestions.any((item) => item.id == _currentDbSuggestion!.id),
                                                 isProcessing: _isLoadingDbSuggestion,
                                                 onLike: _likeDbSuggestion,
                                                 onDislike: _dislikeDbSuggestion,
                                                 onFavorite: _addToFavorites, // Changed from _likeDbSuggestion to _addToFavorites
+                                                onUnfavorite: _removeFromFavorites,
                                                 onAddToWatchlist: () {
                                                   final inWatchlist = _currentDbSuggestion != null && 
                                                     _dbWatchlistSuggestions.any((item) => item.id == _currentDbSuggestion!.id);

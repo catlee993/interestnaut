@@ -77,6 +77,7 @@ class _MusicSectionState extends State<MusicSection> {
   String? _dbSuggestionError;
   bool _isLoadingDbSuggestion = false;
   bool _hasLikedCurrentSuggestion = false;
+  bool _hasFavoritedCurrentSuggestion = false; // Added this state variable
 
   // Playback state
   Track? _nowPlayingTrack;
@@ -647,11 +648,11 @@ class _MusicSectionState extends State<MusicSection> {
     try {
       await _recommendationService.updateSuggestionStatus(
         _currentDbSuggestion!.id,
-        SuggestionStatus.liked,
+        SuggestionStatus.added,
       );
 
       setState(() {
-        _hasLikedCurrentSuggestion = true;
+        _hasFavoritedCurrentSuggestion = true;
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -661,10 +662,36 @@ class _MusicSectionState extends State<MusicSection> {
         ),
       );
 
-      // Reload library
       _loadDbLibrary();
     } catch (e) {
       debugPrint('Error adding to favorites: $e');
+    }
+  }
+
+  // Remove from favorites
+  Future<void> _removeFromFavorites() async {
+    if (_currentDbSuggestion == null) return;
+
+    try {
+      await _recommendationService.updateSuggestionStatus(
+        _currentDbSuggestion!.id,
+        SuggestionStatus.pending,
+      );
+
+      setState(() {
+        _hasFavoritedCurrentSuggestion = false;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Removed "${_currentDbSuggestion!.title}" from favorites'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+
+      _loadDbLibrary();
+    } catch (e) {
+      debugPrint('Error removing from favorites: $e');
     }
   }
 
@@ -725,6 +752,7 @@ class _MusicSectionState extends State<MusicSection> {
         _currentDbSuggestion = null;
         _dbSuggestionError = null;
         _hasLikedCurrentSuggestion = false; // Reset like state
+        _hasFavoritedCurrentSuggestion = false; // Reset favorite state
       });
       
       // Load next suggestion
@@ -1069,12 +1097,14 @@ class _MusicSectionState extends State<MusicSection> {
                         SuggestionActionButtons(
                           mediaType: 'music',
                           hasLikedCurrentSuggestion: _hasLikedCurrentSuggestion,
+                          hasFavoritedCurrentSuggestion: _hasFavoritedCurrentSuggestion,
                           isInWatchlist: _currentDbSuggestion != null && 
                             _dbPlaylistSuggestions.any((item) => item.id == _currentDbSuggestion!.id),
                           isProcessing: _isLoadingDbSuggestion,
                           onLike: _likeDbSuggestion,
                           onDislike: _dislikeDbSuggestion,
                           onFavorite: _addToFavorites,
+                          onUnfavorite: _removeFromFavorites,
                           onAddToWatchlist: () {
                             final inPlaylist = _currentDbSuggestion != null && 
                               _dbPlaylistSuggestions.any((item) => item.id == _currentDbSuggestion!.id);
@@ -1270,6 +1300,7 @@ class _MusicSectionState extends State<MusicSection> {
       _isLoadingDbSuggestion = true;
       _dbSuggestionError = null;
       _hasLikedCurrentSuggestion = false; // Reset like state
+      _hasFavoritedCurrentSuggestion = false; // Reset favorite state
     });
 
     try {
@@ -1660,8 +1691,15 @@ class _MusicSectionState extends State<MusicSection> {
     try {
       await _recommendationService.updateSuggestionStatus(
         suggestion.id,
-        SuggestionStatus.skipped,
+        SuggestionStatus.pending,
       );
+
+      // If the removed item is the currently displayed suggestion, update the state
+      if (_currentDbSuggestion != null && _currentDbSuggestion!.id == suggestion.id) {
+        setState(() {
+          _hasFavoritedCurrentSuggestion = false;
+        });
+      }
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

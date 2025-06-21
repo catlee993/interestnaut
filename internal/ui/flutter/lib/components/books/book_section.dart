@@ -1,8 +1,9 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import '../common/scroll_content_wrapper.dart';
+import '../common/scroll_content_wrapper.dart' as wrapper;
 import '../common/media_library_grid.dart';
 import '../common/suggestion_action_buttons.dart';
+import '../common/media_section_layout.dart';
 import '../../models.dart';
 import '../../services/recommendation_service.dart';
 import '../../services/sqlite_db.dart';
@@ -22,6 +23,7 @@ class _BookSectionState extends State<BookSection> {
   String? _dbSuggestionError;
   bool _isLoadingDbSuggestion = false;
   bool _hasLikedCurrentSuggestion = false;
+  bool _hasFavoritedCurrentSuggestion = false;
 
   // Local DB library state (for liked suggestions)
   List<MediaSuggestion> _dbLikedSuggestions = [];
@@ -31,8 +33,13 @@ class _BookSectionState extends State<BookSection> {
   List<MediaSuggestion> _dbReadingListSuggestions = [];
   bool _isLoadingDbReadingList = false;
 
+  // UI state
+  bool _showWatchlist = true;
+  bool _showLibrary = true;
+
   final RecommendationService _recommendationService = RecommendationService();
   final SQLiteDatabase _db = SQLiteDatabase();
+  final GlobalKey _searchResultsKey = GlobalKey();
 
   @override
   void initState() {
@@ -45,12 +52,24 @@ class _BookSectionState extends State<BookSection> {
     _loadDbReadingList();
   }
 
+  // Convert MediaSuggestion to MediaSuggestionItem for the unified layout
+  MediaSuggestionItem _mapToSuggestionItem(MediaSuggestion suggestion) {
+    return MediaSuggestionItem(
+      id: suggestion.id,
+      title: suggestion.title ?? 'Unknown Title',
+      artist: suggestion.artist,
+      description: suggestion.description,
+      imageUrl: suggestion.coverArtUrl,
+    );
+  }
+
   // Load a DB suggestion for books
   Future<void> _loadDbSuggestion() async {
     setState(() {
       _isLoadingDbSuggestion = true;
       _dbSuggestionError = null;
       _hasLikedCurrentSuggestion = false; // Reset like state
+      _hasFavoritedCurrentSuggestion = false; // Reset favorite state
     });
 
     try {
@@ -110,7 +129,7 @@ class _BookSectionState extends State<BookSection> {
     try {
       final suggestions = await _recommendationService.getSuggestions('book');
       final libraryItems = suggestions.where((s) => 
-        s.status == SuggestionStatus.liked || s.status == SuggestionStatus.added
+        s.status == SuggestionStatus.added
       ).toList();
       
       setState(() {
@@ -170,8 +189,7 @@ class _BookSectionState extends State<BookSection> {
         ),
       );
 
-      // Reload library to show the new liked item
-      _loadDbLibrary();
+          // Note: Don't reload library - liking doesn't add to favorites
     } catch (e) {
       debugPrint('Error liking DB suggestion: $e');
     } finally {
@@ -188,11 +206,11 @@ class _BookSectionState extends State<BookSection> {
     try {
       await _recommendationService.updateSuggestionStatus(
         _currentDbSuggestion!.id,
-        SuggestionStatus.liked,
+        SuggestionStatus.added,
       );
 
       setState(() {
-        _hasLikedCurrentSuggestion = true;
+        _hasFavoritedCurrentSuggestion = true;
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -205,6 +223,33 @@ class _BookSectionState extends State<BookSection> {
       _loadDbLibrary();
     } catch (e) {
       debugPrint('Error adding to favorites: $e');
+    }
+  }
+
+  // Remove from favorites
+  Future<void> _removeFromFavorites() async {
+    if (_currentDbSuggestion == null) return;
+
+    try {
+      await _recommendationService.updateSuggestionStatus(
+        _currentDbSuggestion!.id,
+        SuggestionStatus.pending,
+      );
+
+      setState(() {
+        _hasFavoritedCurrentSuggestion = false;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Removed "${_currentDbSuggestion!.title}" from favorites'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+
+      _loadDbLibrary();
+    } catch (e) {
+      debugPrint('Error removing from favorites: $e');
     }
   }
 
@@ -314,17 +359,129 @@ class _BookSectionState extends State<BookSection> {
     }
   }
 
+  // Like a reading list item
+  Future<void> _likeReadingListItem(MediaSuggestion suggestion) async {
+    try {
+      // Remove from reading list since user has reacted
+      await _db.removeFromWatchlist(suggestion.id);
+      
+      await _recommendationService.updateSuggestionStatus(
+        suggestion.id,
+        SuggestionStatus.liked,
+      );
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Liked "${suggestion.title}"'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+      
+      _loadDbReadingList();
+    } catch (e) {
+      debugPrint('Error liking reading list item: $e');
+    }
+  }
+
+  // Dislike a reading list item
+  Future<void> _dislikeReadingListItem(MediaSuggestion suggestion) async {
+    try {
+      await _db.removeFromWatchlist(suggestion.id);
+      await _recommendationService.updateSuggestionStatus(
+        suggestion.id,
+        SuggestionStatus.disliked,
+      );
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Disliked "${suggestion.title}"'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+      
+      _loadDbReadingList();
+      _loadDbLibrary();
+    } catch (e) {
+      debugPrint('Error disliking reading list item: $e');
+    }
+  }
+
+  // Favorite a reading list item
+  Future<void> _favoriteReadingListItem(MediaSuggestion suggestion) async {
+    try {
+      await _db.removeFromWatchlist(suggestion.id);
+      await _recommendationService.updateSuggestionStatus(
+        suggestion.id,
+        SuggestionStatus.added,
+      );
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Added "${suggestion.title}" to favorites'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+      
+      _loadDbReadingList();
+      _loadDbLibrary();
+    } catch (e) {
+      debugPrint('Error favoriting reading list item: $e');
+    }
+  }
+
+  // Add library item to reading list
+  Future<void> _addLibraryItemToReadingList(MediaSuggestion suggestion) async {
+    try {
+      await _db.addToWatchlist(suggestion.id);
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Added "${suggestion.title}" to reading list'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+      
+      _loadDbReadingList();
+    } catch (e) {
+      debugPrint('Error adding library item to reading list: $e');
+    }
+  }
+
+  // Remove from library (unfavorite)
+  Future<void> _removeFromLibrary(MediaSuggestion suggestion) async {
+    try {
+      await _recommendationService.updateSuggestionStatus(
+        suggestion.id,
+        SuggestionStatus.pending,
+      );
+      
+      // If the removed item is the currently displayed suggestion, update the state
+      if (_currentDbSuggestion != null && _currentDbSuggestion!.id == suggestion.id) {
+        setState(() {
+          _hasFavoritedCurrentSuggestion = false;
+        });
+      }
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Removed "${suggestion.title}" from library'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+      
+      _loadDbLibrary();
+    } catch (e) {
+      debugPrint('Error removing from library: $e');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return ScrollContentWrapper(
+    return wrapper.ScrollContentWrapper(
       builder: (context) => Column(
         children: [
           // Suggestion section
-          Container(
-            height: 500,
-            padding: const EdgeInsets.all(24),
-            child: _buildSuggestionContent(),
-          ),
+          _buildSuggestionContent(),
           
           const SizedBox(height: 32),
           
@@ -426,176 +583,185 @@ class _BookSectionState extends State<BookSection> {
       );
     } else {
       // Current suggestion display
-      return Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Book cover
-          ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: Container(
-              width: 300,
-              height: 450,
-              color: Colors.grey[900],
-              child: _currentDbSuggestion!.coverArtUrl != null
-                ? Image.network(
-                    _currentDbSuggestion!.coverArtUrl!,
-                    fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) {
-                      return const Center(
-                        child: Icon(
-                          Icons.book,
-                          size: 48,
-                          color: Colors.white54,
-                        ),
-                      );
-                    },
-                  )
-                : const Center(
-                    child: Icon(
-                      Icons.book,
-                      size: 48,
-                      color: Colors.white54,
+      return Container(
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: const Color(0xFF282828),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Book cover
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Container(
+                width: 300,
+                height: 450,
+                color: Colors.grey[900],
+                child: _currentDbSuggestion!.coverArtUrl != null
+                  ? Image.network(
+                      _currentDbSuggestion!.coverArtUrl!,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) {
+                        return const Center(
+                          child: Icon(
+                            Icons.book,
+                            size: 48,
+                            color: Colors.white54,
+                          ),
+                        );
+                      },
+                    )
+                  : const Center(
+                      child: Icon(
+                        Icons.book,
+                        size: 48,
+                        color: Colors.white54,
+                      ),
                     ),
-                  ),
+              ),
             ),
-          ),
-          const SizedBox(width: 24),
-          
-          // Book info
-          Expanded(
-            child: SizedBox(
-              height: 450,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  // Book title
-                  Text(
-                    _currentDbSuggestion!.title ?? 'Unknown Title',
-                    style: const TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.white,
+            const SizedBox(width: 24),
+            
+            // Book info
+            Expanded(
+              child: SizedBox(
+                height: 450,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    // Book title
+                    Text(
+                      _currentDbSuggestion!.title ?? 'Unknown Title',
+                      style: const TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
+                      ),
+                      textAlign: TextAlign.center,
                     ),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 8),
-                  
-                  // Author info
-                  Text(
-                    'by ${_currentDbSuggestion!.artist ?? "Unknown Author"}',
-                    style: TextStyle(
-                      fontSize: 15,
-                      color: Colors.white.withOpacity(0.7),
-                      fontWeight: FontWeight.w400,
+                    const SizedBox(height: 8),
+                    
+                    // Author info
+                    Text(
+                      'by ${_currentDbSuggestion!.artist ?? "Unknown Author"}',
+                      style: TextStyle(
+                        fontSize: 15,
+                        color: Colors.white.withOpacity(0.7),
+                        fontWeight: FontWeight.w400,
+                      ),
+                      textAlign: TextAlign.center,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    textAlign: TextAlign.center,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 16),
-                  
-                  // Description text - scrollable with max height
-                  if (_currentDbSuggestion?.description?.isNotEmpty == true)
-                    Container(
-                      constraints: const BoxConstraints(maxHeight: 120),
-                      child: Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: SingleChildScrollView(
-                          child: Text(
-                            _currentDbSuggestion!.description!,
-                            style: const TextStyle(
-                              fontSize: 14,
-                              color: Colors.white,
-                              height: 1.5,
-                              fontWeight: FontWeight.w400,
+                    const SizedBox(height: 16),
+                    
+                    // Description text - scrollable with max height
+                    if (_currentDbSuggestion?.description?.isNotEmpty == true)
+                      Container(
+                        constraints: const BoxConstraints(maxHeight: 120),
+                        child: Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: SingleChildScrollView(
+                            child: Text(
+                              _currentDbSuggestion!.description!,
+                              style: const TextStyle(
+                                fontSize: 14,
+                                color: Colors.white,
+                                height: 1.5,
+                                fontWeight: FontWeight.w400,
+                              ),
+                              textAlign: TextAlign.center,
                             ),
-                            textAlign: TextAlign.center,
                           ),
                         ),
                       ),
-                    ),
-                  
-                  const SizedBox(height: 16),
-                  
-                  // Bot reasoning - scrollable
-                  if (_currentDbSuggestion?.botReasoning?.isNotEmpty == true)
-                    Expanded(
-                      child: Container(
-                        width: double.infinity,
-                        margin: const EdgeInsets.only(bottom: 16),
-                        child: Column(
-                          children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  FontAwesomeIcons.robot,
-                                  size: 16,
-                                  color: const Color(0xFF8C86E2).withOpacity(0.7),
-                                ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  'Reasoning',
-                                  style: TextStyle(
+                    
+                    const SizedBox(height: 16),
+                    
+                    // Bot reasoning - scrollable
+                    if (_currentDbSuggestion?.botReasoning?.isNotEmpty == true)
+                      Expanded(
+                        child: Container(
+                          width: double.infinity,
+                          margin: const EdgeInsets.only(bottom: 16),
+                          child: Column(
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    FontAwesomeIcons.robot,
+                                    size: 16,
                                     color: const Color(0xFF8C86E2).withOpacity(0.7),
-                                    fontWeight: FontWeight.w500,
-                                    fontSize: 14,
                                   ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            Container(
-                              height: 1,
-                              color: const Color(0xFF7B68EE).withOpacity(0.2),
-                            ),
-                            const SizedBox(height: 12),
-                            Expanded(
-                              child: SingleChildScrollView(
-                                child: Text(
-                                  _currentDbSuggestion!.botReasoning!,
-                                  style: TextStyle(
-                                    color: Colors.white.withOpacity(0.6),
-                                    fontSize: 14,
-                                    height: 1.5,
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'Reasoning',
+                                    style: TextStyle(
+                                      color: const Color(0xFF8C86E2).withOpacity(0.7),
+                                      fontWeight: FontWeight.w500,
+                                      fontSize: 14,
+                                    ),
                                   ),
-                                  textAlign: TextAlign.center,
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Container(
+                                height: 1,
+                                color: const Color(0xFF7B68EE).withOpacity(0.2),
+                              ),
+                              const SizedBox(height: 12),
+                              Expanded(
+                                child: SingleChildScrollView(
+                                  child: Text(
+                                    _currentDbSuggestion!.botReasoning!,
+                                    style: TextStyle(
+                                      color: Colors.white.withOpacity(0.6),
+                                      fontSize: 14,
+                                      height: 1.5,
+                                    ),
+                                    textAlign: TextAlign.center,
+                                  ),
                                 ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                       ),
-                    ),
-                  
-                  // Action buttons using generic component
-                  SuggestionActionButtons(
-                    mediaType: 'book',
-                    hasLikedCurrentSuggestion: _hasLikedCurrentSuggestion,
-                    isInWatchlist: _currentDbSuggestion != null && 
-                      _dbReadingListSuggestions.any((item) => item.id == _currentDbSuggestion!.id),
-                    isProcessing: _isLoadingDbSuggestion,
-                    onLike: _likeDbSuggestion,
-                    onDislike: _dislikeDbSuggestion,
-                    onFavorite: _addToFavorites,
-                    onAddToWatchlist: () {
-                      final inReadingList = _currentDbSuggestion != null && 
-                        _dbReadingListSuggestions.any((item) => item.id == _currentDbSuggestion!.id);
-                      if (inReadingList) {
-                        if (_currentDbSuggestion != null) {
-                          _removeFromReadingList(_currentDbSuggestion!);
+                    
+                    // Action buttons using SuggestionActionButtons component (has proper purple favorite styling)
+                    SuggestionActionButtons(
+                      mediaType: 'book',
+                      hasLikedCurrentSuggestion: _hasLikedCurrentSuggestion,
+                      hasFavoritedCurrentSuggestion: _hasFavoritedCurrentSuggestion,
+                      isInWatchlist: _currentDbSuggestion != null && 
+                        _dbReadingListSuggestions.any((item) => item.id == _currentDbSuggestion!.id),
+                      isProcessing: _isLoadingDbSuggestion,
+                      onLike: _likeDbSuggestion,
+                      onDislike: _dislikeDbSuggestion,
+                      onFavorite: _addToFavorites,
+                      onUnfavorite: _removeFromFavorites,
+                      onAddToWatchlist: () {
+                        final inReadingList = _currentDbSuggestion != null && 
+                          _dbReadingListSuggestions.any((item) => item.id == _currentDbSuggestion!.id);
+                        if (inReadingList) {
+                          if (_currentDbSuggestion != null) {
+                            _removeFromReadingList(_currentDbSuggestion!);
+                          }
+                        } else {
+                          _addDbSuggestionToReadingList();
                         }
-                      } else {
-                        _addDbSuggestionToReadingList();
-                      }
-                    },
-                    onSkip: _skipDbSuggestion,
-                  ),
-                ],
+                      },
+                      onSkip: _skipDbSuggestion,
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       );
     }
   }
@@ -637,6 +803,9 @@ class _BookSectionState extends State<BookSection> {
             mediaType: 'book',
             isWatchlist: true,
             onRemove: _removeFromReadingList,
+            onLike: _likeReadingListItem,
+            onDislike: _dislikeReadingListItem,
+            onFavorite: _favoriteReadingListItem,
           ),
       ],
     );
@@ -678,7 +847,8 @@ class _BookSectionState extends State<BookSection> {
             suggestions: _dbLikedSuggestions,
             mediaType: 'book',
             isWatchlist: false,
-            onAddToWatchlist: (suggestion) => _addDbSuggestionToReadingList(),
+            onAddToWatchlist: _addLibraryItemToReadingList,
+            onUnfavorite: _removeFromLibrary,
             watchlistItems: _dbReadingListSuggestions,
           ),
       ],

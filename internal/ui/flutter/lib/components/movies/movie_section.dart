@@ -22,6 +22,7 @@ class _MovieSectionState extends State<MovieSection> {
   String? _dbSuggestionError;
   bool _isLoadingDbSuggestion = false;
   bool _hasLikedCurrentSuggestion = false;
+  bool _hasFavoritedCurrentSuggestion = false;
 
   // Local DB library state (for liked suggestions)
   List<MediaSuggestion> _dbLikedSuggestions = [];
@@ -51,6 +52,7 @@ class _MovieSectionState extends State<MovieSection> {
       _isLoadingDbSuggestion = true;
       _dbSuggestionError = null;
       _hasLikedCurrentSuggestion = false; // Reset like state
+      _hasFavoritedCurrentSuggestion = false; // Reset favorite state
     });
 
     try {
@@ -209,11 +211,11 @@ class _MovieSectionState extends State<MovieSection> {
     try {
       await _recommendationService.updateSuggestionStatus(
         _currentDbSuggestion!.id,
-        SuggestionStatus.liked,
+        SuggestionStatus.added,
       );
 
       setState(() {
-        _hasLikedCurrentSuggestion = true;
+        _hasFavoritedCurrentSuggestion = true;
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -223,10 +225,36 @@ class _MovieSectionState extends State<MovieSection> {
         ),
       );
 
-      // Reload library
       _loadDbLibrary();
     } catch (e) {
       debugPrint('Error adding to favorites: $e');
+    }
+  }
+
+  // Remove from favorites
+  Future<void> _removeFromFavorites() async {
+    if (_currentDbSuggestion == null) return;
+
+    try {
+      await _recommendationService.updateSuggestionStatus(
+        _currentDbSuggestion!.id,
+        SuggestionStatus.pending,
+      );
+
+      setState(() {
+        _hasFavoritedCurrentSuggestion = false;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Removed "${_currentDbSuggestion!.title}" from favorites'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+
+      _loadDbLibrary();
+    } catch (e) {
+      debugPrint('Error removing from favorites: $e');
     }
   }
 
@@ -554,8 +582,15 @@ class _MovieSectionState extends State<MovieSection> {
     try {
       await _recommendationService.updateSuggestionStatus(
         suggestion.id,
-        SuggestionStatus.skipped,
+        SuggestionStatus.pending,
       );
+
+      // If the removed item is the currently displayed suggestion, update the state
+      if (_currentDbSuggestion != null && _currentDbSuggestion!.id == suggestion.id) {
+        setState(() {
+          _hasFavoritedCurrentSuggestion = false;
+        });
+      }
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -813,12 +848,14 @@ class _MovieSectionState extends State<MovieSection> {
                     SuggestionActionButtons(
                       mediaType: 'movie',
                       hasLikedCurrentSuggestion: _hasLikedCurrentSuggestion,
+                      hasFavoritedCurrentSuggestion: _hasFavoritedCurrentSuggestion,
                       isInWatchlist: _currentDbSuggestion != null && 
                         _dbWatchlistSuggestions.any((item) => item.id == _currentDbSuggestion!.id),
                       isProcessing: _isLoadingDbSuggestion,
                       onLike: _likeDbSuggestion,
                       onDislike: _dislikeDbSuggestion,
                       onFavorite: _addToFavorites,
+                      onUnfavorite: _removeFromFavorites,
                       onAddToWatchlist: () {
                         final inWatchlist = _currentDbSuggestion != null && 
                           _dbWatchlistSuggestions.any((item) => item.id == _currentDbSuggestion!.id);
