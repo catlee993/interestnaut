@@ -86,10 +86,7 @@ class _BookSectionState extends State<BookSection> {
         return;
       }
       
-      final suggestions = await _recommendationService.getSuggestions(
-        'book',
-        status: SuggestionStatus.pending,
-      );
+      final suggestions = await _db.getPendingSuggestionsNotInWatchlist('book');
       
       if (suggestions.isNotEmpty) {
         setState(() {
@@ -142,7 +139,7 @@ class _BookSectionState extends State<BookSection> {
       final suggestions = await _recommendationService.getSuggestions('book');
       debugPrint('📚 _loadDbLibrary found ${suggestions.length} total suggestions');
       final libraryItems = suggestions.where((s) => 
-        s.status == SuggestionStatus.liked || s.status == SuggestionStatus.added
+        s.status == SuggestionStatus.added
       ).toList();
       debugPrint('📚 _loadDbLibrary filtered to ${libraryItems.length} library items');
       
@@ -219,10 +216,14 @@ class _BookSectionState extends State<BookSection> {
     }
   }
 
-  // Add to favorites (same as like but with different messaging)
+  // Add to favorites and move to next suggestion
   Future<void> _addToFavorites() async {
-    if (_currentDbSuggestion == null) return;
+    if (_currentDbSuggestion == null || _isLoadingDbSuggestion) return;
     debugPrint('💜 _addToFavorites called - currentSuggestion: ${_currentDbSuggestion!.title} (ID: ${_currentDbSuggestion!.id})');
+
+    setState(() {
+      _isLoadingDbSuggestion = true;
+    });
 
     try {
       debugPrint('💜 _addToFavorites updating status to added');
@@ -245,8 +246,15 @@ class _BookSectionState extends State<BookSection> {
 
       debugPrint('💜 _addToFavorites loading library');
       _loadDbLibrary();
+
+      debugPrint('💜 _addToFavorites loading next suggestion');
+      // Load next suggestion after favoriting
+      await _loadDbSuggestion();
     } catch (e) {
       debugPrint('💜 Error adding to favorites: $e');
+      setState(() {
+        _isLoadingDbSuggestion = false;
+      });
     }
   }
 
@@ -257,7 +265,7 @@ class _BookSectionState extends State<BookSection> {
     try {
       await _recommendationService.updateSuggestionStatus(
         _currentDbSuggestion!.id,
-        SuggestionStatus.pending,
+        SuggestionStatus.skipped,
       );
 
       setState(() {
@@ -357,9 +365,13 @@ class _BookSectionState extends State<BookSection> {
     }
   }
 
-  // Add DB suggestion to reading list
+  // Add DB suggestion to reading list and move to next
   Future<void> _addDbSuggestionToReadingList() async {
-    if (_currentDbSuggestion == null) return;
+    if (_currentDbSuggestion == null || _isLoadingDbSuggestion) return;
+
+    setState(() {
+      _isLoadingDbSuggestion = true;
+    });
 
     try {
       await _db.addToWatchlist(_currentDbSuggestion!.id);
@@ -376,10 +388,16 @@ class _BookSectionState extends State<BookSection> {
         _dbReadingListSuggestions.add(_currentDbSuggestion!);
       });
 
-      // Refresh reading list in background (don't load new suggestion)
+      // Refresh reading list in background
       _loadDbReadingList();
+
+      // Load next suggestion
+      await _loadDbSuggestion();
     } catch (e) {
       debugPrint('Error adding to reading list: $e');
+      setState(() {
+        _isLoadingDbSuggestion = false;
+      });
     }
   }
 
@@ -494,7 +512,7 @@ class _BookSectionState extends State<BookSection> {
     try {
       await _recommendationService.updateSuggestionStatus(
         suggestion.id,
-        SuggestionStatus.pending,
+        SuggestionStatus.skipped,
       );
       
       // If the removed item is the currently displayed suggestion, update the state
@@ -878,7 +896,7 @@ class _BookSectionState extends State<BookSection> {
             padding: EdgeInsets.symmetric(vertical: 32),
             child: Center(
               child: Text(
-                'No books in your library yet. Like or add suggestions to see them here.',
+                'No books in your library yet. Favorite suggestions to see them here.',
                 style: TextStyle(color: Colors.white54),
                 textAlign: TextAlign.center,
               ),

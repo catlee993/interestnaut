@@ -613,7 +613,7 @@ class _MusicSectionState extends State<MusicSection> {
     }
   }
 
-  // Like a database suggestion (mark as liked but stay on current)
+  // Like a database suggestion (just sets liked status, doesn't add to library)
   Future<void> _likeDbSuggestion() async {
     if (_currentDbSuggestion == null) return;
 
@@ -634,16 +634,19 @@ class _MusicSectionState extends State<MusicSection> {
         ),
       );
 
-      // Reload library to show the new liked item
-      _loadDbLibrary();
+      // Note: Liked items don't appear in library, only favorited items do
     } catch (e) {
       debugPrint('Error liking DB suggestion: $e');
     }
   }
 
-  // Add to favorites (same as like but with different messaging)
+  // Add to favorites and move to next suggestion
   Future<void> _addToFavorites() async {
-    if (_currentDbSuggestion == null) return;
+    if (_currentDbSuggestion == null || _isLoadingDbSuggestion) return;
+
+    setState(() {
+      _isLoadingDbSuggestion = true;
+    });
 
     try {
       await _recommendationService.updateSuggestionStatus(
@@ -663,8 +666,14 @@ class _MusicSectionState extends State<MusicSection> {
       );
 
       _loadDbLibrary();
+
+      // Move to next suggestion after favoriting
+      await _moveToNextSuggestion();
     } catch (e) {
       debugPrint('Error adding to favorites: $e');
+      setState(() {
+        _isLoadingDbSuggestion = false;
+      });
     }
   }
 
@@ -675,7 +684,7 @@ class _MusicSectionState extends State<MusicSection> {
     try {
       await _recommendationService.updateSuggestionStatus(
         _currentDbSuggestion!.id,
-        SuggestionStatus.pending,
+        SuggestionStatus.skipped,
       );
 
       setState(() {
@@ -781,9 +790,13 @@ class _MusicSectionState extends State<MusicSection> {
     }
   }
 
-  // Add database suggestion to playlist
+  // Add database suggestion to playlist and move to next
   Future<void> _addDbSuggestionToPlaylist() async {
-    if (_currentDbSuggestion == null) return;
+    if (_currentDbSuggestion == null || _isLoadingDbSuggestion) return;
+
+    setState(() {
+      _isLoadingDbSuggestion = true;
+    });
 
     try {
       // Add to watchlist table instead of changing status
@@ -798,9 +811,14 @@ class _MusicSectionState extends State<MusicSection> {
 
       // Refresh both playlist and main suggestions
       _loadDbPlaylist();
-      
+
+      // Move to next suggestion after adding to playlist
+      await _moveToNextSuggestion();
     } catch (e) {
       debugPrint('Error adding DB suggestion to playlist: $e');
+      setState(() {
+        _isLoadingDbSuggestion = false;
+      });
     }
   }
 
@@ -1208,7 +1226,7 @@ class _MusicSectionState extends State<MusicSection> {
                   padding: EdgeInsets.symmetric(vertical: 32),
                   child: Center(
                     child: Text(
-                      'No tracks in your library yet. Like or add suggestions to see them here.',
+                                              'No tracks in your library yet. Favorite suggestions to see them here.',
                       style: TextStyle(color: Colors.white54),
                       textAlign: TextAlign.center,
                     ),
@@ -1403,29 +1421,21 @@ class _MusicSectionState extends State<MusicSection> {
     }
   }
 
-  // Load liked suggestions from database
+  // Load favorited suggestions from database (only added/favorited items)
   Future<void> _loadDbLibrary() async {
     setState(() {
       _isLoadingDbLibrary = true;
     });
 
     try {
-      // Get both liked and added suggestions for the library
-      final likedSuggestions = await _recommendationService.getSuggestions(
-        'music',
-        status: SuggestionStatus.liked,
-      );
-      
+      // Only get favorited (added) suggestions for the library
       final addedSuggestions = await _recommendationService.getSuggestions(
         'music',
         status: SuggestionStatus.added,
       );
       
-      // Combine both lists
-      final allLibrarySuggestions = [...likedSuggestions, ...addedSuggestions];
-      
       setState(() {
-        _dbLikedSuggestions = allLibrarySuggestions;
+        _dbLikedSuggestions = addedSuggestions;
         _isLoadingDbLibrary = false;
       });
     } catch (e) {
@@ -1490,7 +1500,7 @@ class _MusicSectionState extends State<MusicSection> {
     try {
       await _recommendationService.updateSuggestionStatus(
         suggestion.id,
-        SuggestionStatus.pending,
+        SuggestionStatus.skipped,
       );
       
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1622,15 +1632,17 @@ class _MusicSectionState extends State<MusicSection> {
       // Remove from watchlist table
       await _db.removeFromWatchlist(suggestion.id);
       
-      // Set status to "liked" so it gets added to library
-      await _recommendationService.updateSuggestionStatus(
-        suggestion.id,
-        SuggestionStatus.liked,
-      );
+      // Only change status if not already favorited (added)
+      if (suggestion.status != SuggestionStatus.added) {
+        await _recommendationService.updateSuggestionStatus(
+          suggestion.id,
+          SuggestionStatus.liked,
+        );
+      }
       
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Liked "${suggestion.title}" - removed from ${_getWatchlistTerminology(isAction: true)} and added to library'),
+          content: Text('Liked "${suggestion.title}" - removed from ${_getWatchlistTerminology(isAction: true)}'),
           duration: const Duration(seconds: 2),
         ),
       );
@@ -1707,7 +1719,7 @@ class _MusicSectionState extends State<MusicSection> {
     try {
       await _recommendationService.updateSuggestionStatus(
         suggestion.id,
-        SuggestionStatus.pending,
+        SuggestionStatus.skipped,
       );
 
       // If the removed item is the currently displayed suggestion, update the state

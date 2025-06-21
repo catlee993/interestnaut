@@ -349,6 +349,30 @@ WHERE media_type = ? AND status = 'pending'
 ORDER BY created_at DESC;
 ''';
 
+// Get pending media suggestions that are NOT in watchlist (for main suggestions)
+const String getPendingSuggestionsNotInWatchlistQuery = '''
+SELECT
+  r.id,
+  r.query,
+  r.media_type,
+  r.title,
+  r.artist,
+  r.album,
+  r.cover_art_url,
+  r.description,
+  r.wiki_url,
+  r.wikidata_id,
+  r.bot_reasoning,
+  r.status,
+  r.themes,
+  r.created_at,
+  r.updated_at
+FROM recommendations r
+LEFT JOIN watchlist w ON r.id = w.recommendation_id
+WHERE r.media_type = ? AND r.status = 'pending' AND w.recommendation_id IS NULL
+ORDER BY r.created_at DESC;
+''';
+
 // Update media suggestion status
 const String updateMediaSuggestionStatusQuery = '''
 UPDATE recommendations

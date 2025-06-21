@@ -391,7 +391,7 @@ class SQLiteDatabase {
     await _ensureInitialized();
     
     try {
-      final stmt = _db!.prepare(getPendingMediaSuggestionsQuery);
+      final stmt = _db!.prepare(getPendingSuggestionsNotInWatchlistQuery);
       final result = stmt.select([mediaType]);
       
       final suggestions = result.map((row) => _mapRowToMediaSuggestion(row)).toList();

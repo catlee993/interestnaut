@@ -86,10 +86,7 @@ class _MovieSectionState extends State<MovieSection> {
       }
       
       debugPrint('📱 _loadDbSuggestion fetching pending suggestions');
-      final allSuggestions = await _recommendationService.getSuggestions(
-        'movie',
-        status: SuggestionStatus.pending,
-      );
+      final allSuggestions = await _db.getPendingSuggestionsNotInWatchlist('movie');
       
       // Filter out the current suggestion to avoid loading the same one
       final suggestions = allSuggestions.where((s) => 
@@ -156,7 +153,7 @@ class _MovieSectionState extends State<MovieSection> {
       debugPrint('📚 _loadDbLibrary found ${suggestions.length} total suggestions');
       
       final libraryItems = suggestions.where((s) => 
-        s.status == SuggestionStatus.liked || s.status == SuggestionStatus.added
+        s.status == SuggestionStatus.added
       ).toList();
       
       debugPrint('📚 _loadDbLibrary filtered to ${libraryItems.length} library items');
@@ -226,7 +223,7 @@ class _MovieSectionState extends State<MovieSection> {
     }
   }
 
-  // Like a database suggestion (add to library)
+  // Like a database suggestion (just sets liked status, doesn't add to library)
   Future<void> _likeDbSuggestion() async {
     if (_currentDbSuggestion == null || _isLoadingDbSuggestion) return;
 
@@ -251,8 +248,7 @@ class _MovieSectionState extends State<MovieSection> {
         ),
       );
 
-      // Reload library to show the new liked item
-      _loadDbLibrary();
+      // Note: Liked items don't appear in library, only favorited items do
     } catch (e) {
       debugPrint('Error liking DB suggestion: $e');
     } finally {
@@ -262,7 +258,7 @@ class _MovieSectionState extends State<MovieSection> {
     }
   }
 
-  // Add to favorites (same as like but with different messaging)
+  // Add to favorites and move to next suggestion
   Future<void> _addToFavorites() async {
     debugPrint('💜 _addToFavorites called - isLoading: $_isLoadingDbSuggestion, currentSuggestion: ${_currentDbSuggestion?.title}');
     
@@ -297,10 +293,12 @@ class _MovieSectionState extends State<MovieSection> {
 
       debugPrint('💜 _addToFavorites loading library');
       _loadDbLibrary();
+
+      debugPrint('💜 _addToFavorites loading next suggestion');
+      // Load next suggestion after favoriting
+      await _loadDbSuggestion();
     } catch (e) {
       debugPrint('💜 Error adding to favorites: $e');
-    } finally {
-      debugPrint('💜 _addToFavorites setting loading to false');
       setState(() {
         _isLoadingDbSuggestion = false;
       });
@@ -318,7 +316,7 @@ class _MovieSectionState extends State<MovieSection> {
     try {
       await _recommendationService.updateSuggestionStatus(
         _currentDbSuggestion!.id,
-        SuggestionStatus.pending,
+        SuggestionStatus.skipped,
       );
 
       setState(() {
@@ -442,14 +440,18 @@ class _MovieSectionState extends State<MovieSection> {
     }
   }
 
-  // Add database suggestion to watchlist
+  // Add database suggestion to watchlist and move to next
   Future<void> _addDbSuggestionToWatchlist() async {
     debugPrint('📚 _addDbSuggestionToWatchlist called - currentSuggestion: ${_currentDbSuggestion?.title}');
     
-    if (_currentDbSuggestion == null) {
-      debugPrint('📚 _addDbSuggestionToWatchlist early return - currentSuggestion is null');
+    if (_currentDbSuggestion == null || _isLoadingDbSuggestion) {
+      debugPrint('📚 _addDbSuggestionToWatchlist early return - currentSuggestion is null or loading');
       return;
     }
+
+    setState(() {
+      _isLoadingDbSuggestion = true;
+    });
 
     try {
       debugPrint('📚 _addDbSuggestionToWatchlist adding to watchlist table');
@@ -472,12 +474,17 @@ class _MovieSectionState extends State<MovieSection> {
       debugPrint('📚 _addDbSuggestionToWatchlist refreshing watchlist');
       // Refresh watchlist in background to ensure consistency
       _loadDbWatchlist();
+
+      debugPrint('📚 _addDbSuggestionToWatchlist loading next suggestion');
+      // Load next suggestion
+      await _loadDbSuggestion();
       
     } catch (e) {
       debugPrint('📚 Error adding DB suggestion to watchlist: $e');
       // Revert local state on error
       setState(() {
         _dbWatchlistSuggestions.removeWhere((item) => item.id == _currentDbSuggestion!.id);
+        _isLoadingDbSuggestion = false;
       });
     }
   }
@@ -682,15 +689,17 @@ class _MovieSectionState extends State<MovieSection> {
       // Remove from watchlist table
       await _db.removeFromWatchlist(suggestion.id);
       
-      // Set status to "liked" so it gets added to library
-      await _recommendationService.updateSuggestionStatus(
-        suggestion.id,
-        SuggestionStatus.liked,
-      );
+      // Only change status if not already favorited (added)
+      if (suggestion.status != SuggestionStatus.added) {
+        await _recommendationService.updateSuggestionStatus(
+          suggestion.id,
+          SuggestionStatus.liked,
+        );
+      }
       
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Liked "${suggestion.title}" - added to library'),
+          content: Text('Liked "${suggestion.title}" - removed from watchlist'),
           duration: const Duration(seconds: 2),
         ),
       );
@@ -706,18 +715,24 @@ class _MovieSectionState extends State<MovieSection> {
   // Favorite watchlist item
   Future<void> _favoriteWatchlistItem(MediaSuggestion suggestion) async {
     try {
+      // Remove from watchlist table
+      await _db.removeFromWatchlist(suggestion.id);
+      
+      // Set status to "added" (favorited)
       await _recommendationService.updateSuggestionStatus(
         suggestion.id,
-        SuggestionStatus.liked,
+        SuggestionStatus.added,
       );
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Added "${suggestion.title}" to favorites'),
+          content: Text('Favorited "${suggestion.title}" - removed from watchlist'),
           duration: const Duration(seconds: 2),
         ),
       );
 
+      // Refresh both sections
+      _loadDbWatchlist();
       _loadDbLibrary();
     } catch (e) {
       debugPrint('Error favoriting watchlist item: $e');
@@ -747,7 +762,7 @@ class _MovieSectionState extends State<MovieSection> {
     try {
       await _recommendationService.updateSuggestionStatus(
         suggestion.id,
-        SuggestionStatus.pending,
+        SuggestionStatus.skipped,
       );
 
       // If the removed item is the currently displayed suggestion, update the state
@@ -1106,7 +1121,7 @@ class _MovieSectionState extends State<MovieSection> {
                   padding: EdgeInsets.symmetric(vertical: 32),
                   child: Center(
                     child: Text(
-                      'No movies in your library yet. Like or add suggestions to see them here.',
+                                              'No movies in your library yet. Favorite suggestions to see them here.',
                       style: TextStyle(color: Colors.white54),
                       textAlign: TextAlign.center,
                     ),

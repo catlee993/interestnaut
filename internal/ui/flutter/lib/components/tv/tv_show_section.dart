@@ -67,10 +67,7 @@ class _TVShowSectionState extends State<TVShowSection> {
         return;
       }
       
-      final suggestions = await _recommendationService.getSuggestions(
-        'tv_show',
-        status: SuggestionStatus.pending,
-      );
+      final suggestions = await _db.getPendingSuggestionsNotInWatchlist('tv_show');
       
       if (suggestions.isNotEmpty) {
         setState(() {
@@ -119,7 +116,7 @@ class _TVShowSectionState extends State<TVShowSection> {
     try {
       final suggestions = await _recommendationService.getSuggestions('tv_show');
       final libraryItems = suggestions.where((s) => 
-        s.status == SuggestionStatus.liked || s.status == SuggestionStatus.added
+        s.status == SuggestionStatus.added
       ).toList();
       
       setState(() {
@@ -154,7 +151,7 @@ class _TVShowSectionState extends State<TVShowSection> {
     }
   }
 
-  // Like a database suggestion (add to library)
+  // Like a database suggestion (just sets liked status, doesn't add to library)
   Future<void> _likeDbSuggestion() async {
     if (_currentDbSuggestion == null) return;
 
@@ -175,15 +172,19 @@ class _TVShowSectionState extends State<TVShowSection> {
         ),
       );
 
-      _loadDbLibrary();
+      // Note: Liked items don't appear in library, only favorited items do
     } catch (e) {
       debugPrint('Error liking DB suggestion: $e');
     }
   }
 
-  // Add to favorites (same as like but with different messaging)
+  // Add to favorites and move to next suggestion
   Future<void> _addToFavorites() async {
-    if (_currentDbSuggestion == null) return;
+    if (_currentDbSuggestion == null || _isLoadingDbSuggestion) return;
+
+    setState(() {
+      _isLoadingDbSuggestion = true;
+    });
 
     try {
       await _recommendationService.updateSuggestionStatus(
@@ -203,8 +204,14 @@ class _TVShowSectionState extends State<TVShowSection> {
       );
 
       _loadDbLibrary();
+
+      // Load next suggestion after favoriting
+      await _loadDbSuggestion();
     } catch (e) {
       debugPrint('Error adding to favorites: $e');
+      setState(() {
+        _isLoadingDbSuggestion = false;
+      });
     }
   }
 
@@ -215,7 +222,7 @@ class _TVShowSectionState extends State<TVShowSection> {
     try {
       await _recommendationService.updateSuggestionStatus(
         _currentDbSuggestion!.id,
-        SuggestionStatus.pending,
+        SuggestionStatus.skipped,
       );
 
       setState(() {
@@ -297,9 +304,13 @@ class _TVShowSectionState extends State<TVShowSection> {
     }
   }
 
-  // Add database suggestion to watchlist
+  // Add database suggestion to watchlist and move to next
   Future<void> _addDbSuggestionToWatchlist() async {
-    if (_currentDbSuggestion == null) return;
+    if (_currentDbSuggestion == null || _isLoadingDbSuggestion) return;
+
+    setState(() {
+      _isLoadingDbSuggestion = true;
+    });
 
     try {
       await _db.addToWatchlist(_currentDbSuggestion!.id);
@@ -318,8 +329,14 @@ class _TVShowSectionState extends State<TVShowSection> {
 
       // Refresh watchlist in background
       _loadDbWatchlist();
+
+      // Load next suggestion
+      await _loadDbSuggestion();
     } catch (e) {
       debugPrint('Error adding DB suggestion to watchlist: $e');
+      setState(() {
+        _isLoadingDbSuggestion = false;
+      });
     }
   }
 
@@ -510,14 +527,17 @@ class _TVShowSectionState extends State<TVShowSection> {
     try {
       await _db.removeFromWatchlist(suggestion.id);
       
-      await _recommendationService.updateSuggestionStatus(
-        suggestion.id,
-        SuggestionStatus.liked,
-      );
+      // Only change status if not already favorited (added)
+      if (suggestion.status != SuggestionStatus.added) {
+        await _recommendationService.updateSuggestionStatus(
+          suggestion.id,
+          SuggestionStatus.liked,
+        );
+      }
       
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Liked "${suggestion.title}" - added to library'),
+          content: Text('Liked "${suggestion.title}" - removed from watchlist'),
           duration: const Duration(seconds: 2),
         ),
       );
@@ -534,7 +554,7 @@ class _TVShowSectionState extends State<TVShowSection> {
     try {
       await _recommendationService.updateSuggestionStatus(
         suggestion.id,
-        SuggestionStatus.pending,
+        SuggestionStatus.skipped,
       );
 
       // If the removed item is the currently displayed suggestion, update the state
@@ -855,7 +875,7 @@ class _TVShowSectionState extends State<TVShowSection> {
                     padding: EdgeInsets.symmetric(vertical: 32),
                     child: Center(
                       child: Text(
-                        'No shows in your library yet. Like or add suggestions to see them here.',
+                        'No shows in your library yet. Favorite suggestions to see them here.',
                         style: TextStyle(color: Colors.white54),
                         textAlign: TextAlign.center,
                       ),

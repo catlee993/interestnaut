@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../common/scroll_content_wrapper.dart';
 import '../common/media_grid.dart';
+import '../common/media_library_grid.dart';
 import '../common/suggestion_action_buttons.dart';
 import '../../services/recommendation_service.dart';
 import '../../services/sqlite_db.dart';
@@ -67,10 +68,7 @@ class _GameSectionState extends State<GameSection> {
         return;
       }
       
-      final suggestions = await _recommendationService.getSuggestions(
-        'video_game',
-        status: SuggestionStatus.pending,
-      );
+      final suggestions = await _db.getPendingSuggestionsNotInWatchlist('video_game');
       
       if (suggestions.isNotEmpty) {
         setState(() {
@@ -110,7 +108,7 @@ class _GameSectionState extends State<GameSection> {
     }
   }
 
-  // Load DB library (liked/added suggestions)
+  // Load DB library (only favorited/added suggestions)
   Future<void> _loadDbLibrary() async {
     setState(() {
       _isLoadingDbLibrary = true;
@@ -119,7 +117,7 @@ class _GameSectionState extends State<GameSection> {
     try {
       final suggestions = await _recommendationService.getSuggestions('video_game');
       final libraryItems = suggestions.where((s) => 
-        s.status == SuggestionStatus.liked || s.status == SuggestionStatus.added
+        s.status == SuggestionStatus.added
       ).toList();
       
       setState(() {
@@ -154,7 +152,7 @@ class _GameSectionState extends State<GameSection> {
     }
   }
 
-  // Like a database suggestion (add to library)
+  // Like a database suggestion (just sets liked status, doesn't add to library)
   Future<void> _likeDbSuggestion() async {
     if (_currentDbSuggestion == null) return;
 
@@ -175,15 +173,19 @@ class _GameSectionState extends State<GameSection> {
         ),
       );
 
-      _loadDbLibrary();
+      // Note: Liked items don't appear in library, only favorited items do
     } catch (e) {
       debugPrint('Error liking DB suggestion: $e');
     }
   }
 
-  // Add to favorites (same as like but with different messaging)
+  // Add to favorites and move to next suggestion
   Future<void> _addToFavorites() async {
-    if (_currentDbSuggestion == null) return;
+    if (_currentDbSuggestion == null || _isLoadingDbSuggestion) return;
+
+    setState(() {
+      _isLoadingDbSuggestion = true;
+    });
 
     try {
       await _recommendationService.updateSuggestionStatus(
@@ -203,8 +205,14 @@ class _GameSectionState extends State<GameSection> {
       );
 
       _loadDbLibrary();
+
+      // Load next suggestion after favoriting
+      await _loadDbSuggestion();
     } catch (e) {
       debugPrint('Error adding to favorites: $e');
+      setState(() {
+        _isLoadingDbSuggestion = false;
+      });
     }
   }
 
@@ -215,7 +223,7 @@ class _GameSectionState extends State<GameSection> {
     try {
       await _recommendationService.updateSuggestionStatus(
         _currentDbSuggestion!.id,
-        SuggestionStatus.pending,
+        SuggestionStatus.skipped,
       );
 
       setState(() {
@@ -297,12 +305,21 @@ class _GameSectionState extends State<GameSection> {
     }
   }
 
-  // Add database suggestion to playlist
+  // Add database suggestion to playlist and move to next
   Future<void> _addDbSuggestionToPlaylist() async {
-    if (_currentDbSuggestion == null) return;
+    if (_currentDbSuggestion == null || _isLoadingDbSuggestion) return;
+
+    setState(() {
+      _isLoadingDbSuggestion = true;
+    });
 
     try {
       await _db.addToWatchlist(_currentDbSuggestion!.id);
+
+      // Immediately update local state so button updates right away
+      setState(() {
+        _dbPlaylistSuggestions.add(_currentDbSuggestion!);
+      });
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -311,157 +328,57 @@ class _GameSectionState extends State<GameSection> {
         ),
       );
 
+      // Refresh playlist in background to ensure consistency
       _loadDbPlaylist();
-      _loadDbSuggestion();
+
+      // Load next suggestion
+      await _loadDbSuggestion();
     } catch (e) {
       debugPrint('Error adding DB suggestion to playlist: $e');
+      // Revert local state on error
+      setState(() {
+        _dbPlaylistSuggestions.removeWhere((item) => item.id == _currentDbSuggestion!.id);
+        _isLoadingDbSuggestion = false;
+      });
     }
   }
 
   // Build playlist section
   Widget _buildDbPlaylistSection() {
-    return MediaGrid(
-      children: _dbPlaylistSuggestions.map((suggestion) {
-        return _buildSuggestionCard(
-          suggestion,
-          onRemove: () => _removeFromPlaylist(suggestion),
-          onLike: () => _likePlaylistItem(suggestion),
-          onDislike: () => _dislikePlaylistItem(suggestion),
-          showPlaylistActions: true,
-        );
-      }).toList(),
+    return MediaLibraryGrid(
+      suggestions: _dbPlaylistSuggestions,
+      mediaType: 'video_game',
+      isWatchlist: true,
+      onRemove: _removeFromPlaylist,
+      onLike: _likePlaylistItem,
+      onDislike: _dislikePlaylistItem,
+      onFavorite: _favoritePlaylistItem,
     );
   }
 
   // Build library section
   Widget _buildDbLibrarySection() {
-    return MediaGrid(
-      children: _dbLikedSuggestions.map((suggestion) {
-        return _buildSuggestionCard(suggestion);
-      }).toList(),
+    return MediaLibraryGrid(
+      suggestions: _dbLikedSuggestions,
+      mediaType: 'video_game',
+      isWatchlist: false,
+      onAddToWatchlist: _addLibraryItemToPlaylist,
+      onUnfavorite: _removeFromLibrary,
+      watchlistItems: _dbPlaylistSuggestions,
     );
   }
 
-  // Build a suggestion card widget
-  Widget _buildSuggestionCard(
-    MediaSuggestion suggestion, {
-    VoidCallback? onRemove,
-    VoidCallback? onLike,
-    VoidCallback? onDislike,
-    bool showPlaylistActions = false,
-  }) {
-    return Container(
-      decoration: BoxDecoration(
-        color: const Color(0xFF282828),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Game cover
-          Expanded(
-            child: Container(
-              width: double.infinity,
-              decoration: BoxDecoration(
-                color: Colors.grey[900],
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
-              ),
-              child: suggestion.coverArtUrl != null
-                ? ClipRRect(
-                    borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
-                    child: Image.network(
-                      suggestion.coverArtUrl!,
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) {
-                        return const Center(
-                          child: Icon(
-                            Icons.videogame_asset,
-                            size: 48,
-                            color: Colors.white54,
-                          ),
-                        );
-                      },
-                    ),
-                  )
-                : const Center(
-                    child: Icon(
-                      Icons.videogame_asset,
-                      size: 48,
-                      color: Colors.white54,
-                    ),
-                  ),
-            ),
-          ),
-          
-          // Game info
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  suggestion.title ?? 'Unknown Title',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 14,
-                  ),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  suggestion.artist ?? 'Unknown Developer',
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.7),
-                    fontSize: 12,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                
-                // Action buttons for playlist items
-                if (showPlaylistActions) ...[
-                  const SizedBox(height: 8),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      IconButton(
-                        onPressed: onLike,
-                        icon: const Icon(Icons.thumb_up, size: 16),
-                        color: Colors.green,
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
-                      ),
-                      IconButton(
-                        onPressed: onDislike,
-                        icon: const Icon(Icons.thumb_down, size: 16),
-                        color: Colors.red,
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
-                      ),
-                      IconButton(
-                        onPressed: onRemove,
-                        icon: const Icon(Icons.close, size: 16),
-                        color: Colors.white54,
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
-                      ),
-                    ],
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+
 
   // Remove from playlist
   Future<void> _removeFromPlaylist(MediaSuggestion suggestion) async {
     try {
       await _db.removeFromWatchlist(suggestion.id);
+      
+      // Immediately update local state so UI updates right away
+      setState(() {
+        _dbPlaylistSuggestions.removeWhere((item) => item.id == suggestion.id);
+      });
       
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -470,9 +387,14 @@ class _GameSectionState extends State<GameSection> {
         ),
       );
       
+      // Refresh playlist in background to ensure consistency
       _loadDbPlaylist();
     } catch (e) {
       debugPrint('Error removing from playlist: $e');
+      // Revert local state on error
+      setState(() {
+        _dbPlaylistSuggestions.add(suggestion);
+      });
     }
   }
 
@@ -505,14 +427,17 @@ class _GameSectionState extends State<GameSection> {
     try {
       await _db.removeFromWatchlist(suggestion.id);
       
-      await _recommendationService.updateSuggestionStatus(
-        suggestion.id,
-        SuggestionStatus.liked,
-      );
+      // Only change status if not already favorited (added)
+      if (suggestion.status != SuggestionStatus.added) {
+        await _recommendationService.updateSuggestionStatus(
+          suggestion.id,
+          SuggestionStatus.liked,
+        );
+      }
       
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Liked "${suggestion.title}" - added to library'),
+          content: Text('Liked "${suggestion.title}" - removed from playlist'),
           duration: const Duration(seconds: 2),
         ),
       );
@@ -524,12 +449,54 @@ class _GameSectionState extends State<GameSection> {
     }
   }
 
+  // Favorite a playlist item
+  Future<void> _favoritePlaylistItem(MediaSuggestion suggestion) async {
+    try {
+      await _db.removeFromWatchlist(suggestion.id);
+      
+      await _recommendationService.updateSuggestionStatus(
+        suggestion.id,
+        SuggestionStatus.added,
+      );
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Favorited "${suggestion.title}" - removed from playlist'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+      
+      _loadDbPlaylist();
+      _loadDbLibrary();
+    } catch (e) {
+      debugPrint('Error favoriting playlist item: $e');
+    }
+  }
+
+  // Add library item to playlist
+  Future<void> _addLibraryItemToPlaylist(MediaSuggestion suggestion) async {
+    try {
+      await _db.addToWatchlist(suggestion.id);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Added "${suggestion.title}" to playlist'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+
+      _loadDbPlaylist();
+    } catch (e) {
+      debugPrint('Error adding library item to playlist: $e');
+    }
+  }
+
   // Remove from library
   Future<void> _removeFromLibrary(MediaSuggestion suggestion) async {
     try {
       await _recommendationService.updateSuggestionStatus(
         suggestion.id,
-        SuggestionStatus.pending,
+        SuggestionStatus.skipped,
       );
 
       // If the removed item is the currently displayed suggestion, update the state
@@ -796,68 +763,72 @@ class _GameSectionState extends State<GameSection> {
                     ),
                 
                 // Playlist section
-                const SizedBox(height: 32),
-                const Center(
-                  child: Text(
-                    'Your Playlist',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                if (_isLoadingDbPlaylist)
+                if (_dbPlaylistSuggestions.isNotEmpty || _isLoadingDbPlaylist) ...[
+                  const SizedBox(height: 32),
                   const Center(
-                    child: CircularProgressIndicator(
-                      color: Color(0xFFA855F7),
-                    ),
-                  )
-                else if (_dbPlaylistSuggestions.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 32),
-                    child: Center(
-                      child: Text(
-                        'No games in your playlist yet. Add suggestions to your playlist to see them here.',
-                        style: TextStyle(color: Colors.white54),
-                        textAlign: TextAlign.center,
+                    child: Text(
+                      'Your Playlist',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
                       ),
                     ),
-                  )
-                else
-                  _buildDbPlaylistSection(),
+                  ),
+                  const SizedBox(height: 16),
+                  if (_isLoadingDbPlaylist)
+                    const Center(
+                      child: CircularProgressIndicator(
+                        color: Color(0xFFA855F7),
+                      ),
+                    )
+                  else if (_dbPlaylistSuggestions.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 32),
+                      child: Center(
+                        child: Text(
+                          'No games in your playlist yet. Add suggestions to your playlist to see them here.',
+                          style: TextStyle(color: Colors.white54),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    )
+                  else
+                    _buildDbPlaylistSection(),
+                ],
                 
                 // Library section
-                const SizedBox(height: 32),
-                const Center(
-                  child: Text(
-                    'Your Library',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                if (_isLoadingDbLibrary)
+                if (_dbLikedSuggestions.isNotEmpty || _isLoadingDbLibrary) ...[
+                  const SizedBox(height: 32),
                   const Center(
-                    child: CircularProgressIndicator(
-                      color: Color(0xFFA855F7),
-                    ),
-                  )
-                else if (_dbLikedSuggestions.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 32),
-                    child: Center(
-                      child: Text(
-                        'No games in your library yet. Like or add suggestions to see them here.',
-                        style: TextStyle(color: Colors.white54),
-                        textAlign: TextAlign.center,
+                    child: Text(
+                      'Your Library',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
                       ),
                     ),
-                  )
-                else
-                  _buildDbLibrarySection(),
+                  ),
+                  const SizedBox(height: 16),
+                  if (_isLoadingDbLibrary)
+                    const Center(
+                      child: CircularProgressIndicator(
+                        color: Color(0xFFA855F7),
+                      ),
+                    )
+                  else if (_dbLikedSuggestions.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 32),
+                      child: Center(
+                        child: Text(
+                          'No games in your library yet. Favorite suggestions to see them here.',
+                          style: TextStyle(color: Colors.white54),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    )
+                  else
+                    _buildDbLibrarySection(),
+                ],
                 ],
               ),
             );
