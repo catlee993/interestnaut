@@ -95,20 +95,30 @@ class _BookSectionState extends State<BookSection> {
         setState(() {
           _currentDbSuggestion = suggestions.first;
           _isLoadingDbSuggestion = false;
+          // Reset button states for the new suggestion
+          _hasLikedCurrentSuggestion = false;
+          _hasFavoritedCurrentSuggestion = false;
         });
       } else {
         // Try to generate a new suggestion on-demand
         final newSuggestion = await _recommendationService.generateSuggestionOnDemand('book');
         if (newSuggestion != null) {
+          debugPrint('📱 _loadDbSuggestion setting currentSuggestion: ${newSuggestion.title} (ID: ${newSuggestion.id})');
           setState(() {
             _currentDbSuggestion = newSuggestion;
             _isLoadingDbSuggestion = false;
+            // Reset button states for the new suggestion
+            _hasLikedCurrentSuggestion = false;
+            _hasFavoritedCurrentSuggestion = false;
           });
         } else {
           setState(() {
             _currentDbSuggestion = null;
             _dbSuggestionError = 'Unable to generate book suggestions. Make sure TinyLlama model is installed.';
             _isLoadingDbSuggestion = false;
+            // Reset button states when no suggestion available
+            _hasLikedCurrentSuggestion = false;
+            _hasFavoritedCurrentSuggestion = false;
           });
         }
       }
@@ -122,20 +132,30 @@ class _BookSectionState extends State<BookSection> {
 
   // Load DB library (liked/added suggestions)
   Future<void> _loadDbLibrary() async {
+    debugPrint('📚 _loadDbLibrary called');
     setState(() {
       _isLoadingDbLibrary = true;
     });
 
     try {
+      debugPrint('📚 _loadDbLibrary fetching all suggestions');
       final suggestions = await _recommendationService.getSuggestions('book');
+      debugPrint('📚 _loadDbLibrary found ${suggestions.length} total suggestions');
       final libraryItems = suggestions.where((s) => 
-        s.status == SuggestionStatus.added
+        s.status == SuggestionStatus.liked || s.status == SuggestionStatus.added
       ).toList();
+      debugPrint('📚 _loadDbLibrary filtered to ${libraryItems.length} library items');
+      
+      // Debug print each library item
+      for (final item in libraryItems) {
+        debugPrint('📚   - ${item.title} (status: ${item.status})');
+      }
       
       setState(() {
         _dbLikedSuggestions = libraryItems;
         _isLoadingDbLibrary = false;
       });
+      debugPrint('📚 _loadDbLibrary completed - final count: ${_dbLikedSuggestions.length}');
     } catch (e) {
       debugPrint('Error loading DB library: $e');
       setState(() {
@@ -202,12 +222,15 @@ class _BookSectionState extends State<BookSection> {
   // Add to favorites (same as like but with different messaging)
   Future<void> _addToFavorites() async {
     if (_currentDbSuggestion == null) return;
+    debugPrint('💜 _addToFavorites called - currentSuggestion: ${_currentDbSuggestion!.title} (ID: ${_currentDbSuggestion!.id})');
 
     try {
+      debugPrint('💜 _addToFavorites updating status to added');
       await _recommendationService.updateSuggestionStatus(
         _currentDbSuggestion!.id,
         SuggestionStatus.added,
       );
+      debugPrint('💜 _addToFavorites setting favorited state to true');
 
       setState(() {
         _hasFavoritedCurrentSuggestion = true;
@@ -220,9 +243,10 @@ class _BookSectionState extends State<BookSection> {
         ),
       );
 
+      debugPrint('💜 _addToFavorites loading library');
       _loadDbLibrary();
     } catch (e) {
-      debugPrint('Error adding to favorites: $e');
+      debugPrint('💜 Error adding to favorites: $e');
     }
   }
 
@@ -256,16 +280,31 @@ class _BookSectionState extends State<BookSection> {
   // Dislike a database suggestion
   Future<void> _dislikeDbSuggestion() async {
     if (_currentDbSuggestion == null || _isLoadingDbSuggestion) return;
+    
+    debugPrint('🔴 _dislikeDbSuggestion called - currentSuggestion: ${_currentDbSuggestion!.title} (ID: ${_currentDbSuggestion!.id})');
 
     setState(() {
       _isLoadingDbSuggestion = true;
     });
 
     try {
+      // Check if ID is valid and remove from watchlist if present
+      if (_currentDbSuggestion!.id > 0) {
+        final isInWatchlist = await _db.isInWatchlist(_currentDbSuggestion!.id);
+        if (isInWatchlist) {
+          await _db.removeFromWatchlist(_currentDbSuggestion!.id);
+          _loadDbReadingList(); // Refresh reading list
+        }
+      }
+      
+      // Set status to disliked (this will remove from favorites if favorited)
       await _recommendationService.updateSuggestionStatus(
         _currentDbSuggestion!.id,
         SuggestionStatus.disliked,
       );
+      
+      // Refresh library in case item was favorited
+      _loadDbLibrary();
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -275,7 +314,7 @@ class _BookSectionState extends State<BookSection> {
       );
 
       // Load next suggestion
-      _loadDbSuggestion();
+      await _loadDbSuggestion();
     } catch (e) {
       debugPrint('Error disliking DB suggestion: $e');
       setState(() {
@@ -293,10 +332,13 @@ class _BookSectionState extends State<BookSection> {
     });
 
     try {
-      await _recommendationService.updateSuggestionStatus(
-        _currentDbSuggestion!.id,
-        SuggestionStatus.skipped,
-      );
+      // Only change status to skipped if the item is not already favorited
+      if (!_hasFavoritedCurrentSuggestion && !_hasLikedCurrentSuggestion) {
+        await _recommendationService.updateSuggestionStatus(
+          _currentDbSuggestion!.id,
+          SuggestionStatus.skipped,
+        );
+      }
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -306,7 +348,7 @@ class _BookSectionState extends State<BookSection> {
       );
 
       // Load next suggestion
-      _loadDbSuggestion();
+      await _loadDbSuggestion();
     } catch (e) {
       debugPrint('Error skipping DB suggestion: $e');
       setState(() {

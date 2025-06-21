@@ -42,16 +42,15 @@ class SQLiteDatabase {
   /// Get the database file path
   Future<String> _getDatabasePath() async {
     try {
-      // Use the same directory as vector databases for consistency
+      // Use the application support directory directly (it's already app-specific)
       final appSupportDir = await getApplicationSupportDirectory();
-      final dbDir = Directory(pathLib.join(appSupportDir.path, 'com.example.flutterApp'));
       
       // Create the directory if it doesn't exist
-      if (!await dbDir.exists()) {
-        await dbDir.create(recursive: true);
+      if (!await appSupportDir.exists()) {
+        await appSupportDir.create(recursive: true);
       }
       
-      final newPath = pathLib.join(dbDir.path, 'interestnaut.db');
+      final newPath = pathLib.join(appSupportDir.path, 'interestnaut.db');
       
       // Check if we need to migrate from the old location
       await _migrateFromOldLocation(newPath);
@@ -64,28 +63,33 @@ class SQLiteDatabase {
     }
   }
 
-  /// Migrate database from old Documents location to new Application Support location
+  /// Migrate database from old locations to new Application Support location
   Future<void> _migrateFromOldLocation(String newPath) async {
     try {
-      // Check if new database already exists
-      if (await File(newPath).exists()) {
-        return; // Already migrated or new installation
+      // Check if new database already exists and has data
+      if (await File(newPath).exists() && await File(newPath).length() > 0) {
+        return; // Already migrated or new installation with data
+      }
+      
+      // Check for database in nested directory (bug we're fixing)
+      final appSupportDir = await getApplicationSupportDirectory();
+      final nestedPath = pathLib.join(appSupportDir.path, 'com.example.flutterApp', 'interestnaut.db');
+      
+      if (await File(nestedPath).exists() && await File(nestedPath).length() > 0) {
+        debugPrint('Migrating database from nested location $nestedPath to $newPath');
+        await File(nestedPath).copy(newPath);
+        debugPrint('Database migration from nested location completed successfully');
+        return;
       }
       
       // Check for old database in Documents directory
       final documentsDir = await getApplicationDocumentsDirectory();
       final oldPath = pathLib.join(documentsDir.path, 'interestnaut.db');
       
-      if (await File(oldPath).exists()) {
-        debugPrint('Migrating database from $oldPath to $newPath');
-        
-        // Copy the old database to the new location
+      if (await File(oldPath).exists() && await File(oldPath).length() > 0) {
+        debugPrint('Migrating database from Documents $oldPath to $newPath');
         await File(oldPath).copy(newPath);
-        
-        // Optionally delete the old database (commented out for safety)
-        // await File(oldPath).delete();
-        
-        debugPrint('Database migration completed successfully');
+        debugPrint('Database migration from Documents completed successfully');
       }
     } catch (e) {
       debugPrint('Error during database migration: $e');
@@ -407,7 +411,7 @@ class SQLiteDatabase {
       final stmt = _db!.prepare(isInWatchlistQuery);
       final result = stmt.select([recommendationId]);
       
-      final count = result.isNotEmpty ? result.first['COUNT(*)'] as int : 0;
+      final count = result.isNotEmpty ? result.first['count'] as int : 0;
       stmt.dispose();
       return count > 0;
     } catch (e) {

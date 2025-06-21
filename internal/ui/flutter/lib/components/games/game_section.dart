@@ -76,6 +76,9 @@ class _GameSectionState extends State<GameSection> {
         setState(() {
           _currentDbSuggestion = suggestions.first;
           _isLoadingDbSuggestion = false;
+          // Reset button states for the new suggestion
+          _hasLikedCurrentSuggestion = false;
+          _hasFavoritedCurrentSuggestion = false;
         });
       } else {
         // Try to generate a new suggestion on-demand
@@ -84,12 +87,18 @@ class _GameSectionState extends State<GameSection> {
           setState(() {
             _currentDbSuggestion = newSuggestion;
             _isLoadingDbSuggestion = false;
+            // Reset button states for the new suggestion
+            _hasLikedCurrentSuggestion = false;
+            _hasFavoritedCurrentSuggestion = false;
           });
         } else {
           setState(() {
             _currentDbSuggestion = null;
-            _dbSuggestionError = 'Unable to generate game suggestions. Make sure TinyLlama model is installed.';
+            _dbSuggestionError = 'Unable to generate video game suggestions. Make sure TinyLlama model is installed.';
             _isLoadingDbSuggestion = false;
+            // Reset button states when no suggestion available
+            _hasLikedCurrentSuggestion = false;
+            _hasFavoritedCurrentSuggestion = false;
           });
         }
       }
@@ -228,39 +237,63 @@ class _GameSectionState extends State<GameSection> {
 
   // Dislike a database suggestion
   Future<void> _dislikeDbSuggestion() async {
-    if (_currentDbSuggestion == null) return;
+    if (_currentDbSuggestion == null || _isLoadingDbSuggestion) return;
+
+    setState(() {
+      _isLoadingDbSuggestion = true;
+    });
 
     try {
-      final isInPlaylist = await _db.isInWatchlist(_currentDbSuggestion!.id);
-      if (isInPlaylist) {
-        await _db.removeFromWatchlist(_currentDbSuggestion!.id);
-        _loadDbPlaylist();
+      // Check if ID is valid and remove from playlist if present
+      if (_currentDbSuggestion!.id > 0) {
+        final isInPlaylist = await _db.isInWatchlist(_currentDbSuggestion!.id);
+        if (isInPlaylist) {
+          await _db.removeFromWatchlist(_currentDbSuggestion!.id);
+          _loadDbPlaylist(); // Refresh playlist
+        }
       }
       
+      // Set status to disliked (this will remove from favorites if favorited)
       await _recommendationService.updateSuggestionStatus(
         _currentDbSuggestion!.id,
         SuggestionStatus.disliked,
       );
+      
+      // Refresh library in case item was favorited
+      _loadDbLibrary();
 
-      _loadDbSuggestion();
+      await _loadDbSuggestion();
     } catch (e) {
       debugPrint('Error disliking DB suggestion: $e');
+      setState(() {
+        _isLoadingDbSuggestion = false;
+      });
     }
   }
 
   // Skip a database suggestion
   Future<void> _skipDbSuggestion() async {
-    if (_currentDbSuggestion == null) return;
+    if (_currentDbSuggestion == null || _isLoadingDbSuggestion) return;
+
+    setState(() {
+      _isLoadingDbSuggestion = true;
+    });
 
     try {
-      await _recommendationService.updateSuggestionStatus(
-        _currentDbSuggestion!.id,
-        SuggestionStatus.skipped,
-      );
+      // Only change status to skipped if the item is not already favorited
+      if (!_hasFavoritedCurrentSuggestion && !_hasLikedCurrentSuggestion) {
+        await _recommendationService.updateSuggestionStatus(
+          _currentDbSuggestion!.id,
+          SuggestionStatus.skipped,
+        );
+      }
 
-      _loadDbSuggestion();
+      await _loadDbSuggestion();
     } catch (e) {
       debugPrint('Error skipping DB suggestion: $e');
+      setState(() {
+        _isLoadingDbSuggestion = false;
+      });
     }
   }
 

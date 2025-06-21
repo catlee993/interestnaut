@@ -161,7 +161,12 @@ class SuggestionActionButtons extends StatelessWidget {
         // Dislike button
         if (onDislike != null)
           ElevatedButton.icon(
-            onPressed: isProcessing ? null : onDislike,
+            onPressed: isProcessing ? () {
+              debugPrint('🔘 Dislike button pressed but disabled due to isProcessing: $isProcessing');
+            } : () {
+              debugPrint('🔘 Dislike button pressed - isProcessing: $isProcessing');
+              onDislike?.call();
+            },
             icon: const Icon(Icons.thumb_down, size: 16),
             label: const Text('Dislike', style: TextStyle(fontSize: 13)),
             style: _getButtonStyle(
@@ -173,7 +178,18 @@ class SuggestionActionButtons extends StatelessWidget {
         // Favorite button - works like watchlist button (can unfavorite when favorited)
         if (onFavorite != null || onUnfavorite != null)
           ElevatedButton.icon(
-            onPressed: isProcessing ? null : (hasFavoritedCurrentSuggestion ? onUnfavorite : onFavorite),
+            onPressed: isProcessing ? () {
+              debugPrint('🔘 Favorite button pressed but disabled due to isProcessing: $isProcessing');
+            } : () {
+              debugPrint('🔘 Favorite button pressed - isProcessing: $isProcessing, hasFavorited: $hasFavoritedCurrentSuggestion');
+              if (hasFavoritedCurrentSuggestion) {
+                debugPrint('🔘 Calling onUnfavorite');
+                onUnfavorite?.call();
+              } else {
+                debugPrint('🔘 Calling onFavorite');
+                onFavorite?.call();
+              }
+            },
             icon: Icon(
               hasFavoritedCurrentSuggestion ? Icons.favorite : Icons.favorite_border,
               size: 16
@@ -193,7 +209,12 @@ class SuggestionActionButtons extends StatelessWidget {
         // Watchlist button
         if (onAddToWatchlist != null)
           ElevatedButton.icon(
-            onPressed: isProcessing ? null : onAddToWatchlist,
+            onPressed: isProcessing ? () {
+              debugPrint('🔘 Watchlist button pressed but disabled due to isProcessing: $isProcessing');
+            } : () {
+              debugPrint('🔘 Watchlist button pressed - isProcessing: $isProcessing, isInWatchlist: $isInWatchlist');
+              onAddToWatchlist?.call();
+            },
             icon: Icon(
               isInWatchlist ? Icons.bookmark_added : Icons.bookmark_add,
               size: 16
@@ -212,7 +233,12 @@ class SuggestionActionButtons extends StatelessWidget {
         // Skip/Next button
         if (onSkip != null)
           ElevatedButton.icon(
-            onPressed: isProcessing ? null : onSkip,
+            onPressed: isProcessing ? () {
+              debugPrint('🔘 Skip button pressed but disabled due to isProcessing: $isProcessing');
+            } : () {
+              debugPrint('🔘 Skip button pressed - isProcessing: $isProcessing, hasLiked: $hasLikedCurrentSuggestion, hasFavorited: $hasFavoritedCurrentSuggestion');
+              onSkip?.call();
+            },
             icon: Icon(
               (hasLikedCurrentSuggestion || hasFavoritedCurrentSuggestion) ? Icons.arrow_forward : Icons.skip_next,
               size: 16

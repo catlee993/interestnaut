@@ -48,19 +48,35 @@ class _MovieSectionState extends State<MovieSection> {
 
   // Load a DB suggestion for movies
   Future<void> _loadDbSuggestion() async {
+    debugPrint('📱 _loadDbSuggestion called - current isLoading: $_isLoadingDbSuggestion');
+    
+    // Only set loading state if not already loading (to avoid nested loading states)
+    final wasAlreadyLoading = _isLoadingDbSuggestion;
+    if (!wasAlreadyLoading) {
+      debugPrint('📱 _loadDbSuggestion setting loading to true (was not already loading)');
+      setState(() {
+        _isLoadingDbSuggestion = true;
+      });
+    } else {
+      debugPrint('📱 _loadDbSuggestion skipping loading state change (already loading)');
+    }
+    
+    debugPrint('📱 _loadDbSuggestion resetting button states - before: liked=$_hasLikedCurrentSuggestion, favorited=$_hasFavoritedCurrentSuggestion');
     setState(() {
-      _isLoadingDbSuggestion = true;
       _dbSuggestionError = null;
       _hasLikedCurrentSuggestion = false; // Reset like state
       _hasFavoritedCurrentSuggestion = false; // Reset favorite state
     });
+    debugPrint('📱 _loadDbSuggestion button states reset - after: liked=$_hasLikedCurrentSuggestion, favorited=$_hasFavoritedCurrentSuggestion');
 
     try {
+      debugPrint('📱 _loadDbSuggestion checking database status');
       // First check if the movie database is available
       final databaseStatus = await _recommendationService.getMediaTypeStatus('movie');
       final isDatabaseAvailable = databaseStatus == 'available';
       
       if (!isDatabaseAvailable) {
+        debugPrint('📱 _loadDbSuggestion database not available, setting loading to false');
         setState(() {
           _currentDbSuggestion = null;
           _dbSuggestionError = null; // No error, just database not installed
@@ -69,58 +85,92 @@ class _MovieSectionState extends State<MovieSection> {
         return;
       }
       
-      final suggestions = await _recommendationService.getSuggestions(
+      debugPrint('📱 _loadDbSuggestion fetching pending suggestions');
+      final allSuggestions = await _recommendationService.getSuggestions(
         'movie',
         status: SuggestionStatus.pending,
       );
       
+      // Filter out the current suggestion to avoid loading the same one
+      final suggestions = allSuggestions.where((s) => 
+        _currentDbSuggestion == null || s.id != _currentDbSuggestion!.id
+      ).toList();
+      
+      debugPrint('📱 _loadDbSuggestion found ${allSuggestions.length} total pending, ${suggestions.length} after filtering current');
+      
       if (suggestions.isNotEmpty) {
+        debugPrint('📱 _loadDbSuggestion using suggestion: ${suggestions.first.title}');
         setState(() {
           _currentDbSuggestion = suggestions.first;
           _isLoadingDbSuggestion = false;
+          // Reset button states for the new suggestion
+          _hasLikedCurrentSuggestion = false;
+          _hasFavoritedCurrentSuggestion = false;
         });
       } else {
+        debugPrint('📱 _loadDbSuggestion no pending suggestions, generating on-demand');
         // Try to generate a new suggestion on-demand
         final newSuggestion = await _recommendationService.generateSuggestionOnDemand('movie');
         if (newSuggestion != null) {
+          debugPrint('📱 _loadDbSuggestion generated new suggestion: ${newSuggestion.title}');
           setState(() {
             _currentDbSuggestion = newSuggestion;
             _isLoadingDbSuggestion = false;
+            // Reset button states for the new suggestion
+            _hasLikedCurrentSuggestion = false;
+            _hasFavoritedCurrentSuggestion = false;
           });
         } else {
+          debugPrint('📱 _loadDbSuggestion failed to generate suggestion, setting error');
           setState(() {
             _currentDbSuggestion = null;
             _dbSuggestionError = 'Unable to generate movie suggestions. Make sure TinyLlama model is installed.';
             _isLoadingDbSuggestion = false;
+            // Reset button states when no suggestion available
+            _hasLikedCurrentSuggestion = false;
+            _hasFavoritedCurrentSuggestion = false;
           });
         }
       }
     } catch (e) {
+      debugPrint('📱 _loadDbSuggestion error: $e, setting loading to false');
       setState(() {
         _dbSuggestionError = 'Error loading suggestions: $e';
         _isLoadingDbSuggestion = false;
       });
     }
+    
+    debugPrint('📱 _loadDbSuggestion completed - final isLoading: $_isLoadingDbSuggestion, suggestion: ${_currentDbSuggestion?.title}');
   }
 
   // Load DB library (liked/added suggestions)
   Future<void> _loadDbLibrary() async {
+    debugPrint('📚 _loadDbLibrary called');
     setState(() {
       _isLoadingDbLibrary = true;
     });
 
     try {
+      debugPrint('📚 _loadDbLibrary fetching all suggestions');
       final suggestions = await _recommendationService.getSuggestions('movie');
+      debugPrint('📚 _loadDbLibrary found ${suggestions.length} total suggestions');
+      
       final libraryItems = suggestions.where((s) => 
         s.status == SuggestionStatus.liked || s.status == SuggestionStatus.added
       ).toList();
+      
+      debugPrint('📚 _loadDbLibrary filtered to ${libraryItems.length} library items');
+      for (final item in libraryItems) {
+        debugPrint('📚   - ${item.title} (status: ${item.status})');
+      }
       
       setState(() {
         _dbLikedSuggestions = libraryItems;
         _isLoadingDbLibrary = false;
       });
+      debugPrint('📚 _loadDbLibrary completed - final count: ${_dbLikedSuggestions.length}');
     } catch (e) {
-      debugPrint('Error loading DB library: $e');
+      debugPrint('📚 Error loading DB library: $e');
       setState(() {
         _isLoadingDbLibrary = false;
       });
@@ -129,18 +179,26 @@ class _MovieSectionState extends State<MovieSection> {
 
   // Load DB watchlist
   Future<void> _loadDbWatchlist() async {
+    debugPrint('📋 _loadDbWatchlist called');
     setState(() {
       _isLoadingDbWatchlist = true;
     });
 
     try {
+      debugPrint('📋 _loadDbWatchlist fetching watchlist items');
       final watchlistItems = await _db.getWatchlist('movie');
+      debugPrint('📋 _loadDbWatchlist found ${watchlistItems.length} watchlist items');
+      for (final item in watchlistItems) {
+        debugPrint('📋   - ${item.title}');
+      }
+      
       setState(() {
         _dbWatchlistSuggestions = watchlistItems;
         _isLoadingDbWatchlist = false;
       });
+      debugPrint('📋 _loadDbWatchlist completed - final count: ${_dbWatchlistSuggestions.length}');
     } catch (e) {
-      debugPrint('Error loading DB watchlist: $e');
+      debugPrint('📋 Error loading DB watchlist: $e');
       setState(() {
         _isLoadingDbWatchlist = false;
       });
@@ -206,14 +264,26 @@ class _MovieSectionState extends State<MovieSection> {
 
   // Add to favorites (same as like but with different messaging)
   Future<void> _addToFavorites() async {
-    if (_currentDbSuggestion == null) return;
+    debugPrint('💜 _addToFavorites called - isLoading: $_isLoadingDbSuggestion, currentSuggestion: ${_currentDbSuggestion?.title}');
+    
+    if (_currentDbSuggestion == null || _isLoadingDbSuggestion) {
+      debugPrint('💜 _addToFavorites early return - isLoading: $_isLoadingDbSuggestion, currentSuggestion null: ${_currentDbSuggestion == null}');
+      return;
+    }
+
+    debugPrint('💜 _addToFavorites setting loading to true');
+    setState(() {
+      _isLoadingDbSuggestion = true;
+    });
 
     try {
+      debugPrint('💜 _addToFavorites updating status to added');
       await _recommendationService.updateSuggestionStatus(
         _currentDbSuggestion!.id,
         SuggestionStatus.added,
       );
 
+      debugPrint('💜 _addToFavorites setting favorited state to true');
       setState(() {
         _hasFavoritedCurrentSuggestion = true;
       });
@@ -225,15 +295,25 @@ class _MovieSectionState extends State<MovieSection> {
         ),
       );
 
+      debugPrint('💜 _addToFavorites loading library');
       _loadDbLibrary();
     } catch (e) {
-      debugPrint('Error adding to favorites: $e');
+      debugPrint('💜 Error adding to favorites: $e');
+    } finally {
+      debugPrint('💜 _addToFavorites setting loading to false');
+      setState(() {
+        _isLoadingDbSuggestion = false;
+      });
     }
   }
 
   // Remove from favorites
   Future<void> _removeFromFavorites() async {
-    if (_currentDbSuggestion == null) return;
+    if (_currentDbSuggestion == null || _isLoadingDbSuggestion) return;
+
+    setState(() {
+      _isLoadingDbSuggestion = true;
+    });
 
     try {
       await _recommendationService.updateSuggestionStatus(
@@ -255,59 +335,132 @@ class _MovieSectionState extends State<MovieSection> {
       _loadDbLibrary();
     } catch (e) {
       debugPrint('Error removing from favorites: $e');
+    } finally {
+      setState(() {
+        _isLoadingDbSuggestion = false;
+      });
     }
   }
 
   // Dislike a database suggestion
   Future<void> _dislikeDbSuggestion() async {
-    if (_currentDbSuggestion == null) return;
+    debugPrint('🔴 _dislikeDbSuggestion called - isLoading: $_isLoadingDbSuggestion, currentSuggestion: ${_currentDbSuggestion?.title}');
+    
+    if (_currentDbSuggestion == null || _isLoadingDbSuggestion) {
+      debugPrint('🔴 _dislikeDbSuggestion early return - isLoading: $_isLoadingDbSuggestion, currentSuggestion null: ${_currentDbSuggestion == null}');
+      return;
+    }
+
+    debugPrint('🔴 _dislikeDbSuggestion setting loading to true');
+    setState(() {
+      _isLoadingDbSuggestion = true;
+    });
 
     try {
-      // First, check if item is in watchlist and remove it
-      final isInWatchlist = await _db.isInWatchlist(_currentDbSuggestion!.id);
-      if (isInWatchlist) {
-        await _db.removeFromWatchlist(_currentDbSuggestion!.id);
-        // Refresh watchlist since item was removed from there too
-        _loadDbWatchlist();
+      debugPrint('🔴 _dislikeDbSuggestion currentSuggestion ID: ${_currentDbSuggestion!.id}');
+      
+      // Check if ID is valid
+      if (_currentDbSuggestion!.id <= 0) {
+        debugPrint('🔴 _dislikeDbSuggestion invalid ID, skipping watchlist check');
+      } else {
+        debugPrint('🔴 _dislikeDbSuggestion checking watchlist status');
+        // First, check if item is in watchlist and remove it
+        final isInWatchlist = await _db.isInWatchlist(_currentDbSuggestion!.id);
+        if (isInWatchlist) {
+          debugPrint('🔴 _dislikeDbSuggestion removing from watchlist');
+          await _db.removeFromWatchlist(_currentDbSuggestion!.id);
+          // Refresh watchlist since item was removed from there too
+          _loadDbWatchlist();
+        }
       }
       
-      // Then set status to disliked
+      debugPrint('🔴 _dislikeDbSuggestion updating status to disliked');
+      // Then set status to disliked (this will remove from favorites if favorited)
       await _recommendationService.updateSuggestionStatus(
         _currentDbSuggestion!.id,
         SuggestionStatus.disliked,
       );
+      
+      // Refresh library in case item was favorited
+      _loadDbLibrary();
 
+      // Small delay to ensure database update is committed
+      debugPrint('🔴 _dislikeDbSuggestion waiting for database update to commit');
+      await Future.delayed(const Duration(milliseconds: 100));
+
+      debugPrint('🔴 _dislikeDbSuggestion calling _loadDbSuggestion');
       // Get next suggestion
-      _loadDbSuggestion();
+      await _loadDbSuggestion();
+      debugPrint('🔴 _dislikeDbSuggestion completed _loadDbSuggestion');
     } catch (e) {
-      debugPrint('Error disliking DB suggestion: $e');
+      debugPrint('🔴 Error disliking DB suggestion: $e');
+      setState(() {
+        _isLoadingDbSuggestion = false;
+      });
     }
   }
 
   // Skip a database suggestion
   Future<void> _skipDbSuggestion() async {
-    if (_currentDbSuggestion == null) return;
+    debugPrint('⏭️ _skipDbSuggestion called - isLoading: $_isLoadingDbSuggestion, currentSuggestion: ${_currentDbSuggestion?.title}');
+    
+    if (_currentDbSuggestion == null || _isLoadingDbSuggestion) {
+      debugPrint('⏭️ _skipDbSuggestion early return - isLoading: $_isLoadingDbSuggestion, currentSuggestion null: ${_currentDbSuggestion == null}');
+      return;
+    }
+
+    debugPrint('⏭️ _skipDbSuggestion setting loading to true');
+    setState(() {
+      _isLoadingDbSuggestion = true;
+    });
 
     try {
-      await _recommendationService.updateSuggestionStatus(
-        _currentDbSuggestion!.id,
-        SuggestionStatus.skipped,
-      );
+      // Only change status to skipped if the item is not already favorited
+      if (!_hasFavoritedCurrentSuggestion && !_hasLikedCurrentSuggestion) {
+        debugPrint('⏭️ _skipDbSuggestion updating status to skipped (not favorited/liked)');
+        await _recommendationService.updateSuggestionStatus(
+          _currentDbSuggestion!.id,
+          SuggestionStatus.skipped,
+        );
+      } else {
+        debugPrint('⏭️ _skipDbSuggestion skipping status update (already favorited/liked)');
+      }
 
+      // Small delay to ensure database update is committed
+      debugPrint('⏭️ _skipDbSuggestion waiting for database update to commit');
+      await Future.delayed(const Duration(milliseconds: 100));
+
+      debugPrint('⏭️ _skipDbSuggestion calling _loadDbSuggestion');
       // Get next suggestion
-      _loadDbSuggestion();
+      await _loadDbSuggestion();
+      debugPrint('⏭️ _skipDbSuggestion completed _loadDbSuggestion');
     } catch (e) {
-      debugPrint('Error skipping DB suggestion: $e');
+      debugPrint('⏭️ Error skipping DB suggestion: $e');
+      setState(() {
+        _isLoadingDbSuggestion = false;
+      });
     }
   }
 
   // Add database suggestion to watchlist
   Future<void> _addDbSuggestionToWatchlist() async {
-    if (_currentDbSuggestion == null) return;
+    debugPrint('📚 _addDbSuggestionToWatchlist called - currentSuggestion: ${_currentDbSuggestion?.title}');
+    
+    if (_currentDbSuggestion == null) {
+      debugPrint('📚 _addDbSuggestionToWatchlist early return - currentSuggestion is null');
+      return;
+    }
 
     try {
+      debugPrint('📚 _addDbSuggestionToWatchlist adding to watchlist table');
       // Add to watchlist table instead of changing status
       await _db.addToWatchlist(_currentDbSuggestion!.id);
+
+      debugPrint('📚 _addDbSuggestionToWatchlist updating local state');
+      // Immediately update local state so button updates right away
+      setState(() {
+        _dbWatchlistSuggestions.add(_currentDbSuggestion!);
+      });
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -316,11 +469,16 @@ class _MovieSectionState extends State<MovieSection> {
         ),
       );
 
-      // Refresh both watchlist and main suggestions
+      debugPrint('📚 _addDbSuggestionToWatchlist refreshing watchlist');
+      // Refresh watchlist in background to ensure consistency
       _loadDbWatchlist();
       
     } catch (e) {
-      debugPrint('Error adding DB suggestion to watchlist: $e');
+      debugPrint('📚 Error adding DB suggestion to watchlist: $e');
+      // Revert local state on error
+      setState(() {
+        _dbWatchlistSuggestions.removeWhere((item) => item.id == _currentDbSuggestion!.id);
+      });
     }
   }
 
@@ -470,6 +628,11 @@ class _MovieSectionState extends State<MovieSection> {
     try {
       await _db.removeFromWatchlist(suggestion.id);
       
+      // Immediately update local state so button updates right away
+      setState(() {
+        _dbWatchlistSuggestions.removeWhere((item) => item.id == suggestion.id);
+      });
+      
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Removed "${suggestion.title}" from watchlist'),
@@ -477,10 +640,12 @@ class _MovieSectionState extends State<MovieSection> {
         ),
       );
       
-      // Refresh watchlist
+      // Refresh watchlist in background to ensure consistency
       _loadDbWatchlist();
     } catch (e) {
       debugPrint('Error removing from watchlist: $e');
+      // Revert local state on error by reloading
+      _loadDbWatchlist();
     }
   }
 

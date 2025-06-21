@@ -697,44 +697,60 @@ class _MusicSectionState extends State<MusicSection> {
 
   // Dislike a database suggestion
   Future<void> _dislikeDbSuggestion() async {
-    if (_currentDbSuggestion == null) return;
+    if (_currentDbSuggestion == null || _isLoadingDbSuggestion) return;
+
+    setState(() {
+      _isLoadingDbSuggestion = true;
+    });
 
     try {
-      // First, check if item is in watchlist and remove it
-      final isInWatchlist = await _db.isInWatchlist(_currentDbSuggestion!.id);
-      if (isInWatchlist) {
-        await _db.removeFromWatchlist(_currentDbSuggestion!.id);
-        // Refresh playlist since item was removed from there too
-        _loadDbPlaylist();
+      // Check if ID is valid and remove from playlist if present
+      if (_currentDbSuggestion!.id > 0) {
+        final isInWatchlist = await _db.isInWatchlist(_currentDbSuggestion!.id);
+        if (isInWatchlist) {
+          await _db.removeFromWatchlist(_currentDbSuggestion!.id);
+          // Refresh playlist since item was removed from there too
+          _loadDbPlaylist();
+        }
       }
       
-      // Then set status to disliked
+      // Set status to disliked (this will remove from favorites if favorited)
       await _recommendationService.updateSuggestionStatus(
         _currentDbSuggestion!.id,
         SuggestionStatus.disliked,
       );
+      
+      // Refresh library in case item was favorited
+      _loadDbLibrary();
 
       // Get next suggestion (this will reset the like state)
-      _moveToNextSuggestion();
+      await _moveToNextSuggestion();
     } catch (e) {
       debugPrint('Error disliking DB suggestion: $e');
+      setState(() {
+        _isLoadingDbSuggestion = false;
+      });
     }
   }
 
   // Skip a database suggestion (mark as skipped and move to next)
   Future<void> _skipDbSuggestion() async {
-    if (_currentDbSuggestion == null) return;
+    if (_currentDbSuggestion == null || _isLoadingDbSuggestion) return;
+
+    setState(() {
+      _isLoadingDbSuggestion = true;
+    });
 
     try {
-      // Only mark as skipped if it hasn't been liked
-      if (!_hasLikedCurrentSuggestion) {
+      // Only mark as skipped if it hasn't been liked or favorited
+      if (!_hasLikedCurrentSuggestion && !_hasFavoritedCurrentSuggestion) {
         await _recommendationService.updateSuggestionStatus(
           _currentDbSuggestion!.id,
           SuggestionStatus.skipped,
         );
       }
 
-      _moveToNextSuggestion();
+      await _moveToNextSuggestion();
     } catch (e) {
       debugPrint('Error skipping DB suggestion: $e');
       setState(() {

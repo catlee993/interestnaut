@@ -436,16 +436,38 @@ class RecommendationService extends ChangeNotifier {
   }
   
   /// Save a validated suggestion (either successful or failed)
-  Future<void> _saveValidatedSuggestion(MediaSuggestion suggestion) async {
+  /// Returns the suggestion with the assigned database ID
+  Future<MediaSuggestion?> _saveValidatedSuggestion(MediaSuggestion suggestion) async {
     try {
-      await _db.saveMediaSuggestion(suggestion);
+      final savedId = await _db.saveMediaSuggestion(suggestion);
+      debugPrint('💾 Saved suggestion with ID: $savedId');
+      
+      // Return a new suggestion object with the correct ID
+      return MediaSuggestion(
+        id: savedId,
+        query: suggestion.query,
+        mediaType: suggestion.mediaType,
+        title: suggestion.title,
+        artist: suggestion.artist,
+        album: suggestion.album,
+        coverArtUrl: suggestion.coverArtUrl,
+        description: suggestion.description,
+        wikiUrl: suggestion.wikiUrl,
+        wikidataId: suggestion.wikidataId,
+        themes: suggestion.themes,
+        botReasoning: suggestion.botReasoning,
+        status: suggestion.status,
+        createdAt: suggestion.createdAt,
+        updatedAt: suggestion.updatedAt,
+      );
     } catch (e) {
       // Handle duplicate constraint violations gracefully
       if (e.toString().contains('UNIQUE constraint failed')) {
         debugPrint('Duplicate suggestion prevented by database constraint: ${suggestion.title}');
       } else {
-        debugPrint('Error saving suggestion: $e');
+        debugPrint('💾 Error saving suggestion: $e');
       }
+      return null;
     }
   }
   
@@ -489,11 +511,13 @@ class RecommendationService extends ChangeNotifier {
   }
   
   Future<bool> updateSuggestionStatus(int suggestionId, SuggestionStatus newStatus) async {
+    debugPrint('🗄️ RecommendationService.updateSuggestionStatus called - ID: $suggestionId, Status: $newStatus');
     try {
-      await _db.updateMediaSuggestionStatus(suggestionId, newStatus);
-      return true;
+      final result = await _db.updateMediaSuggestionStatus(suggestionId, newStatus);
+      debugPrint('🗄️ Database update result: $result');
+      return result;
     } catch (e) {
-      debugPrint('Error updating suggestion status: $e');
+      debugPrint('🗄️ Error updating suggestion status: $e');
       return false;
     }
   }
@@ -585,11 +609,15 @@ class RecommendationService extends ChangeNotifier {
         status: SuggestionStatus.pending,
       );
       
-      // Save the suggestion
-      await _saveValidatedSuggestion(suggestion);
-      debugPrint('Generated on-demand suggestion: ${suggestion.title}');
-      
-      return suggestion;
+      // Save the suggestion and get the version with the correct ID
+      final savedSuggestion = await _saveValidatedSuggestion(suggestion);
+      if (savedSuggestion != null) {
+        debugPrint('Generated on-demand suggestion: ${savedSuggestion.title} (ID: ${savedSuggestion.id})');
+        return savedSuggestion;
+      } else {
+        debugPrint('Failed to save on-demand suggestion: ${suggestion.title}');
+        return null;
+      }
     } catch (e) {
       debugPrint('Error generating on-demand suggestion for $mediaType: $e');
       return null;
