@@ -2,8 +2,11 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 import 'dart:io';
+import 'dart:isolate';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as pathLib;
 import 'package:sqlite3/sqlite3.dart';
@@ -14,7 +17,8 @@ import 'model_constants.dart';
 import '../models.dart';
 import 'package:interestnaut/services/wikipedia_service.dart';
 import '../components/music/spotify_service.dart';
-import 'recommendation_event_service.dart'; 
+import 'recommendation_event_service.dart';
+import 'llm_performance_monitor.dart'; 
 
 // --- Data Models ---
 
@@ -24,9 +28,8 @@ enum SuggestionStatus {
   liked,
   disliked,
   added, 
-  archived, 
   failure, 
-  watchlist, // For items added to playlist/watchlist
+  watchlist, // For items added to playlist/watchlist/readlist
 }
 
 class MediaSuggestion {
@@ -42,6 +45,7 @@ class MediaSuggestion {
   final String? wikidataId;
   final String? botReasoning; 
   final String? themes;
+  final String? mediaId;  // Links to vector database media_id
   SuggestionStatus status;
   final DateTime createdAt;
   final DateTime? updatedAt;
@@ -59,6 +63,7 @@ class MediaSuggestion {
     this.wikidataId,
     this.botReasoning,
     this.themes,
+    this.mediaId,
     this.status = SuggestionStatus.pending,
     DateTime? createdAt,
     this.updatedAt,
@@ -78,6 +83,7 @@ class MediaSuggestion {
       wikidataId: json['wikidata_id'] as String?,
       botReasoning: json['bot_reasoning'] as String?,
       themes: json['themes'] as String?,
+      mediaId: json['media_id'] as String?,
       status: SuggestionStatus.values.firstWhere(
         (e) => e.toString().split('.').last == json['status'],
         orElse: () => SuggestionStatus.pending,
@@ -102,6 +108,7 @@ class MediaSuggestion {
         'wikidata_id': wikidataId,
         'bot_reasoning': botReasoning,
         'themes': themes,
+        'media_id': mediaId,
         'status': status.toString().split('.').last,
         'created_at': createdAt.toIso8601String(),
         'updated_at': updatedAt?.toIso8601String(),
@@ -193,7 +200,8 @@ class RecommendationService extends ChangeNotifier {
   final SQLiteDatabase _db = SQLiteDatabase();
   final LlamaService _llamaService = LlamaService();
   final SpotifyService _spotifyService = SpotifyService();
-  final RecommendationEventService _eventService = RecommendationEventService(); 
+  final RecommendationEventService _eventService = RecommendationEventService();
+  final LLMPerformanceMonitor _performanceMonitor = LLMPerformanceMonitor(); 
   
   bool _isProcessingQueue = false;
   final Map<String, bool> _queueBeingFilled = {};
@@ -205,7 +213,9 @@ class RecommendationService extends ChangeNotifier {
   Future<void> init() async {
     try {
       await _db.init();
-      debugPrint('RecommendationService initialized');
+      _performanceMonitor.init();
+      await _performanceMonitor.loadPerformanceData();
+      debugPrint('RecommendationService initialized with performance monitoring');
       // Remove automatic queue prefilling - suggestions will be generated on-demand
     } catch (e) {
       debugPrint('Error initializing RecommendationService: $e');
@@ -278,6 +288,7 @@ class RecommendationService extends ChangeNotifier {
             coverArtUrl: track.posterPath,
             description: 'From your Spotify Discover Weekly playlist',
             botReasoning: 'This song was recommended by Spotify in your Discover Weekly playlist.',
+            mediaId: _generateMediaId('music', track.title, track.overview),
           );
           
           await _db.saveMediaSuggestion(suggestion);
@@ -354,6 +365,7 @@ class RecommendationService extends ChangeNotifier {
         title: title,
         artist: artist,
         botReasoning: reasoning,
+        mediaId: _generateMediaId(mediaType, title, artist),
         status: SuggestionStatus.pending,
       );
       
@@ -424,6 +436,7 @@ class RecommendationService extends ChangeNotifier {
           wikiUrl: mediaInfo.sourceUrl,
           wikidataId: suggestion.wikidataId,
           botReasoning: suggestion.botReasoning,
+          mediaId: suggestion.mediaId ?? _generateMediaId(suggestion.mediaType, suggestion.title, suggestion.artist),
           status: suggestion.status,
           createdAt: suggestion.createdAt,
           updatedAt: DateTime.now(),
@@ -464,6 +477,7 @@ class RecommendationService extends ChangeNotifier {
         wikidataId: suggestion.wikidataId,
         themes: suggestion.themes,
         botReasoning: suggestion.botReasoning,
+        mediaId: suggestion.mediaId ?? _generateMediaId(suggestion.mediaType, suggestion.title, suggestion.artist),
         status: suggestion.status,
         createdAt: suggestion.createdAt,
         updatedAt: suggestion.updatedAt,
@@ -557,8 +571,18 @@ class RecommendationService extends ChangeNotifier {
     }
 
     // Quick synchronous checks only (avoid async operations here)
+    debugPrint('🔍 Checking LlamaService.isInitialized: ${_llamaService.isInitialized}');
     if (!_llamaService.isInitialized) {
-      debugPrint('Cannot generate $mediaType suggestion: TinyLlama service not initialized');
+      debugPrint('❌ Cannot generate $mediaType suggestion: TinyLlama service not initialized');
+      
+      // Force a re-initialization attempt
+      debugPrint('🔄 Attempting to re-initialize LlamaService...');
+      _llamaService.initializeAuto().then((success) {
+        debugPrint('🔄 Re-initialization result: $success');
+      }).catchError((e) {
+        debugPrint('💥 Re-initialization failed: $e');
+      });
+      
       return null;
     }
 
@@ -575,6 +599,7 @@ class RecommendationService extends ChangeNotifier {
       title: 'Loading...',
       artist: 'Generating suggestion',
       botReasoning: 'Finding the perfect $mediaType for you...',
+      mediaId: _generateMediaId(mediaType, 'Loading', 'Generating suggestion'),
       status: SuggestionStatus.pending,
     );
 
@@ -753,7 +778,59 @@ class RecommendationService extends ChangeNotifier {
         final vectorDb = VectorDatabase();
         final enabledMediaTypes = vectorDb.enabledMediaTypes.toList();
         
-        debugPrint('🔄 [BACKGROUND] Passing to isolate: appPath=${appSupportDir.path}, enabledTypes=$enabledMediaTypes');
+        // Get user profile data for enhanced reasoning
+        Map<String, dynamic>? userProfileData;
+        try {
+          final likedSuggestions = await _db.getLikedRecommendations(mediaType);
+          final dislikedSuggestions = await _db.getDislikedRecommendations(mediaType);
+          
+          // Only include profile data if user has interaction history
+          if (likedSuggestions.isNotEmpty || dislikedSuggestions.isNotEmpty) {
+            // Extract themes and artists from user history
+            final preferredThemes = <String>{};
+            final avoidedThemes = <String>{};
+            final preferredArtists = <String>{};
+            final avoidedArtists = <String>{};
+            
+            for (final suggestion in likedSuggestions) {
+              if (suggestion.themes != null) {
+                final themes = suggestion.themes!.split(',').map((t) => t.trim());
+                preferredThemes.addAll(themes.where((t) => t.isNotEmpty));
+              }
+              if (suggestion.artist != null && suggestion.artist!.isNotEmpty) {
+                preferredArtists.add(suggestion.artist!);
+              }
+            }
+            
+            for (final suggestion in dislikedSuggestions) {
+              if (suggestion.themes != null) {
+                final themes = suggestion.themes!.split(',').map((t) => t.trim());
+                avoidedThemes.addAll(themes.where((t) => t.isNotEmpty));
+              }
+              if (suggestion.artist != null && suggestion.artist!.isNotEmpty) {
+                avoidedArtists.add(suggestion.artist!);
+              }
+            }
+            
+            // Load explicit user constraints
+            final userConstraints = await _db.getUserConstraints(mediaType);
+            
+            userProfileData = {
+              'preferredThemes': preferredThemes.toList(),
+              'avoidedThemes': avoidedThemes.toList(),
+              'preferredArtists': preferredArtists.toList(),
+              'avoidedArtists': avoidedArtists.toList(),
+              'constraints': [], // Rule-based constraints (generated)
+              'userConstraints': userConstraints, // Explicit user constraints (critical directives)
+            };
+            
+            debugPrint('🧠 [BACKGROUND] Using user profile: ${preferredThemes.length} preferred themes, ${preferredArtists.length} preferred artists, ${userConstraints.length} user constraints');
+          }
+        } catch (e) {
+          debugPrint('⚠️ [BACKGROUND] Could not load user profile, using basic reasoning: $e');
+        }
+        
+        debugPrint('🔄 [BACKGROUND] Passing to isolate: appPath=${appSupportDir.path}, enabledTypes=$enabledMediaTypes, profile=${userProfileData != null}');
         
         // Generate suggestion in PURE isolate with all dependencies injected
         final result = await compute(_generateSuggestionInPureIsolate, {
@@ -761,6 +838,8 @@ class RecommendationService extends ChangeNotifier {
           'userQuery': 'Suggest a great $mediaType',
           'appSupportPath': appSupportDir.path,
           'enabledMediaTypes': enabledMediaTypes,
+          'userProfileData': userProfileData,
+          'rootIsolateToken': RootIsolateToken.instance,
         });
         
         if (result == null) {
@@ -784,6 +863,7 @@ class RecommendationService extends ChangeNotifier {
           wikidataId: result['wikidataId'],
           themes: result['themes'],
           botReasoning: result['botReasoning'],
+          mediaId: _generateMediaId(mediaType, result['title'], result['artist']),
           status: SuggestionStatus.pending,
         );
         
@@ -811,9 +891,93 @@ class RecommendationService extends ChangeNotifier {
     });
   }
 
+  /// Generate media_id for linking to vector database
+  static String _generateMediaId(String mediaType, String? title, String? artist) {
+    // Clean up title and artist for use in media_id
+    String cleanTitle = (title ?? 'Unknown').replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
+    String cleanArtist = (artist ?? 'Unknown').replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
+    
+    // Generate a simple counter-based ID (in production, should be more sophisticated)
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final counter = timestamp % 1000000; // Last 6 digits
+    
+    // Format: mediaType_counter_ArtistTitle
+    return '${mediaType}_${counter.toString().padLeft(6, '0')}_${cleanArtist}${cleanTitle}';
+  }
 
-
-
+  /// Extract behavioral data from user profile for matching
+  static Map<String, dynamic> _extractBehavioralDataFromProfile(Map<String, dynamic> userProfileData) {
+    final likedItemIds = <String>[];
+    final dislikedItemIds = <String>[];
+    final skippedItemIds = <String>[];
+    final excludeIds = <String>[];
+    String? favoriteItemId;
+    
+    try {
+      // Extract from liked items
+      final likedItems = userProfileData['liked_items'] as List<dynamic>? ?? [];
+      for (final item in likedItems) {
+        if (item is Map<String, dynamic> && item['media_id'] != null) {
+          likedItemIds.add(item['media_id'] as String);
+        }
+      }
+      
+      // Extract from disliked items
+      final dislikedItems = userProfileData['disliked_items'] as List<dynamic>? ?? [];
+      for (final item in dislikedItems) {
+        if (item is Map<String, dynamic> && item['media_id'] != null) {
+          dislikedItemIds.add(item['media_id'] as String);
+        }
+      }
+      
+      // Extract from skipped items
+      final skippedItems = userProfileData['skipped_items'] as List<dynamic>? ?? [];
+      for (final item in skippedItems) {
+        if (item is Map<String, dynamic> && item['media_id'] != null) {
+          skippedItemIds.add(item['media_id'] as String);
+        }
+      }
+      
+      // Extract favorite item
+      final favoriteItem = userProfileData['favorite_item'] as Map<String, dynamic>?;
+      if (favoriteItem != null && favoriteItem['media_id'] != null) {
+        favoriteItemId = favoriteItem['media_id'] as String;
+      }
+      
+      // Exclude all interacted items from new suggestions
+      excludeIds.addAll(likedItemIds);
+      excludeIds.addAll(dislikedItemIds);
+      excludeIds.addAll(skippedItemIds);
+      if (favoriteItemId != null) {
+        excludeIds.add(favoriteItemId);
+      }
+      
+      final hasPositiveSignals = likedItemIds.isNotEmpty || favoriteItemId != null;
+      
+      debugPrint('🎯 [BEHAVIORAL-EXTRACT] Extracted: ${likedItemIds.length} liked, '
+          '${dislikedItemIds.length} disliked, ${skippedItemIds.length} skipped, '
+          '${favoriteItemId != null ? 1 : 0} favorite, hasPositive: $hasPositiveSignals');
+      
+      return {
+        'likedItemIds': likedItemIds,
+        'dislikedItemIds': dislikedItemIds,
+        'skippedItemIds': skippedItemIds,
+        'favoriteItemId': favoriteItemId,
+        'excludeIds': excludeIds,
+        'hasPositiveSignals': hasPositiveSignals,
+      };
+    } catch (e) {
+      debugPrint('⚠️ [BEHAVIORAL-EXTRACT] Error extracting behavioral data: $e');
+      return {
+        'likedItemIds': <String>[],
+        'dislikedItemIds': <String>[],
+        'skippedItemIds': <String>[],
+        'favoriteItemId': null,
+        'excludeIds': <String>[],
+        'hasPositiveSignals': false,
+      };
+    }
+  }
 
   /// Static function to run COMPLETE suggestion generation in pure isolate (no platform channels)
   static Future<Map<String, dynamic>?> _generateSuggestionInPureIsolate(Map<String, dynamic> params) async {
@@ -822,10 +986,13 @@ class RecommendationService extends ChangeNotifier {
       final String userQuery = params['userQuery'];
       final String appSupportPath = params['appSupportPath'];
       final List<String> enabledMediaTypes = List<String>.from(params['enabledMediaTypes']);
+      final Map<String, dynamic>? userProfileData = params['userProfileData'];
+      final RootIsolateToken? rootIsolateToken = params['rootIsolateToken'];
       
       debugPrint('🔄 [PURE-ISOLATE] Starting suggestion generation for $mediaType');
       debugPrint('🔄 [PURE-ISOLATE] App path: $appSupportPath');
       debugPrint('🔄 [PURE-ISOLATE] Enabled types: $enabledMediaTypes');
+      debugPrint('🔄 [PURE-ISOLATE] User profile: ${userProfileData != null ? 'available' : 'not available'}');
       
       // Step 1: Create isolate-safe vector database with injected dependencies
       final vectorDb = await _createIsolateSafeVectorDatabase(appSupportPath, enabledMediaTypes, mediaType);
@@ -835,29 +1002,76 @@ class RecommendationService extends ChangeNotifier {
         return null;
       }
       
-      // Step 2: Query vector database
-      debugPrint('🔄 [PURE-ISOLATE] Querying vector database...');
-      final randomResults = await vectorDb.getRandomMedia(mediaType: mediaType, limit: 1);
+      // Step 2: Use behavioral matching or fallback to random
+      List<MediaResult> searchResults;
       
-      if (randomResults.isEmpty) {
+      if (userProfileData != null) {
+        debugPrint('🎯 [PURE-ISOLATE] Attempting behavioral matching...');
+        
+        // Extract behavioral data from user profile
+        final behavioralData = _extractBehavioralDataFromProfile(userProfileData);
+        
+        if (behavioralData['hasPositiveSignals']) {
+          debugPrint('🎯 [PURE-ISOLATE] Found behavioral signals - using embedding matching');
+          final behavioralResults = await vectorDb.searchByBehavioralMatch(
+            likedItemIds: behavioralData['likedItemIds'] as List<String>,
+            dislikedItemIds: behavioralData['dislikedItemIds'] as List<String>,
+            favoriteItemId: behavioralData['favoriteItemId'] as String?,
+            skippedItemIds: behavioralData['skippedItemIds'] as List<String>,
+            excludeIds: behavioralData['excludeIds'] as List<String>,
+            limit: 1,
+          );
+          
+          if (behavioralResults.isNotEmpty) {
+            debugPrint('✅ [PURE-ISOLATE] Found ${behavioralResults.length} behavioral matches');
+            searchResults = behavioralResults;
+          } else {
+            debugPrint('⚠️ [PURE-ISOLATE] No behavioral matches found, falling back to random');
+            final randomResults = await vectorDb.getRandomMedia(mediaType: mediaType, limit: 1);
+            searchResults = randomResults;
+          }
+        } else {
+          debugPrint('⚠️ [PURE-ISOLATE] No behavioral signals available, using random selection');
+          final randomResults = await vectorDb.getRandomMedia(mediaType: mediaType, limit: 1);
+          searchResults = randomResults;
+        }
+      } else {
+        debugPrint('🔄 [PURE-ISOLATE] No user profile, using random selection...');
+        final randomResults = await vectorDb.getRandomMedia(mediaType: mediaType, limit: 1);
+        searchResults = randomResults;
+      }
+      
+      if (searchResults.isEmpty) {
         debugPrint('❌ [PURE-ISOLATE] No media found in vector database for $mediaType');
         return null;
       }
       
-      final mediaResult = randomResults.first;
+      final mediaResult = searchResults.first;
       debugPrint('✅ [PURE-ISOLATE] Selected media: ${mediaResult.title}');
       
-      // Step 3: Generate LLM response (pure computation)
+      // Step 3: Generate LLM response (enhanced or basic based on user profile)
       debugPrint('🔄 [PURE-ISOLATE] Generating LLM response...');
-      final response = _generateContextualExplanationPure(
-        userQuery: userQuery,
-        mediaTitle: mediaResult.title,
-        mediaType: mediaType,
-        artist: mediaResult.artist,
-        themes: mediaResult.themes,
-        description: mediaResult.description,
-        similarity: 1.0,
-      );
+      final response = userProfileData != null 
+        ? await _generateEnhancedBehavioralReasoningPure(
+            userQuery: userQuery,
+            mediaTitle: mediaResult.title,
+            mediaType: mediaType,
+            artist: mediaResult.artist,
+            themes: mediaResult.themes,
+            description: mediaResult.description,
+            similarity: 1.0,
+            userProfileData: userProfileData,
+            rootIsolateToken: rootIsolateToken,
+          )
+        : _generateContextualExplanationPure(
+            userQuery: userQuery,
+            mediaTitle: mediaResult.title,
+            mediaType: mediaType,
+            artist: mediaResult.artist,
+            themes: mediaResult.themes,
+            description: mediaResult.description,
+            similarity: 1.0,
+          );
       
       debugPrint('✅ [PURE-ISOLATE] Generated complete suggestion: ${mediaResult.title}');
       
@@ -971,6 +1185,7 @@ class RecommendationService extends ChangeNotifier {
     String? description,
     double? similarity,
   }) {
+    final stopwatch = Stopwatch()..start();
     final buffer = StringBuffer();
     
     // Start with similarity-based reasoning
@@ -1013,7 +1228,440 @@ class RecommendationService extends ChangeNotifier {
     
     buffer.write('.');
     
+    stopwatch.stop();
+    debugPrint('⏱️ Basic reasoning generated in ${stopwatch.elapsedMilliseconds}ms');
+    
     return buffer.toString();
+  }
+
+  /// Generate optimized search query using LLM in isolate
+  static Future<String?> _generateOptimizedSearchQuery({
+    required String userQuery,
+    required String mediaType,
+    required Map<String, dynamic> userProfileData,
+    required RootIsolateToken rootIsolateToken,
+  }) async {
+    try {
+      debugPrint('🧠 [ISOLATE-LLM] Starting search query optimization for: $userQuery');
+      debugPrint('🧠 [ISOLATE-LLM] Media type: $mediaType');
+      
+      // Initialize background isolate messenger
+      debugPrint('🧠 [ISOLATE-LLM] Initializing background isolate messenger...');
+      BackgroundIsolateBinaryMessenger.ensureInitialized(rootIsolateToken);
+      debugPrint('🧠 [ISOLATE-LLM] ✅ Background messenger initialized with token');
+      
+      // Initialize LlamaService in isolate
+      debugPrint('🧠 [ISOLATE-LLM] Initializing LlamaService in isolate...');
+      final llamaService = LlamaService();
+      await llamaService.initializeAuto();
+      debugPrint('🧠 [ISOLATE-LLM] ✅ LlamaService initialized in isolate');
+      
+      // Extract user profile
+      final preferredThemes = (userProfileData['preferredThemes'] as List<dynamic>?)?.cast<String>() ?? [];
+      final preferredArtists = (userProfileData['preferredArtists'] as List<dynamic>?)?.cast<String>() ?? [];
+      final userConstraints = (userProfileData['userConstraints'] as List<dynamic>?)?.cast<String>() ?? [];
+      
+      debugPrint('🧠 [ISOLATE-LLM] User profile: ${preferredThemes.length} themes, ${preferredArtists.length} artists, ${userConstraints.length} constraints');
+      
+      // Format user profile for prompt
+      final formattedThemes = preferredThemes.isNotEmpty ? preferredThemes.join(', ') : '';
+      final formattedArtists = preferredArtists.isNotEmpty ? preferredArtists.join(', ') : '';
+      final formattedConstraints = userConstraints.isNotEmpty ? userConstraints.join('; ') : '';
+      
+      String combinedProfile = '';
+      if (formattedThemes.isNotEmpty) combinedProfile += formattedThemes;
+      if (formattedArtists.isNotEmpty) {
+        if (combinedProfile.isNotEmpty) combinedProfile += ', ';
+        combinedProfile += formattedArtists;
+      }
+      if (formattedConstraints.isNotEmpty) {
+        if (combinedProfile.isNotEmpty) combinedProfile += ' | CONSTRAINTS: ';
+        combinedProfile += formattedConstraints;
+      }
+      
+      debugPrint('🧠 [ISOLATE-LLM] Combined profile: "$combinedProfile"');
+      
+      // Use the LLM method correctly - pass user query + context
+      debugPrint('🧠 [ISOLATE-LLM] Generating search query for: "$userQuery"');
+      
+      final stopwatch = Stopwatch()..start();
+      final searchQuery = await llamaService.generateDistilledSearchQuery(
+        userQuery, 
+        mediaType: mediaType, 
+        context: combinedProfile
+      );
+      stopwatch.stop();
+      
+      if (searchQuery != null && searchQuery.isNotEmpty) {
+        debugPrint('🧠 [ISOLATE-LLM] ✅ Search query generation SUCCESS in ${stopwatch.elapsedMilliseconds}ms');
+        debugPrint('🔍 [ISOLATE-LLM] Generated query: "$searchQuery"');
+        return searchQuery;
+      } else {
+        debugPrint('❌ [ISOLATE-LLM] Search query generation returned empty result');
+        return null;
+      }
+    } catch (e) {
+      debugPrint('❌ [ISOLATE-LLM] Error in search query generation: $e');
+      return null;
+    }
+  }
+
+  /// Generate enhanced behavioral reasoning with LLM
+  static Future<String> _generateEnhancedBehavioralReasoningPure({
+    required String userQuery,
+    required String mediaTitle,
+    required String mediaType,
+    String? artist,
+    String? themes,
+    String? description,
+    required double similarity,
+    required Map<String, dynamic> userProfileData,
+    RootIsolateToken? rootIsolateToken,
+  }) async {
+    if (rootIsolateToken == null) {
+      return _generateContextualExplanationPure(
+        userQuery: userQuery,
+        mediaTitle: mediaTitle,
+        mediaType: mediaType,
+        artist: artist,
+        themes: themes,
+        description: description,
+        similarity: similarity,
+      );
+    }
+    
+    try {
+      // Extract behavioral context for LLM
+      final behavioralContext = _extractBehavioralContextForLLM(userProfileData);
+      
+      // Initialize background messenger and LLM service in isolate
+      BackgroundIsolateBinaryMessenger.ensureInitialized(rootIsolateToken);
+      debugPrint('🧠 [ISOLATE-LLM] ✅ Background messenger initialized with token');
+      
+      final llamaService = LlamaService();
+      await llamaService.initializeAuto();
+      
+      if (!llamaService.isInitialized) {
+        debugPrint('⚠️ [ISOLATE-LLM] LLM not available in isolate, using rule-based reasoning');
+        return _generateContextualExplanationPure(
+          userQuery: userQuery,
+          mediaTitle: mediaTitle,
+          mediaType: mediaType,
+          artist: artist,
+          themes: themes,
+          description: description,
+          similarity: similarity,
+        );
+      }
+      
+      debugPrint('🧠 [ISOLATE-LLM] ✅ LlamaService initialized in isolate');
+      
+      // Build enhanced prompt with behavioral context
+      final prompt = _buildEnhancedBehavioralPrompt(
+        userQuery: userQuery,
+        mediaTitle: mediaTitle,
+        mediaType: mediaType,
+        artist: artist,
+        themes: themes,
+        description: description,
+        behavioralContext: behavioralContext,
+      );
+      
+      final startTime = DateTime.now();
+      
+             // Generate LLM response using generateExplanation
+       final response = await llamaService.generateExplanation(
+         mediaTitle: mediaTitle,
+         artist: artist ?? '',
+         themes: themes ?? '',
+         userQuery: userQuery,
+         mediaType: mediaType,
+       );
+      
+      final duration = DateTime.now().difference(startTime).inMilliseconds;
+      
+      if (response.trim().isNotEmpty) {
+        debugPrint('🧠 [ISOLATE-LLM] ✅ Enhanced behavioral reasoning SUCCESS in ${duration}ms');
+        return response.trim();
+      } else {
+        debugPrint('⚠️ [ISOLATE-LLM] Empty LLM response, using rule-based fallback');
+        return _generateContextualExplanationPure(
+          userQuery: userQuery,
+          mediaTitle: mediaTitle,
+          mediaType: mediaType,
+          artist: artist,
+          themes: themes,
+          description: description,
+          similarity: similarity,
+        );
+      }
+    } catch (e) {
+      debugPrint('❌ [ISOLATE-LLM] Error in enhanced behavioral reasoning: $e');
+      return _generateContextualExplanationPure(
+        userQuery: userQuery,
+        mediaTitle: mediaTitle,
+        mediaType: mediaType,
+        artist: artist,
+        themes: themes,
+        description: description,
+        similarity: similarity,
+      );
+    }
+  }
+
+  /// Extract behavioral context for LLM prompts
+  static Map<String, dynamic> _extractBehavioralContextForLLM(Map<String, dynamic> userProfileData) {
+    try {
+      final likedThemes = <String>[];
+      final likedArtists = <String>[];
+      final dislikedThemes = <String>[];
+      final dislikedArtists = <String>[];
+      String? favoriteTitle;
+      String? favoriteArtist;
+      
+      // Extract from liked items
+      final likedItems = userProfileData['liked_items'] as List<dynamic>? ?? [];
+      for (final item in likedItems) {
+        if (item is Map<String, dynamic>) {
+          final themes = item['themes'] as String?;
+          final artist = item['artist'] as String?;
+          if (themes != null) likedThemes.addAll(themes.split(',').map((t) => t.trim()));
+          if (artist != null) likedArtists.add(artist);
+        }
+      }
+      
+      // Extract from disliked items
+      final dislikedItems = userProfileData['disliked_items'] as List<dynamic>? ?? [];
+      for (final item in dislikedItems) {
+        if (item is Map<String, dynamic>) {
+          final themes = item['themes'] as String?;
+          final artist = item['artist'] as String?;
+          if (themes != null) dislikedThemes.addAll(themes.split(',').map((t) => t.trim()));
+          if (artist != null) dislikedArtists.add(artist);
+        }
+      }
+      
+      // Extract favorite
+      final favoriteItem = userProfileData['favorite_item'] as Map<String, dynamic>?;
+      if (favoriteItem != null) {
+        favoriteTitle = favoriteItem['title'] as String?;
+        favoriteArtist = favoriteItem['artist'] as String?;
+      }
+      
+      // Get user constraints
+      final userConstraints = userProfileData['user_constraints'] as String? ?? '';
+      
+      return {
+        'likedThemes': likedThemes.take(5).toList(), // Limit for prompt size
+        'likedArtists': likedArtists.take(3).toList(),
+        'dislikedThemes': dislikedThemes.take(3).toList(),
+        'dislikedArtists': dislikedArtists.take(2).toList(),
+        'favoriteTitle': favoriteTitle,
+        'favoriteArtist': favoriteArtist,
+        'userConstraints': userConstraints,
+      };
+    } catch (e) {
+      debugPrint('⚠️ [BEHAVIORAL-CONTEXT] Error extracting context: $e');
+      return {
+        'likedThemes': <String>[],
+        'likedArtists': <String>[],
+        'dislikedThemes': <String>[],
+        'dislikedArtists': <String>[],
+        'favoriteTitle': null,
+        'favoriteArtist': null,
+        'userConstraints': '',
+      };
+    }
+  }
+
+  /// Build enhanced behavioral prompt
+  static String _buildEnhancedBehavioralPrompt({
+    required String userQuery,
+    required String mediaTitle,
+    required String mediaType,
+    String? artist,
+    String? themes,
+    String? description,
+    required Map<String, dynamic> behavioralContext,
+  }) {
+    final likedThemes = behavioralContext['likedThemes'] as List<String>;
+    final likedArtists = behavioralContext['likedArtists'] as List<String>;
+    final dislikedThemes = behavioralContext['dislikedThemes'] as List<String>;
+    final dislikedArtists = behavioralContext['dislikedArtists'] as List<String>;
+    final favoriteTitle = behavioralContext['favoriteTitle'] as String?;
+    final favoriteArtist = behavioralContext['favoriteArtist'] as String?;
+    final userConstraints = behavioralContext['userConstraints'] as String;
+    
+    // Build behavioral context strings
+    final likedContext = likedThemes.isNotEmpty || likedArtists.isNotEmpty
+        ? 'LIKES: ${likedThemes.join(', ')}${likedArtists.isNotEmpty ? ' | Artists: ${likedArtists.join(', ')}' : ''}'
+        : '';
+    
+    final dislikedContext = dislikedThemes.isNotEmpty || dislikedArtists.isNotEmpty
+        ? 'DISLIKES: ${dislikedThemes.join(', ')}${dislikedArtists.isNotEmpty ? ' | Artists: ${dislikedArtists.join(', ')}' : ''}'
+        : '';
+    
+    final favoriteContext = favoriteTitle != null
+        ? 'FAVORITE: "$favoriteTitle"${favoriteArtist != null ? ' by $favoriteArtist' : ''}'
+        : '';
+    
+    final constraintsContext = userConstraints.isNotEmpty
+        ? 'CONSTRAINTS: $userConstraints'
+        : '';
+    
+    return '''RECOMMENDATION: "$mediaTitle"${artist != null ? ' by $artist' : ''}
+USER REQUEST: "$userQuery"
+THEMES: ${themes ?? 'N/A'}
+${likedContext.isNotEmpty ? '$likedContext\n' : ''}${dislikedContext.isNotEmpty ? '$dislikedContext\n' : ''}${favoriteContext.isNotEmpty ? '$favoriteContext\n' : ''}${constraintsContext.isNotEmpty ? '$constraintsContext\n' : ''}
+Why is this a perfect match based on their behavior? (1-2 sentences):''';
+  }
+
+
+
+  /// Generate enhanced reasoning with behavioral context
+  static Future<String> _generateEnhancedReasoningPure({
+    required String userQuery,
+    required String mediaTitle,
+    required String mediaType,
+    String? artist,
+    String? themes,
+    String? description,
+    required double similarity,
+    required Map<String, dynamic> userProfileData,
+    RootIsolateToken? rootIsolateToken,
+  }) async {
+    if (rootIsolateToken == null) {
+      return _generateContextualExplanationPure(
+        userQuery: userQuery,
+        mediaTitle: mediaTitle,
+        mediaType: mediaType,
+        artist: artist,
+        themes: themes,
+        description: description,
+        similarity: similarity,
+      );
+    }
+    
+    try {
+      // Extract behavioral context for LLM
+      final behavioralContext = _extractBehavioralContextForLLM(userProfileData);
+      
+      // Initialize background messenger and LLM service in isolate
+      BackgroundIsolateBinaryMessenger.ensureInitialized(rootIsolateToken);
+      debugPrint('🧠 [ISOLATE-LLM] ✅ Background messenger initialized with token');
+      
+      final llamaService = LlamaService();
+      await llamaService.initializeAuto();
+      
+      if (!llamaService.isInitialized) {
+        debugPrint('⚠️ [ISOLATE-LLM] LLM not available in isolate, using rule-based reasoning');
+        return _generateContextualExplanationPure(
+          userQuery: userQuery,
+          mediaTitle: mediaTitle,
+          mediaType: mediaType,
+          artist: artist,
+          themes: themes,
+          description: description,
+          similarity: similarity,
+        );
+      }
+      
+      debugPrint('🧠 [ISOLATE-LLM] ✅ LlamaService initialized in isolate');
+      
+      // Build enhanced prompt with behavioral context
+      final prompt = _buildEnhancedReasoningPrompt(
+        userQuery: userQuery,
+        mediaTitle: mediaTitle,
+        mediaType: mediaType,
+        artist: artist,
+        themes: themes,
+        description: description,
+        behavioralContext: behavioralContext,
+      );
+      
+      final startTime = DateTime.now();
+      
+      // Generate LLM response using generateExplanation
+      final response = await llamaService.generateExplanation(
+        userQuery: userQuery,
+        mediaTitle: mediaTitle,
+        mediaType: mediaType,
+        artist: artist,
+        themes: themes,
+        description: description,
+      );
+      
+      final duration = DateTime.now().difference(startTime).inMilliseconds;
+      
+      if (response != null && response.trim().isNotEmpty) {
+        debugPrint('🧠 [ISOLATE-LLM] ✅ Enhanced LLM reasoning SUCCESS in ${duration}ms');
+        return response.trim();
+      } else {
+        debugPrint('⚠️ [ISOLATE-LLM] Empty LLM response, using rule-based fallback');
+        return _generateContextualExplanationPure(
+          userQuery: userQuery,
+          mediaTitle: mediaTitle,
+          mediaType: mediaType,
+          artist: artist,
+          themes: themes,
+          description: description,
+          similarity: similarity,
+        );
+      }
+    } catch (e) {
+      debugPrint('❌ [ISOLATE-LLM] Error in enhanced reasoning: $e');
+      return _generateContextualExplanationPure(
+        userQuery: userQuery,
+        mediaTitle: mediaTitle,
+        mediaType: mediaType,
+        artist: artist,
+        themes: themes,
+        description: description,
+        similarity: similarity,
+      );
+    }
+  }
+
+  /// Build enhanced reasoning prompt with behavioral context
+  static String _buildEnhancedReasoningPrompt({
+    required String userQuery,
+    required String mediaTitle,
+    required String mediaType,
+    String? artist,
+    String? themes,
+    String? description,
+    required Map<String, dynamic> behavioralContext,
+  }) {
+    final likedThemes = behavioralContext['likedThemes'] as List<String>;
+    final likedArtists = behavioralContext['likedArtists'] as List<String>;
+    final dislikedThemes = behavioralContext['dislikedThemes'] as List<String>;
+    final dislikedArtists = behavioralContext['dislikedArtists'] as List<String>;
+    final favoriteTitle = behavioralContext['favoriteTitle'] as String?;
+    final favoriteArtist = behavioralContext['favoriteArtist'] as String?;
+    final userConstraints = behavioralContext['userConstraints'] as String;
+    
+    // Build behavioral context strings
+    final likedContext = likedThemes.isNotEmpty || likedArtists.isNotEmpty
+        ? 'LIKES: ${likedThemes.join(', ')}${likedArtists.isNotEmpty ? ' | Artists: ${likedArtists.join(', ')}' : ''}'
+        : '';
+    
+    final dislikedContext = dislikedThemes.isNotEmpty || dislikedArtists.isNotEmpty
+        ? 'DISLIKES: ${dislikedThemes.join(', ')}${dislikedArtists.isNotEmpty ? ' | Artists: ${dislikedArtists.join(', ')}' : ''}'
+        : '';
+    
+    final favoriteContext = favoriteTitle != null
+        ? 'FAVORITE: "$favoriteTitle"${favoriteArtist != null ? ' by $favoriteArtist' : ''}'
+        : '';
+    
+    final constraintsContext = userConstraints.isNotEmpty
+        ? 'CONSTRAINTS: $userConstraints'
+        : '';
+    
+    return '''RECOMMENDATION: "$mediaTitle"${artist != null ? ' by $artist' : ''}
+USER REQUEST: "$userQuery"
+THEMES: ${themes ?? 'N/A'}
+${likedContext.isNotEmpty ? '$likedContext\n' : ''}${dislikedContext.isNotEmpty ? '$dislikedContext\n' : ''}${favoriteContext.isNotEmpty ? '$favoriteContext\n' : ''}${constraintsContext.isNotEmpty ? '$constraintsContext\n' : ''}
+Why is this a perfect match based on their behavior? (1-2 sentences):''';
   }
 
   /// Check if a media type database is available
@@ -1123,7 +1771,355 @@ class _IsolateSafeVectorDatabase {
       return [];
     }
   }
+
+  Future<List<MediaResult>> searchByText({required String query, required String mediaType, required int limit}) async {
+    if (!_initialized || _db == null) {
+      throw Exception('Vector database not initialized');
+    }
+    
+    if (query.trim().isEmpty) {
+      return [];
+    }
+    
+    try {
+      final hasAlbum = mediaType == 'music';
+      
+      // Use LIKE-based search for text matching
+      final searchQuery = '''
+        SELECT 
+          title,
+          artist,
+          ${hasAlbum ? 'album,' : ''}
+          description,
+          themes,
+          wiki_url,
+          wikidata_id,
+          image_url,
+          (
+            CASE WHEN LOWER(title) LIKE LOWER(?) || '%' THEN 100
+            WHEN LOWER(title) LIKE '%' || LOWER(?) || '%' THEN 80
+            WHEN LOWER(COALESCE(artist, '')) LIKE LOWER(?) || '%' THEN 70
+            WHEN LOWER(COALESCE(artist, '')) LIKE '%' || LOWER(?) || '%' THEN 60
+            WHEN LOWER(COALESCE(themes, '')) LIKE '%' || LOWER(?) || '%' THEN 40
+            ELSE 20 END
+          ) as relevance_score
+        FROM media_vectors 
+        WHERE (
+          LOWER(title) LIKE '%' || LOWER(?) || '%' OR
+          LOWER(COALESCE(artist, '')) LIKE '%' || LOWER(?) || '%' OR
+          LOWER(COALESCE(themes, '')) LIKE '%' || LOWER(?) || '%'
+        )
+        ORDER BY relevance_score DESC, title ASC
+        LIMIT ?
+      ''';
+      
+      final params = [query, query, query, query, query, query, query, query, limit];
+      
+      final stmt = _db!.prepare(searchQuery);
+      final result = stmt.select(params);
+      
+      final mediaResults = <MediaResult>[];
+      for (final row in result) {
+        mediaResults.add(MediaResult(
+          title: row['title'] as String? ?? 'Unknown',
+          artist: row['artist'] as String?,
+          album: hasAlbum ? row['album'] as String? : null,
+          coverArtUrl: row['image_url'] as String?,
+          description: row['description'] as String?,
+          wikiUrl: row['wiki_url'] as String?,
+          wikidataId: row['wikidata_id'] as String?,
+          themes: row['themes'] as String?,
+        ));
+      }
+      
+      stmt.dispose();
+      debugPrint('🔍 [PURE-ISOLATE] Text search for "$query" in $mediaType: found ${mediaResults.length} results');
+      return mediaResults;
+    } catch (e) {
+      debugPrint('❌ [PURE-ISOLATE] Error in text search: $e');
+      return [];
+    }
+  }
   
+  Future<List<MediaResult>> searchByBehavioralMatch({
+    required List<String> likedItemIds,
+    required List<String> dislikedItemIds,
+    String? favoriteItemId,
+    List<String> skippedItemIds = const [],
+    List<String> excludeIds = const [],
+    int limit = 1,
+  }) async {
+    if (!_initialized || _db == null) {
+      throw Exception('Vector database not initialized');
+    }
+
+    try {
+      debugPrint('🎯 [PURE-ISOLATE] Starting behavioral matching...');
+      
+      // Step 1: Get all behavioral embeddings
+      final behavioralEmbeddings = await _getBehavioralEmbeddings(
+        likedItemIds, dislikedItemIds, favoriteItemId, skippedItemIds
+      );
+      
+      if (behavioralEmbeddings['liked'].isEmpty && behavioralEmbeddings['favorite'] == null) {
+        debugPrint('⚠️ [PURE-ISOLATE] No positive behavioral signals found');
+        return [];
+      }
+      
+      debugPrint('🎯 [PURE-ISOLATE] Behavioral signals: ${behavioralEmbeddings['liked'].length} liked, '
+          '${behavioralEmbeddings['disliked'].length} disliked, '
+          '${behavioralEmbeddings['favorite'] != null ? 1 : 0} favorite, '
+          '${behavioralEmbeddings['skipped'].length} skipped');
+      
+      // Step 2: Get all candidates and find matches
+      final hasAlbum = mediaType == 'music';
+      final allStmt = _db!.prepare('''
+        SELECT 
+          media_id, title, artist, ${hasAlbum ? 'album,' : ''} description, themes, 
+          wiki_url, wikidata_id, image_url, embedding_blob
+        FROM media_vectors 
+      ''');
+      
+      final allResults = allStmt.select([]);
+      allStmt.dispose();
+      
+      debugPrint('🔍 [PURE-ISOLATE] Evaluating ${allResults.length} candidates...');
+      
+      final candidates = <Map<String, dynamic>>[];
+      
+      for (final row in allResults) {
+        final mediaId = row['media_id'] as String;
+        
+        // Skip excluded items
+        if (excludeIds.contains(mediaId) || 
+            likedItemIds.contains(mediaId) || 
+            dislikedItemIds.contains(mediaId) ||
+            mediaId == favoriteItemId ||
+            skippedItemIds.contains(mediaId)) {
+          continue;
+        }
+        
+        try {
+          final itemBlob = row['embedding_blob'] as Uint8List;
+          final itemEmbedding = _blobToFloatList(itemBlob);
+          
+          // Apply multi-criteria matching
+          final matchResult = _evaluateBehavioralMatch(itemEmbedding, behavioralEmbeddings);
+          
+          if (matchResult['isMatch']) {
+            candidates.add({
+              'title': row['title'] as String,
+              'artist': row['artist'] as String?,
+              'album': hasAlbum ? row['album'] as String? : null,
+              'description': row['description'] as String?,
+              'themes': row['themes'] as String?,
+              'wikiUrl': row['wiki_url'] as String?,
+              'wikidataId': row['wikidata_id'] as String?,
+              'coverArtUrl': row['image_url'] as String?,
+              'matchScore': matchResult['score'],
+              'matchDetails': matchResult['details'],
+            });
+          }
+        } catch (e) {
+          continue; // Skip problematic embeddings
+        }
+      }
+      
+      // Step 3: Sort by match score and return top results
+      candidates.sort((a, b) => (b['matchScore'] as double).compareTo(a['matchScore'] as double));
+      final topResults = candidates.take(limit);
+      
+      debugPrint('✅ [PURE-ISOLATE] Found ${topResults.length} behavioral matches from ${candidates.length} candidates');
+      
+      return topResults.map((item) => MediaResult(
+        title: item['title'] as String,
+        artist: item['artist'] as String?,
+        album: item['album'] as String?,
+        coverArtUrl: item['coverArtUrl'] as String?,
+        description: item['description'] as String?,
+        wikiUrl: item['wikiUrl'] as String?,
+        wikidataId: item['wikidataId'] as String?,
+        themes: item['themes'] as String?,
+      )).toList();
+      
+    } catch (e) {
+      debugPrint('❌ [PURE-ISOLATE] Error in behavioral matching: $e');
+      return [];
+    }
+  }
+
+  /// Get embeddings for all behavioral signals
+  Future<Map<String, dynamic>> _getBehavioralEmbeddings(
+    List<String> likedItemIds,
+    List<String> dislikedItemIds,
+    String? favoriteItemId,
+    List<String> skippedItemIds,
+  ) async {
+    final result = {
+      'liked': <List<double>>[],
+      'disliked': <List<double>>[],
+      'favorite': null as List<double>?,
+      'skipped': <List<double>>[],
+    };
+    
+    // Get liked embeddings
+    for (final id in likedItemIds) {
+      final embedding = await _getEmbeddingById(id);
+      if (embedding != null) {
+        (result['liked'] as List<List<double>>).add(embedding);
+      }
+    }
+    
+    // Get disliked embeddings
+    for (final id in dislikedItemIds) {
+      final embedding = await _getEmbeddingById(id);
+      if (embedding != null) {
+        (result['disliked'] as List<List<double>>).add(embedding);
+      }
+    }
+    
+    // Get favorite embedding
+    if (favoriteItemId != null) {
+      result['favorite'] = await _getEmbeddingById(favoriteItemId);
+    }
+    
+    // Get skipped embeddings
+    for (final id in skippedItemIds) {
+      final embedding = await _getEmbeddingById(id);
+      if (embedding != null) {
+        (result['skipped'] as List<List<double>>).add(embedding);
+      }
+    }
+    
+    return result;
+  }
+
+  /// Get single embedding by media ID
+  Future<List<double>?> _getEmbeddingById(String mediaId) async {
+    if (!_initialized || _db == null) return null;
+    
+    try {
+      final stmt = _db!.prepare('SELECT embedding_blob FROM media_vectors WHERE media_id = ?');
+      final result = stmt.select([mediaId]);
+      stmt.dispose();
+      
+      if (result.isNotEmpty) {
+        final blob = result.first['embedding_blob'] as Uint8List;
+        return _blobToFloatList(blob);
+      }
+      return null;
+    } catch (e) {
+      debugPrint('⚠️ [PURE-ISOLATE] Error getting embedding for $mediaId: $e');
+      return null;
+    }
+  }
+
+  /// Convert binary blob to float list (384 dimensions)
+  List<double> _blobToFloatList(Uint8List blob) {
+    final buffer = blob.buffer;
+    final floats = Float32List.view(buffer);
+    return floats.cast<double>();
+  }
+
+  /// Calculate cosine similarity between two vectors
+  double _cosineSimilarity(List<double> vectorA, List<double> vectorB) {
+    if (vectorA.length != vectorB.length) {
+      return 0.0;
+    }
+    
+    double dotProduct = 0.0;
+    double normA = 0.0;
+    double normB = 0.0;
+    
+    for (int i = 0; i < vectorA.length; i++) {
+      dotProduct += vectorA[i] * vectorB[i];
+      normA += vectorA[i] * vectorA[i];
+      normB += vectorB[i] * vectorB[i];
+    }
+    
+    if (normA == 0.0 || normB == 0.0) {
+      return 0.0;
+    }
+    
+    return dotProduct / (sqrt(normA) * sqrt(normB));
+  }
+
+  /// Evaluate if an item matches behavioral criteria
+  Map<String, dynamic> _evaluateBehavioralMatch(
+    List<double> itemEmbedding,
+    Map<String, dynamic> behavioralEmbeddings,
+  ) {
+    final likedEmbeddings = behavioralEmbeddings['liked'] as List<List<double>>;
+    final dislikedEmbeddings = behavioralEmbeddings['disliked'] as List<List<double>>;
+    final favoriteEmbedding = behavioralEmbeddings['favorite'] as List<double>?;
+    final skippedEmbeddings = behavioralEmbeddings['skipped'] as List<List<double>>;
+    
+    // Calculate similarities
+    double maxLikedSimilarity = 0.0;
+    double favoriteSimilarity = 0.0;
+    double maxDislikedSimilarity = 0.0;
+    double maxSkippedSimilarity = 0.0;
+    
+    // Check against liked items
+    for (final likedEmbedding in likedEmbeddings) {
+      final similarity = _cosineSimilarity(itemEmbedding, likedEmbedding);
+      if (similarity > maxLikedSimilarity) {
+        maxLikedSimilarity = similarity;
+      }
+    }
+    
+    // Check against favorite
+    if (favoriteEmbedding != null) {
+      favoriteSimilarity = _cosineSimilarity(itemEmbedding, favoriteEmbedding);
+    }
+    
+    // Check against disliked items
+    for (final dislikedEmbedding in dislikedEmbeddings) {
+      final similarity = _cosineSimilarity(itemEmbedding, dislikedEmbedding);
+      if (similarity > maxDislikedSimilarity) {
+        maxDislikedSimilarity = similarity;
+      }
+    }
+    
+    // Check against skipped items
+    for (final skippedEmbedding in skippedEmbeddings) {
+      final similarity = _cosineSimilarity(itemEmbedding, skippedEmbedding);
+      if (similarity > maxSkippedSimilarity) {
+        maxSkippedSimilarity = similarity;
+      }
+    }
+    
+    // Apply criteria: 0.7+ liked OR 0.5+ favorite, AND 0.3 or less disliked, AND not 0.85+ skipped
+    final hasPositiveMatch = maxLikedSimilarity >= 0.7 || favoriteSimilarity >= 0.5;
+    final passesDislikedFilter = maxDislikedSimilarity <= 0.3;
+    final isLikelySkipped = maxSkippedSimilarity >= 0.85;
+    
+    final isMatch = hasPositiveMatch && passesDislikedFilter && !isLikelySkipped;
+    
+    // Calculate overall match score
+    double score = 0.0;
+    if (hasPositiveMatch) {
+      score += max(maxLikedSimilarity * 0.7, favoriteSimilarity * 0.5);
+    }
+    if (passesDislikedFilter) {
+      score += 0.2;
+    }
+    if (isLikelySkipped) {
+      score -= 0.3;
+    }
+    
+    return {
+      'isMatch': isMatch,
+      'score': score,
+      'details': {
+        'maxLikedSimilarity': maxLikedSimilarity,
+        'favoriteSimilarity': favoriteSimilarity,
+        'maxDislikedSimilarity': maxDislikedSimilarity,
+        'maxSkippedSimilarity': maxSkippedSimilarity,
+      }
+    };
+  }
+
   void dispose() {
     _db?.dispose();
     _initialized = false;

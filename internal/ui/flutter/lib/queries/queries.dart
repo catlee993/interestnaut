@@ -3,9 +3,17 @@
 
 /// Schema creation
 
-// Create media types table
-const String createMediaTableQuery = '''
-CREATE TABLE IF NOT EXISTS media (
+// Create media types lookup table
+const String createMediaTypesTableQuery = '''
+CREATE TABLE IF NOT EXISTS media_types (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name VARCHAR NOT NULL UNIQUE
+);
+''';
+
+// Create recommendation status lookup table
+const String createRecommendationStatusTableQuery = '''
+CREATE TABLE IF NOT EXISTS recommendation_status (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name VARCHAR NOT NULL UNIQUE
 );
@@ -13,7 +21,7 @@ CREATE TABLE IF NOT EXISTS media (
 
 // Insert default media types
 const String insertDefaultMediaTypesQuery = '''
-INSERT OR IGNORE INTO media (name) VALUES 
+INSERT OR IGNORE INTO media_types (name) VALUES 
   ('book'),
   ('music'), 
   ('movie'),
@@ -21,25 +29,37 @@ INSERT OR IGNORE INTO media (name) VALUES
   ('video_game');
 ''';
 
-// Create recommendations table if it doesn't exist
+// Insert default recommendation statuses
+const String insertDefaultRecommendationStatusQuery = '''
+INSERT OR IGNORE INTO recommendation_status (name) VALUES 
+  ('pending'),
+  ('liked'),
+  ('disliked'),
+  ('skipped'),
+  ('favorited');
+''';
+
+// Create recommendations table with proper foreign keys
 const String createRecommendationsTableQuery = '''
 CREATE TABLE IF NOT EXISTS recommendations (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   query TEXT NOT NULL,
-  media_type TEXT NOT NULL,
+  media_type_id INTEGER NOT NULL,
+  vector_media_id TEXT,
   title TEXT,
-  artist TEXT,
-  album TEXT,
+  primary_creator TEXT,
   cover_art_url TEXT,
   description TEXT,
   wiki_url TEXT,
   wikidata_id TEXT,
   bot_reasoning TEXT,
-  status TEXT NOT NULL DEFAULT 'pending',
+  status_id INTEGER NOT NULL DEFAULT 1,
   themes TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT,
-  UNIQUE(title, artist, media_type)
+  FOREIGN KEY (media_type_id) REFERENCES media_types (id),
+  FOREIGN KEY (status_id) REFERENCES recommendation_status (id),
+  UNIQUE(title, primary_creator, media_type_id)
 );
 ''';
 
@@ -58,24 +78,26 @@ CREATE TABLE IF NOT EXISTS recommendation_metadata (
 const String createUserConstraintsTableQuery = '''
 CREATE TABLE IF NOT EXISTS user_constraints (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  media_id INTEGER NOT NULL,
+  media_type_id INTEGER NOT NULL,
   value VARCHAR NOT NULL,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (media_id) REFERENCES media (id) ON DELETE CASCADE
+  FOREIGN KEY (media_type_id) REFERENCES media_types (id) ON DELETE CASCADE
 );
 ''';
 
-// Create user-added favorites table
+// Create user-added favorites table with vector ID linking
 const String createUserAddedFavoritesTableQuery = '''
 CREATE TABLE IF NOT EXISTS user_added_favorites (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   title VARCHAR NOT NULL,
-  media_id INTEGER NOT NULL,
-  artist VARCHAR,
+  media_type_id INTEGER NOT NULL,
+  vector_media_id TEXT,
+  primary_creator VARCHAR,
   cover_art_url VARCHAR,
   themes TEXT,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (media_id) REFERENCES media (id) ON DELETE CASCADE
+  FOREIGN KEY (media_type_id) REFERENCES media_types (id) ON DELETE CASCADE,
+  UNIQUE(vector_media_id, media_type_id)
 );
 ''';
 
@@ -97,39 +119,44 @@ const String addThemesToRecommendationsQuery = '''
 ALTER TABLE recommendations ADD COLUMN themes TEXT;
 ''';
 
+// Add media_id column to recommendations table if it doesn't exist
+const String addMediaIdToRecommendationsQuery = '''
+ALTER TABLE recommendations ADD COLUMN media_id TEXT;
+''';
+
 /// Media Type Queries
 
 // Get media type ID by name
 const String getMediaTypeIdQuery = '''
-SELECT id FROM media WHERE name = ?;
+SELECT id FROM media_types WHERE name = ?;
 ''';
 
 // Get all media types
 const String getAllMediaTypesQuery = '''
-SELECT id, name FROM media ORDER BY name;
+SELECT id, name FROM media_types ORDER BY name;
 ''';
 
 /// User Constraints Queries
 
 // Insert user constraint
 const String insertUserConstraintQuery = '''
-INSERT INTO user_constraints (media_id, value) VALUES (?, ?);
+INSERT INTO user_constraints (media_type_id, value) VALUES (?, ?);
 ''';
 
 // Get user constraints for a media type
 const String getUserConstraintsForMediaQuery = '''
 SELECT uc.value 
 FROM user_constraints uc
-JOIN media m ON uc.media_id = m.id
-WHERE m.name = ?;
+JOIN media_types mt ON uc.media_type_id = mt.id
+WHERE mt.name = ?;
 ''';
 
 // Get all user constraints
 const String getAllUserConstraintsQuery = '''
-SELECT m.name as media_type, uc.value, uc.id
+SELECT mt.name as media_type, uc.value, uc.id
 FROM user_constraints uc
-JOIN media m ON uc.media_id = m.id
-ORDER BY m.name, uc.value;
+JOIN media_types mt ON uc.media_type_id = mt.id
+ORDER BY mt.name, uc.value;
 ''';
 
 // Delete user constraint
@@ -141,24 +168,24 @@ DELETE FROM user_constraints WHERE id = ?;
 
 // Insert user-added favorite
 const String insertUserAddedFavoriteQuery = '''
-INSERT INTO user_added_favorites (title, media_id, artist, cover_art_url, themes) 
-VALUES (?, ?, ?, ?, ?);
+INSERT INTO user_added_favorites (title, media_type_id, vector_media_id, primary_creator, cover_art_url, themes) 
+VALUES (?, ?, ?, ?, ?, ?);
 ''';
 
 // Get user-added favorites for a media type
 const String getUserAddedFavoritesForMediaQuery = '''
-SELECT uaf.id, uaf.title, uaf.artist, uaf.cover_art_url, uaf.themes, uaf.created_at
+SELECT uaf.id, uaf.title, uaf.primary_creator, uaf.vector_media_id, uaf.cover_art_url, uaf.themes, uaf.created_at
 FROM user_added_favorites uaf
-JOIN media m ON uaf.media_id = m.id
-WHERE m.name = ?
+JOIN media_types mt ON uaf.media_type_id = mt.id
+WHERE mt.name = ?
 ORDER BY uaf.created_at DESC;
 ''';
 
 // Get all user-added favorites
 const String getAllUserAddedFavoritesQuery = '''
-SELECT uaf.id, uaf.title, uaf.artist, uaf.cover_art_url, uaf.themes, uaf.created_at, m.name as media_type
+SELECT uaf.id, uaf.title, uaf.primary_creator, uaf.vector_media_id, uaf.cover_art_url, uaf.themes, uaf.created_at, mt.name as media_type
 FROM user_added_favorites uaf
-JOIN media m ON uaf.media_id = m.id
+JOIN media_types mt ON uaf.media_type_id = mt.id
 ORDER BY uaf.created_at DESC;
 ''';
 
@@ -200,16 +227,16 @@ DELETE FROM recommendation_metadata WHERE recommendation_id = ?;
 const String insertMediaSuggestionQuery = '''
 INSERT INTO recommendations (
   query,
-  media_type,
+  media_type_id,
+  vector_media_id,
   title,
-  artist,
-  album,
+  primary_creator,
   cover_art_url,
   description,
   wiki_url,
   wikidata_id,
   bot_reasoning,
-  status,
+  status_id,
   themes,
   created_at,
   updated_at
@@ -238,23 +265,25 @@ WHERE id = ?;
 // Get a media suggestion by ID
 const String getMediaSuggestionByIdQuery = '''
 SELECT
-  id,
-  query,
-  media_type,
-  title,
-  artist,
-  album,
-  cover_art_url,
-  description,
-  wiki_url,
-  wikidata_id,
-  bot_reasoning,
-  status,
-  themes,
-  created_at,
-  updated_at
-FROM recommendations
-WHERE id = ?;
+  r.id,
+  r.query,
+  mt.name as media_type,
+  r.title,
+  r.primary_creator,
+  r.vector_media_id,
+  r.cover_art_url,
+  r.description,
+  r.wiki_url,
+  r.wikidata_id,
+  r.bot_reasoning,
+  rs.name as status,
+  r.themes,
+  r.created_at,
+  r.updated_at
+FROM recommendations r
+JOIN media_types mt ON r.media_type_id = mt.id
+JOIN recommendation_status rs ON r.status_id = rs.id
+WHERE r.id = ?;
 ''';
 
 // Get all media suggestions with optional filters
@@ -273,6 +302,7 @@ SELECT
   bot_reasoning,
   status,
   themes,
+  media_id,
   created_at,
   updated_at
 FROM recommendations
@@ -281,72 +311,78 @@ FROM recommendations
 // Get all media suggestions for a specific media type with status filter
 const String getAllMediaSuggestionsWithStatusQuery = '''
 SELECT
-  id,
-  query,
-  media_type,
-  title,
-  artist,
-  album,
-  cover_art_url,
-  description,
-  wiki_url,
-  wikidata_id,
-  bot_reasoning,
-  status,
-  themes,
-  created_at,
-  updated_at
-FROM recommendations
-WHERE media_type = ? AND status = ?
-ORDER BY created_at DESC
+  r.id,
+  r.query,
+  mt.name as media_type,
+  r.title,
+  r.primary_creator,
+  r.vector_media_id,
+  r.cover_art_url,
+  r.description,
+  r.wiki_url,
+  r.wikidata_id,
+  r.bot_reasoning,
+  rs.name as status,
+  r.themes,
+  r.created_at,
+  r.updated_at
+FROM recommendations r
+JOIN media_types mt ON r.media_type_id = mt.id
+JOIN recommendation_status rs ON r.status_id = rs.id
+WHERE mt.name = ? AND rs.name = ?
+ORDER BY r.created_at DESC
 LIMIT ?;
 ''';
 
 // Get all media suggestions for a specific media type
 const String getAllMediaSuggestionsQuery = '''
 SELECT
-  id,
-  query,
-  media_type,
-  title,
-  artist,
-  album,
-  cover_art_url,
-  description,
-  wiki_url,
-  wikidata_id,
-  bot_reasoning,
-  status,
-  themes,
-  created_at,
-  updated_at
-FROM recommendations
-WHERE media_type = ?
-ORDER BY created_at DESC
+  r.id,
+  r.query,
+  mt.name as media_type,
+  r.title,
+  r.primary_creator,
+  r.vector_media_id,
+  r.cover_art_url,
+  r.description,
+  r.wiki_url,
+  r.wikidata_id,
+  r.bot_reasoning,
+  rs.name as status,
+  r.themes,
+  r.created_at,
+  r.updated_at
+FROM recommendations r
+JOIN media_types mt ON r.media_type_id = mt.id
+JOIN recommendation_status rs ON r.status_id = rs.id
+WHERE mt.name = ?
+ORDER BY r.created_at DESC
 LIMIT ?;
 ''';
 
 // Get pending media suggestions for a specific media type
 const String getPendingMediaSuggestionsQuery = '''
 SELECT
-  id,
-  query,
-  media_type,
-  title,
-  artist,
-  album,
-  cover_art_url,
-  description,
-  wiki_url,
-  wikidata_id,
-  bot_reasoning,
-  status,
-  themes,
-  created_at,
-  updated_at
-FROM recommendations
-WHERE media_type = ? AND status = 'pending'
-ORDER BY created_at DESC;
+  r.id,
+  r.query,
+  mt.name as media_type,
+  r.title,
+  r.primary_creator,
+  r.vector_media_id,
+  r.cover_art_url,
+  r.description,
+  r.wiki_url,
+  r.wikidata_id,
+  r.bot_reasoning,
+  rs.name as status,
+  r.themes,
+  r.created_at,
+  r.updated_at
+FROM recommendations r
+JOIN media_types mt ON r.media_type_id = mt.id
+JOIN recommendation_status rs ON r.status_id = rs.id
+WHERE mt.name = ? AND rs.name = 'pending'
+ORDER BY r.created_at DESC;
 ''';
 
 // Get pending media suggestions that are NOT in watchlist (for main suggestions)
@@ -354,29 +390,31 @@ const String getPendingSuggestionsNotInWatchlistQuery = '''
 SELECT
   r.id,
   r.query,
-  r.media_type,
+  mt.name as media_type,
   r.title,
-  r.artist,
-  r.album,
+  r.primary_creator,
+  r.vector_media_id,
   r.cover_art_url,
   r.description,
   r.wiki_url,
   r.wikidata_id,
   r.bot_reasoning,
-  r.status,
+  rs.name as status,
   r.themes,
   r.created_at,
   r.updated_at
 FROM recommendations r
+JOIN media_types mt ON r.media_type_id = mt.id
+JOIN recommendation_status rs ON r.status_id = rs.id
 LEFT JOIN watchlist w ON r.id = w.recommendation_id
-WHERE r.media_type = ? AND r.status = 'pending' AND w.recommendation_id IS NULL
+WHERE mt.name = ? AND rs.name = 'pending' AND w.recommendation_id IS NULL
 ORDER BY r.created_at DESC;
 ''';
 
 // Update media suggestion status
 const String updateMediaSuggestionStatusQuery = '''
 UPDATE recommendations
-SET status = ?, updated_at = ?
+SET status_id = (SELECT id FROM recommendation_status WHERE name = ?), updated_at = ?
 WHERE id = ?;
 ''';
 
@@ -389,8 +427,10 @@ WHERE id = ?;
 // Count pending media suggestions
 const String countPendingMediaSuggestionsQuery = '''
 SELECT COUNT(*) as count
-FROM recommendations
-WHERE media_type = ? AND status = 'pending';
+FROM recommendations r
+JOIN media_types mt ON r.media_type_id = mt.id
+JOIN recommendation_status rs ON r.status_id = rs.id
+WHERE mt.name = ? AND rs.name = 'pending';
 ''';
 
 /// Watchlist Queries
@@ -419,23 +459,25 @@ const String getWatchlistItemsQuery = '''
 SELECT
   r.id,
   r.query,
-  r.media_type,
+  mt.name as media_type,
   r.title,
-  r.artist,
-  r.album,
+  r.primary_creator,
+  r.vector_media_id,
   r.cover_art_url,
   r.description,
   r.wiki_url,
   r.wikidata_id,
   r.bot_reasoning,
-  r.status,
+  rs.name as status,
   r.themes,
   r.created_at,
   r.updated_at,
   w.created_at as watchlist_added_at
 FROM recommendations r
+JOIN media_types mt ON r.media_type_id = mt.id
+JOIN recommendation_status rs ON r.status_id = rs.id
 JOIN watchlist w ON r.id = w.recommendation_id
-WHERE r.media_type = ?
+WHERE mt.name = ?
 ORDER BY w.created_at DESC;
 ''';
 
@@ -457,6 +499,7 @@ SELECT
   bot_reasoning,
   status,
   themes,
+  media_id,
   created_at,
   updated_at
 FROM recommendations

@@ -143,8 +143,8 @@ class MediaLibraryCard extends StatelessWidget {
                 child: GestureDetector(
                   onTap: onRemove,
                   child: Container(
-                    width: 24,
-                    height: 24,
+                    width: 20,
+                    height: 20,
                     child: CustomPaint(
                       painter: XButtonPainter(),
                     ),
@@ -298,21 +298,40 @@ class MediaLibraryCard extends StatelessWidget {
 class XButtonPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = Paint()
+    // Purple outline paint (thicker)
+    final outlinePaint = Paint()
+      ..color = const Color(0xFFA855F7)
+      ..strokeWidth = 4.0
+      ..strokeCap = StrokeCap.round;
+
+    // White X paint (thinner, on top)
+    final xPaint = Paint()
       ..color = Colors.white.withOpacity(0.8)
       ..strokeWidth = 2.0
       ..strokeCap = StrokeCap.round;
 
-    // Draw X
+    // Draw purple outline first (behind)
     canvas.drawLine(
       Offset(size.width * 0.25, size.height * 0.25),
       Offset(size.width * 0.75, size.height * 0.75),
-      paint,
+      outlinePaint,
     );
     canvas.drawLine(
       Offset(size.width * 0.75, size.height * 0.25),
       Offset(size.width * 0.25, size.height * 0.75),
-      paint,
+      outlinePaint,
+    );
+
+    // Draw white X on top
+    canvas.drawLine(
+      Offset(size.width * 0.25, size.height * 0.25),
+      Offset(size.width * 0.75, size.height * 0.75),
+      xPaint,
+    );
+    canvas.drawLine(
+      Offset(size.width * 0.75, size.height * 0.25),
+      Offset(size.width * 0.25, size.height * 0.75),
+      xPaint,
     );
   }
 

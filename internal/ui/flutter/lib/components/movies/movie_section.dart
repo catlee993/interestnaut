@@ -296,6 +296,29 @@ class _MovieSectionState extends State<MovieSection> {
     }
   }
 
+  // Move to next suggestion (for both skip and next actions) - FULLY NON-BLOCKING
+  void _moveToNextSuggestion() {
+    try {
+      // Immediate UI update - clear current suggestion and show loading
+      setState(() {
+        _isLoadingDbSuggestion = true;
+        _currentDbSuggestion = null;
+        _dbSuggestionError = null;
+        _hasLikedCurrentSuggestion = false; // Reset like state
+        _hasFavoritedCurrentSuggestion = false; // Reset favorite state
+      });
+      
+      // DON'T call _loadDbSuggestion() - let the action handler trigger new generation
+      // The event system will handle delivering the next suggestion
+      debugPrint('🎬 Cleared current suggestion - waiting for events to deliver next one');
+    } catch (e) {
+      debugPrint('Error moving to next suggestion: $e');
+      setState(() {
+        _isLoadingDbSuggestion = false;
+      });
+    }
+  }
+
   // Add to favorites and move to next suggestion
   Future<void> _addToFavorites() async {
     debugPrint('💜 _addToFavorites called - isLoading: $_isLoadingDbSuggestion, currentSuggestion: ${_currentDbSuggestion?.title}');
@@ -333,8 +356,34 @@ class _MovieSectionState extends State<MovieSection> {
       _loadDbLibrary();
 
       debugPrint('💜 _addToFavorites loading next suggestion');
-      // Load next suggestion after favoriting
-      await _loadDbSuggestion();
+      // Move to next suggestion after favoriting (non-blocking)
+      _moveToNextSuggestion();
+      
+      // Trigger new suggestion generation (non-blocking)
+      _recommendationService.generateSuggestionOnDemand('movie').then((loadingSuggestion) {
+        if (loadingSuggestion != null) {
+          debugPrint('🎬 New suggestion generation started after favorite');
+        } else {
+          debugPrint('🎬 No immediate suggestion available - background generation in progress');
+          
+          // Set 30-second timeout for background generation
+          Timer(const Duration(seconds: 30), () {
+            if (mounted && _isLoadingDbSuggestion && _currentDbSuggestion == null) {
+              setState(() {
+                _dbSuggestionError = 'Suggestion generation timed out. Please try again.';
+                _isLoadingDbSuggestion = false;
+              });
+            }
+          });
+        }
+      }).catchError((e) {
+        if (mounted) {
+          setState(() {
+            _dbSuggestionError = 'Error generating suggestion: $e';
+            _isLoadingDbSuggestion = false;
+          });
+        }
+      });
     } catch (e) {
       debugPrint('💜 Error adding to favorites: $e');
       setState(() {
@@ -424,10 +473,35 @@ class _MovieSectionState extends State<MovieSection> {
       debugPrint('🔴 _dislikeDbSuggestion waiting for database update to commit');
       await Future.delayed(const Duration(milliseconds: 100));
 
-      debugPrint('🔴 _dislikeDbSuggestion calling _loadDbSuggestion');
-      // Get next suggestion
-      await _loadDbSuggestion();
-      debugPrint('🔴 _dislikeDbSuggestion completed _loadDbSuggestion');
+      debugPrint('🔴 _dislikeDbSuggestion moving to next suggestion');
+      // Move to next suggestion after disliking (non-blocking)
+      _moveToNextSuggestion();
+      
+      // Trigger new suggestion generation (non-blocking)
+      _recommendationService.generateSuggestionOnDemand('movie').then((loadingSuggestion) {
+        if (loadingSuggestion != null) {
+          debugPrint('🎬 New suggestion generation started after dislike');
+        } else {
+          debugPrint('🎬 No immediate suggestion available - background generation in progress');
+          
+          // Set 30-second timeout for background generation
+          Timer(const Duration(seconds: 30), () {
+            if (mounted && _isLoadingDbSuggestion && _currentDbSuggestion == null) {
+              setState(() {
+                _dbSuggestionError = 'Suggestion generation timed out. Please try again.';
+                _isLoadingDbSuggestion = false;
+              });
+            }
+          });
+        }
+      }).catchError((e) {
+        if (mounted) {
+          setState(() {
+            _dbSuggestionError = 'Error generating suggestion: $e';
+            _isLoadingDbSuggestion = false;
+          });
+        }
+      });
     } catch (e) {
       debugPrint('🔴 Error disliking DB suggestion: $e');
       setState(() {
@@ -466,10 +540,35 @@ class _MovieSectionState extends State<MovieSection> {
       debugPrint('⏭️ _skipDbSuggestion waiting for database update to commit');
       await Future.delayed(const Duration(milliseconds: 100));
 
-      debugPrint('⏭️ _skipDbSuggestion calling _loadDbSuggestion');
-      // Get next suggestion
-      await _loadDbSuggestion();
-      debugPrint('⏭️ _skipDbSuggestion completed _loadDbSuggestion');
+      debugPrint('⏭️ _skipDbSuggestion moving to next suggestion');
+      // Move to next suggestion after skipping (non-blocking)
+      _moveToNextSuggestion();
+      
+      // Trigger new suggestion generation (non-blocking)
+      _recommendationService.generateSuggestionOnDemand('movie').then((loadingSuggestion) {
+        if (loadingSuggestion != null) {
+          debugPrint('🎬 New suggestion generation started after skip');
+        } else {
+          debugPrint('🎬 No immediate suggestion available - background generation in progress');
+          
+          // Set 30-second timeout for background generation
+          Timer(const Duration(seconds: 30), () {
+            if (mounted && _isLoadingDbSuggestion && _currentDbSuggestion == null) {
+              setState(() {
+                _dbSuggestionError = 'Suggestion generation timed out. Please try again.';
+                _isLoadingDbSuggestion = false;
+              });
+            }
+          });
+        }
+      }).catchError((e) {
+        if (mounted) {
+          setState(() {
+            _dbSuggestionError = 'Error generating suggestion: $e';
+            _isLoadingDbSuggestion = false;
+          });
+        }
+      });
     } catch (e) {
       debugPrint('⏭️ Error skipping DB suggestion: $e');
       setState(() {
@@ -493,8 +592,14 @@ class _MovieSectionState extends State<MovieSection> {
 
     try {
       debugPrint('📚 _addDbSuggestionToWatchlist adding to watchlist table');
-      // Add to watchlist table instead of changing status
+      // Add to watchlist table
       await _db.addToWatchlist(_currentDbSuggestion!.id);
+
+      // Update suggestion status so it's no longer pending (won't appear in queue again)
+      await _recommendationService.updateSuggestionStatus(
+        _currentDbSuggestion!.id,
+        SuggestionStatus.watchlist, // Mark as watchlisted for future LLM learning
+      );
 
       debugPrint('📚 _addDbSuggestionToWatchlist updating local state');
       // Immediately update local state so button updates right away
@@ -514,8 +619,34 @@ class _MovieSectionState extends State<MovieSection> {
       _loadDbWatchlist();
 
       debugPrint('📚 _addDbSuggestionToWatchlist loading next suggestion');
-      // Load next suggestion
-      await _loadDbSuggestion();
+      // Move to next suggestion after adding to watchlist (non-blocking)
+      _moveToNextSuggestion();
+      
+      // Trigger new suggestion generation (non-blocking)
+      _recommendationService.generateSuggestionOnDemand('movie').then((loadingSuggestion) {
+        if (loadingSuggestion != null) {
+          debugPrint('🎬 New suggestion generation started after watchlist');
+        } else {
+          debugPrint('🎬 No immediate suggestion available - background generation in progress');
+          
+          // Set 30-second timeout for background generation
+          Timer(const Duration(seconds: 30), () {
+            if (mounted && _isLoadingDbSuggestion && _currentDbSuggestion == null) {
+              setState(() {
+                _dbSuggestionError = 'Suggestion generation timed out. Please try again.';
+                _isLoadingDbSuggestion = false;
+              });
+            }
+          });
+        }
+      }).catchError((e) {
+        if (mounted) {
+          setState(() {
+            _dbSuggestionError = 'Error generating suggestion: $e';
+            _isLoadingDbSuggestion = false;
+          });
+        }
+      });
       
     } catch (e) {
       debugPrint('📚 Error adding DB suggestion to watchlist: $e');
@@ -928,33 +1059,42 @@ class _MovieSectionState extends State<MovieSection> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Movie poster
-            ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: Container(
-                width: 300,
-                height: 450,
-                color: Colors.grey[900],
-                child: _currentDbSuggestion!.coverArtUrl != null
-                  ? Image.network(
-                      _currentDbSuggestion!.coverArtUrl!,
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) {
-                        return const Center(
-                          child: Icon(
-                            Icons.movie,
-                            size: 48,
-                            color: Colors.white54,
-                          ),
-                        );
-                      },
-                    )
-                  : const Center(
-                      child: Icon(
-                        Icons.movie,
-                        size: 48,
-                        color: Colors.white54,
+            Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: const Color(0xFF8C86E2).withOpacity(0.7), // Reasoning color
+                  width: 2,
+                ),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(10), // Slightly smaller to account for border
+                child: Container(
+                  width: 300,
+                  height: 450,
+                  color: Colors.grey[900],
+                  child: _currentDbSuggestion!.coverArtUrl != null
+                    ? Image.network(
+                        _currentDbSuggestion!.coverArtUrl!,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) {
+                          return const Center(
+                            child: Icon(
+                              Icons.movie,
+                              size: 48,
+                              color: Colors.white54,
+                            ),
+                          );
+                        },
+                      )
+                    : const Center(
+                        child: Icon(
+                          Icons.movie,
+                          size: 48,
+                          color: Colors.white54,
+                        ),
                       ),
-                    ),
+                ),
               ),
             ),
             const SizedBox(width: 24),
@@ -992,75 +1132,91 @@ class _MovieSectionState extends State<MovieSection> {
                     ),
                     const SizedBox(height: 16),
                     
-                    // Description text - scrollable with max height
-                    if (_currentDbSuggestion?.description?.isNotEmpty == true)
-                      Container(
-                        constraints: const BoxConstraints(maxHeight: 120),
-                        child: Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
-                          child: SingleChildScrollView(
-                            child: Text(
-                              _currentDbSuggestion!.description!,
-                              style: const TextStyle(
-                                fontSize: 14,
-                                color: Colors.white,
-                                height: 1.5,
-                                fontWeight: FontWeight.w400,
-                              ),
-                              textAlign: TextAlign.center,
-                            ),
-                          ),
-                        ),
-                      ),
-                    
-                    const SizedBox(height: 16),
-                    
-                    // Bot reasoning - scrollable
-                    if (_currentDbSuggestion?.botReasoning?.isNotEmpty == true)
-                      Expanded(
-                        child: Container(
-                          width: double.infinity,
-                          margin: const EdgeInsets.only(bottom: 24),
-                          child: Column(
+                    // Flexible content area for description and reasoning
+                    Expanded(
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          return Column(
                             children: [
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(
-                                    FontAwesomeIcons.robot,
-                                    size: 16,
-                                    color: const Color(0xFF8C86E2).withOpacity(0.7),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    'Reasoning',
-                                    style: TextStyle(
-                                      color: const Color(0xFF8C86E2).withOpacity(0.7),
-                                      fontWeight: FontWeight.w500,
-                                      fontSize: 14,
+                              // Description text - flexible height
+                              if (_currentDbSuggestion?.description?.isNotEmpty == true)
+                                Flexible(
+                                  child: Padding(
+                                    padding: const EdgeInsets.only(bottom: 8),
+                                    child: SingleChildScrollView(
+                                      child: Text(
+                                        _currentDbSuggestion!.description!,
+                                        style: const TextStyle(
+                                          fontSize: 14,
+                                          color: Colors.white,
+                                          height: 1.5,
+                                          fontWeight: FontWeight.w400,
+                                        ),
+                                        textAlign: TextAlign.center,
+                                      ),
                                     ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 8),
-                              Expanded(
-                                child: SingleChildScrollView(
-                                  child: Text(
-                                    _currentDbSuggestion!.botReasoning!,
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      color: const Color(0xFF8C86E2).withOpacity(0.8),
-                                      height: 1.4,
-                                      fontWeight: FontWeight.w400,
-                                    ),
-                                    textAlign: TextAlign.center,
                                   ),
                                 ),
-                              ),
+                              
+                              const SizedBox(height: 16),
+                              
+                              // Bot reasoning - flexible height
+                              if (_currentDbSuggestion?.botReasoning?.isNotEmpty == true)
+                                Flexible(
+                                  child: Container(
+                                    width: double.infinity,
+                                    margin: const EdgeInsets.only(bottom: 24),
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Row(
+                                          mainAxisAlignment: MainAxisAlignment.center,
+                                          children: [
+                                            Icon(
+                                              FontAwesomeIcons.robot,
+                                              size: 16,
+                                              color: const Color(0xFF8C86E2).withOpacity(0.7),
+                                            ),
+                                            const SizedBox(width: 8),
+                                            Text(
+                                              'Reasoning',
+                                              style: TextStyle(
+                                                color: const Color(0xFF8C86E2).withOpacity(0.7),
+                                                fontWeight: FontWeight.w500,
+                                                fontSize: 14,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 8),
+                                        Container(
+                                          height: 1,
+                                          color: const Color(0xFF7B68EE).withOpacity(0.2),
+                                        ),
+                                        const SizedBox(height: 12),
+                                        Flexible(
+                                          child: SingleChildScrollView(
+                                            child: Text(
+                                              _currentDbSuggestion!.botReasoning!,
+                                              style: TextStyle(
+                                                fontSize: 14,
+                                                color: Colors.white.withOpacity(0.6),
+                                                height: 1.5,
+                                                fontWeight: FontWeight.w400,
+                                              ),
+                                              textAlign: TextAlign.center,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
                             ],
-                          ),
-                        ),
+                          );
+                        },
                       ),
+                    ),
                     
                     // Action buttons using generic component
                     SuggestionActionButtons(

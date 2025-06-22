@@ -101,16 +101,18 @@ Future<void> main() async {
   bool llamaInitialized = false;
 
   try {
-    // Initialize LlamaService (downloads model if needed)
-    llamaInitialized = await llamaService.initialize();
+    // Initialize LlamaService (auto-detects model path)
+    debugPrint('🔄 Starting LlamaService initialization...');
+    llamaInitialized = await llamaService.initializeAuto();
     
     if (llamaInitialized) {
-      debugPrint('LlamaService initialized successfully');
+      debugPrint('✅ LlamaService initialized successfully');
     } else {
-      debugPrint('LlamaService initialization failed - continuing with limited functionality');
+      debugPrint('❌ LlamaService initialization failed - continuing with limited functionality');
     }
   } catch (e) {
-    debugPrint('Error initializing LlamaService: $e');
+    debugPrint('💥 Error initializing LlamaService: $e');
+    debugPrint('📍 Stack trace: ${StackTrace.current}');
     // Continue anyway, the app will handle missing LLM gracefully
   }
 

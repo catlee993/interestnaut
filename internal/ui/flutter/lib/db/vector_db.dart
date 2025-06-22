@@ -1,5 +1,7 @@
 import 'dart:io';
 import 'dart:convert';
+import 'dart:typed_data';
+import 'dart:math';
 import 'package:path/path.dart' as pathLib;
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter/foundation.dart';
@@ -665,6 +667,556 @@ class VectorDatabase {
     }
     _shards.clear();
     _initialized = false;
+  }
+
+  /// 🎯 NEW: Search for items similar to a reference item using embedding vectors
+  /// This is the "More Like This" functionality using cosine similarity
+  Future<List<MediaSearchResult>> searchBySimilarity({
+    required String referenceMediaId,
+    required String mediaType,
+    int limit = 20,
+    double minSimilarity = 0.6,
+    List<String> excludeIds = const [],
+  }) async {
+    await _ensureInitialized();
+    
+    if (!_shards.containsKey(mediaType)) {
+      throw Exception('Media type $mediaType not available');
+    }
+
+    try {
+      final db = _shards[mediaType]!;
+      
+      // Step 1: Get reference embedding
+      final refStmt = db.prepare('''
+        SELECT embedding_blob FROM media_vectors 
+        WHERE media_id = ?
+      ''');
+      
+      final refResult = refStmt.select([referenceMediaId]);
+      refStmt.dispose();
+      
+      if (refResult.isEmpty) {
+        debugPrint('❌ Reference item not found: $referenceMediaId');
+        return [];
+      }
+      
+      final refBlob = refResult.first['embedding_blob'] as Uint8List;
+      final refEmbedding = _blobToFloatList(refBlob);
+      
+      debugPrint('🎯 Found reference embedding: ${refEmbedding.length} dimensions');
+      
+      // Step 2: Get all items with embeddings (excluding reference and excludeIds)
+      final hasAlbum = mediaType == 'music';
+      String excludeClause = 'media_id != ?';
+      List<dynamic> params = [referenceMediaId];
+      
+      if (excludeIds.isNotEmpty) {
+        final placeholders = excludeIds.map((_) => '?').join(',');
+        excludeClause += ' AND media_id NOT IN ($placeholders)';
+        params.addAll(excludeIds);
+      }
+      
+      final allStmt = db.prepare('''
+        SELECT 
+          media_id,
+          title,
+          artist,
+          ${hasAlbum ? 'album,' : ''}
+          description,
+          themes,
+          wiki_url,
+          wikidata_id,
+          image_url,
+          embedding_blob
+        FROM media_vectors 
+        WHERE $excludeClause
+      ''');
+      
+      final allResults = allStmt.select(params);
+      allStmt.dispose();
+      
+      debugPrint('🔍 Comparing against ${allResults.length} items...');
+      
+      // Step 3: Calculate similarities
+      final similarities = <Map<String, dynamic>>[];
+      
+      for (final row in allResults) {
+        try {
+          final itemBlob = row['embedding_blob'] as Uint8List;
+          final itemEmbedding = _blobToFloatList(itemBlob);
+          
+          final similarity = _cosineSimilarity(refEmbedding, itemEmbedding);
+          
+          if (similarity >= minSimilarity) {
+            similarities.add({
+              'mediaId': row['media_id'] as String,
+              'title': row['title'] as String,
+              'artist': row['artist'] as String?,
+              'album': hasAlbum ? row['album'] as String? : null,
+              'description': row['description'] as String?,
+              'themes': row['themes'] as String?,
+              'wikiUrl': row['wiki_url'] as String?,
+              'wikidataId': row['wikidata_id'] as String?,
+              'coverArtUrl': row['image_url'] as String?,
+              'similarity': similarity,
+            });
+          }
+        } catch (e) {
+          debugPrint('⚠️ Error processing embedding for ${row['media_id']}: $e');
+          continue;
+        }
+      }
+      
+      // Step 4: Sort by similarity (highest first) and limit results
+      similarities.sort((a, b) => (b['similarity'] as double).compareTo(a['similarity'] as double));
+      final topResults = similarities.take(limit);
+      
+      debugPrint('✅ Found ${topResults.length} similar items (min similarity: $minSimilarity)');
+      
+      return topResults.map((item) => MediaSearchResult(
+        mediaId: item['mediaId'] as String,
+        title: item['title'] as String,
+        artist: item['artist'] as String?,
+        album: item['album'] as String?,
+        description: item['description'] as String?,
+        themes: item['themes'] as String?,
+        wikiUrl: item['wikiUrl'] as String?,
+        wikidataId: item['wikidataId'] as String?,
+        coverArtUrl: item['coverArtUrl'] as String?,
+        similarity: item['similarity'] as double,
+        mediaType: mediaType,
+      )).toList();
+      
+    } catch (e) {
+      debugPrint('❌ Error in similarity search: $e');
+      return [];
+    }
+  }
+
+  /// 🧮 Convert binary blob to float list (384 dimensions)
+  List<double> _blobToFloatList(Uint8List blob) {
+    final buffer = blob.buffer;
+    final floats = Float32List.view(buffer);
+    return floats.cast<double>();
+  }
+
+  /// 🧮 Calculate cosine similarity between two vectors
+  /// Returns value between -1 and 1 (1 = identical, 0 = unrelated, -1 = opposite)
+  double _cosineSimilarity(List<double> vectorA, List<double> vectorB) {
+    if (vectorA.length != vectorB.length) {
+      throw ArgumentError('Vectors must have the same length');
+    }
+    
+    double dotProduct = 0.0;
+    double normA = 0.0;
+    double normB = 0.0;
+    
+    for (int i = 0; i < vectorA.length; i++) {
+      dotProduct += vectorA[i] * vectorB[i];
+      normA += vectorA[i] * vectorA[i];
+      normB += vectorB[i] * vectorB[i];
+    }
+    
+    // Avoid division by zero
+    if (normA == 0.0 || normB == 0.0) {
+      return 0.0;
+    }
+    
+    return dotProduct / (sqrt(normA) * sqrt(normB));
+  }
+
+  /// 🎯 Optimized version for large datasets (processes in batches)
+  Future<List<MediaSearchResult>> searchBySimilarityOptimized({
+    required String referenceMediaId,
+    required String mediaType,
+    int limit = 20,
+    double minSimilarity = 0.6,
+    List<String> excludeIds = const [],
+    int batchSize = 1000,
+  }) async {
+    await _ensureInitialized();
+    
+    if (!_shards.containsKey(mediaType)) {
+      throw Exception('Media type $mediaType not available');
+    }
+
+    try {
+      final db = _shards[mediaType]!;
+      
+      // Get reference embedding (same as above)
+      final refStmt = db.prepare('SELECT embedding_blob FROM media_vectors WHERE media_id = ?');
+      final refResult = refStmt.select([referenceMediaId]);
+      refStmt.dispose();
+      
+      if (refResult.isEmpty) {
+        debugPrint('❌ Reference item not found: $referenceMediaId');
+        return [];
+      }
+      
+      final refBlob = refResult.first['embedding_blob'] as Uint8List;
+      final refEmbedding = _blobToFloatList(refBlob);
+      
+      // Get total count for batching
+      final countStmt = db.prepare('SELECT COUNT(*) as count FROM media_vectors WHERE media_id != ?');
+      final countResult = countStmt.select([referenceMediaId]);
+      countStmt.dispose();
+      
+      final totalCount = countResult.first['count'] as int;
+      debugPrint('🔍 Processing $totalCount items in batches of $batchSize...');
+      
+      final similarities = <Map<String, dynamic>>[];
+      final hasAlbum = mediaType == 'music';
+      
+      // Process in batches
+      for (int offset = 0; offset < totalCount; offset += batchSize) {
+        final batchStmt = db.prepare('''
+          SELECT 
+            media_id, title, artist, ${hasAlbum ? 'album,' : ''} description, themes, 
+            wiki_url, wikidata_id, image_url, embedding_blob
+          FROM media_vectors 
+          WHERE media_id != ?
+          LIMIT ? OFFSET ?
+        ''');
+        
+        final batchResults = batchStmt.select([referenceMediaId, batchSize, offset]);
+        batchStmt.dispose();
+        
+        for (final row in batchResults) {
+          try {
+            final itemBlob = row['embedding_blob'] as Uint8List;
+            final itemEmbedding = _blobToFloatList(itemBlob);
+            final similarity = _cosineSimilarity(refEmbedding, itemEmbedding);
+            
+            if (similarity >= minSimilarity && !excludeIds.contains(row['media_id'])) {
+              similarities.add({
+                'mediaId': row['media_id'] as String,
+                'title': row['title'] as String,
+                'artist': row['artist'] as String?,
+                'album': hasAlbum ? row['album'] as String? : null,
+                'description': row['description'] as String?,
+                'themes': row['themes'] as String?,
+                'wikiUrl': row['wiki_url'] as String?,
+                'wikidataId': row['wikidata_id'] as String?,
+                'coverArtUrl': row['image_url'] as String?,
+                'similarity': similarity,
+              });
+            }
+          } catch (e) {
+            continue; // Skip problematic embeddings
+          }
+        }
+        
+        debugPrint('📊 Processed batch ${offset ~/ batchSize + 1}/${(totalCount / batchSize).ceil()}');
+      }
+      
+      // Sort and return top results
+      similarities.sort((a, b) => (b['similarity'] as double).compareTo(a['similarity'] as double));
+      final topResults = similarities.take(limit);
+      
+      debugPrint('✅ Found ${topResults.length} similar items from $totalCount total');
+      
+      return topResults.map((item) => MediaSearchResult(
+        mediaId: item['mediaId'] as String,
+        title: item['title'] as String,
+        artist: item['artist'] as String?,
+        album: item['album'] as String?,
+        description: item['description'] as String?,
+        themes: item['themes'] as String?,
+        wikiUrl: item['wikiUrl'] as String?,
+        wikidataId: item['wikidataId'] as String?,
+        coverArtUrl: item['coverArtUrl'] as String?,
+        similarity: item['similarity'] as double,
+        mediaType: mediaType,
+      )).toList();
+      
+    } catch (e) {
+      debugPrint('❌ Error in optimized similarity search: $e');
+      return [];
+    }
+  }
+
+  /// 🎯 Multi-criteria behavioral matching - THE main recommendation method
+  /// Finds items that match user's behavioral patterns using multiple signals
+  Future<List<MediaSearchResult>> searchByBehavioralMatch({
+    required String mediaType,
+    required List<String> likedItemIds,        // Max 3 liked items
+    required List<String> dislikedItemIds,     // Max 3 disliked items
+    String? favoriteItemId,                    // Single favorite item
+    List<String> skippedItemIds = const [],    // Max 2-3 skipped items
+    List<String> excludeIds = const [],        // Already recommended items
+    int limit = 1,                             // Usually just need 1 suggestion
+    int batchSize = 1000,
+  }) async {
+    await _ensureInitialized();
+    
+    if (!_shards.containsKey(mediaType)) {
+      throw Exception('Media type $mediaType not available');
+    }
+
+    try {
+      final db = _shards[mediaType]!;
+      
+      // Step 1: Get all behavioral embeddings
+      final behavioralEmbeddings = await _getBehavioralEmbeddings(
+        db, likedItemIds, dislikedItemIds, favoriteItemId, skippedItemIds
+      );
+      
+      if (behavioralEmbeddings['liked'].isEmpty && behavioralEmbeddings['favorite'] == null) {
+        debugPrint('⚠️ No positive behavioral signals found, falling back to random');
+        return [];
+      }
+      
+      debugPrint('🎯 Behavioral signals: ${behavioralEmbeddings['liked'].length} liked, '
+          '${behavioralEmbeddings['disliked'].length} disliked, '
+          '${behavioralEmbeddings['favorite'] != null ? 1 : 0} favorite, '
+          '${behavioralEmbeddings['skipped'].length} skipped');
+      
+      // Step 2: Get total count and prepare for batch processing
+      final countStmt = db.prepare('SELECT COUNT(*) as count FROM media_vectors');
+      final countResult = countStmt.select([]);
+      countStmt.dispose();
+      
+      final totalCount = countResult.first['count'] as int;
+      debugPrint('🔍 Searching through $totalCount items in batches...');
+      
+      final candidates = <Map<String, dynamic>>[];
+      final hasAlbum = mediaType == 'music';
+      
+      // Step 3: Process in batches to find matches
+      for (int offset = 0; offset < totalCount; offset += batchSize) {
+        final batchStmt = db.prepare('''
+          SELECT 
+            media_id, title, artist, ${hasAlbum ? 'album,' : ''} description, themes, 
+            wiki_url, wikidata_id, image_url, embedding_blob
+          FROM media_vectors 
+          LIMIT ? OFFSET ?
+        ''');
+        
+        final batchResults = batchStmt.select([batchSize, offset]);
+        batchStmt.dispose();
+        
+        for (final row in batchResults) {
+          final mediaId = row['media_id'] as String;
+          
+          // Skip excluded items
+          if (excludeIds.contains(mediaId) || 
+              likedItemIds.contains(mediaId) || 
+              dislikedItemIds.contains(mediaId) ||
+              mediaId == favoriteItemId ||
+              skippedItemIds.contains(mediaId)) {
+            continue;
+          }
+          
+          try {
+            final itemBlob = row['embedding_blob'] as Uint8List;
+            final itemEmbedding = _blobToFloatList(itemBlob);
+            
+            // Step 4: Apply multi-criteria matching
+            final matchResult = _evaluateBehavioralMatch(
+              itemEmbedding, 
+              behavioralEmbeddings
+            );
+            
+            if (matchResult['isMatch']) {
+              candidates.add({
+                'mediaId': mediaId,
+                'title': row['title'] as String,
+                'artist': row['artist'] as String?,
+                'album': hasAlbum ? row['album'] as String? : null,
+                'description': row['description'] as String?,
+                'themes': row['themes'] as String?,
+                'wikiUrl': row['wiki_url'] as String?,
+                'wikidataId': row['wikidata_id'] as String?,
+                'coverArtUrl': row['image_url'] as String?,
+                'matchScore': matchResult['score'],
+                'matchDetails': matchResult['details'],
+              });
+            }
+          } catch (e) {
+            continue; // Skip problematic embeddings
+          }
+        }
+        
+        // Early exit if we have enough good candidates
+        if (candidates.length >= limit * 3) {
+          debugPrint('📊 Found ${candidates.length} candidates, stopping early');
+          break;
+        }
+        
+        debugPrint('📊 Processed batch ${offset ~/ batchSize + 1}/${(totalCount / batchSize).ceil()}, found ${candidates.length} candidates');
+      }
+      
+      // Step 5: Sort by match score and return top results
+      candidates.sort((a, b) => (b['matchScore'] as double).compareTo(a['matchScore'] as double));
+      final topResults = candidates.take(limit);
+      
+      debugPrint('✅ Found ${topResults.length} behavioral matches from ${candidates.length} candidates');
+      
+      return topResults.map((item) => MediaSearchResult(
+        mediaId: item['mediaId'] as String,
+        title: item['title'] as String,
+        artist: item['artist'] as String?,
+        album: item['album'] as String?,
+        description: item['description'] as String?,
+        themes: item['themes'] as String?,
+        wikiUrl: item['wikiUrl'] as String?,
+        wikidataId: item['wikidataId'] as String?,
+        coverArtUrl: item['coverArtUrl'] as String?,
+        similarity: item['matchScore'] as double,
+        mediaType: mediaType,
+      )).toList();
+      
+    } catch (e) {
+      debugPrint('❌ Error in behavioral matching: $e');
+      return [];
+    }
+  }
+
+  /// Get embeddings for all behavioral signals
+  Future<Map<String, dynamic>> _getBehavioralEmbeddings(
+    Database db,
+    List<String> likedItemIds,
+    List<String> dislikedItemIds,
+    String? favoriteItemId,
+    List<String> skippedItemIds,
+  ) async {
+    final result = {
+      'liked': <List<double>>[],
+      'disliked': <List<double>>[],
+      'favorite': null as List<double>?,
+      'skipped': <List<double>>[],
+    };
+    
+    // Get liked embeddings
+    for (final id in likedItemIds) {
+      final embedding = await _getEmbeddingById(db, id);
+      if (embedding != null) {
+        (result['liked'] as List<List<double>>).add(embedding);
+      }
+    }
+    
+    // Get disliked embeddings
+    for (final id in dislikedItemIds) {
+      final embedding = await _getEmbeddingById(db, id);
+      if (embedding != null) {
+        (result['disliked'] as List<List<double>>).add(embedding);
+      }
+    }
+    
+    // Get favorite embedding (single embedding, not a list)
+    if (favoriteItemId != null) {
+      result['favorite'] = await _getEmbeddingById(db, favoriteItemId);
+    }
+    
+    // Get skipped embeddings
+    for (final id in skippedItemIds) {
+      final embedding = await _getEmbeddingById(db, id);
+      if (embedding != null) {
+        (result['skipped'] as List<List<double>>).add(embedding);
+      }
+    }
+    
+    return result;
+  }
+
+  /// Get single embedding by media ID
+  Future<List<double>?> _getEmbeddingById(Database db, String mediaId) async {
+    try {
+      final stmt = db.prepare('SELECT embedding_blob FROM media_vectors WHERE media_id = ?');
+      final result = stmt.select([mediaId]);
+      stmt.dispose();
+      
+      if (result.isNotEmpty) {
+        final blob = result.first['embedding_blob'] as Uint8List;
+        return _blobToFloatList(blob);
+      }
+      return null;
+    } catch (e) {
+      debugPrint('⚠️ Error getting embedding for $mediaId: $e');
+      return null;
+    }
+  }
+
+  /// Evaluate if an item matches behavioral criteria
+  Map<String, dynamic> _evaluateBehavioralMatch(
+    List<double> itemEmbedding,
+    Map<String, dynamic> behavioralEmbeddings,
+  ) {
+    final likedEmbeddings = behavioralEmbeddings['liked'] as List<List<double>>;
+    final dislikedEmbeddings = behavioralEmbeddings['disliked'] as List<List<double>>;
+    final favoriteEmbedding = behavioralEmbeddings['favorite'] as List<double>?;
+    final skippedEmbeddings = behavioralEmbeddings['skipped'] as List<List<double>>;
+    
+    // Calculate similarities
+    double maxLikedSimilarity = 0.0;
+    double favoriteSimilarity = 0.0;
+    double maxDislikedSimilarity = 0.0;
+    double maxSkippedSimilarity = 0.0;
+    
+    // Check against liked items
+    for (final likedEmbedding in likedEmbeddings) {
+      final similarity = _cosineSimilarity(itemEmbedding, likedEmbedding);
+      if (similarity > maxLikedSimilarity) {
+        maxLikedSimilarity = similarity;
+      }
+    }
+    
+    // Check against favorite
+    if (favoriteEmbedding != null) {
+      favoriteSimilarity = _cosineSimilarity(itemEmbedding, favoriteEmbedding);
+    }
+    
+    // Check against disliked items
+    for (final dislikedEmbedding in dislikedEmbeddings) {
+      final similarity = _cosineSimilarity(itemEmbedding, dislikedEmbedding);
+      if (similarity > maxDislikedSimilarity) {
+        maxDislikedSimilarity = similarity;
+      }
+    }
+    
+    // Check against skipped items
+    for (final skippedEmbedding in skippedEmbeddings) {
+      final similarity = _cosineSimilarity(itemEmbedding, skippedEmbedding);
+      if (similarity > maxSkippedSimilarity) {
+        maxSkippedSimilarity = similarity;
+      }
+    }
+    
+    // Apply your criteria:
+    // 1. Must be 0.7+ similar to liked items OR 0.5+ similar to favorite
+    final hasPositiveMatch = maxLikedSimilarity >= 0.7 || favoriteSimilarity >= 0.5;
+    
+    // 2. Must be 0.3 or less similar to disliked items
+    final passesDislikedFilter = maxDislikedSimilarity <= 0.3;
+    
+    // 3. Deprioritize if 0.85+ similar to skipped items
+    final isLikelySkipped = maxSkippedSimilarity >= 0.85;
+    
+    final isMatch = hasPositiveMatch && passesDislikedFilter && !isLikelySkipped;
+    
+    // Calculate overall match score (higher = better)
+    double score = 0.0;
+    if (hasPositiveMatch) {
+      score += max(maxLikedSimilarity * 0.7, favoriteSimilarity * 0.5);
+    }
+    if (passesDislikedFilter) {
+      score += 0.2; // Bonus for passing dislike filter
+    }
+    if (isLikelySkipped) {
+      score -= 0.3; // Penalty for being like skipped items
+    }
+    
+    return {
+      'isMatch': isMatch,
+      'score': score,
+      'details': {
+        'maxLikedSimilarity': maxLikedSimilarity,
+        'favoriteSimilarity': favoriteSimilarity,
+        'maxDislikedSimilarity': maxDislikedSimilarity,
+        'maxSkippedSimilarity': maxSkippedSimilarity,
+      }
+    };
   }
 }
 

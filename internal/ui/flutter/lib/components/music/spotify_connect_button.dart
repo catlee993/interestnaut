@@ -11,31 +11,24 @@ class SpotifyConnectButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ElevatedButton.icon(
+    return OutlinedButton(
       onPressed: onConnect,
-      icon: const Icon(
-        Icons.music_note,
-        size: 14,
-        color: Colors.white,
-      ),
-      label: const Text(
-        'Connect Spotify',
-        style: TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.w600,
-          color: Colors.white,
-        ),
-      ),
-      style: ElevatedButton.styleFrom(
-        backgroundColor: const Color(0xFF1DB954), // Spotify green
-        foregroundColor: Colors.white,
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
-        minimumSize: const Size(10, 26),
-        maximumSize: const Size(150, 26),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: const Color(0xFF7B68EE), // Purple primary color
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        minimumSize: const Size(10, 32),
+        maximumSize: const Size(150, 32),
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(13),
+          borderRadius: BorderRadius.circular(24),
+        ),
+        side: const BorderSide(color: Color(0xFF7B68EE), width: 1),
+        textStyle: const TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w500,
+          letterSpacing: 0.5,
         ),
       ),
+      child: const Text('Connect Spotify'),
     );
   }
 }

@@ -39,7 +39,7 @@ class SQLiteDatabase {
     }
   }
 
-  /// Get the database file path
+  /// Get the database file path using proper OS-specific application support directory
   Future<String> _getDatabasePath() async {
     try {
       // Use the application support directory directly (it's already app-specific)
@@ -50,50 +50,12 @@ class SQLiteDatabase {
         await appSupportDir.create(recursive: true);
       }
       
-      final newPath = pathLib.join(appSupportDir.path, 'interestnaut.db');
-      
-      // Check if we need to migrate from the old location
-      await _migrateFromOldLocation(newPath);
-      
-      debugPrint('SQLite database path: $newPath');
-      return newPath;
+      final dbPath = pathLib.join(appSupportDir.path, 'interestnaut.db');
+      debugPrint('SQLite database path: $dbPath');
+      return dbPath;
     } catch (e) {
       debugPrint('Error getting database path: $e');
       rethrow;
-    }
-  }
-
-  /// Migrate database from old locations to new Application Support location
-  Future<void> _migrateFromOldLocation(String newPath) async {
-    try {
-      // Check if new database already exists and has data
-      if (await File(newPath).exists() && await File(newPath).length() > 0) {
-        return; // Already migrated or new installation with data
-      }
-      
-      // Check for database in nested directory (bug we're fixing)
-      final appSupportDir = await getApplicationSupportDirectory();
-      final nestedPath = pathLib.join(appSupportDir.path, 'com.example.flutterApp', 'interestnaut.db');
-      
-      if (await File(nestedPath).exists() && await File(nestedPath).length() > 0) {
-        debugPrint('Migrating database from nested location $nestedPath to $newPath');
-        await File(nestedPath).copy(newPath);
-        debugPrint('Database migration from nested location completed successfully');
-        return;
-      }
-      
-      // Check for old database in Documents directory
-      final documentsDir = await getApplicationDocumentsDirectory();
-      final oldPath = pathLib.join(documentsDir.path, 'interestnaut.db');
-      
-      if (await File(oldPath).exists() && await File(oldPath).length() > 0) {
-        debugPrint('Migrating database from Documents $oldPath to $newPath');
-        await File(oldPath).copy(newPath);
-        debugPrint('Database migration from Documents completed successfully');
-      }
-    } catch (e) {
-      debugPrint('Error during database migration: $e');
-      // Don't rethrow - we can continue with a new database if migration fails
     }
   }
 
@@ -101,13 +63,20 @@ class SQLiteDatabase {
   Future<void> _createTables() async {
     try {
       // Create new schema tables
-      _db!.execute(createMediaTableQuery);
+      _db!.execute(createMediaTypesTableQuery);
+      _db!.execute(createRecommendationStatusTableQuery);
       _db!.execute(insertDefaultMediaTypesQuery);
+      _db!.execute(insertDefaultRecommendationStatusQuery);
       _db!.execute(createRecommendationsTableQuery);
       _db!.execute(createRecommendationMetadataTableQuery);
       _db!.execute(createUserConstraintsTableQuery);
       _db!.execute(createUserAddedFavoritesTableQuery);
       _db!.execute(createWatchlistTableQuery);
+      
+      // Create indexes for performance
+      _db!.execute('CREATE INDEX IF NOT EXISTS idx_recommendations_vector_media_id ON recommendations(vector_media_id);');
+      _db!.execute('CREATE INDEX IF NOT EXISTS idx_recommendations_media_type_id ON recommendations(media_type_id);');
+      _db!.execute('CREATE INDEX IF NOT EXISTS idx_recommendations_status_id ON recommendations(status_id);');
       
       // Run migrations for existing tables
       await _runMigrations();
@@ -117,16 +86,11 @@ class SQLiteDatabase {
     }
   }
 
-  /// Run database migrations
+  /// Run database migrations (for future schema changes)
   Future<void> _runMigrations() async {
     try {
-      // Add themes column to recommendations if it doesn't exist
-      try {
-        _db!.execute(addThemesToRecommendationsQuery);
-      } catch (e) {
-        // Column might already exist, ignore error
-        debugPrint('Themes column migration: $e');
-      }
+      // Future migrations will go here
+      debugPrint('Database migrations completed');
     } catch (e) {
       debugPrint('Error running migrations: $e');
     }
@@ -157,21 +121,32 @@ class SQLiteDatabase {
       final isNew = suggestion.id <= 0;
       final now = DateTime.now().toIso8601String();
       
+      // Get media type ID and status ID
+      final mediaTypeId = await getMediaTypeId(suggestion.mediaType);
+      final statusId = await _getStatusId(suggestion.status.toString().split('.').last);
+      
+      if (mediaTypeId == null) {
+        throw Exception('Invalid media type: ${suggestion.mediaType}');
+      }
+      if (statusId == null) {
+        throw Exception('Invalid status: ${suggestion.status}');
+      }
+      
       if (isNew) {
         // Insert new suggestion
         final stmt = _db!.prepare(insertMediaSuggestionQuery);
         stmt.execute([
           suggestion.query,
-          suggestion.mediaType,
+          mediaTypeId,
+          suggestion.mediaId, // This is now vector_media_id
           suggestion.title,
-          suggestion.artist,
-          suggestion.album,
+          suggestion.artist, // This is now primary_creator
           suggestion.coverArtUrl,
           suggestion.description,
           suggestion.wikiUrl,
           suggestion.wikidataId,
           suggestion.botReasoning,
-          suggestion.status.toString().split('.').last,
+          statusId,
           suggestion.themes,
           suggestion.createdAt.toIso8601String(),
           suggestion.updatedAt?.toIso8601String(),
@@ -181,30 +156,32 @@ class SQLiteDatabase {
         stmt.dispose();
         return id;
       } else {
-        // Update existing suggestion
-        final stmt = _db!.prepare(updateMediaSuggestionQuery);
-        stmt.execute([
-          suggestion.query,
-          suggestion.mediaType,
-          suggestion.title,
-          suggestion.artist,
-          suggestion.album,
-          suggestion.coverArtUrl,
-          suggestion.description,
-          suggestion.wikiUrl,
-          suggestion.wikidataId,
-          suggestion.botReasoning,
-          suggestion.status.toString().split('.').last,
-          suggestion.themes,
-          now,
-          suggestion.id,
-        ]);
-        stmt.dispose();
-        return suggestion.id;
+        // Update existing suggestion - TODO: Need to create update query for new schema
+        throw UnimplementedError('Update not implemented for new schema yet');
       }
     } catch (e) {
       debugPrint('Error saving media suggestion: $e');
       rethrow;
+    }
+  }
+  
+  /// Get status ID by name
+  Future<int?> _getStatusId(String statusName) async {
+    try {
+      final stmt = _db!.prepare('SELECT id FROM recommendation_status WHERE name = ?');
+      final result = stmt.select([statusName]);
+      
+      if (result.isEmpty) {
+        stmt.dispose();
+        return null;
+      }
+      
+      final id = result.first['id'] as int;
+      stmt.dispose();
+      return id;
+    } catch (e) {
+      debugPrint('Error getting status ID: $e');
+      return null;
     }
   }
 
@@ -427,14 +404,14 @@ class SQLiteDatabase {
       query: row['query'] as String,
       mediaType: row['media_type'] as String,
       title: row['title'] as String?,
-      artist: row['artist'] as String?,
-      album: row['album'] as String?,
+      artist: row['primary_creator'] as String?, // Maps primary_creator to artist for backwards compatibility
       coverArtUrl: row['cover_art_url'] as String?,
       description: row['description'] as String?,
       wikiUrl: row['wiki_url'] as String?,
       wikidataId: row['wikidata_id'] as String?,
       botReasoning: row['bot_reasoning'] as String?,
       themes: row['themes'] as String?,
+      mediaId: row['vector_media_id'] as String?, // Maps vector_media_id to mediaId
       status: SuggestionStatus.values.firstWhere(
         (s) => s.toString().split('.').last == (row['status'] as String),
         orElse: () => SuggestionStatus.pending,
