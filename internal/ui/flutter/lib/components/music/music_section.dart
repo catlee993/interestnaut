@@ -1010,26 +1010,6 @@ class _MusicSectionState extends State<MusicSection> {
     
     final stackWidget = Stack(
       children: [
-        // Hidden Spotify Web Player - acts as a Spotify device for playback control
-        // Position it properly so it can receive JavaScript messages
-        Positioned(
-          left: 0,
-          top: 0,
-          child: Opacity(
-            opacity: 0.0, // Completely transparent but still functional
-            child: IgnorePointer( // Prevent user interaction
-              child: SizedBox(
-                width: 400, // Proper size for WebView functionality
-                height: 300,
-                child: SpotifyWebPlayer(
-                  key: _webPlayerKey,
-                  spotifyService: _spotifyService,
-                  visible: false,
-                ),
-              ),
-            ),
-          ),
-        ),
         // Main content using universal layout system
         MediaSectionLayout(
           headerHeight: 106.0,
@@ -1039,7 +1019,16 @@ class _MusicSectionState extends State<MusicSection> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-
+                  // Hidden Spotify Web Player - acts as a Spotify device for playback control
+                  SizedBox(
+                    width: 1,
+                    height: 1,
+                    child: SpotifyWebPlayer(
+                      key: _webPlayerKey,
+                      spotifyService: _spotifyService,
+                      visible: false,
+                    ),
+                  ),
                   
                   // Title with consistent spacing
                   ComponentSpacing(
