@@ -1,8 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as pathLib;
+import 'package:sqlite3/sqlite3.dart';
 import 'sqlite_db.dart';
 import '../db/vector_db.dart';
 import 'llama_service.dart';
@@ -194,6 +198,7 @@ class RecommendationService extends ChangeNotifier {
   bool _isProcessingQueue = false;
   final Map<String, bool> _queueBeingFilled = {};
   final Map<String, int> _pendingQueueCounts = {};
+  final Map<String, bool> _backgroundGenerationInProgress = {};
   
   Timer? _queueTimer;
   
@@ -573,26 +578,44 @@ class RecommendationService extends ChangeNotifier {
       status: SuggestionStatus.pending,
     );
 
-    // Start background generation without blocking (all async operations moved here)
-    _generateSuggestionInBackground(mediaType);
+    // Start background generation without blocking - new isolate system handles everything
+    _generateSuggestionAsyncFull(mediaType).then((result) {
+      _queueBeingFilled[mediaType] = false;
+      if (result != null) {
+        debugPrint('✅ Background suggestion ready: ${result.title}');
+        _eventService.emitSuggestionReady(mediaType, result);
+      } else {
+        // Don't emit error here - the new isolate system handles its own error events
+        // This null just means "no immediate suggestion, background generation in progress"
+        debugPrint('🔄 Background suggestion generation in progress via isolate');
+      }
+    }).catchError((e, stackTrace) {
+      _queueBeingFilled[mediaType] = false;
+      debugPrint('❌ Error in background suggestion generation: $e');
+      _eventService.emitSuggestionError(mediaType, e.toString());
+    });
 
     return loadingSuggestion;
   }
 
   /// Generate suggestion in background and emit events when ready
   void _generateSuggestionInBackground(String mediaType) {
+    debugPrint('🔄 Starting background suggestion generation for $mediaType');
+    
     // Run all async operations in background
     _generateSuggestionAsyncFull(mediaType).then((result) {
       _queueBeingFilled[mediaType] = false;
       if (result != null) {
-        debugPrint('Background suggestion ready: ${result.title}');
+        debugPrint('✅ Background suggestion ready: ${result.title}');
         _eventService.emitSuggestionReady(mediaType, result);
       } else {
+        debugPrint('❌ Background suggestion generation returned null');
         _eventService.emitSuggestionError(mediaType, 'Failed to generate suggestion');
       }
-    }).catchError((e) {
+    }).catchError((e, stackTrace) {
       _queueBeingFilled[mediaType] = false;
-      debugPrint('Error in background suggestion generation: $e');
+      debugPrint('❌ Error in background suggestion generation: $e');
+      debugPrint('❌ Stack trace: $stackTrace');
       _eventService.emitSuggestionError(mediaType, e.toString());
     });
   }
@@ -622,75 +645,291 @@ class RecommendationService extends ChangeNotifier {
     }
   }
 
-  /// Generate suggestion using vector DB on main thread and LLM in isolate
+  /// Generate suggestion using queue-based system with background isolate
   Future<MediaSuggestion?> _generateSuggestionAsync(String mediaType) async {
     try {
-      // Step 1: Get real data from vector DB on main thread (platform channels allowed)
-      final vectorDb = VectorDatabase();
-      await vectorDb.init();
+      debugPrint('🔄 Checking suggestion queue for $mediaType');
       
-      final randomResults = await vectorDb.getRandomMedia(mediaType: mediaType, limit: 1);
-      
-      if (randomResults.isEmpty) {
-        debugPrint('No media found in vector database for $mediaType');
-        return null;
+      // Step 1: Try to get existing pending suggestion from queue
+      final existingSuggestion = await _getNextPendingSuggestion(mediaType);
+      if (existingSuggestion != null) {
+        debugPrint('✅ Retrieved suggestion from queue: ${existingSuggestion.title}');
+        
+        // Trigger background refill of queue (non-blocking)
+        _ensureQueueHasSuggestions(mediaType);
+        
+        return existingSuggestion;
       }
       
-      final mediaResult = randomResults.first;
-      debugPrint('Selected real media for LLM: ${mediaResult.title}');
+      debugPrint('🔄 No suggestions in queue, starting background generation for $mediaType');
       
-      // Step 2: Run LLM operation in isolate (heavy computation)
-      final response = await compute(_generateLLMResponseInIsolate, {
-        'userQuery': 'Suggest a great $mediaType',
-        'mediaTitle': mediaResult.title,
-        'mediaType': mediaType,
-        'artist': mediaResult.artist,
-        'themes': mediaResult.themes,
-        'description': mediaResult.description,
-        'similarity': 1.0,
-      });
+      // Step 2: No suggestions available, trigger background generation
+      // Emit loading state immediately so UI shows loading instead of error
+      _eventService.emitSuggestionStarted(mediaType);
+      _startBackgroundSuggestionGeneration(mediaType);
       
-      if (response == null) {
-        debugPrint('Failed to generate LLM response');
-        return null;
-      }
+      // Return null immediately - UI will get suggestion via event when ready
+      return null;
       
-      debugPrint('LLM response: "$response"');
-      
-      // Step 3: Create suggestion with real data
-      final suggestion = MediaSuggestion(
-        query: 'User requested $mediaType suggestion',
-        mediaType: mediaType,
-        title: mediaResult.title,
-        artist: mediaResult.artist,
-        album: mediaResult.album,
-        coverArtUrl: mediaResult.coverArtUrl,
-        description: mediaResult.description,
-        wikiUrl: mediaResult.wikiUrl,
-        wikidataId: mediaResult.wikidataId,
-        themes: mediaResult.themes,
-        botReasoning: response,
-        status: SuggestionStatus.pending,
-      );
-      
-      // Step 4: Save suggestion on main thread (needs platform channels)
-      final savedSuggestion = await _saveValidatedSuggestion(suggestion);
-      if (savedSuggestion != null) {
-        debugPrint('Generated on-demand suggestion: ${savedSuggestion.title} (ID: ${savedSuggestion.id})');
-        return savedSuggestion;
-      } else {
-        debugPrint('Failed to save on-demand suggestion: ${suggestion.title}');
-        return null;
-      }
-    } catch (e) {
-      debugPrint('Error in suggestion generation: $e');
+    } catch (e, stackTrace) {
+      debugPrint('❌ Error in queue-based suggestion generation: $e');
+      debugPrint('❌ Stack trace: $stackTrace');
       return null;
     }
+  }
+  
+  /// Get next pending suggestion from database queue
+  Future<MediaSuggestion?> _getNextPendingSuggestion(String mediaType) async {
+    try {
+      final suggestions = await _db.getAllMediaSuggestions(
+        mediaType: mediaType,
+        statusFilter: SuggestionStatus.pending,
+        limit: 1,
+      );
+      
+      if (suggestions.isNotEmpty) {
+        return suggestions.first;
+      }
+      return null;
+    } catch (e) {
+      debugPrint('❌ Error getting pending suggestion: $e');
+      return null;
+    }
+  }
+  
+  /// Ensure queue has at least one suggestion ready (non-blocking)
+  void _ensureQueueHasSuggestions(String mediaType) {
+    // Don't start generation if already in progress
+    if (_backgroundGenerationInProgress[mediaType] == true) {
+      debugPrint('⚠️ Queue check skipped for $mediaType - generation already in progress');
+      return;
+    }
+    
+    // Run in background without awaiting
+    Future.microtask(() async {
+      try {
+        final pendingCount = await _getPendingSuggestionCount(mediaType);
+        if (pendingCount < 1) {
+          debugPrint('🔄 Queue low for $mediaType ($pendingCount suggestions), refilling...');
+          _startBackgroundSuggestionGeneration(mediaType);
+        } else {
+          debugPrint('✅ Queue has $pendingCount suggestions for $mediaType');
+        }
+      } catch (e) {
+        debugPrint('❌ Error checking queue: $e');
+      }
+    });
+  }
+  
+  /// Get count of pending suggestions for media type
+  Future<int> _getPendingSuggestionCount(String mediaType) async {
+    try {
+      final count = await _db.countPendingMediaSuggestions(mediaType);
+      return count;
+    } catch (e) {
+      debugPrint('❌ Error counting pending suggestions: $e');
+      return 0;
+    }
+  }
+  
+  /// Start background suggestion generation in pure isolate (non-blocking)
+  void _startBackgroundSuggestionGeneration(String mediaType) {
+    // Check if generation is already in progress for this media type
+    if (_backgroundGenerationInProgress[mediaType] == true) {
+      debugPrint('⚠️ [BACKGROUND] Generation already in progress for $mediaType, skipping duplicate');
+      return;
+    }
+    
+    // Mark as in progress
+    _backgroundGenerationInProgress[mediaType] = true;
+    
+    // Run entirely in background without blocking UI
+    Future.microtask(() async {
+      try {
+        debugPrint('🔄 [BACKGROUND] Starting PURE ISOLATE suggestion generation for $mediaType');
+        
+        // Gather all dependencies needed for isolate
+        final appSupportDir = await getApplicationSupportDirectory();
+        final vectorDb = VectorDatabase();
+        final enabledMediaTypes = vectorDb.enabledMediaTypes.toList();
+        
+        debugPrint('🔄 [BACKGROUND] Passing to isolate: appPath=${appSupportDir.path}, enabledTypes=$enabledMediaTypes');
+        
+        // Generate suggestion in PURE isolate with all dependencies injected
+        final result = await compute(_generateSuggestionInPureIsolate, {
+          'mediaType': mediaType,
+          'userQuery': 'Suggest a great $mediaType',
+          'appSupportPath': appSupportDir.path,
+          'enabledMediaTypes': enabledMediaTypes,
+        });
+        
+        if (result == null) {
+          debugPrint('❌ [BACKGROUND] Failed to generate suggestion in pure isolate');
+          _eventService.emitSuggestionError(mediaType, 'Failed to generate suggestion');
+          return;
+        }
+        
+        debugPrint('✅ [BACKGROUND] Generated suggestion in pure isolate: ${result['title']}');
+        
+        // Create and save suggestion on main thread
+        final suggestion = MediaSuggestion(
+          query: 'User requested $mediaType suggestion',
+          mediaType: mediaType,
+          title: result['title'],
+          artist: result['artist'],
+          album: result['album'],
+          coverArtUrl: result['coverArtUrl'],
+          description: result['description'],
+          wikiUrl: result['wikiUrl'],
+          wikidataId: result['wikidataId'],
+          themes: result['themes'],
+          botReasoning: result['botReasoning'],
+          status: SuggestionStatus.pending,
+        );
+        
+        final savedSuggestion = await _saveValidatedSuggestion(suggestion);
+        
+        if (savedSuggestion != null) {
+          debugPrint('✅ [BACKGROUND] Saved suggestion to queue: ${savedSuggestion.title} (ID: ${savedSuggestion.id})');
+          
+          // Emit event that suggestion is ready
+          _eventService.emitSuggestionReady(mediaType, savedSuggestion);
+        } else {
+          debugPrint('❌ [BACKGROUND] Failed to save suggestion to queue');
+          _eventService.emitSuggestionError(mediaType, 'Failed to save suggestion');
+        }
+        
+      } catch (e, stackTrace) {
+        debugPrint('❌ [BACKGROUND] Error in background suggestion generation: $e');
+        debugPrint('❌ [BACKGROUND] Stack trace: $stackTrace');
+        _eventService.emitSuggestionError(mediaType, 'Background generation error: $e');
+      } finally {
+        // Always clear the in-progress flag
+        _backgroundGenerationInProgress[mediaType] = false;
+        debugPrint('🏁 [BACKGROUND] Generation completed for $mediaType, flag cleared');
+      }
+    });
   }
 
 
 
 
+
+  /// Static function to run COMPLETE suggestion generation in pure isolate (no platform channels)
+  static Future<Map<String, dynamic>?> _generateSuggestionInPureIsolate(Map<String, dynamic> params) async {
+    try {
+      final String mediaType = params['mediaType'];
+      final String userQuery = params['userQuery'];
+      final String appSupportPath = params['appSupportPath'];
+      final List<String> enabledMediaTypes = List<String>.from(params['enabledMediaTypes']);
+      
+      debugPrint('🔄 [PURE-ISOLATE] Starting suggestion generation for $mediaType');
+      debugPrint('🔄 [PURE-ISOLATE] App path: $appSupportPath');
+      debugPrint('🔄 [PURE-ISOLATE] Enabled types: $enabledMediaTypes');
+      
+      // Step 1: Create isolate-safe vector database with injected dependencies
+      final vectorDb = await _createIsolateSafeVectorDatabase(appSupportPath, enabledMediaTypes, mediaType);
+      
+      if (vectorDb == null) {
+        debugPrint('❌ [PURE-ISOLATE] Failed to create vector database');
+        return null;
+      }
+      
+      // Step 2: Query vector database
+      debugPrint('🔄 [PURE-ISOLATE] Querying vector database...');
+      final randomResults = await vectorDb.getRandomMedia(mediaType: mediaType, limit: 1);
+      
+      if (randomResults.isEmpty) {
+        debugPrint('❌ [PURE-ISOLATE] No media found in vector database for $mediaType');
+        return null;
+      }
+      
+      final mediaResult = randomResults.first;
+      debugPrint('✅ [PURE-ISOLATE] Selected media: ${mediaResult.title}');
+      
+      // Step 3: Generate LLM response (pure computation)
+      debugPrint('🔄 [PURE-ISOLATE] Generating LLM response...');
+      final response = _generateContextualExplanationPure(
+        userQuery: userQuery,
+        mediaTitle: mediaResult.title,
+        mediaType: mediaType,
+        artist: mediaResult.artist,
+        themes: mediaResult.themes,
+        description: mediaResult.description,
+        similarity: 1.0,
+      );
+      
+      debugPrint('✅ [PURE-ISOLATE] Generated complete suggestion: ${mediaResult.title}');
+      
+      // Return all data needed for suggestion creation
+      return {
+        'title': mediaResult.title,
+        'artist': mediaResult.artist,
+        'album': mediaResult.album,
+        'coverArtUrl': mediaResult.coverArtUrl,
+        'description': mediaResult.description,
+        'wikiUrl': mediaResult.wikiUrl,
+        'wikidataId': mediaResult.wikidataId,
+        'themes': mediaResult.themes,
+        'botReasoning': response,
+      };
+    } catch (e) {
+      debugPrint('❌ [PURE-ISOLATE] Error in suggestion generation: $e');
+      return null;
+    }
+  }
+  
+  /// Create isolate-safe vector database that bypasses platform channels
+  static Future<_IsolateSafeVectorDatabase?> _createIsolateSafeVectorDatabase(
+    String appSupportPath, 
+    List<String> enabledMediaTypes, 
+    String targetMediaType
+  ) async {
+    try {
+      // Create vector database directory path
+      final vectorDirPath = pathLib.join(appSupportPath, 'vectors');
+      
+      // Media type to file mapping
+      const shardFiles = {
+        'video_game': 'vectors_games.db',
+        'movie': 'vectors_movies.db', 
+        'tv_show': 'vectors_tv.db',
+        'book': 'vectors_books.db',
+        'music': 'vectors_music.db',
+      };
+      
+      if (!shardFiles.containsKey(targetMediaType)) {
+        debugPrint('❌ [PURE-ISOLATE] Unknown media type: $targetMediaType');
+        return null;
+      }
+      
+      if (!enabledMediaTypes.contains(targetMediaType)) {
+        debugPrint('❌ [PURE-ISOLATE] Media type not enabled: $targetMediaType');
+        return null;
+      }
+      
+      final filename = shardFiles[targetMediaType]!;
+      final dbPath = pathLib.join(vectorDirPath, filename);
+      
+      debugPrint('🔄 [PURE-ISOLATE] Opening vector database at: $dbPath');
+      
+      // Check if file exists
+      final file = File(dbPath);
+      if (!await file.exists()) {
+        debugPrint('❌ [PURE-ISOLATE] Vector database file not found: $dbPath');
+        return null;
+      }
+      
+      // Create a minimal VectorDatabase that only opens the specific shard
+      final vectorDb = _IsolateSafeVectorDatabase(dbPath, targetMediaType);
+      await vectorDb.init();
+      
+      return vectorDb;
+    } catch (e) {
+      debugPrint('❌ [PURE-ISOLATE] Error creating vector database: $e');
+      return null;
+    }
+  }
 
   /// Static function to run LLM inference in isolate
   static Future<String?> _generateLLMResponseInIsolate(Map<String, dynamic> params) async {
@@ -806,4 +1045,110 @@ class RecommendationService extends ChangeNotifier {
     _queueTimer?.cancel();
     super.dispose();
   }
+}
+
+/// Isolate-safe vector database that bypasses platform channels
+class _IsolateSafeVectorDatabase {
+  final String dbPath;
+  final String mediaType;
+  Database? _db;
+  bool _initialized = false;
+  
+  _IsolateSafeVectorDatabase(this.dbPath, this.mediaType);
+  
+  Future<void> init() async {
+    if (_initialized) return;
+    
+    try {
+      _db = sqlite3.open(dbPath);
+      
+      // Load sqlite-vec extension if available
+      try {
+        _db!.execute('SELECT load_extension("sqlite_vec")');
+      } catch (e) {
+        debugPrint('sqlite-vec extension not available in isolate, using fallback');
+      }
+      
+      _initialized = true;
+      debugPrint('✅ [PURE-ISOLATE] Vector database initialized: $dbPath');
+    } catch (e) {
+      debugPrint('❌ [PURE-ISOLATE] Error initializing vector database: $e');
+      rethrow;
+    }
+  }
+  
+  Future<List<MediaResult>> getRandomMedia({required String mediaType, required int limit}) async {
+    if (!_initialized || _db == null) {
+      throw Exception('Vector database not initialized');
+    }
+    
+    try {
+      // Query for random media from the vector database (correct table: media_vectors)
+      final hasAlbum = mediaType == 'music';
+      final stmt = _db!.prepare('''
+        SELECT 
+          title,
+          artist,
+          ${hasAlbum ? 'album,' : ''}
+          description,
+          themes,
+          wiki_url,
+          wikidata_id,
+          image_url
+        FROM media_vectors 
+        ORDER BY RANDOM() 
+        LIMIT ?
+      ''');
+      
+      final result = stmt.select([limit]);
+      
+      final mediaResults = <MediaResult>[];
+      for (final row in result) {
+        mediaResults.add(MediaResult(
+          title: row['title'] as String? ?? 'Unknown',
+          artist: row['artist'] as String?,
+          album: hasAlbum ? row['album'] as String? : null,
+          coverArtUrl: row['image_url'] as String?,
+          description: row['description'] as String?,
+          wikiUrl: row['wiki_url'] as String?,
+          wikidataId: row['wikidata_id'] as String?,
+          themes: row['themes'] as String?,
+        ));
+      }
+      
+      stmt.dispose();
+      return mediaResults;
+    } catch (e) {
+      debugPrint('❌ [PURE-ISOLATE] Error querying vector database: $e');
+      return [];
+    }
+  }
+  
+  void dispose() {
+    _db?.dispose();
+    _initialized = false;
+  }
+}
+
+/// Media result from vector database
+class MediaResult {
+  final String title;
+  final String? artist;
+  final String? album;
+  final String? coverArtUrl;
+  final String? description;
+  final String? wikiUrl;
+  final String? wikidataId;
+  final String? themes;
+  
+  MediaResult({
+    required this.title,
+    this.artist,
+    this.album,
+    this.coverArtUrl,
+    this.description,
+    this.wikiUrl,
+    this.wikidataId,
+    this.themes,
+  });
 }

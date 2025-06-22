@@ -36,23 +36,48 @@ class _TVShowSectionState extends State<TVShowSection> {
   final RecommendationEventService _eventService = RecommendationEventService();
   final SQLiteDatabase _db = SQLiteDatabase();
 
+  StreamSubscription<RecommendationEvent>? _eventSubscription;
+
   @override
   void initState() {
     super.initState();
     
-    // Listen for recommendation events
-    _eventService.eventsForMediaType('tv_show').listen((event) {
-      if (event.type == RecommendationEventType.suggestionReady) {
-        debugPrint('🎉 TV Show suggestion ready: ${event.suggestion?.title}');
-        _loadDbSuggestion(); // Reload to get the new suggestion
+    // Listen to recommendation events for this media type
+    _eventSubscription = _eventService.eventsForMediaType('tv_show').listen((event) {
+      debugPrint('📺 TV section received event: ${event.type}');
+      switch (event.type) {
+        case RecommendationEventType.suggestionReady:
+          if (event.suggestion != null) {
+            setState(() {
+              _currentDbSuggestion = event.suggestion;
+              _isLoadingDbSuggestion = false;
+              _dbSuggestionError = null;
+              _hasLikedCurrentSuggestion = false;
+              _hasFavoritedCurrentSuggestion = false;
+            });
+          }
+          break;
+        case RecommendationEventType.suggestionError:
+          setState(() {
+            _dbSuggestionError = event.error ?? 'Unknown error';
+            _isLoadingDbSuggestion = false;
+          });
+          break;
+        case RecommendationEventType.suggestionStarted:
+          // Loading state is already set when we call generateSuggestionOnDemand
+          break;
       }
     });
     
-    // Load initial DB suggestion
     _loadDbSuggestion();
-    // Load DB library and watchlist
     _loadDbLibrary();
     _loadDbWatchlist();
+  }
+
+  @override
+  void dispose() {
+    _eventSubscription?.cancel();
+    super.dispose();
   }
 
   // Load a DB suggestion for TV shows
@@ -97,13 +122,15 @@ class _TVShowSectionState extends State<TVShowSection> {
           _hasFavoritedCurrentSuggestion = false;
         });
       } else {
-        // Try to generate a new suggestion on-demand
+        // Try to generate a new suggestion on-demand (non-blocking)
         final loadingSuggestion = await _recommendationService.generateSuggestionOnDemand('tv_show');
         if (loadingSuggestion != null) {
-          // Don't set the loading suggestion as current - just keep loading state
+          debugPrint('📺 TV show suggestion generation started in background');
+          // Set loading state immediately - actual suggestion will come via events
           setState(() {
             _currentDbSuggestion = null; // Clear current suggestion
-            _isLoadingDbSuggestion = true; // Keep loading until real suggestion arrives
+            _isLoadingDbSuggestion = true; // Keep loading until real suggestion arrives via events
+            _dbSuggestionError = null;
             _hasLikedCurrentSuggestion = false;
             _hasFavoritedCurrentSuggestion = false;
           });

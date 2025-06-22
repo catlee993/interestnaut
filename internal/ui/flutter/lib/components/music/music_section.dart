@@ -1,5 +1,6 @@
 import 'dart:ui';
 import 'dart:async';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../common/scroll_content_wrapper.dart';
 
@@ -135,6 +136,7 @@ class _MusicSectionState extends State<MusicSection> {
     _recommendationEventSubscription = _eventService.eventsForMediaType('music').listen((event) {
       if (!mounted) return;
       
+      debugPrint('🎵 Music section received event: ${event.type}');
       // Defer all UI updates to next frame to avoid blocking
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
@@ -152,7 +154,7 @@ class _MusicSectionState extends State<MusicSection> {
             });
             break;
           case RecommendationEventType.suggestionStarted:
-            // Already handled by the loading suggestion
+            // Loading state is already set when we call generateSuggestionOnDemand
             break;
         }
       });
@@ -702,8 +704,8 @@ class _MusicSectionState extends State<MusicSection> {
 
       _loadDbLibrary();
 
-      // Move to next suggestion after favoriting
-      await _moveToNextSuggestion();
+      // Move to next suggestion after favoriting (non-blocking)
+      _moveToNextSuggestion();
     } catch (e) {
       debugPrint('Error adding to favorites: $e');
       setState(() {
@@ -767,8 +769,8 @@ class _MusicSectionState extends State<MusicSection> {
       // Refresh library in case item was favorited
       _loadDbLibrary();
 
-      // Get next suggestion (this will reset the like state)
-      await _moveToNextSuggestion();
+      // Get next suggestion (this will reset the like state) - non-blocking
+      _moveToNextSuggestion();
     } catch (e) {
       debugPrint('Error disliking DB suggestion: $e');
       setState(() {
@@ -777,35 +779,80 @@ class _MusicSectionState extends State<MusicSection> {
     }
   }
 
-  // Skip a database suggestion (mark as skipped and move to next)
+  // Skip a database suggestion (mark as skipped and move to next) - NON-BLOCKING
   Future<void> _skipDbSuggestion() async {
+    final uiStopwatch = Stopwatch()..start();
+    debugPrint('🔘 [${uiStopwatch.elapsedMilliseconds}ms] Skip button pressed');
+    
     if (_currentDbSuggestion == null || _isLoadingDbSuggestion) return;
 
+    // Immediately set loading state for responsive UI
+    final setStateStart = uiStopwatch.elapsedMilliseconds;
     setState(() {
       _isLoadingDbSuggestion = true;
     });
+    final setStateEnd = uiStopwatch.elapsedMilliseconds;
+    debugPrint('🔘 [${uiStopwatch.elapsedMilliseconds}ms] setState completed in ${setStateEnd - setStateStart}ms');
 
     try {
       // Only mark as skipped if it hasn't been liked or favorited
       if (!_hasLikedCurrentSuggestion && !_hasFavoritedCurrentSuggestion) {
-        await _recommendationService.updateSuggestionStatus(
+        debugPrint('🔘 [${uiStopwatch.elapsedMilliseconds}ms] Updating suggestion status...');
+        // Non-blocking: Don't await the database update
+        _recommendationService.updateSuggestionStatus(
           _currentDbSuggestion!.id,
           SuggestionStatus.skipped,
         );
       }
 
-      await _moveToNextSuggestion();
+      // Clear current suggestion immediately (non-blocking)
+      debugPrint('🔘 [${uiStopwatch.elapsedMilliseconds}ms] Moving to next suggestion...');
+      _moveToNextSuggestion();
+      
+      // Trigger new suggestion generation (non-blocking)
+      debugPrint('🔘 [${uiStopwatch.elapsedMilliseconds}ms] Starting suggestion generation...');
+      _recommendationService.generateSuggestionOnDemand('music').then((loadingSuggestion) {
+        debugPrint('🔘 [${uiStopwatch.elapsedMilliseconds}ms] Suggestion generation promise resolved');
+        if (loadingSuggestion != null) {
+          debugPrint('🎵 New suggestion generation started after skip');
+        } else {
+          // Don't treat null as error - background generation might be in progress
+          // The event system will handle delivering the suggestion when ready
+          debugPrint('🎵 No immediate suggestion available - background generation in progress');
+          
+          // Set 30-second timeout for background generation
+          Timer(const Duration(seconds: 30), () {
+            if (mounted && _isLoadingDbSuggestion && _currentDbSuggestion == null) {
+              setState(() {
+                _dbSuggestionError = 'Suggestion generation timed out. Please try again.';
+                _isLoadingDbSuggestion = false;
+              });
+            }
+          });
+        }
+      }).catchError((e) {
+        debugPrint('🔘 [${uiStopwatch.elapsedMilliseconds}ms] Error in suggestion generation: $e');
+        if (mounted) {
+          setState(() {
+            _dbSuggestionError = 'Error generating suggestion: $e';
+            _isLoadingDbSuggestion = false;
+          });
+        }
+      });
+      
+      debugPrint('🔘 [${uiStopwatch.elapsedMilliseconds}ms] Skip method completed - returning control to UI');
     } catch (e) {
-      debugPrint('Error skipping DB suggestion: $e');
+      debugPrint('🔘 [${uiStopwatch.elapsedMilliseconds}ms] Error skipping DB suggestion: $e');
       setState(() {
         _isLoadingDbSuggestion = false;
       });
     }
   }
 
-  // Move to next suggestion (for both skip and next actions)
-  Future<void> _moveToNextSuggestion() async {
+  // Move to next suggestion (for both skip and next actions) - FULLY NON-BLOCKING
+  void _moveToNextSuggestion() {
     try {
+      // Immediate UI update - clear current suggestion and show loading
       setState(() {
         _isLoadingDbSuggestion = true;
         _dbSuggestedTrack = null;
@@ -815,8 +862,9 @@ class _MusicSectionState extends State<MusicSection> {
         _hasFavoritedCurrentSuggestion = false; // Reset favorite state
       });
       
-      // Load next suggestion
-      _loadDbSuggestion();
+      // DON'T call _loadDbSuggestion() - let the skip handler trigger new generation
+      // The event system will handle delivering the next suggestion
+      debugPrint('🎵 Cleared current suggestion - waiting for events to deliver next one');
     } catch (e) {
       debugPrint('Error moving to next suggestion: $e');
       setState(() {
@@ -847,8 +895,8 @@ class _MusicSectionState extends State<MusicSection> {
       // Refresh both playlist and main suggestions
       _loadDbPlaylist();
 
-      // Move to next suggestion after adding to playlist
-      await _moveToNextSuggestion();
+      // Move to next suggestion after adding to playlist (non-blocking)
+      _moveToNextSuggestion();
     } catch (e) {
       debugPrint('Error adding DB suggestion to playlist: $e');
       setState(() {
@@ -860,8 +908,23 @@ class _MusicSectionState extends State<MusicSection> {
   // Build the main music section UI
   @override
   Widget build(BuildContext context) {
-    return Stack(
+    debugPrint('🎵 build() method called - starting to build widget tree');
+    
+    final stackWidget = Stack(
       children: [
+        // Hidden Spotify Web Player - initialized once and never rebuilt
+        Positioned(
+          top: -1000, // Position offscreen but keep it in the widget tree
+          child: SizedBox(
+            width: 1,
+            height: 1,
+            child: SpotifyWebPlayer(
+              key: _webPlayerKey,
+              spotifyService: _spotifyService,
+              visible: false,
+            ),
+          ),
+        ),
         // Main content using universal layout system
         MediaSectionLayout(
           headerHeight: 106.0,
@@ -871,15 +934,7 @@ class _MusicSectionState extends State<MusicSection> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  SizedBox(
-                    width: 1,
-                    height: 1,
-                    child: SpotifyWebPlayer(
-                      key: _webPlayerKey,
-                      spotifyService: _spotifyService,
-                      visible: false,
-                    ),
-                  ),
+
                   
                   // Title with consistent spacing
                   ComponentSpacing(
@@ -950,6 +1005,9 @@ class _MusicSectionState extends State<MusicSection> {
         }),
       ],
     );
+    
+    debugPrint('🎵 build() method completed - returning widget tree');
+    return stackWidget;
   }
 
   // Helper method to build suggestion content
@@ -960,13 +1018,30 @@ class _MusicSectionState extends State<MusicSection> {
       return Center(
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 24),
-          child: Text(
-            'Error: $_dbSuggestionError',
-            style: const TextStyle(
-              color: Colors.white54,
-              fontSize: 16,
-            ),
-            textAlign: TextAlign.center,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Error: $_dbSuggestionError',
+                style: const TextStyle(
+                  color: Colors.white54,
+                  fontSize: 16,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: 100, // Fixed width matching music paging buttons
+                child: OutlinedButton(
+                  onPressed: _loadDbSuggestion,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFFA855F7),
+                    side: const BorderSide(color: Color(0xFFA855F7)),
+                  ),
+                  child: const Text('Try Again'),
+                ),
+              ),
+            ],
           ),
         ),
       );
@@ -985,222 +1060,172 @@ class _MusicSectionState extends State<MusicSection> {
         ),
       );
     } else {
-      // Current suggestion container (no extra horizontal padding - handled by MediaSectionLayout)
-      return Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: const Color(0xFF282828), // Surface color from React (--surface-color)
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Album art container (same height as other media, but square art centered inside)
-                Container(
-                  width: 300,
-                  height: 450, // Match other media types
-                  child: Center(
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
-                      child: Container(
-                        width: 300,
-                        height: 300, // Square aspect ratio for album art
-                        color: Colors.grey[900],
-                        child: _dbSuggestedTrack!.album.images.isNotEmpty
-                          ? Image.network(
-                              _dbSuggestedTrack!.album.images.first.url,
-                              fit: BoxFit.cover,
-                              errorBuilder: (context, error, stackTrace) {
-                                return const Center(
-                                  child: Icon(
-                                    Icons.music_note,
-                                    size: 48,
-                                    color: Colors.white54,
-                                  ),
-                                );
-                              },
-                            )
-                          : const Center(
-                              child: Icon(
-                                Icons.music_note,
-                                size: 48,
-                                color: Colors.white54,
-                              ),
-                            ),
+      // Current suggestion container (matching movie section layout)
+      return Container(
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: const Color(0xFF282828),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Album artwork
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Container(
+                width: 300,
+                height: 450,
+                color: Colors.grey[900],
+                child: _currentDbSuggestion!.coverArtUrl != null
+                  ? Image.network(
+                      _currentDbSuggestion!.coverArtUrl!,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) {
+                        return const Center(
+                          child: Icon(
+                            Icons.music_note,
+                            size: 48,
+                            color: Colors.white54,
+                          ),
+                        );
+                      },
+                    )
+                  : const Center(
+                      child: Icon(
+                        Icons.music_note,
+                        size: 48,
+                        color: Colors.white54,
                       ),
                     ),
-                  ),
-                ),
-                const SizedBox(width: 24),
-                
-                // Track info (centered alignment)
-                Expanded(
-                  child: SizedBox(
-                    height: 450, // Match other media types
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.center, // Center everything
-                      children: [
-                        // Track title
-                        Text(
-                          _dbSuggestedTrack!.name,
-                          style: const TextStyle(
-                            fontSize: 24,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.white,
+              ),
+            ),
+            const SizedBox(width: 24),
+            
+            // Track info
+            Expanded(
+              child: SizedBox(
+                height: 450,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    // Track title
+                    Text(
+                      _currentDbSuggestion!.title ?? 'Unknown Track',
+                      style: const TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 8),
+                    
+                    // Artist info
+                    Text(
+                      'by ${TextUtils.formatArtistNames(_currentDbSuggestion!.artist)}',
+                      style: TextStyle(
+                        fontSize: 15,
+                        color: Colors.white.withOpacity(0.7),
+                        fontWeight: FontWeight.w400,
+                      ),
+                      textAlign: TextAlign.center,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 16),
+                    
+                    // Description text - scrollable with max height
+                    if (_currentDbSuggestion?.description?.isNotEmpty == true)
+                      Container(
+                        constraints: const BoxConstraints(maxHeight: 120),
+                        child: Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: SingleChildScrollView(
+                            child: Text(
+                              _currentDbSuggestion!.description!,
+                              style: const TextStyle(
+                                fontSize: 14,
+                                color: Colors.white,
+                                height: 1.5,
+                                fontWeight: FontWeight.w400,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
                           ),
-                          textAlign: TextAlign.center,
                         ),
-                        const SizedBox(height: 8),
-                        
-                        // Artist and Album info
-                        Text(
-                          '${TextUtils.formatArtistNames(_dbSuggestedTrack!.artists.first.name)} • ${_dbSuggestedTrack!.album.name}',
-                          style: TextStyle(
-                            fontSize: 15,
-                            color: Colors.white.withOpacity(0.7),
-                            fontWeight: FontWeight.w400,
-                          ),
-                          textAlign: TextAlign.center,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        const SizedBox(height: 16),
-                        
-                        // Flexible content area for description and reasoning
-                        Expanded(
+                      ),
+                    
+                    const SizedBox(height: 16),
+                    
+                    // Bot reasoning - scrollable
+                    if (_currentDbSuggestion?.botReasoning?.isNotEmpty == true)
+                      Expanded(
+                        child: Container(
+                          width: double.infinity,
+                          margin: const EdgeInsets.only(bottom: 24),
                           child: Column(
                             children: [
-                              // Description text - flexible height based on reasoning length
-                              if (_currentDbSuggestion?.description?.isNotEmpty == true)
-                                Builder(
-                                  builder: (context) {
-                                    // Calculate reasoning length to determine description space
-                                    final reasoningLength = _currentDbSuggestion?.botReasoning?.length ?? 0;
-                                    final isReasoningShort = reasoningLength < 200; // Threshold for "short" reasoning
-                                    final maxDescriptionHeight = isReasoningShort ? 180.0 : 120.0; // More space if reasoning is short
-                                    
-                                    return Container(
-                                      constraints: BoxConstraints(maxHeight: maxDescriptionHeight),
-                                      child: Padding(
-                                        padding: const EdgeInsets.only(bottom: 8),
-                                        child: SingleChildScrollView(
-                                          child: Text(
-                                            _currentDbSuggestion!.description!,
-                                            style: const TextStyle(
-                                              fontSize: 14,
-                                              color: Colors.white,
-                                              height: 1.5,
-                                              fontWeight: FontWeight.w400,
-                                            ),
-                                            textAlign: TextAlign.center,
-                                          ),
-                                        ),
-                                      ),
-                                    );
-                                  },
-                                ),
-                              
-                              const SizedBox(height: 16),
-                              
-                              // Bot reasoning - takes remaining space but ensures minimum padding
-                              if (_currentDbSuggestion?.botReasoning?.isNotEmpty == true)
-                                Expanded(
-                                  child: Container(
-                                    width: double.infinity,
-                                    margin: const EdgeInsets.only(bottom: 24), // Ensure bottom padding
-                                    child: Column(
-                                      children: [
-                                        // Reasoning header with Font Awesome robot icon
-                                        Row(
-                                          mainAxisAlignment: MainAxisAlignment.center,
-                                          children: [
-                                            Icon(
-                                              FontAwesomeIcons.robot,
-                                              size: 16,
-                                              color: const Color(0xFF8C86E2).withOpacity(0.7),
-                                            ),
-                                            const SizedBox(width: 8),
-                                            Text(
-                                              'Reasoning',
-                                              style: TextStyle(
-                                                color: const Color(0xFF8C86E2).withOpacity(0.7),
-                                                fontWeight: FontWeight.w500,
-                                                fontSize: 14,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                        const SizedBox(height: 8),
-                                        
-                                        // Reasoning text - scrollable with constraints to prevent overflow
-                                        Expanded(
-                                          child: LayoutBuilder(
-                                            builder: (context, constraints) {
-                                              return Container(
-                                                constraints: BoxConstraints(
-                                                  maxHeight: constraints.maxHeight,
-                                                  minHeight: 40, // Minimum height for reasoning
-                                                ),
-                                                child: SingleChildScrollView(
-                                                  child: Text(
-                                                    _currentDbSuggestion!.botReasoning!,
-                                                    style: TextStyle(
-                                                      fontSize: 13,
-                                                      color: const Color(0xFF8C86E2).withOpacity(0.8),
-                                                      height: 1.4,
-                                                      fontWeight: FontWeight.w400,
-                                                    ),
-                                                    textAlign: TextAlign.center,
-                                                  ),
-                                                ),
-                                              );
-                                            },
-                                          ),
-                                        ),
-                                      ],
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    FontAwesomeIcons.robot,
+                                    size: 16,
+                                    color: const Color(0xFF8C86E2).withOpacity(0.7),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'Reasoning',
+                                    style: TextStyle(
+                                      color: const Color(0xFF8C86E2).withOpacity(0.7),
+                                      fontWeight: FontWeight.w500,
+                                      fontSize: 14,
                                     ),
                                   ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Expanded(
+                                child: SingleChildScrollView(
+                                  child: Text(
+                                    _currentDbSuggestion!.botReasoning!,
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      color: const Color(0xFF8C86E2).withOpacity(0.8),
+                                      height: 1.4,
+                                      fontWeight: FontWeight.w400,
+                                    ),
+                                    textAlign: TextAlign.center,
+                                  ),
                                 ),
+                              ),
                             ],
                           ),
                         ),
-                        
-                        // Action buttons using generic component
-                        const SizedBox(height: 24),
-                        SuggestionActionButtons(
-                          mediaType: 'music',
-                          hasLikedCurrentSuggestion: _hasLikedCurrentSuggestion,
-                          hasFavoritedCurrentSuggestion: _hasFavoritedCurrentSuggestion,
-                          isInWatchlist: _currentDbSuggestion != null && 
-                            _dbPlaylistSuggestions.any((item) => item.id == _currentDbSuggestion!.id),
-                          isProcessing: _isLoadingDbSuggestion,
-                          onLike: _likeDbSuggestion,
-                          onDislike: _dislikeDbSuggestion,
-                          onFavorite: _addToFavorites,
-                          onUnfavorite: _removeFromFavorites,
-                          onAddToWatchlist: () {
-                            final inPlaylist = _currentDbSuggestion != null && 
-                              _dbPlaylistSuggestions.any((item) => item.id == _currentDbSuggestion!.id);
-                            if (inPlaylist) {
-                              if (_currentDbSuggestion != null) {
-                                _removeFromWatchlist(_currentDbSuggestion!);
-                              }
-                            } else {
-                              _addDbSuggestionToPlaylist();
-                            }
-                          },
-                          onSkip: _skipDbSuggestion,
-                        ),
-                      ],
+                      ),
+                    
+                    // Action buttons using generic component
+                    SuggestionActionButtons(
+                      mediaType: 'music',
+                      hasLikedCurrentSuggestion: _hasLikedCurrentSuggestion,
+                      hasFavoritedCurrentSuggestion: _hasFavoritedCurrentSuggestion,
+                      isInWatchlist: _currentDbSuggestion != null && 
+                        _dbPlaylistSuggestions.any((item) => item.id == _currentDbSuggestion!.id),
+                      isProcessing: _isLoadingDbSuggestion,
+                      onLike: _likeDbSuggestion,
+                      onDislike: _dislikeDbSuggestion,
+                      onFavorite: _addToFavorites,
+                      onUnfavorite: _removeFromFavorites,
+                      onAddToWatchlist: _addDbSuggestionToPlaylist,
+                      onSkip: _skipDbSuggestion,
                     ),
-                  ),
+                  ],
                 ),
-              ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       );
     }
   }
@@ -1423,37 +1448,41 @@ class _MusicSectionState extends State<MusicSection> {
           _isLoadingDbSuggestion = false;
         });
       } else {
-        // Try to generate a new suggestion on-demand
+        // Try to generate a new suggestion on-demand (non-blocking)
         final loadingSuggestion = await _recommendationService.generateSuggestionOnDemand('music');
         
         if (loadingSuggestion != null) {
-          // Convert loading suggestion to Track for compatibility
-          final loadingTrack = Track(
-            id: loadingSuggestion.id.toString(),
-            name: loadingSuggestion.title ?? 'Loading...',
-            artists: [Artist(name: loadingSuggestion.artist ?? 'Generating suggestion')],
-            album: Album(
-              name: 'Loading...',
-              images: [],
-            ),
-            uri: '', // No Spotify URI for loading suggestions
-            previewUrl: '',
-          );
-          
-          // Don't set the loading suggestion as current - just keep loading state
+          debugPrint('🎵 Music suggestion generation started in background');
+          // Set loading state immediately - actual suggestion will come via events
           setState(() {
             _dbSuggestedTrack = null; // Clear current track
             _currentDbSuggestion = null; // Clear current suggestion
-            _isLoadingDbSuggestion = true; // Keep loading state until real suggestion arrives
+            _isLoadingDbSuggestion = true; // Keep loading until real suggestion arrives via events
+            _dbSuggestionError = null;
             _hasLikedCurrentSuggestion = false;
             _hasFavoritedCurrentSuggestion = false;
           });
         } else {
+          // Don't treat null as error - background generation might be in progress
+          // Keep loading state and let the event system deliver the suggestion when ready
+          debugPrint('🎵 No immediate suggestion available - background generation in progress');
           setState(() {
             _dbSuggestedTrack = null;
             _currentDbSuggestion = null;
-            _dbSuggestionError = 'Unable to generate music suggestions. Make sure TinyLlama model is installed.';
-            _isLoadingDbSuggestion = false;
+            _isLoadingDbSuggestion = true; // Keep loading state
+            _dbSuggestionError = null; // Clear any previous errors
+            _hasLikedCurrentSuggestion = false;
+            _hasFavoritedCurrentSuggestion = false;
+          });
+          
+          // Set 30-second timeout for background generation
+          Timer(const Duration(seconds: 30), () {
+            if (mounted && _isLoadingDbSuggestion && _currentDbSuggestion == null) {
+              setState(() {
+                _dbSuggestionError = 'Suggestion generation timed out. Please try again.';
+                _isLoadingDbSuggestion = false;
+              });
+            }
           });
         }
       }
@@ -1469,29 +1498,53 @@ class _MusicSectionState extends State<MusicSection> {
 
   // Helper method to update UI with real suggestion (optimized for performance)
   void _updateWithRealSuggestion(MediaSuggestion realSuggestion) {
-    // Convert MediaSuggestion to Track for compatibility (lightweight operation)
-    final track = Track(
-      id: realSuggestion.id.toString(),
-      name: realSuggestion.title ?? 'Unknown',
-      artists: [Artist(name: realSuggestion.artist ?? 'Unknown Artist')],
-      album: Album(
-        name: realSuggestion.album ?? 'Unknown Album',
-        images: realSuggestion.coverArtUrl?.isNotEmpty == true 
-          ? [ImageData(url: realSuggestion.coverArtUrl!, height: 300, width: 300)] 
-          : [],
-      ),
-      uri: '', // No Spotify URI for database suggestions
-      previewUrl: '',
-    );
+    final eventStopwatch = Stopwatch()..start();
+    debugPrint('🎵 [${eventStopwatch.elapsedMilliseconds}ms] _updateWithRealSuggestion called for: ${realSuggestion.title}');
     
-    // Simple setState with minimal work
-    setState(() {
-      _dbSuggestedTrack = track;
-      _currentDbSuggestion = realSuggestion;
-      _isLoadingDbSuggestion = false;
-      // Reset button states for the new suggestion
-      _hasLikedCurrentSuggestion = false;
-      _hasFavoritedCurrentSuggestion = false;
+    // Use Future.delayed to ensure this runs in next event loop iteration
+    Future.delayed(Duration.zero, () {
+      if (!mounted) return;
+      
+      debugPrint('🎵 [${eventStopwatch.elapsedMilliseconds}ms] Future.delayed callback executing');
+      
+      // Convert MediaSuggestion to Track for compatibility
+      final conversionStart = eventStopwatch.elapsedMilliseconds;
+      final track = Track(
+        id: realSuggestion.id.toString(),
+        name: realSuggestion.title ?? 'Unknown',
+        artists: [Artist(name: realSuggestion.artist ?? 'Unknown Artist')],
+        album: Album(
+          name: realSuggestion.album ?? 'Unknown Album',
+          images: realSuggestion.coverArtUrl?.isNotEmpty == true 
+            ? [ImageData(url: realSuggestion.coverArtUrl!, height: 300, width: 300)] 
+            : [],
+        ),
+        uri: '', // No Spotify URI for database suggestions
+        previewUrl: '',
+      );
+      final conversionEnd = eventStopwatch.elapsedMilliseconds;
+      debugPrint('🎵 [${eventStopwatch.elapsedMilliseconds}ms] Track conversion took ${conversionEnd - conversionStart}ms');
+      
+      debugPrint('🎵 [${eventStopwatch.elapsedMilliseconds}ms] Starting setState for suggestion update');
+      final setStateStart = eventStopwatch.elapsedMilliseconds;
+      
+      // Single setState - let's see if this is what's blocking
+      setState(() {
+        _dbSuggestedTrack = track;
+        _currentDbSuggestion = realSuggestion;
+        _isLoadingDbSuggestion = false;
+        _dbSuggestionError = null; // Clear any previous errors
+        _hasLikedCurrentSuggestion = false;
+        _hasFavoritedCurrentSuggestion = false;
+      });
+      
+      final setStateEnd = eventStopwatch.elapsedMilliseconds;
+      debugPrint('🎵 [${eventStopwatch.elapsedMilliseconds}ms] setState completed in ${setStateEnd - setStateStart}ms');
+      
+      // Add a post-frame callback to see when the UI actually finishes rebuilding
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        debugPrint('🎵 [${eventStopwatch.elapsedMilliseconds}ms] UI rebuild completed - TOTAL EVENT TIME: ${eventStopwatch.elapsedMilliseconds}ms');
+      });
     });
   }
 

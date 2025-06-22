@@ -38,23 +38,47 @@ class _MovieSectionState extends State<MovieSection> {
   final RecommendationEventService _eventService = RecommendationEventService();
   final SQLiteDatabase _db = SQLiteDatabase();
 
+  StreamSubscription<RecommendationEvent>? _eventSubscription;
+
   @override
   void initState() {
     super.initState();
-    
-    // Listen for recommendation events
-    _eventService.eventsForMediaType('movie').listen((event) {
-      if (event.type == RecommendationEventType.suggestionReady) {
-        debugPrint('🎉 Movie suggestion ready: ${event.suggestion?.title}');
-        _loadDbSuggestion(); // Reload to get the new suggestion
+    // Listen to recommendation events for this media type
+    _eventSubscription = _eventService.eventsForMediaType('movie').listen((event) {
+      debugPrint('📱 Movie section received event: ${event.type}');
+      switch (event.type) {
+        case RecommendationEventType.suggestionReady:
+          if (event.suggestion != null) {
+            setState(() {
+              _currentDbSuggestion = event.suggestion;
+              _isLoadingDbSuggestion = false;
+              _dbSuggestionError = null;
+              _hasLikedCurrentSuggestion = false;
+              _hasFavoritedCurrentSuggestion = false;
+            });
+          }
+          break;
+        case RecommendationEventType.suggestionError:
+          setState(() {
+            _dbSuggestionError = event.error ?? 'Unknown error';
+            _isLoadingDbSuggestion = false;
+          });
+          break;
+        case RecommendationEventType.suggestionStarted:
+          // Loading state is already set when we call generateSuggestionOnDemand
+          break;
       }
     });
     
-    // Load initial DB suggestion
     _loadDbSuggestion();
-    // Load DB library and watchlist
     _loadDbLibrary();
     _loadDbWatchlist();
+  }
+
+  @override
+  void dispose() {
+    _eventSubscription?.cancel();
+    super.dispose();
   }
 
   // Load a DB suggestion for movies
@@ -120,14 +144,15 @@ class _MovieSectionState extends State<MovieSection> {
         });
       } else {
         debugPrint('📱 _loadDbSuggestion no pending suggestions, generating on-demand');
-        // Try to generate a new suggestion on-demand
+        // Try to generate a new suggestion on-demand (non-blocking)
         final loadingSuggestion = await _recommendationService.generateSuggestionOnDemand('movie');
         if (loadingSuggestion != null) {
           debugPrint('📱 _loadDbSuggestion started background generation');
-          // Don't set the loading suggestion as current - just keep loading state
+          // Set loading state immediately - actual suggestion will come via events
           setState(() {
             _currentDbSuggestion = null; // Clear current suggestion
-            _isLoadingDbSuggestion = true; // Keep loading until real suggestion arrives
+            _isLoadingDbSuggestion = true; // Keep loading until real suggestion arrives via events
+            _dbSuggestionError = null;
             _hasLikedCurrentSuggestion = false;
             _hasFavoritedCurrentSuggestion = false;
           });
@@ -137,7 +162,6 @@ class _MovieSectionState extends State<MovieSection> {
             _currentDbSuggestion = null;
             _dbSuggestionError = 'Unable to generate movie suggestions. Make sure TinyLlama model is installed.';
             _isLoadingDbSuggestion = false;
-            // Reset button states when no suggestion available
             _hasLikedCurrentSuggestion = false;
             _hasFavoritedCurrentSuggestion = false;
           });

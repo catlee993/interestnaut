@@ -37,23 +37,48 @@ class _GameSectionState extends State<GameSection> {
   final RecommendationEventService _eventService = RecommendationEventService();
   final SQLiteDatabase _db = SQLiteDatabase();
 
+  StreamSubscription<RecommendationEvent>? _eventSubscription;
+
   @override
   void initState() {
     super.initState();
     
-    // Listen for recommendation events
-    _eventService.eventsForMediaType('video_game').listen((event) {
-      if (event.type == RecommendationEventType.suggestionReady) {
-        debugPrint('🎉 Game suggestion ready: ${event.suggestion?.title}');
-        _loadDbSuggestion(); // Reload to get the new suggestion
+    // Listen to recommendation events for this media type
+    _eventSubscription = _eventService.eventsForMediaType('video_game').listen((event) {
+      debugPrint('🎮 Game section received event: ${event.type}');
+      switch (event.type) {
+        case RecommendationEventType.suggestionReady:
+          if (event.suggestion != null) {
+            setState(() {
+              _currentDbSuggestion = event.suggestion;
+              _isLoadingDbSuggestion = false;
+              _dbSuggestionError = null;
+              _hasLikedCurrentSuggestion = false;
+              _hasFavoritedCurrentSuggestion = false;
+            });
+          }
+          break;
+        case RecommendationEventType.suggestionError:
+          setState(() {
+            _dbSuggestionError = event.error ?? 'Unknown error';
+            _isLoadingDbSuggestion = false;
+          });
+          break;
+        case RecommendationEventType.suggestionStarted:
+          // Loading state is already set when we call generateSuggestionOnDemand
+          break;
       }
     });
     
-    // Load initial DB suggestion
     _loadDbSuggestion();
-    // Load DB library and playlist
     _loadDbLibrary();
     _loadDbPlaylist();
+  }
+
+  @override
+  void dispose() {
+    _eventSubscription?.cancel();
+    super.dispose();
   }
 
   // Load a DB suggestion for video games
@@ -93,13 +118,14 @@ class _GameSectionState extends State<GameSection> {
           _hasFavoritedCurrentSuggestion = false;
         });
       } else {
-        // Try to generate a new suggestion on-demand
+        // Try to generate a new suggestion on-demand (non-blocking)
         final loadingSuggestion = await _recommendationService.generateSuggestionOnDemand('video_game');
         if (loadingSuggestion != null) {
-          // Don't set the loading suggestion as current - just keep loading state
+          // Set loading state immediately - actual suggestion will come via events
           setState(() {
             _currentDbSuggestion = null; // Clear current suggestion
-            _isLoadingDbSuggestion = true; // Keep loading until real suggestion arrives
+            _isLoadingDbSuggestion = true; // Keep loading until real suggestion arrives via events
+            _dbSuggestionError = null;
             _hasLikedCurrentSuggestion = false;
             _hasFavoritedCurrentSuggestion = false;
           });
@@ -536,16 +562,16 @@ class _GameSectionState extends State<GameSection> {
   Widget build(BuildContext context) {
     return Stack(
       children: [
-        ScrollContentWrapper(
-          headerHeight: 60.0,
+        // Main content using universal layout system
+        MediaSectionLayout(
+          headerHeight: 106.0,
           builder: (scrollOffset) {
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 100),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const SizedBox(height: 12),
-                  Center(
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Title with consistent spacing
+                ComponentSpacing(
+                  child: Center(
                     child: Opacity(
                       opacity: (scrollOffset <= 70) ? 1.0 : 0.0,
                       child: const Text(
@@ -559,295 +585,447 @@ class _GameSectionState extends State<GameSection> {
                       ),
                     ),
                   ),
-                  const SizedBox(height: 12),
-                  if (_isLoadingDbSuggestion)
-                    const LoadingSuggestion(mediaType: 'video_game')
-                  else if (_dbSuggestionError != null)
-                    Center(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 24),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(
-                              'Error: $_dbSuggestionError',
-                              style: const TextStyle(
-                                color: Colors.white54,
-                                fontSize: 16,
-                              ),
-                              textAlign: TextAlign.center,
-                            ),
-                            const SizedBox(height: 16),
-                            ElevatedButton(
-                              onPressed: _loadDbSuggestion,
-                              child: const Text('Try Again'),
-                            ),
-                          ],
-                        ),
-                      ),
-                    )
-                  else if (_currentDbSuggestion == null)
-                    const Center(
-                      child: Padding(
-                        padding: EdgeInsets.symmetric(vertical: 24),
-                        child: Text(
-                          'No suggestions available',
-                          style: TextStyle(
-                            color: Colors.white54,
-                            fontSize: 16,
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                      ),
-                    )
-                  else
-                    Column(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(24),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF282828),
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              // Game cover
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(12),
-                                child: Container(
-                                  width: 300,
-                                  height: 450,
-                                  color: Colors.grey[900],
-                                  child: _currentDbSuggestion!.coverArtUrl != null
-                                    ? Image.network(
-                                        _currentDbSuggestion!.coverArtUrl!,
-                                        fit: BoxFit.cover,
-                                        errorBuilder: (context, error, stackTrace) {
-                                          return const Center(
-                                            child: Icon(
-                                              Icons.videogame_asset,
-                                              size: 48,
-                                              color: Colors.white54,
-                                            ),
-                                          );
-                                        },
-                                      )
-                                    : const Center(
-                                        child: Icon(
-                                          Icons.videogame_asset,
-                                          size: 48,
-                                          color: Colors.white54,
-                                        ),
-                                      ),
-                                ),
-                              ),
-                              const SizedBox(width: 24),
-                              
-                              // Game info
-                              Expanded(
-                                child: SizedBox(
-                                  height: 450,
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.center,
-                                    children: [
-                                      // Game title
-                                      Text(
-                                        _currentDbSuggestion!.title ?? 'Unknown Title',
-                                        style: const TextStyle(
-                                          fontSize: 24,
-                                          fontWeight: FontWeight.w600,
-                                          color: Colors.white,
-                                        ),
-                                        textAlign: TextAlign.center,
-                                      ),
-                                      const SizedBox(height: 8),
-                                      
-                                      // Developer info
-                                      Text(
-                                        'by ${_currentDbSuggestion!.artist ?? 'Unknown Developer'}',
-                                        style: TextStyle(
-                                          fontSize: 15,
-                                          color: Colors.white.withOpacity(0.7),
-                                          fontWeight: FontWeight.w400,
-                                        ),
-                                        textAlign: TextAlign.center,
-                                      ),
-                                      const SizedBox(height: 16),
-                                      
-                                      // Description text
-                                      if (_currentDbSuggestion?.description?.isNotEmpty == true)
-                                        Padding(
-                                          padding: const EdgeInsets.only(bottom: 16),
-                                          child: Text(
-                                            _currentDbSuggestion!.description!,
-                                            style: const TextStyle(
-                                              fontSize: 14,
-                                              color: Colors.white,
-                                              height: 1.5,
-                                              fontWeight: FontWeight.w400,
-                                            ),
-                                            textAlign: TextAlign.center,
-                                          ),
-                                        ),
-                                      
-                                      Expanded(child: Container()),
-                                      
-                                      // Bot reasoning
-                                      if (_currentDbSuggestion?.botReasoning?.isNotEmpty == true)
-                                        Container(
-                                          width: double.infinity,
-                                          margin: const EdgeInsets.only(bottom: 24),
-                                          child: Column(
-                                            children: [
-                                              Row(
-                                                mainAxisAlignment: MainAxisAlignment.center,
-                                                children: [
-                                                  Icon(
-                                                    FontAwesomeIcons.robot,
-                                                    size: 16,
-                                                    color: const Color(0xFF8C86E2).withOpacity(0.7),
-                                                  ),
-                                                  const SizedBox(width: 8),
-                                                  Text(
-                                                    'Reasoning',
-                                                    style: TextStyle(
-                                                      color: const Color(0xFF8C86E2).withOpacity(0.7),
-                                                      fontWeight: FontWeight.w500,
-                                                      fontSize: 14,
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                              const SizedBox(height: 8),
-                                              Container(
-                                                height: 1,
-                                                color: const Color(0xFF7B68EE).withOpacity(0.2),
-                                              ),
-                                              const SizedBox(height: 12),
-                                              Text(
-                                                _currentDbSuggestion!.botReasoning!,
-                                                style: TextStyle(
-                                                  color: Colors.white.withOpacity(0.6),
-                                                  fontSize: 14,
-                                                  height: 1.5,
-                                                ),
-                                                textAlign: TextAlign.center,
-                                              ),
-                                              
-                                              // Action buttons using generic component
-                                              const SizedBox(height: 24),
-                                              SuggestionActionButtons(
-                                                mediaType: 'video_game',
-                                                hasLikedCurrentSuggestion: _hasLikedCurrentSuggestion, // Use the new state
-                                                hasFavoritedCurrentSuggestion: _hasFavoritedCurrentSuggestion,
-                                                isInWatchlist: _currentDbSuggestion != null && 
-                                                  _dbPlaylistSuggestions.any((item) => item.id == _currentDbSuggestion!.id),
-                                                isProcessing: _isLoadingDbSuggestion,
-                                                onLike: _likeDbSuggestion,
-                                                onDislike: _dislikeDbSuggestion,
-                                                onFavorite: _addToFavorites, // Use the new method
-                                                onUnfavorite: _removeFromFavorites, // Added this method
-                                                onAddToWatchlist: () {
-                                                  final inPlaylist = _currentDbSuggestion != null && 
-                                                    _dbPlaylistSuggestions.any((item) => item.id == _currentDbSuggestion!.id);
-                                                  if (inPlaylist) {
-                                                    if (_currentDbSuggestion != null) {
-                                                      _removeFromPlaylist(_currentDbSuggestion!);
-                                                    }
-                                                  } else {
-                                                    _addDbSuggestionToPlaylist();
-                                                  }
-                                                },
-                                                onSkip: _skipDbSuggestion,
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 24),
-                      ],
-                    ),
+                ),
                 
-                // Playlist section
-                if (_dbPlaylistSuggestions.isNotEmpty || _isLoadingDbPlaylist) ...[
-                  const SizedBox(height: 32),
-                  const Center(
-                    child: Text(
-                      'Your Playlist',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  if (_isLoadingDbPlaylist)
-                    const Center(
-                      child: CircularProgressIndicator(
-                        color: Color(0xFFA855F7),
-                      ),
-                    )
-                  else if (_dbPlaylistSuggestions.isEmpty)
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 32),
-                      child: Center(
-                        child: Text(
-                          'No games in your playlist yet. Add suggestions to your playlist to see them here.',
-                          style: TextStyle(color: Colors.white54),
-                          textAlign: TextAlign.center,
-                        ),
-                      ),
-                    )
-                  else
-                    _buildDbPlaylistSection(),
-                ],
+                // Suggestion content with consistent spacing
+                ComponentSpacing(
+                  child: _buildSuggestionContent(scrollOffset),
+                ),
                 
-                // Library section
-                if (_dbLikedSuggestions.isNotEmpty || _isLoadingDbLibrary) ...[
-                  const SizedBox(height: 32),
-                  const Center(
-                    child: Text(
-                      'Your Library',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  if (_isLoadingDbLibrary)
-                    const Center(
-                      child: CircularProgressIndicator(
-                        color: Color(0xFFA855F7),
-                      ),
-                    )
-                  else if (_dbLikedSuggestions.isEmpty)
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 32),
-                      child: Center(
-                        child: Text(
-                          'No games in your library yet. Favorite suggestions to see them here.',
-                          style: TextStyle(color: Colors.white54),
-                          textAlign: TextAlign.center,
-                        ),
-                      ),
-                    )
-                  else
-                    _buildDbLibrarySection(),
-                ],
-                ],
-              ),
+                // Library section with proper spacing
+                SectionSpacing(
+                  child: _buildLibrarySection(),
+                ),
+                
+                // Playlist section with proper spacing
+                SectionSpacing(
+                  child: _buildPlaylistSection(),
+                ),
+              ],
             );
           },
         ),
       ],
     );
   }
+
+  // Helper method to build suggestion content
+  Widget _buildSuggestionContent(double scrollOffset) {
+    if (_isLoadingDbSuggestion) {
+      return const LoadingSuggestion(mediaType: 'video_game');
+    } else if (_dbSuggestionError != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                'Error: $_dbSuggestionError',
+                style: const TextStyle(
+                  color: Colors.white54,
+                  fontSize: 16,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: _loadDbSuggestion,
+                child: const Text('Try Again'),
+              ),
+            ],
+          ),
+        ),
+      );
+    } else if (_currentDbSuggestion == null) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.symmetric(vertical: 24),
+          child: Text(
+            'No suggestions available',
+            style: TextStyle(
+              color: Colors.white54,
+              fontSize: 16,
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ),
+      );
+    } else {
+      // Current suggestion container (no extra horizontal padding - handled by MediaSectionLayout)
+      return Container(
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: const Color(0xFF282828),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Game cover
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Container(
+                width: 300,
+                height: 450,
+                color: Colors.grey[900],
+                child: _currentDbSuggestion!.coverArtUrl != null
+                  ? Image.network(
+                      _currentDbSuggestion!.coverArtUrl!,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) {
+                        return const Center(
+                          child: Icon(
+                            Icons.videogame_asset,
+                            size: 48,
+                            color: Colors.white54,
+                          ),
+                        );
+                      },
+                    )
+                  : const Center(
+                      child: Icon(
+                        Icons.videogame_asset,
+                        size: 48,
+                        color: Colors.white54,
+                      ),
+                    ),
+              ),
+            ),
+            const SizedBox(width: 24),
+            
+            // Game info
+            Expanded(
+              child: SizedBox(
+                height: 450,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    // Game title
+                    Text(
+                      _currentDbSuggestion!.title ?? 'Unknown Title',
+                      style: const TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 8),
+                    
+                    // Developer info
+                    Text(
+                      'by ${_currentDbSuggestion!.artist ?? 'Unknown Developer'}',
+                      style: TextStyle(
+                        fontSize: 15,
+                        color: Colors.white.withOpacity(0.7),
+                        fontWeight: FontWeight.w400,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 16),
+                    
+                    // Flexible content area for description and reasoning
+                    Expanded(
+                      child: Column(
+                        children: [
+                          // Description text - scrollable with max height
+                          if (_currentDbSuggestion?.description?.isNotEmpty == true)
+                            LayoutBuilder(
+                              builder: (context, constraints) {
+                                // Calculate available space for description
+                                // Account for bot reasoning section at bottom
+                                final maxDescriptionHeight = constraints.maxHeight - 120; // Reserve space for reasoning
+                                
+                                return Container(
+                                  constraints: BoxConstraints(maxHeight: maxDescriptionHeight),
+                                  child: Padding(
+                                    padding: const EdgeInsets.only(bottom: 8),
+                                    child: SingleChildScrollView(
+                                      child: Text(
+                                        _currentDbSuggestion!.description!,
+                                        style: const TextStyle(
+                                          fontSize: 14,
+                                          color: Colors.white,
+                                          height: 1.5,
+                                          fontWeight: FontWeight.w400,
+                                        ),
+                                        textAlign: TextAlign.center,
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          
+                          const SizedBox(height: 16),
+                          
+                          // Bot reasoning - takes remaining space but ensures minimum padding
+                          if (_currentDbSuggestion?.botReasoning?.isNotEmpty == true)
+                            Container(
+                              width: double.infinity,
+                              child: Column(
+                                children: [
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(
+                                        FontAwesomeIcons.robot,
+                                        size: 16,
+                                        color: const Color(0xFF8C86E2).withOpacity(0.7),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        'Reasoning',
+                                        style: TextStyle(
+                                          color: const Color(0xFF8C86E2).withOpacity(0.7),
+                                          fontWeight: FontWeight.w500,
+                                          fontSize: 14,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Container(
+                                    height: 1,
+                                    color: const Color(0xFF7B68EE).withOpacity(0.2),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Text(
+                                    _currentDbSuggestion!.botReasoning!,
+                                    style: TextStyle(
+                                      color: Colors.white.withOpacity(0.6),
+                                      fontSize: 14,
+                                      height: 1.5,
+                                    ),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          
+                          // Action buttons using generic component
+                          const SizedBox(height: 24),
+                          SuggestionActionButtons(
+                            mediaType: 'video_game',
+                            hasLikedCurrentSuggestion: _hasLikedCurrentSuggestion,
+                            hasFavoritedCurrentSuggestion: _hasFavoritedCurrentSuggestion,
+                            isInWatchlist: _currentDbSuggestion != null && 
+                              _dbPlaylistSuggestions.any((item) => item.id == _currentDbSuggestion!.id),
+                            isProcessing: _isLoadingDbSuggestion,
+                            onLike: _likeDbSuggestion,
+                            onDislike: _dislikeDbSuggestion,
+                            onFavorite: _addToFavorites,
+                            onUnfavorite: _removeFromFavorites,
+                            onAddToWatchlist: () {
+                              final inPlaylist = _currentDbSuggestion != null && 
+                                _dbPlaylistSuggestions.any((item) => item.id == _currentDbSuggestion!.id);
+                              if (inPlaylist) {
+                                if (_currentDbSuggestion != null) {
+                                  _removeFromPlaylist(_currentDbSuggestion!);
+                                }
+                              } else {
+                                _addDbSuggestionToPlaylist();
+                              }
+                            },
+                            onSkip: _skipDbSuggestion,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+  }
+
+  // Helper method to build library section
+  Widget _buildLibrarySection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text(
+              'My Library',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+                color: Colors.white,
+              ),
+            ),
+            if (_dbLikedSuggestions.isNotEmpty)
+              Text(
+                '${_dbLikedSuggestions.length} games',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.white.withOpacity(0.6),
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        if (_isLoadingDbLibrary)
+          const Center(
+            child: Padding(
+              padding: EdgeInsets.all(24),
+              child: CircularProgressIndicator(),
+            ),
+          )
+        else if (_dbLikedSuggestions.isEmpty)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: const Color(0xFF282828),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: const Text(
+              'No games in your library yet.\nFavorite games to see them here!',
+              style: TextStyle(
+                color: Colors.white54,
+                fontSize: 16,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          )
+        else
+          MediaLibraryGrid(
+            suggestions: _dbLikedSuggestions,
+            watchlistItems: _dbPlaylistSuggestions,
+            mediaType: 'video_game',
+            isWatchlist: false,
+            onRemove: (suggestion) async {
+              await _removeFromLibrary(suggestion);
+            },
+            onLike: (suggestion) async {
+              await _recommendationService.updateSuggestionStatus(
+                suggestion.id,
+                SuggestionStatus.liked,
+              );
+            },
+            onDislike: (suggestion) async {
+              await _recommendationService.updateSuggestionStatus(
+                suggestion.id,
+                SuggestionStatus.disliked,
+              );
+            },
+            onAddToWatchlist: (suggestion) async {
+              await _addLibraryItemToPlaylist(suggestion);
+            },
+            onRemoveFromWatchlist: (suggestion) async {
+              await _removeFromPlaylist(suggestion);
+            },
+            onFavorite: (suggestion) async {
+              await _recommendationService.updateSuggestionStatus(
+                suggestion.id,
+                SuggestionStatus.added,
+              );
+            },
+            onUnfavorite: (suggestion) async {
+              await _removeFromLibrary(suggestion);
+            },
+          ),
+      ],
+    );
+  }
+
+  // Helper method to build playlist section
+  Widget _buildPlaylistSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text(
+              'Want to Play',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+                color: Colors.white,
+              ),
+            ),
+            if (_dbPlaylistSuggestions.isNotEmpty)
+              Text(
+                '${_dbPlaylistSuggestions.length} games',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.white.withOpacity(0.6),
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        if (_isLoadingDbPlaylist)
+          const Center(
+            child: Padding(
+              padding: EdgeInsets.all(24),
+              child: CircularProgressIndicator(),
+            ),
+          )
+        else if (_dbPlaylistSuggestions.isEmpty)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: const Color(0xFF282828),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: const Text(
+              'No games in your playlist yet.\nAdd games you want to play later!',
+              style: TextStyle(
+                color: Colors.white54,
+                fontSize: 16,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          )
+        else
+          MediaLibraryGrid(
+            suggestions: _dbPlaylistSuggestions,
+            watchlistItems: _dbPlaylistSuggestions,
+            mediaType: 'video_game',
+            isWatchlist: true,
+            onRemove: (suggestion) async {
+              await _removeFromPlaylist(suggestion);
+            },
+            onLike: (suggestion) async {
+              await _recommendationService.updateSuggestionStatus(
+                suggestion.id,
+                SuggestionStatus.liked,
+              );
+            },
+            onDislike: (suggestion) async {
+              await _recommendationService.updateSuggestionStatus(
+                suggestion.id,
+                SuggestionStatus.disliked,
+              );
+            },
+            onAddToWatchlist: (suggestion) async {
+              // Already in watchlist, no action needed
+            },
+            onRemoveFromWatchlist: (suggestion) async {
+              await _removeFromPlaylist(suggestion);
+            },
+            onFavorite: (suggestion) async {
+              await _recommendationService.updateSuggestionStatus(
+                suggestion.id,
+                SuggestionStatus.added,
+              );
+            },
+            onUnfavorite: (suggestion) async {
+              await _removeFromLibrary(suggestion);
+            },
+          ),
+      ],
+    );
+  }
+
+
 } 

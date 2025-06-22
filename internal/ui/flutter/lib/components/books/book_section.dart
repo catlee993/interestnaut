@@ -44,23 +44,48 @@ class _BookSectionState extends State<BookSection> {
   final SQLiteDatabase _db = SQLiteDatabase();
   final GlobalKey _searchResultsKey = GlobalKey();
 
+  StreamSubscription<RecommendationEvent>? _eventSubscription;
+
   @override
   void initState() {
     super.initState();
     
-    // Listen for recommendation events
-    _eventService.eventsForMediaType('book').listen((event) {
-      if (event.type == RecommendationEventType.suggestionReady) {
-        debugPrint('🎉 Book suggestion ready: ${event.suggestion?.title}');
-        _loadDbSuggestion(); // Reload to get the new suggestion
+    // Listen to recommendation events for this media type
+    _eventSubscription = _eventService.eventsForMediaType('book').listen((event) {
+      debugPrint('📚 Book section received event: ${event.type}');
+      switch (event.type) {
+        case RecommendationEventType.suggestionReady:
+          if (event.suggestion != null) {
+            setState(() {
+              _currentDbSuggestion = event.suggestion;
+              _isLoadingDbSuggestion = false;
+              _dbSuggestionError = null;
+              _hasLikedCurrentSuggestion = false;
+              _hasFavoritedCurrentSuggestion = false;
+            });
+          }
+          break;
+        case RecommendationEventType.suggestionError:
+          setState(() {
+            _dbSuggestionError = event.error ?? 'Unknown error';
+            _isLoadingDbSuggestion = false;
+          });
+          break;
+        case RecommendationEventType.suggestionStarted:
+          // Loading state is already set when we call generateSuggestionOnDemand
+          break;
       }
     });
     
-    // Load initial DB suggestion
     _loadDbSuggestion();
-    // Load DB library and reading list
     _loadDbLibrary();
     _loadDbReadingList();
+  }
+
+  @override
+  void dispose() {
+    _eventSubscription?.cancel();
+    super.dispose();
   }
 
   // Convert MediaSuggestion to MediaSuggestionItem for the unified layout
@@ -111,15 +136,16 @@ class _BookSectionState extends State<BookSection> {
           _hasFavoritedCurrentSuggestion = false;
         });
       } else {
-        // Try to generate a new suggestion on-demand
+        // Try to generate a new suggestion on-demand (non-blocking)
         final loadingSuggestion = await _recommendationService.generateSuggestionOnDemand('book');
         
         if (loadingSuggestion != null) {
-          debugPrint('📱 _loadDbSuggestion started background generation');
-          // Don't set the loading suggestion as current - just keep loading state
+          debugPrint('📚 Book suggestion generation started in background');
+          // Set loading state immediately - actual suggestion will come via events
           setState(() {
             _currentDbSuggestion = null; // Clear current suggestion
-            _isLoadingDbSuggestion = true; // Keep loading state until real suggestion arrives
+            _isLoadingDbSuggestion = true; // Keep loading until real suggestion arrives via events
+            _dbSuggestionError = null;
             _hasLikedCurrentSuggestion = false;
             _hasFavoritedCurrentSuggestion = false;
           });
@@ -128,7 +154,6 @@ class _BookSectionState extends State<BookSection> {
             _currentDbSuggestion = null;
             _dbSuggestionError = 'Unable to generate book suggestions. Make sure TinyLlama model is installed.';
             _isLoadingDbSuggestion = false;
-            // Reset button states when no suggestion available
             _hasLikedCurrentSuggestion = false;
             _hasFavoritedCurrentSuggestion = false;
           });
