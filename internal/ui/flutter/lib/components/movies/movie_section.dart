@@ -355,37 +355,11 @@ class _MovieSectionState extends State<MovieSection> {
       debugPrint('💜 _addToFavorites loading library');
       _loadDbLibrary();
 
-      debugPrint('💜 _addToFavorites loading next suggestion');
-      // Move to next suggestion after favoriting (non-blocking)
-      _moveToNextSuggestion();
-      
-      // Trigger new suggestion generation (non-blocking)
-      _recommendationService.generateSuggestionOnDemand('movie').then((loadingSuggestion) {
-        if (loadingSuggestion != null) {
-          debugPrint('🎬 New suggestion generation started after favorite');
-        } else {
-          debugPrint('🎬 No immediate suggestion available - background generation in progress');
-          
-          // Set 30-second timeout for background generation
-          Timer(const Duration(seconds: 30), () {
-            if (mounted && _isLoadingDbSuggestion && _currentDbSuggestion == null) {
-              setState(() {
-                _dbSuggestionError = 'Suggestion generation timed out. Please try again.';
-                _isLoadingDbSuggestion = false;
-              });
-            }
-          });
-        }
-      }).catchError((e) {
-        if (mounted) {
-          setState(() {
-            _dbSuggestionError = 'Error generating suggestion: $e';
-            _isLoadingDbSuggestion = false;
-          });
-        }
-      });
+      // Note: Favorite action keeps the suggestion active until user manually hits next
+      debugPrint('💜 _addToFavorites completed - keeping suggestion active');
     } catch (e) {
       debugPrint('💜 Error adding to favorites: $e');
+    } finally {
       setState(() {
         _isLoadingDbSuggestion = false;
       });
@@ -618,41 +592,16 @@ class _MovieSectionState extends State<MovieSection> {
       // Refresh watchlist in background to ensure consistency
       _loadDbWatchlist();
 
-      debugPrint('📚 _addDbSuggestionToWatchlist loading next suggestion');
-      // Move to next suggestion after adding to watchlist (non-blocking)
-      _moveToNextSuggestion();
-      
-      // Trigger new suggestion generation (non-blocking)
-      _recommendationService.generateSuggestionOnDemand('movie').then((loadingSuggestion) {
-        if (loadingSuggestion != null) {
-          debugPrint('🎬 New suggestion generation started after watchlist');
-        } else {
-          debugPrint('🎬 No immediate suggestion available - background generation in progress');
-          
-          // Set 30-second timeout for background generation
-          Timer(const Duration(seconds: 30), () {
-            if (mounted && _isLoadingDbSuggestion && _currentDbSuggestion == null) {
-              setState(() {
-                _dbSuggestionError = 'Suggestion generation timed out. Please try again.';
-                _isLoadingDbSuggestion = false;
-              });
-            }
-          });
-        }
-      }).catchError((e) {
-        if (mounted) {
-          setState(() {
-            _dbSuggestionError = 'Error generating suggestion: $e';
-            _isLoadingDbSuggestion = false;
-          });
-        }
-      });
-      
+      // Note: Add to watchlist action keeps the suggestion active until user manually hits next
+      debugPrint('🎬 _addDbSuggestionToWatchlist completed - keeping suggestion active');
     } catch (e) {
       debugPrint('📚 Error adding DB suggestion to watchlist: $e');
       // Revert local state on error
       setState(() {
         _dbWatchlistSuggestions.removeWhere((item) => item.id == _currentDbSuggestion!.id);
+      });
+    } finally {
+      setState(() {
         _isLoadingDbSuggestion = false;
       });
     }

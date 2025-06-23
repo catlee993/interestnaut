@@ -8,6 +8,8 @@ import 'package:window_size/window_size.dart' as window_package;
 import 'package:path_provider/path_provider.dart';
 import 'package:ffi/ffi.dart';
 import 'package:llama_cpp_dart/llama_cpp_dart.dart';
+import 'package:flutter/services.dart';
+import 'dart:ui';
 
 // Import our components and services
 import 'components/music/music_section.dart';
@@ -28,6 +30,8 @@ import 'services/go_bindings.dart';
 import 'models.dart';
 import 'theme.dart';
 import 'db/vector_db.dart'; // Import for VectorDatabase
+
+
 
 /// Entry point for the Flutter app
 Future<void> main() async {
@@ -242,6 +246,9 @@ class _InterestnautAppState extends State<InterestnautApp> {
   }
 
   void _handleMediaChange(String media) {
+    // Clear any active focus when switching media types to prevent keyboard conflicts
+    FocusScope.of(context).unfocus();
+    
     setState(() {
       _currentMediaType = media;
     });

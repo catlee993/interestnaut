@@ -523,10 +523,8 @@ export function SuggestionProvider({
       // This creates a custom event that the useTracks hook listens for
       window.dispatchEvent(new CustomEvent("refreshSavedTracks"));
       
-      // Get a new recommendation after adding to library
-      const currentTrack = suggestedTrack;
-      setSuggestedTrack(null);
-      await handleRequestSuggestion();
+      // Note: Keep the suggestion active after adding to library - don't auto-advance
+      // Only clear and get new suggestion if user explicitly hits skip/next
     } catch (error: any) {
       console.error("Error adding to library:", error);
       const errorMessage = parseErrorMessage(

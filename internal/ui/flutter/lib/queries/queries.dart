@@ -536,6 +536,84 @@ WHERE mt.name = ? AND rs.name = 'disliked'
 ORDER BY r.updated_at DESC;
 ''';
 
+// Get favorited recommendations for a media type (for learning user preferences)
+const String getFavoritedRecommendationsQuery = '''
+SELECT
+  r.id,
+  r.query,
+  mt.name as media_type,
+  r.title,
+  r.primary_creator as artist,
+  '' as album,
+  r.cover_art_url,
+  r.description,
+  r.wiki_url,
+  r.wikidata_id,
+  r.bot_reasoning,
+  rs.name as status,
+  r.themes,
+  r.vector_media_id as media_id,
+  r.created_at,
+  r.updated_at
+FROM recommendations r
+JOIN media_types mt ON r.media_type_id = mt.id
+JOIN recommendation_status rs ON r.status_id = rs.id
+WHERE mt.name = ? AND rs.name = 'added'
+ORDER BY r.updated_at DESC;
+''';
+
+// Get watchlisted recommendations for a media type (for learning user preferences)
+const String getWatchlistedRecommendationsQuery = '''
+SELECT
+  r.id,
+  r.query,
+  mt.name as media_type,
+  r.title,
+  r.primary_creator as artist,
+  '' as album,
+  r.cover_art_url,
+  r.description,
+  r.wiki_url,
+  r.wikidata_id,
+  r.bot_reasoning,
+  rs.name as status,
+  r.themes,
+  r.vector_media_id as media_id,
+  r.created_at,
+  r.updated_at
+FROM recommendations r
+JOIN media_types mt ON r.media_type_id = mt.id
+JOIN recommendation_status rs ON r.status_id = rs.id
+WHERE mt.name = ? AND rs.name = 'watchlist'
+ORDER BY r.updated_at DESC;
+''';
+
+// Get skipped recommendations for a media type (for learning user preferences)
+const String getSkippedRecommendationsQuery = '''
+SELECT
+  r.id,
+  r.query,
+  mt.name as media_type,
+  r.title,
+  r.primary_creator as artist,
+  '' as album,
+  r.cover_art_url,
+  r.description,
+  r.wiki_url,
+  r.wikidata_id,
+  r.bot_reasoning,
+  rs.name as status,
+  r.themes,
+  r.vector_media_id as media_id,
+  r.created_at,
+  r.updated_at
+FROM recommendations r
+JOIN media_types mt ON r.media_type_id = mt.id
+JOIN recommendation_status rs ON r.status_id = rs.id
+WHERE mt.name = ? AND rs.name = 'skipped'
+ORDER BY r.updated_at DESC;
+''';
+
 // Get user preference summary for a media type
 const String getUserPreferenceSummaryQuery = '''
 SELECT 

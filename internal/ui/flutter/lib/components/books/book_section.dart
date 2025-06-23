@@ -309,27 +309,11 @@ class _BookSectionState extends State<BookSection> {
       debugPrint('💜 _addToFavorites loading library');
       _loadDbLibrary();
 
-      debugPrint('💜 _addToFavorites loading next suggestion');
-      // Move to next suggestion after favoriting (non-blocking)
-      _moveToNextSuggestion();
-      
-      // Trigger new suggestion generation (non-blocking)
-      _recommendationService.generateSuggestionOnDemand('book').then((loadingSuggestion) {
-        if (loadingSuggestion != null) {
-          debugPrint('📚 New suggestion generation started after favorite');
-        } else {
-          debugPrint('📚 No immediate suggestion available - background generation in progress');
-        }
-      }).catchError((e) {
-        if (mounted) {
-          setState(() {
-            _dbSuggestionError = 'Error generating suggestion: $e';
-            _isLoadingDbSuggestion = false;
-          });
-        }
-      });
+      // Note: Favorite action keeps the suggestion active until user manually hits next
+      debugPrint('💜 _addToFavorites completed - keeping suggestion active');
     } catch (e) {
       debugPrint('💜 Error adding to favorites: $e');
+    } finally {
       setState(() {
         _isLoadingDbSuggestion = false;
       });
@@ -527,36 +511,11 @@ class _BookSectionState extends State<BookSection> {
       // Refresh reading list in background
       _loadDbReadingList();
 
-      // Move to next suggestion after adding to reading list (non-blocking)
-      _moveToNextSuggestion();
-      
-      // Trigger new suggestion generation (non-blocking)
-      _recommendationService.generateSuggestionOnDemand('book').then((loadingSuggestion) {
-        if (loadingSuggestion != null) {
-          debugPrint('📚 New suggestion generation started after reading list');
-        } else {
-          debugPrint('📚 No immediate suggestion available - background generation in progress');
-          
-          // Set 30-second timeout for background generation
-          Timer(const Duration(seconds: 30), () {
-            if (mounted && _isLoadingDbSuggestion && _currentDbSuggestion == null) {
-              setState(() {
-                _dbSuggestionError = 'Suggestion generation timed out. Please try again.';
-                _isLoadingDbSuggestion = false;
-              });
-            }
-          });
-        }
-      }).catchError((e) {
-        if (mounted) {
-          setState(() {
-            _dbSuggestionError = 'Error generating suggestion: $e';
-            _isLoadingDbSuggestion = false;
-          });
-        }
-      });
+      // Note: Add to reading list action keeps the suggestion active until user manually hits next
+      debugPrint('📚 _addDbSuggestionToReadingList completed - keeping suggestion active');
     } catch (e) {
       debugPrint('Error adding to reading list: $e');
+    } finally {
       setState(() {
         _isLoadingDbSuggestion = false;
       });

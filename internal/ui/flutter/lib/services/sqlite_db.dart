@@ -795,6 +795,66 @@ class SQLiteDatabase {
     }
   }
 
+  /// Get favorited recommendations for learning user preferences
+  Future<List<MediaSuggestion>> getFavoritedRecommendations(String mediaType) async {
+    await _ensureInitialized();
+    
+    try {
+      debugPrint('🗄️ [DB] Executing getFavoritedRecommendations query for: $mediaType');
+      final stmt = _db!.prepare(getFavoritedRecommendationsQuery);
+      final result = stmt.select([mediaType]);
+      
+      debugPrint('🗄️ [DB] getFavoritedRecommendations returned ${result.length} rows');
+      
+      final suggestions = result.map((row) => _mapRowToMediaSuggestion(row)).toList();
+      stmt.dispose();
+      return suggestions;
+    } catch (e) {
+      debugPrint('Error getting favorited recommendations: $e');
+      return [];
+    }
+  }
+
+  /// Get watchlisted recommendations for learning user preferences
+  Future<List<MediaSuggestion>> getWatchlistedRecommendations(String mediaType) async {
+    await _ensureInitialized();
+    
+    try {
+      debugPrint('🗄️ [DB] Executing getWatchlistedRecommendations query for: $mediaType');
+      final stmt = _db!.prepare(getWatchlistedRecommendationsQuery);
+      final result = stmt.select([mediaType]);
+      
+      debugPrint('🗄️ [DB] getWatchlistedRecommendations returned ${result.length} rows');
+      
+      final suggestions = result.map((row) => _mapRowToMediaSuggestion(row)).toList();
+      stmt.dispose();
+      return suggestions;
+    } catch (e) {
+      debugPrint('Error getting watchlisted recommendations: $e');
+      return [];
+    }
+  }
+
+  /// Get skipped recommendations for learning user preferences
+  Future<List<MediaSuggestion>> getSkippedRecommendations(String mediaType) async {
+    await _ensureInitialized();
+    
+    try {
+      debugPrint('🗄️ [DB] Executing getSkippedRecommendations query for: $mediaType');
+      final stmt = _db!.prepare(getSkippedRecommendationsQuery);
+      final result = stmt.select([mediaType]);
+      
+      debugPrint('🗄️ [DB] getSkippedRecommendations returned ${result.length} rows');
+      
+      final suggestions = result.map((row) => _mapRowToMediaSuggestion(row)).toList();
+      stmt.dispose();
+      return suggestions;
+    } catch (e) {
+      debugPrint('Error getting skipped recommendations: $e');
+      return [];
+    }
+  }
+
   /// Get user preference summary for a media type
   Future<Map<String, dynamic>> getUserPreferenceSummary(String mediaType) async {
     await _ensureInitialized();

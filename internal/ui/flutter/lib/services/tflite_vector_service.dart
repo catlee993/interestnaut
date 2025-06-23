@@ -255,26 +255,12 @@ class TFLiteVectorService {
     return result;
   }
   
-  /// Adjust vector to emphasize certain constraints (genre, mood, etc.)
+  /// Adjust vector to emphasize certain constraints (REMOVED HARDCODED GENRES)
   List<double> _adjustVectorForConstraint(List<double> vector, String constraint) {
-    final adjustedVector = List<double>.from(vector);
-    final constraintLower = constraint.toLowerCase();
-    
-    // Apply genre-specific adjustments (these would be learned from data)
-    if (constraintLower.contains('heavy metal') || constraintLower.contains('metal')) {
-      // Boost dimensions typically associated with metal music
-      _boostVectorDimensions(adjustedVector, [50, 120, 200, 350], 0.1);
-    } else if (constraintLower.contains('classical')) {
-      _boostVectorDimensions(adjustedVector, [30, 80, 150, 300], 0.1);
-    } else if (constraintLower.contains('jazz')) {
-      _boostVectorDimensions(adjustedVector, [40, 100, 180, 320], 0.1);
-    } else if (constraintLower.contains('rock')) {
-      _boostVectorDimensions(adjustedVector, [60, 140, 220, 360], 0.1);
-    } else if (constraintLower.contains('pop')) {
-      _boostVectorDimensions(adjustedVector, [20, 90, 170, 280], 0.1);
-    }
-    
-    return adjustedVector;
+    // CLEAN: No hardcoded genre preferences - return vector unchanged
+    // Let the data speak for itself through similarity matching
+    debugPrint('🎯 Constraint noted but not applied (no hardcoded preferences): $constraint');
+    return List<double>.from(vector);
   }
   
   /// Boost specific dimensions of a vector by a factor

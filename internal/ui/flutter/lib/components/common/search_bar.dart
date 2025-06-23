@@ -25,14 +25,18 @@ class SearchBar extends StatefulWidget {
 
 class _SearchBarState extends State<SearchBar> {
   late final TextEditingController _controller;
-  final FocusNode _focusNode = FocusNode();
+  late final FocusNode _focusNode;
   Timer? _debounce;
   String _lastSearch = '';
+  late final String _focusNodeId;
 
   @override
   void initState() {
     super.initState();
     _controller = TextEditingController(text: widget.initialValue);
+    // Create focus node with unique debug label to help identify conflicts
+    _focusNodeId = 'SearchBar_${widget.placeholder}_${DateTime.now().millisecondsSinceEpoch}';
+    _focusNode = FocusNode(debugLabel: _focusNodeId);
     _lastSearch = widget.initialValue;
     
     // If there's an initial value, notify the search handler
@@ -54,8 +58,13 @@ class _SearchBarState extends State<SearchBar> {
   
   @override
   void dispose() {
+    debugPrint('🗑️ Disposing SearchBar with focus node: $_focusNodeId');
     _debounce?.cancel();
     _controller.dispose();
+    // Unfocus before disposing to ensure proper cleanup
+    if (_focusNode.hasFocus) {
+      _focusNode.unfocus();
+    }
     _focusNode.dispose();
     super.dispose();
   }
@@ -83,7 +92,10 @@ class _SearchBarState extends State<SearchBar> {
     _lastSearch = '';
     widget.onSearch('');
     widget.onClear?.call();
-    _focusNode.requestFocus();
+    // Only request focus if this widget is still mounted and the focus node is available
+    if (mounted && !_focusNode.hasFocus) {
+      _focusNode.requestFocus();
+    }
     setState(() {});
   }
 
@@ -93,7 +105,10 @@ class _SearchBarState extends State<SearchBar> {
       _lastSearch = value;
       widget.onSearch(value);
     }
-    _focusNode.unfocus();
+    // Unfocus after submission to prevent keyboard events from sticking
+    if (_focusNode.hasFocus) {
+      _focusNode.unfocus();
+    }
   }
 
   @override

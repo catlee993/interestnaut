@@ -1094,15 +1094,8 @@ export function useMediaSection<T extends MediaItemBase>(
         variant: "error",
       });
 
-      // Clear cache using SuggestionCache
-      SuggestionCache.clearItem(type);
-
-      // Get a new suggestion
-      setTimeout(() => {
-        setSuggestedItem(null);
-        setSuggestionReason(null);
-        handleGetSuggestion();
-      }, 1000);
+      // Note: On error, keep the current suggestion so user can try again
+      // Don't auto-advance - let user decide to skip manually if needed
     } finally {
       setIsProcessingFeedback(false);
     }

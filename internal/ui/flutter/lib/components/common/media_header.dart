@@ -365,6 +365,7 @@ class _MediaHeaderState extends State<MediaHeader> {
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 24.0), // Even more padding to make search bar narrower
                 child: custom.SearchBar(
+                  key: ValueKey('SearchBar_$activeMedia'), // Unique key for each media type
                   placeholder: activeMedia == 'music'
                       ? 'Search tracks...'
                       : activeMedia == 'movies'

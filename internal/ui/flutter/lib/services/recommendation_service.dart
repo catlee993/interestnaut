@@ -791,20 +791,27 @@ class RecommendationService extends ChangeNotifier {
           final likedSuggestions = await _db.getLikedRecommendations(mediaType);
           final dislikedSuggestions = await _db.getDislikedRecommendations(mediaType);
           
-          debugPrint('🔍 [BACKGROUND] Found ${likedSuggestions.length} liked, ${dislikedSuggestions.length} disliked suggestions');
+          // ENHANCED: Also collect favorite, watchlist, and skipped suggestions as behavioral signals
+          final favoriteSuggestions = await _db.getFavoritedRecommendations(mediaType); // SuggestionStatus.added
+          final watchlistSuggestions = await _db.getWatchlistedRecommendations(mediaType); // SuggestionStatus.watchlist
+          final skippedSuggestions = await _db.getSkippedRecommendations(mediaType); // SuggestionStatus.skipped
+          
+          debugPrint('🔍 [BACKGROUND] Found ${likedSuggestions.length} liked, ${dislikedSuggestions.length} disliked, ${favoriteSuggestions.length} favorited, ${watchlistSuggestions.length} watchlisted, ${skippedSuggestions.length} skipped suggestions');
           
           // Always check for user constraints
           final userConstraints = await _db.getUserConstraints(mediaType);
           debugPrint('🔍 [BACKGROUND] Found ${userConstraints.length} user constraints: $userConstraints');
           
-          // Create profile data if we have ANY user data (constraints, likes, or dislikes)
-          if (likedSuggestions.isNotEmpty || dislikedSuggestions.isNotEmpty || userConstraints.isNotEmpty) {
+          // Create profile data if we have ANY user data (constraints, likes, dislikes, favorites, watchlist, or skipped)
+          if (likedSuggestions.isNotEmpty || dislikedSuggestions.isNotEmpty || favoriteSuggestions.isNotEmpty || 
+              watchlistSuggestions.isNotEmpty || skippedSuggestions.isNotEmpty || userConstraints.isNotEmpty) {
             // Extract themes and artists from user history
             final preferredThemes = <String>{};
             final avoidedThemes = <String>{};
             final preferredArtists = <String>{};
             final avoidedArtists = <String>{};
             
+            // Process liked suggestions
             for (final suggestion in likedSuggestions) {
               if (suggestion.themes != null) {
                 final themes = suggestion.themes!.split(',').map((t) => t.trim());
@@ -815,6 +822,29 @@ class RecommendationService extends ChangeNotifier {
               }
             }
             
+            // Process favorited suggestions (strong positive signal)
+            for (final suggestion in favoriteSuggestions) {
+              if (suggestion.themes != null) {
+                final themes = suggestion.themes!.split(',').map((t) => t.trim());
+                preferredThemes.addAll(themes.where((t) => t.isNotEmpty));
+              }
+              if (suggestion.artist != null && suggestion.artist!.isNotEmpty) {
+                preferredArtists.add(suggestion.artist!);
+              }
+            }
+            
+            // Process watchlisted suggestions (moderate positive signal)
+            for (final suggestion in watchlistSuggestions) {
+              if (suggestion.themes != null) {
+                final themes = suggestion.themes!.split(',').map((t) => t.trim());
+                preferredThemes.addAll(themes.where((t) => t.isNotEmpty));
+              }
+              if (suggestion.artist != null && suggestion.artist!.isNotEmpty) {
+                preferredArtists.add(suggestion.artist!);
+              }
+            }
+            
+            // Process disliked suggestions
             for (final suggestion in dislikedSuggestions) {
               if (suggestion.themes != null) {
                 final themes = suggestion.themes!.split(',').map((t) => t.trim());
@@ -825,6 +855,18 @@ class RecommendationService extends ChangeNotifier {
               }
             }
             
+            // Process skipped suggestions (weak negative signal)
+            for (final suggestion in skippedSuggestions) {
+              if (suggestion.themes != null) {
+                final themes = suggestion.themes!.split(',').map((t) => t.trim());
+                avoidedThemes.addAll(themes.where((t) => t.isNotEmpty));
+              }
+              if (suggestion.artist != null && suggestion.artist!.isNotEmpty) {
+                avoidedArtists.add(suggestion.artist!);
+              }
+            }
+
+            
             userProfileData = {
               'preferredThemes': preferredThemes.toList(),
               'avoidedThemes': avoidedThemes.toList(),
@@ -832,9 +874,40 @@ class RecommendationService extends ChangeNotifier {
               'avoidedArtists': avoidedArtists.toList(),
               'constraints': [], // Rule-based constraints (generated)
               'userConstraints': userConstraints, // Explicit user constraints (critical directives)
+              // NEW: Add all behavioral data for vector search
+              'liked_items': likedSuggestions.map((s) => {
+                'media_id': s.mediaId ?? s.id.toString(),
+                'title': s.title,
+                'artist': s.artist,
+                'themes': s.themes,
+              }).toList(),
+              'favorite_items': favoriteSuggestions.map((s) => {
+                'media_id': s.mediaId ?? s.id.toString(),
+                'title': s.title,
+                'artist': s.artist,
+                'themes': s.themes,
+              }).toList(),
+              'watchlist_items': watchlistSuggestions.map((s) => {
+                'media_id': s.mediaId ?? s.id.toString(),
+                'title': s.title,
+                'artist': s.artist,
+                'themes': s.themes,
+              }).toList(),
+              'disliked_items': dislikedSuggestions.map((s) => {
+                'media_id': s.mediaId ?? s.id.toString(),
+                'title': s.title,
+                'artist': s.artist,
+                'themes': s.themes,
+              }).toList(),
+              'skipped_items': skippedSuggestions.map((s) => {
+                'media_id': s.mediaId ?? s.id.toString(),
+                'title': s.title,
+                'artist': s.artist,
+                'themes': s.themes,
+              }).toList(),
             };
             
-            debugPrint('🧠 [BACKGROUND] Using user profile: ${preferredThemes.length} preferred themes, ${preferredArtists.length} preferred artists, ${userConstraints.length} user constraints');
+            debugPrint('🧠 [BACKGROUND] Using user profile: ${preferredThemes.length} preferred themes, ${preferredArtists.length} preferred artists, ${userConstraints.length} user constraints, ${favoriteSuggestions.length} favorites, ${watchlistSuggestions.length} watchlist, ${skippedSuggestions.length} skipped');
           } else {
             debugPrint('🔍 [BACKGROUND] No user data found - no constraints, likes, or dislikes');
           }
@@ -1064,7 +1137,17 @@ class RecommendationService extends ChangeNotifier {
             }
           }
         } else if (behavioralData['hasPositiveSignals']) {
-          debugPrint('🎯 [PURE-ISOLATE] Found behavioral signals - using TensorFlow Lite vector matching');
+          // NEW: Use behavioral data to trigger LLM-enhanced vector search even without explicit constraints
+          debugPrint('🎯 [PURE-ISOLATE] Using behavioral vector search with LLM enhancement');
+          final behavioralResults = await vectorDb.searchByBehavioralMatch(
+            likedItemIds: behavioralData['likedItemIds'] as List<String>,
+            dislikedItemIds: behavioralData['dislikedItemIds'] as List<String>,
+            favoriteItemId: behavioralData['favoriteItemId'] as String?,
+            skippedItemIds: behavioralData['skippedItemIds'] as List<String>,
+            excludeIds: behavioralData['excludeIds'] as List<String>,
+            limit: 1,
+          );
+          searchResults = behavioralResults.isNotEmpty ? behavioralResults : await vectorDb.getRandomMedia(mediaType: mediaType, limit: 1);
           
           // Try TensorFlow Lite enhanced matching first
           final tfliteResult = await vectorDb._tryTensorFlowLiteMatching(
@@ -1241,6 +1324,7 @@ class RecommendationService extends ChangeNotifier {
   }
 
   /// Pure computation version of explanation generation (isolate-safe)
+  /// Creates user-friendly explanations using available data without exposing internal queries
   static String _generateContextualExplanationPure({
     required String userQuery,
     required String mediaTitle,
@@ -1253,48 +1337,68 @@ class RecommendationService extends ChangeNotifier {
     final stopwatch = Stopwatch()..start();
     final buffer = StringBuffer();
     
-    // Start with similarity-based reasoning
-    if (similarity != null && similarity > 0.7) {
-      buffer.write('This $mediaType is a strong match ');
-    } else if (similarity != null && similarity > 0.5) {
-      buffer.write('This $mediaType is a good match ');
-    } else {
-      buffer.write('This $mediaType relates to ');
-    }
+    // Start with a clean, user-friendly opening
+    buffer.write('$mediaTitle');
     
-    buffer.write('your search for "$userQuery"');
-    
-    // Add theme-based reasoning
-    if (themes != null && themes.isNotEmpty) {
-      final themesList = themes.split(',').map((t) => t.trim()).where((t) => t.isNotEmpty).toList();
-      if (themesList.isNotEmpty) {
-        if (themesList.length == 1) {
-          buffer.write(' through its ${themesList.first} theme');
-        } else if (themesList.length == 2) {
-          buffer.write(' through its ${themesList.first} and ${themesList.last} themes');
-        } else {
-          buffer.write(' through themes like ${themesList.take(2).join(', ')}, and others');
-        }
-      }
-    }
-    
-    // Add artist/creator context
+    // Add artist/creator information if available
     if (artist != null && artist.isNotEmpty && artist.toLowerCase() != 'unknown') {
       if (mediaType == 'music') {
-        buffer.write(', featuring ${artist}\'s distinctive style');
+        buffer.write(' by $artist');
       } else if (mediaType == 'book') {
-        buffer.write(', showcasing ${artist}\'s writing approach');
+        buffer.write(' by $artist');
       } else if (mediaType == 'movie' || mediaType == 'tv_show') {
-        buffer.write(', with ${artist}\'s creative direction');
+        buffer.write(' directed by $artist');
       } else {
-        buffer.write(', created by $artist');
+        buffer.write(' by $artist');
       }
     }
     
-    buffer.write('.');
+    // Add quality statement
+    buffer.write(' offers');
+    
+    // Add theme-based reasoning if available
+    if (themes != null && themes.isNotEmpty) {
+      final themesList = themes.split(',').map((t) => t.trim()).where((t) => t.isNotEmpty).take(3).toList();
+      if (themesList.isNotEmpty) {
+        if (themesList.length == 1) {
+          buffer.write(' ${themesList.first}');
+        } else if (themesList.length == 2) {
+          buffer.write(' ${themesList.first} and ${themesList.last}');
+        } else {
+          buffer.write(' ${themesList[0]}, ${themesList[1]}, and ${themesList[2]}');
+        }
+        buffer.write(' elements');
+      } else {
+        buffer.write(' compelling content');
+      }
+    } else {
+      // Fallback based on media type
+      switch (mediaType) {
+        case 'music':
+          buffer.write(' engaging musical content');
+          break;
+        case 'movie':
+          buffer.write(' compelling cinematic storytelling');
+          break;
+        case 'tv_show':
+          buffer.write(' engaging episodic entertainment');
+          break;
+        case 'book':
+          buffer.write(' compelling literary content');
+          break;
+        case 'video_game':
+          buffer.write(' engaging interactive entertainment');
+          break;
+        default:
+          buffer.write(' quality entertainment');
+      }
+    }
+    
+    // Add a quality closing
+    buffer.write(' worth exploring.');
     
     stopwatch.stop();
-    debugPrint('⏱️ Basic reasoning generated in ${stopwatch.elapsedMilliseconds}ms');
+    debugPrint('⏱️ Clean explanation generated in ${stopwatch.elapsedMilliseconds}ms');
     
     return buffer.toString();
   }
@@ -1434,22 +1538,73 @@ class RecommendationService extends ChangeNotifier {
       
       final startTime = DateTime.now();
       
-             // Generate LLM response using generateExplanation
-       final response = await llamaService.generateExplanation(
-         mediaTitle: mediaTitle,
-         artist: artist ?? '',
-         themes: themes ?? '',
-         userQuery: userQuery,
-         mediaType: mediaType,
-       );
-      
-      final duration = DateTime.now().difference(startTime).inMilliseconds;
-      
-      if (response.trim().isNotEmpty) {
-        debugPrint('🧠 [ISOLATE-LLM] ✅ Enhanced behavioral reasoning SUCCESS in ${duration}ms');
-        return response.trim();
-      } else {
-        debugPrint('⚠️ [ISOLATE-LLM] Empty LLM response, using rule-based fallback');
+      // Simplified LLM approach with better error handling
+      try {
+        // Create a simple, focused prompt
+        final constraints = behavioralContext['userConstraints'] as String;
+        final likedThemes = behavioralContext['likedThemes'] as List<String>;
+        
+        String simplePrompt = "Why recommend \"$mediaTitle\"";
+        if (artist != null && artist.isNotEmpty) {
+          simplePrompt += " by $artist";
+        }
+        simplePrompt += "?";
+        
+        // Add context if available
+        if (constraints.isNotEmpty) {
+          simplePrompt += " User likes: $constraints.";
+        } else if (likedThemes.isNotEmpty) {
+          simplePrompt += " User likes: ${likedThemes.take(2).join(', ')}.";
+        }
+        
+        if (themes != null && themes.isNotEmpty) {
+          simplePrompt += " This has: $themes.";
+        }
+        
+        simplePrompt += " Explain briefly why it fits.";
+        
+        debugPrint('🧠 [ISOLATE-LLM] Simple prompt: "$simplePrompt"');
+        
+        final response = await llamaService.generateExplanation(
+          mediaTitle: mediaTitle,
+          artist: artist ?? '',
+          themes: themes ?? '',
+          userQuery: simplePrompt,
+          mediaType: mediaType,
+        ).timeout(
+          const Duration(seconds: 8), // Longer timeout since we reduced vector processing load
+          onTimeout: () {
+            debugPrint('⏰ [ISOLATE-LLM] LLM timed out after 8 seconds');
+            return '';
+          },
+        );
+        
+        final duration = DateTime.now().difference(startTime).inMilliseconds;
+        
+        // Simple validation - reject obvious failures
+        if (response.trim().isNotEmpty && 
+            !response.contains('ERROR') &&
+            !response.contains('LlamaException') &&
+            !response.contains('Failed to eval') &&
+            response.trim() != '1.' &&
+            response.trim() != '1' &&
+            response.length > 5) {
+          debugPrint('🧠 [ISOLATE-LLM] ✅ Simple LLM reasoning SUCCESS in ${duration}ms');
+          return response.trim();
+        } else {
+          debugPrint('⚠️ [ISOLATE-LLM] Invalid LLM response, using clean fallback');
+          return _generateContextualExplanationPure(
+            userQuery: userQuery,
+            mediaTitle: mediaTitle,
+            mediaType: mediaType,
+            artist: artist,
+            themes: themes,
+            description: description,
+            similarity: similarity,
+          );
+        }
+      } catch (e) {
+        debugPrint('❌ [ISOLATE-LLM] LLM exception: $e, using clean fallback');
         return _generateContextualExplanationPure(
           userQuery: userQuery,
           mediaTitle: mediaTitle,
@@ -1932,23 +2087,13 @@ class _IsolateSafeVectorDatabase {
       
       // Build a query that looks for items with similar themes to liked items
       // This is a simple text-based similarity until we get vector search working
-      final searchQuery = '''
+              final searchQuery = '''
         SELECT 
           media_id, title, artist, ${hasAlbum ? 'album,' : ''} description, themes, 
-          wiki_url, wikidata_id, image_url,
-          (
-            CASE 
-              WHEN LOWER(COALESCE(themes, '')) LIKE '%metal%' THEN 100
-              WHEN LOWER(COALESCE(themes, '')) LIKE '%rock%' THEN 80
-              WHEN LOWER(COALESCE(themes, '')) LIKE '%alternative%' THEN 60
-              WHEN LOWER(COALESCE(themes, '')) LIKE '%punk%' THEN 70
-              WHEN LOWER(COALESCE(themes, '')) LIKE '%grunge%' THEN 65
-              ELSE 20 
-            END
-          ) as relevance_score
+          wiki_url, wikidata_id, image_url
         FROM media_vectors 
         WHERE media_id NOT IN (${excludeIds.map((_) => '?').join(',')})
-        ORDER BY relevance_score DESC, RANDOM()
+        ORDER BY RANDOM()
         LIMIT ?
       ''';
       
@@ -2098,16 +2243,16 @@ class _IsolateSafeVectorDatabase {
       final dislikedEmbeddings = <List<double>>[];
       List<double>? favoriteEmbedding;
       
-      // Load liked embeddings (limit to 10 for mobile)
-      for (final id in likedItemIds.take(10)) {
+      // Load liked embeddings (mobile-friendly limit)
+      for (final id in likedItemIds.take(5)) {
         final embedding = await _getEmbeddingById(id);
         if (embedding != null) {
           likedEmbeddings.add(embedding);
         }
       }
       
-      // Load disliked embeddings (limit to 5 for mobile)
-      for (final id in dislikedItemIds.take(5)) {
+      // Load disliked embeddings (mobile-friendly limit)
+      for (final id in dislikedItemIds.take(3)) {
         final embedding = await _getEmbeddingById(id);
         if (embedding != null) {
           dislikedEmbeddings.add(embedding);
@@ -2135,18 +2280,30 @@ class _IsolateSafeVectorDatabase {
       
       debugPrint('🧠 [TFLITE] Created profile vector from ${likedEmbeddings.length} liked, ${dislikedEmbeddings.length} disliked');
       
-      // Create vector loader function for streaming search
+      // Create mobile-friendly vector loader with collection limits
       Future<List<VectorWithMetadata>> vectorLoader(int offset, int limit) async {
         final hasAlbum = mediaType == 'music';
+        
+        // Mobile-friendly collection limits (instead of processing all 343k)
+        final maxCollectionSize = mediaType == 'music' ? 25000 : 15000;
+        
         final query = '''
           SELECT media_id, title, artist, ${hasAlbum ? 'album,' : ''} description, themes, 
                  wiki_url, wikidata_id, image_url, embedding_blob
           FROM media_vectors 
+          ORDER BY RANDOM()
           LIMIT ? OFFSET ?
         ''';
         
+        // Don't exceed collection limit
+        final effectiveLimit = (offset + limit > maxCollectionSize) 
+            ? maxCollectionSize - offset 
+            : limit;
+            
+        if (effectiveLimit <= 0) return [];
+        
         final stmt = _db!.prepare(query);
-        final results = stmt.select([limit, offset]);
+        final results = stmt.select([effectiveLimit, offset]);
         stmt.dispose();
         
         return results.map((row) {
@@ -2172,9 +2329,9 @@ class _IsolateSafeVectorDatabase {
       final bestMatch = await TFLiteVectorService.instance.findSingleSuggestion(
         userProfileVector: profileVector,
         excludeIds: excludeIds,
-        minSimilarity: 0.6, // Lower threshold for more discovery
+        minSimilarity: 0.5, // Lower threshold for more discovery
         vectorLoader: vectorLoader,
-        batchSize: 1000, // Mobile-optimized batch size
+        batchSize: 500, // Mobile-optimized batch size
       );
       
       if (bestMatch != null) {
@@ -2273,7 +2430,7 @@ class _IsolateSafeVectorDatabase {
     };
   }
 
-  /// Search for media based on user constraints (e.g., "heavy metal", "sci-fi", etc.)
+  /// Search for media based on user constraints - PURE DATA-DRIVEN, NO HARDCODED GENRES
   Future<List<MediaResult>> searchByConstraints({
     required List<String> constraints,
     required List<String> excludeIds,
@@ -2288,24 +2445,32 @@ class _IsolateSafeVectorDatabase {
     }
 
     try {
-      debugPrint('🎯 [PURE-ISOLATE] Searching by constraints: ${constraints.join(', ')}');
+      debugPrint('🎯 [PURE-ISOLATE] CLEAN constraint search for: ${constraints.join(', ')}');
       
       final hasAlbum = mediaType == 'music';
       
-      // Build dynamic WHERE clause for constraints
+      // Build constraint conditions - must match ALL constraints (AND logic)
       final constraintConditions = <String>[];
       final queryParams = <String>[];
       
       for (final constraint in constraints) {
         final normalizedConstraint = constraint.toLowerCase().trim();
+        
+        // Each constraint must match at least one field
         constraintConditions.add('''
           (LOWER(COALESCE(themes, '')) LIKE ? OR 
+           LOWER(COALESCE(description, '')) LIKE ? OR 
            LOWER(COALESCE(title, '')) LIKE ? OR 
-           LOWER(COALESCE(artist, '')) LIKE ? OR 
-           LOWER(COALESCE(description, '')) LIKE ?)
+           LOWER(COALESCE(artist, '')) LIKE ?)
         ''');
-        // Add the same constraint 4 times for each field
-        queryParams.addAll(['%$normalizedConstraint%', '%$normalizedConstraint%', '%$normalizedConstraint%', '%$normalizedConstraint%']);
+        
+        // Add constraint for each field check
+        queryParams.addAll([
+          '%$normalizedConstraint%', 
+          '%$normalizedConstraint%', 
+          '%$normalizedConstraint%', 
+          '%$normalizedConstraint%'
+        ]);
       }
       
       // Build exclude clause
@@ -2315,36 +2480,22 @@ class _IsolateSafeVectorDatabase {
         queryParams.addAll(excludeIds);
       }
       
+      // Simple search - NO HARDCODED PREFERENCES, just find matches
       final searchQuery = '''
         SELECT 
           media_id, title, artist, ${hasAlbum ? 'album,' : ''} description, themes, 
-          wiki_url, wikidata_id, image_url,
-          (
-            CASE 
-              WHEN LOWER(COALESCE(themes, '')) LIKE '%metal%' THEN 100
-              WHEN LOWER(COALESCE(themes, '')) LIKE '%rock%' THEN 90
-              WHEN LOWER(COALESCE(themes, '')) LIKE '%punk%' THEN 85
-              WHEN LOWER(COALESCE(themes, '')) LIKE '%alternative%' THEN 80
-              WHEN LOWER(COALESCE(themes, '')) LIKE '%grunge%' THEN 75
-              WHEN LOWER(COALESCE(themes, '')) LIKE '%indie%' THEN 70
-              WHEN LOWER(COALESCE(title, '')) LIKE '%' || LOWER(?) || '%' THEN 60
-              WHEN LOWER(COALESCE(artist, '')) LIKE '%' || LOWER(?) || '%' THEN 50
-              ELSE 30 
-            END
-          ) as relevance_score
+          wiki_url, wikidata_id, image_url
         FROM media_vectors 
-        WHERE (${constraintConditions.join(' OR ')})
+        WHERE ${constraintConditions.join(' AND ')}
         $excludeClause
-        ORDER BY relevance_score DESC, RANDOM()
+        ORDER BY RANDOM()
         LIMIT ?
       ''';
       
-      // Add constraint for scoring and limit
-      final firstConstraint = constraints.first.toLowerCase().trim();
-      queryParams.addAll([firstConstraint, firstConstraint]);
       queryParams.add(limit.toString());
       
-      debugPrint('🔍 [PURE-ISOLATE] Constraint query: ${constraintConditions.length} conditions, ${excludeIds.length} excludes');
+      debugPrint('🔍 [PURE-ISOLATE] Pure constraint search: ${constraints.length} constraints, ${excludeIds.length} excludes');
+      debugPrint('🔍 [PURE-ISOLATE] Query params count: ${queryParams.length}');
       
       final stmt = _db!.prepare(searchQuery);
       final result = stmt.select(queryParams);
@@ -2353,23 +2504,28 @@ class _IsolateSafeVectorDatabase {
       final candidates = <MediaResult>[];
       
       for (final row in result) {
+        final themes = row['themes'] as String? ?? '';
+        final description = row['description'] as String? ?? '';
+        
+        debugPrint('🎵 Found: ${row['title']} | Themes: ${themes.substring(0, min(50, themes.length))}');
+        
         candidates.add(MediaResult(
           title: row['title'] as String? ?? 'Unknown',
           artist: row['artist'] as String?,
           album: hasAlbum ? row['album'] as String? : null,
           coverArtUrl: row['image_url'] as String?,
-          description: row['description'] as String?,
+          description: description,
           wikiUrl: row['wiki_url'] as String?,
           wikidataId: row['wikidata_id'] as String?,
-          themes: row['themes'] as String?,
+          themes: themes,
         ));
       }
       
-      debugPrint('✅ [PURE-ISOLATE] Constraint search found ${candidates.length} matches for: ${constraints.join(', ')}');
+      debugPrint('✅ [PURE-ISOLATE] Clean search found ${candidates.length} matches for: ${constraints.join(', ')}');
       return candidates;
       
     } catch (e) {
-      debugPrint('❌ [PURE-ISOLATE] Error in constraint search: $e');
+      debugPrint('❌ [PURE-ISOLATE] Error in clean constraint search: $e');
       return [];
     }
   }

@@ -274,26 +274,11 @@ class _TVShowSectionState extends State<TVShowSection> {
 
       _loadDbLibrary();
 
-      // Move to next suggestion after favoriting (non-blocking)
-      _moveToNextSuggestion();
-      
-      // Trigger new suggestion generation (non-blocking)
-      _recommendationService.generateSuggestionOnDemand('tv_show').then((loadingSuggestion) {
-        if (loadingSuggestion != null) {
-          debugPrint('📺 New suggestion generation started after favorite');
-        } else {
-          debugPrint('📺 No immediate suggestion available - background generation in progress');
-        }
-      }).catchError((e) {
-        if (mounted) {
-          setState(() {
-            _dbSuggestionError = 'Error generating suggestion: $e';
-            _isLoadingDbSuggestion = false;
-          });
-        }
-      });
+      // Note: Favorite action keeps the suggestion active until user manually hits next
+      debugPrint('📺 _addToFavorites completed - keeping suggestion active');
     } catch (e) {
       debugPrint('Error adding to favorites: $e');
+    } finally {
       setState(() {
         _isLoadingDbSuggestion = false;
       });
@@ -475,36 +460,11 @@ class _TVShowSectionState extends State<TVShowSection> {
       // Refresh watchlist in background
       _loadDbWatchlist();
 
-      // Move to next suggestion after adding to watchlist (non-blocking)
-      _moveToNextSuggestion();
-      
-      // Trigger new suggestion generation (non-blocking)
-      _recommendationService.generateSuggestionOnDemand('tv_show').then((loadingSuggestion) {
-        if (loadingSuggestion != null) {
-          debugPrint('📺 New suggestion generation started after watchlist');
-        } else {
-          debugPrint('📺 No immediate suggestion available - background generation in progress');
-          
-          // Set 30-second timeout for background generation
-          Timer(const Duration(seconds: 30), () {
-            if (mounted && _isLoadingDbSuggestion && _currentDbSuggestion == null) {
-              setState(() {
-                _dbSuggestionError = 'Suggestion generation timed out. Please try again.';
-                _isLoadingDbSuggestion = false;
-              });
-            }
-          });
-        }
-      }).catchError((e) {
-        if (mounted) {
-          setState(() {
-            _dbSuggestionError = 'Error generating suggestion: $e';
-            _isLoadingDbSuggestion = false;
-          });
-        }
-      });
+      // Note: Add to watchlist action keeps the suggestion active until user manually hits next
+      debugPrint('📺 _addDbSuggestionToWatchlist completed - keeping suggestion active');
     } catch (e) {
       debugPrint('Error adding DB suggestion to watchlist: $e');
+    } finally {
       setState(() {
         _isLoadingDbSuggestion = false;
       });
