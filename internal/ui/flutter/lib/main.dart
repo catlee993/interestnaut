@@ -21,6 +21,8 @@ import 'components/tv/tv_show_section.dart';
 import 'components/common/media_header.dart';
 import 'components/common/media_grid.dart';
 import 'components/music/spotify_service.dart';
+import 'components/music/player/spotify_player_view.dart';
+import 'components/music/player/spotify_web_player.dart';
 import 'services/llama_service.dart';
 import 'services/wikidata_service.dart';
 import 'services/wikipedia_service.dart';
@@ -225,6 +227,8 @@ class InterestnautApp extends StatefulWidget {
 
 class _InterestnautAppState extends State<InterestnautApp> {
   final GlobalKey _searchBarKey = GlobalKey();
+  final GlobalKey<SpotifyWebPlayerState> _globalWebPlayerKey = GlobalKey();
+  final SpotifyService _globalSpotifyService = SpotifyService(); // Shared service instance
   String _currentMediaType = 'music'; // Default media type
   String _searchQuery = '';
   bool _isSearchActive = false;
@@ -276,6 +280,44 @@ class _InterestnautAppState extends State<InterestnautApp> {
               onClearSearch: _clearSearch,
               currentMedia: _currentMediaType,
               onMediaChange: _handleMediaChange,
+            ),
+          ),
+          // Global Spotify Player Bar - positioned at bottom, shows when music is playing
+          Positioned(
+            bottom: 0,
+            left: 0,
+            right: 0,
+            child: StreamBuilder<Track>(
+              stream: SpotifyEvents.onTrackChange,
+              builder: (context, snapshot) {
+                if (snapshot.hasData) {
+                  return const SpotifyPlayer(
+                    key: ValueKey('global_spotify_player'),
+                  );
+                } else {
+                  return const SizedBox.shrink();
+                }
+              },
+                        ),
+          ),
+          // Global Spotify Web Player - tiny but visible for audio permissions
+          Positioned(
+            bottom: 100, // Position above the player bar
+            right: 10,   // Small corner position
+            child: SizedBox(
+              width: 1,
+              height: 1,
+              child: Opacity(
+                opacity: 0.01, // Nearly invisible but technically visible
+                child: SpotifyWebPlayer(
+                  key: _globalWebPlayerKey,
+                  spotifyService: _globalSpotifyService,
+                  visible: true, // Make it visible for audio permissions
+                  onError: (error) {
+                    debugPrint('Global Spotify Web Player error: $error');
+                  },
+                ),
+              ),
             ),
           ),
           if (_isSearchActive)

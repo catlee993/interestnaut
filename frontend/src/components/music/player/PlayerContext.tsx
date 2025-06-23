@@ -28,6 +28,7 @@ interface PlayerContextType {
   setNowPlayingTrack: (track: Track) => void;
   handlePlay: (track: Track | string) => Promise<void>;
   stopPlayback: () => Promise<boolean>;
+  clearNowPlaying: () => void; // New method for explicit clearing
   handlePlayPause: () => void;
   seekTo: (position: number) => void;
   setContinuousPlayback: (enabled: boolean) => void;
@@ -48,6 +49,7 @@ const defaultContext: PlayerContextType = {
   setNowPlayingTrack: () => {},
   handlePlay: async () => {},
   stopPlayback: async () => false,
+  clearNowPlaying: () => {},
   handlePlayPause: () => {},
   seekTo: () => {},
   setContinuousPlayback: () => {},
@@ -64,6 +66,23 @@ interface PlayerProviderProps {
 export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
   const [nowPlayingTrack, setNowPlayingTrack] = useState<Track>(null);
   const [nextTrack, setNextTrack] = useState<Track>(null);
+  
+  console.log('[PlayerProvider] Component rendered/re-rendered - nowPlayingTrack:', nowPlayingTrack?.id || 'none');
+  
+  // Create wrapped setNowPlayingTrack to track all changes
+  const trackedSetNowPlayingTrack = useCallback((track: Track) => {
+    console.log('[PlayerProvider] 🎵 setNowPlayingTrack called:', {
+      from: nowPlayingTrack?.id || 'none',
+      to: track?.id || 'null',
+      stack: new Error().stack?.split('\n').slice(1, 4).join('\n')
+    });
+    setNowPlayingTrack(track);
+  }, [nowPlayingTrack]);
+  
+  // Track when nowPlayingTrack changes
+  useEffect(() => {
+    console.log('[PlayerProvider] 🎵 nowPlayingTrack state changed to:', nowPlayingTrack?.id || 'none');
+  }, [nowPlayingTrack]);
   
   const { isContinuousPlayback } = useSettings();
   
@@ -82,6 +101,7 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
   } = usePlaybackState(spotifyPlayer);
   
   const setIsPlaybackPaused = useCallback(() => {
+    console.log('[PlayerProvider] setIsPlaybackPaused called');
     updatePlaybackState();
   }, [updatePlaybackState]);
   
@@ -112,6 +132,7 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
   }, [updateTracksInPlayback, nowPlayingTrack]);
 
   const stopPlayback = useCallback(async () => {
+    console.log('[PlayerProvider] ⚠️ STOP PLAYBACK CALLED - this should only happen on explicit user action');
     if (spotifyPlayer && spotifyDeviceId) {
       try {
         console.debug('Attempting to stop playback');
@@ -135,8 +156,11 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
         
         await updatePlaybackState();
         
-        if (stopSuccessful && isContinuousPlayback) {
-          setNowPlayingTrack(null);
+        // Only clear nowPlayingTrack on explicit user stop, not on media section changes
+        if (stopSuccessful) {
+          console.log('[PlayerProvider] Music stopped - keeping track info for persistence across media types');
+          // Don't clear nowPlayingTrack to maintain player controls across sections
+          // setNowPlayingTrack(null);
         }
         
         return stopSuccessful;
@@ -303,6 +327,11 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
     await playNext();
   }, [playNext]);
 
+  const clearNowPlaying = useCallback(() => {
+    console.log('[PlayerProvider] clearNowPlaying called - explicitly clearing track');
+    setNowPlayingTrack(null);
+  }, []);
+
   useEffect(() => {
     const originalOnError = window.onerror;
     
@@ -378,6 +407,7 @@ export function PlayerProvider({ children }: PlayerProviderProps): JSX.Element {
     setNowPlayingTrack,
     handlePlay,
     stopPlayback,
+    clearNowPlaying,
     handlePlayPause,
     seekTo,
     setContinuousPlayback: handleSetContinuousPlayback,

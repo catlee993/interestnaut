@@ -69,7 +69,6 @@ class _MusicSectionState extends State<MusicSection> {
   bool _isAuthenticated = false;
   final bool _isLoading = true;
   String? _errorMessage;
-  final GlobalKey<SpotifyWebPlayerState> _webPlayerKey = GlobalKey();
   String? _activeDeviceId;
   String? _pendingTrackUri;
   bool _isPlayerReady = false;
@@ -412,8 +411,8 @@ class _MusicSectionState extends State<MusicSection> {
     try {
       // First try to use the WebView player if it's ready
       if (SpotifyEvents.isPlayerReady) {
-        // Use web player directly for immediate UI response
-        _webPlayerKey.currentState?.playTrack(trackUri);
+        // Use global web player directly for immediate UI response
+        globalPlayTrack(trackUri);
         
         // Set state optimistically for better UI responsiveness
         setState(() {
@@ -645,7 +644,7 @@ class _MusicSectionState extends State<MusicSection> {
       if (_isPlaybackPaused) {
         // Resume playback instead of restarting the track
         debugPrint('Resuming track: ${_nowPlayingTrack!.name}');
-        _webPlayerKey.currentState?.resumePlayback();
+        globalResumePlayback();
         
         // Set state optimistically for UI responsiveness
         setState(() {
@@ -654,7 +653,7 @@ class _MusicSectionState extends State<MusicSection> {
       } else {
         // Pause playback via web player directly for immediate UI response
         debugPrint('Pausing track: ${_nowPlayingTrack!.name}');
-        _webPlayerKey.currentState?.pausePlayback();
+        globalPausePlayback();
         
         // Set state optimistically for UI responsiveness
         setState(() {
@@ -1008,17 +1007,6 @@ class _MusicSectionState extends State<MusicSection> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Hidden Spotify Web Player - acts as a Spotify device for playback control
-                  SizedBox(
-                    width: 1,
-                    height: 1,
-                    child: SpotifyWebPlayer(
-                      key: _webPlayerKey,
-                      spotifyService: _spotifyService,
-                      visible: false,
-                    ),
-                  ),
-                  
                   // Title with consistent spacing
                   ComponentSpacing(
                     child: Center(
@@ -1061,31 +1049,7 @@ class _MusicSectionState extends State<MusicSection> {
             );
           },
         ),
-        // Player positioned at the bottom (unchanged)
-        Builder(builder: (context) {
-          if (_isAuthenticated && _nowPlayingTrack != null) {
-            return Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: ClipRect(
-                child: BackdropFilter(
-                  filter: ImageFilter.blur(sigmaX: 10.0, sigmaY: 10.0),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).canvasColor.withOpacity(0.7),
-                    ),
-                    child: const SpotifyPlayer(
-                      key: ValueKey('spotify_player'),
-                    ),
-                  ),
-                ),
-              ),
-            );
-          } else {
-            return const SizedBox.shrink();
-          }
-        }),
+
       ],
     );
     

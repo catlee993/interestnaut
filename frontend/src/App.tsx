@@ -138,7 +138,12 @@ function AppContent() {
     handleClearCreds,
     refreshUserProfile,
   } = useAuth();
-  const { currentMedia: mediaContext } = useMedia();
+  const { currentMedia, setCurrentMedia } = useMedia();
+  
+  // Track media changes and their impact on music
+  useEffect(() => {
+    console.log('[AppContent] Media switched to:', currentMedia);
+  }, [currentMedia]);
 
   const {
     savedTracks,
@@ -179,8 +184,6 @@ function AppContent() {
   const tvShowSectionRef = useRef<any>(null);
   const gameSectionRef = useRef<any>(null);
   const bookSectionRef = useRef<any>(null);
-
-  const [currentMedia, setCurrentMedia] = useState<MediaType>("music");
 
   // Handler for music search
   const handleMusicSearchFromHeader = (query: string) => {
@@ -360,6 +363,7 @@ function AppContent() {
           <GameSection ref={gameSectionRef} />
         )}
       </Container>
+      {/* Music player persists across all media types - only hide when explicitly paused/stopped */}
       {nowPlayingTrack && <NowPlayingBar />}
     </Box>
   );
@@ -565,8 +569,6 @@ DefaultSnackbar.displayName = "DefaultSnackbar";
 
 // Main App component that provides context
 function App() {
-  const [currentMedia, setCurrentMedia] = useState<MediaType>("music");
-
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />

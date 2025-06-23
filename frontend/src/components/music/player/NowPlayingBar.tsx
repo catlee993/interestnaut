@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { FaPause, FaPlay } from "react-icons/fa";
 import { spotify } from "@wailsjs/go/models";
 import { styled } from "@mui/material/styles";
@@ -96,6 +97,14 @@ export function NowPlayingBar(): JSX.Element | null {
     handlePlayPause,
     seekTo,
   } = usePlayer();
+  
+  // Debug: Track when NowPlayingBar mounts/unmounts
+  useEffect(() => {
+    console.log('[NowPlayingBar] Component mounted');
+    return () => {
+      console.log('[NowPlayingBar] Component unmounted');
+    };
+  }, []);
 
   if (!nowPlayingTrack) {
     return null;

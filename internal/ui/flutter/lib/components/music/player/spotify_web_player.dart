@@ -20,6 +20,33 @@ bool forceSpotifyPlayerReconnection() {
   return false;
 }
 
+// Global function to play a track using the active web player
+bool globalPlayTrack(String trackUri) {
+  if (_activeWebPlayerState != null) {
+    _activeWebPlayerState!.playTrack(trackUri);
+    return true;
+  }
+  return false;
+}
+
+// Global function to resume playback using the active web player
+bool globalResumePlayback() {
+  if (_activeWebPlayerState != null) {
+    _activeWebPlayerState!.resumePlayback();
+    return true;
+  }
+  return false;
+}
+
+// Global function to pause playback using the active web player
+bool globalPausePlayback() {
+  if (_activeWebPlayerState != null) {
+    _activeWebPlayerState!.pausePlayback();
+    return true;
+  }
+  return false;
+}
+
 /// A WebView-based Spotify player that uses the Spotify Web Playback SDK
 /// to create a device ID for playback and provide event-driven updates
 class SpotifyWebPlayer extends StatefulWidget {

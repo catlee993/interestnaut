@@ -107,32 +107,22 @@
       }
     }
     
-    // Global audio context
+    // Global audio context - simplified for Flutter WebView
     let audioContext = null;
     
-    // Initialize audio context with user gesture
+    // Simple audio context initialization
     function initAudioContext() {
       try {
-        // Create audio context if it doesn't exist
         if (!audioContext) {
           audioContext = new (window.AudioContext || window.webkitAudioContext)();
           debugLog('Audio context created: ' + audioContext.state);
         }
         
-        // Resume it if suspended
         if (audioContext.state === 'suspended') {
           audioContext.resume().then(() => {
             debugLog('Audio context resumed: ' + audioContext.state);
           });
         }
-        
-        // Play a silent audio file to fully enable audio
-        const audioStarter = document.getElementById('audio-starter');
-        audioStarter.play().then(() => {
-          debugLog('Silent audio played successfully');
-        }).catch(err => {
-          debugLog('Silent audio play failed: ' + err);
-        });
         
         return true;
       } catch(e) {
@@ -230,7 +220,7 @@
           token = data.token;
           debugLog('Received token (length: ' + token.length + '), initializing player');
           
-          // Initialize audio first
+          // Initialize audio context
           initAudioContext();
           
           // Initialize the player after audio context is ready
@@ -242,7 +232,7 @@
           if (player && deviceId) {
             debugLog('Playing track: ' + data.uri);
             
-            // Ensure audio is enabled
+            // Initialize audio context
             initAudioContext();
             
             player.connect().then(success => {
@@ -334,6 +324,9 @@
             document.getElementById('player-status').innerText = 'Connected to Spotify';
             playerInitialized = true;
             
+            // Initialize audio context when player is ready
+            initAudioContext();
+            
             // Notify Flutter about the device ID
             sendToFlutter({
               type: 'deviceReady',
@@ -362,6 +355,11 @@
             
             const current_track = state.track_window.current_track;
             const paused = state.paused;
+            
+            // Initialize audio context when track starts playing
+            if (!paused) {
+              initAudioContext();
+            }
             
             document.getElementById('player-status').innerText = paused ? 
               `Paused: ${current_track.name}` : 

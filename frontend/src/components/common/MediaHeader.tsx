@@ -159,7 +159,8 @@ export function MediaHeader({
     if (onMediaChange) {
       onMediaChange(media);
     } else {
-      setCurrentMedia(media);
+      console.log(`[MediaHeader] Switching from ${currentMedia} to ${media} - music playback should persist`);
+    setCurrentMedia(media);
     }
     handleCloseMenu();
   };
