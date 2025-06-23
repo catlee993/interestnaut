@@ -715,18 +715,12 @@ class _TVShowSectionState extends State<TVShowSection> {
   // Favorite a watchlist item
   Future<void> _favoriteWatchlistItem(MediaSuggestion suggestion) async {
     try {
-      // Remove from watchlist table
-      await _db.removeFromWatchlist(suggestion.id);
-      
-      // Set status to added (favorited)
-      await _recommendationService.updateSuggestionStatus(
-        suggestion.id,
-        SuggestionStatus.added,
-      );
+      // Use the new method that handles both recommendation-based and user-added items
+      await _db.moveFromWatchlistToFavorites(suggestion.id);
       
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Added "${suggestion.title}" to favorites'),
+          content: Text('Favorited "${suggestion.title}" - moved to favorites'),
           duration: const Duration(seconds: 2),
         ),
       );

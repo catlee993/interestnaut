@@ -1864,18 +1864,12 @@ class _MusicSectionState extends State<MusicSection> {
   // Favorite a watchlist item (removes from watchlist and sets status to "added")
   Future<void> _favoriteWatchlistItem(MediaSuggestion suggestion) async {
     try {
-      // Remove from watchlist table
-      await _db.removeFromWatchlist(suggestion.id);
-      
-      // Set status to "added" so it stays in library
-      await _recommendationService.updateSuggestionStatus(
-        suggestion.id,
-        SuggestionStatus.added,
-      );
+      // Use the new method that handles both recommendation-based and user-added items
+      await _db.moveFromWatchlistToFavorites(suggestion.id);
       
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Favorited "${suggestion.title}" - removed from ${_getWatchlistTerminology(isAction: true)} and added to library'),
+          content: Text('Favorited "${suggestion.title}" - moved to library'),
           duration: const Duration(seconds: 2),
         ),
       );

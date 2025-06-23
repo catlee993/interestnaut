@@ -575,16 +575,12 @@ class _GameSectionState extends State<GameSection> {
   // Favorite a playlist item
   Future<void> _favoritePlaylistItem(MediaSuggestion suggestion) async {
     try {
-      await _db.removeFromWatchlist(suggestion.id);
-      
-      await _recommendationService.updateSuggestionStatus(
-        suggestion.id,
-        SuggestionStatus.added,
-      );
+      // Use the new method that handles both recommendation-based and user-added items
+      await _db.moveFromWatchlistToFavorites(suggestion.id);
       
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Favorited "${suggestion.title}" - removed from playlist'),
+          content: Text('Favorited "${suggestion.title}" - moved to library'),
           duration: const Duration(seconds: 2),
         ),
       );

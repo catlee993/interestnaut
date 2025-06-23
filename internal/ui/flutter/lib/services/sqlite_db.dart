@@ -470,8 +470,8 @@ class SQLiteDatabase {
   MediaSuggestion _mapRowToMediaSuggestion(Row row) {
     return MediaSuggestion(
       id: row['id'] as int,
-      query: row['query'] as String,
-      mediaType: row['media_type'] as String,
+      query: (row['query'] as String?) ?? 'Unknown',
+      mediaType: (row['media_type'] as String?) ?? 'unknown',
       title: row['title'] as String?,
       artist: row['primary_creator'] as String?, // Maps primary_creator to artist for backwards compatibility
       coverArtUrl: row['cover_art_url'] as String?,
@@ -482,10 +482,10 @@ class SQLiteDatabase {
       themes: row['themes'] as String?,
       mediaId: row['vector_media_id'] as String?, // Maps vector_media_id to mediaId
       status: SuggestionStatus.values.firstWhere(
-        (s) => s.toString().split('.').last == (row['status'] as String),
+        (s) => s.toString().split('.').last == ((row['status'] as String?) ?? 'pending'),
         orElse: () => SuggestionStatus.pending,
       ),
-      createdAt: DateTime.parse(row['created_at'] as String),
+      createdAt: DateTime.parse((row['created_at'] as String?) ?? DateTime.now().toIso8601String()),
       updatedAt: row['updated_at'] != null
           ? DateTime.parse(row['updated_at'] as String)
           : null,
@@ -1112,6 +1112,45 @@ class SQLiteDatabase {
     } catch (e) {
       debugPrint('Error getting all favorites: $e');
       return [];
+    }
+  }
+
+  /// Move item from watchlist to favorites (handles both recommendation-based and user-added items)
+  Future<void> moveFromWatchlistToFavorites(int itemId) async {
+    await _ensureInitialized();
+    
+    try {
+      if (itemId < 0) {
+        // User-added item (negative ID)
+        final mediaItemId = -itemId; // Convert back to positive media_item_id
+        
+        // Remove from watchlist
+        final removeStmt = _db!.prepare('DELETE FROM watchlist WHERE media_item_id = ?');
+        removeStmt.execute([mediaItemId]);
+        removeStmt.dispose();
+        
+        // Add to user_favorites
+        final addStmt = _db!.prepare(addUserFavoriteQuery);
+        addStmt.execute([mediaItemId, DateTime.now().toIso8601String()]);
+        addStmt.dispose();
+        
+        debugPrint('🗄️ [DB] Moved user-added item from watchlist to favorites (media_item_id: $mediaItemId)');
+      } else {
+        // Recommendation-based item (positive ID)
+        
+        // Remove from watchlist
+        await removeFromWatchlist(itemId);
+        
+        // Update recommendation status to 'added'
+        final statusStmt = _db!.prepare(updateRecommendationStatusQuery);
+        statusStmt.execute(['added', DateTime.now().toIso8601String(), itemId]);
+        statusStmt.dispose();
+        
+        debugPrint('🗄️ [DB] Moved recommendation from watchlist to favorites (recommendation_id: $itemId)');
+      }
+    } catch (e) {
+      debugPrint('Error moving from watchlist to favorites: $e');
+      rethrow;
     }
   }
 

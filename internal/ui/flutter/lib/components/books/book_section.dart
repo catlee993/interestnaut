@@ -586,15 +586,12 @@ class _BookSectionState extends State<BookSection> {
   // Favorite a reading list item
   Future<void> _favoriteReadingListItem(MediaSuggestion suggestion) async {
     try {
-      await _db.removeFromWatchlist(suggestion.id);
-      await _recommendationService.updateSuggestionStatus(
-        suggestion.id,
-        SuggestionStatus.added,
-      );
+      // Use the new method that handles both recommendation-based and user-added items
+      await _db.moveFromWatchlistToFavorites(suggestion.id);
       
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Added "${suggestion.title}" to favorites'),
+          content: Text('Favorited "${suggestion.title}" - moved to library'),
           duration: const Duration(seconds: 2),
         ),
       );
