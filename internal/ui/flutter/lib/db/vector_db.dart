@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../services/tflite_vector_service.dart';
 
 /// VectorDatabase
 /// Read-only vector search database for media recommendations
@@ -58,12 +59,8 @@ class VectorDatabase {
         // Open the shard database
         _shards[mediaType] = sqlite3.open(localPath);
         
-        // Load sqlite-vec extension if available
-        try {
-          _shards[mediaType]!.execute('SELECT load_extension("sqlite_vec")');
-        } catch (e) {
-          debugPrint('sqlite-vec extension not available, using fallback');
-        }
+        // sqlite-vec extension not needed - using TensorFlow Lite for vector operations
+        debugPrint('✅ Vector database initialized for $mediaType (using TFLite backend)');
       }
       
       _initialized = true;
@@ -116,12 +113,8 @@ class VectorDatabase {
       // Open the shard database
       _shards[mediaType] = sqlite3.open(localPath);
       
-      // Load sqlite-vec extension if available
-      try {
-        _shards[mediaType]!.execute('SELECT load_extension("sqlite_vec")');
-      } catch (e) {
-        debugPrint('sqlite-vec extension not available for $mediaType');
-      }
+      // sqlite-vec extension not needed - using TensorFlow Lite for vector operations
+      debugPrint('✅ Vector database initialized for $mediaType (using TFLite backend)');
       
       // Update preferences
       _enabledMediaTypes.add(mediaType);
@@ -273,7 +266,7 @@ class VectorDatabase {
     return sizes;
   }
 
-  /// Search for similar media items
+  /// Search for similar media items using TensorFlow Lite
   Future<List<MediaSearchResult>> searchSimilar({
     required List<double> queryEmbedding,
     required String mediaType,
@@ -288,8 +281,9 @@ class VectorDatabase {
 
     try {
       final db = _shards[mediaType]!;
-      final hasAlbum = mediaType == 'music';      
-      // Use sqlite-vec if available, fallback to manual similarity
+      final hasAlbum = mediaType == 'music';
+      
+      // Get all vectors from database for TensorFlow Lite processing
       final query = '''
         SELECT 
           media_id,
@@ -301,38 +295,58 @@ class VectorDatabase {
           wiki_url,
           wikidata_id,
           image_url,
-          distance
+          embedding_blob
         FROM media_vectors 
-        WHERE embedding MATCH ?
-        ${minSimilarity != null ? 'AND distance <= ?' : ''}
-        ORDER BY distance ASC
-        LIMIT ?
+        LIMIT 10000
       ''';
       
-      final params = [
-        jsonEncode(queryEmbedding),
-        if (minSimilarity != null) minSimilarity,
-        limit,
-      ];
-      
       final stmt = db.prepare(query);
-      final result = stmt.select(params);
+      final result = stmt.select([]);
       
-      final results = result.map((row) => MediaSearchResult(
-        mediaId: row['media_id'] as String,
-        title: row['title'] as String,
-        artist: row['artist'] as String?,
-        album: hasAlbum ? row['album'] as String? : null,
-        description: row['description'] as String?,
-        themes: row['themes'] as String?,
-        wikiUrl: row['wiki_url'] as String?,
-        wikidataId: row['wikidata_id'] as String?,
-        coverArtUrl: row['image_url'] as String?,
-        similarity: 1.0 - (row['distance'] as double), // Convert distance to similarity
+      // Convert to VectorWithMetadata for TensorFlow Lite processing
+      final candidates = result.map((row) {
+        final embedding = _blobToFloatList(row['embedding_blob'] as Uint8List);
+        return VectorWithMetadata(
+          id: row['media_id'] as String,
+          title: row['title'] as String,
+          artist: row['artist'] as String?,
+          album: hasAlbum ? row['album'] as String? : null,
+          vector: embedding,
+          metadata: {
+            'description': row['description'] as String?,
+            'themes': row['themes'] as String?,
+            'wikiUrl': row['wiki_url'] as String?,
+            'wikidataId': row['wikidata_id'] as String?,
+            'coverArtUrl': row['image_url'] as String?,
+          },
+        );
+      }).toList();
+      
+      stmt.dispose();
+      
+      // Use TensorFlow Lite for similarity search
+      final tfliteResults = await TFLiteVectorService.instance.findTopSimilar(
+        queryVector: queryEmbedding,
+        candidates: candidates,
+        topK: limit,
+        minSimilarity: minSimilarity ?? 0.0,
+      );
+      
+      // Convert back to MediaSearchResult
+      final results = tfliteResults.map((result) => MediaSearchResult(
+        mediaId: result.item.id,
+        title: result.item.title,
+        artist: result.item.artist,
+        album: result.item.album,
+        description: result.metadata['description'] as String?,
+        themes: result.metadata['themes'] as String?,
+        wikiUrl: result.metadata['wikiUrl'] as String?,
+        wikidataId: result.metadata['wikidataId'] as String?,
+        coverArtUrl: result.metadata['coverArtUrl'] as String?,
+        similarity: result.similarity,
         mediaType: mediaType,
       )).toList();
       
-      stmt.dispose();
       return results;
     } catch (e) {
       debugPrint('Error searching similar media: $e');

@@ -1150,6 +1150,22 @@ class SpotifyService {
         }
       } else {
         debugPrint('Failed to play track: ${response.statusCode} - ${response.body}');
+        
+        // Handle device not found error (404) by triggering reconnection
+        if (response.statusCode == 404) {
+          final errorBody = response.body;
+          if (errorBody.contains('Device not found')) {
+            debugPrint('Device not found - clearing active device and triggering reconnection');
+            clearActiveDeviceId();
+            
+            // Try to trigger player reconnection
+            final reconnected = forceSpotifyPlayerReconnection();
+            if (reconnected) {
+              debugPrint('Player reconnection triggered, will retry playback when ready');
+            }
+          }
+        }
+        
         return false;
       }
     } catch (e) {
@@ -1253,6 +1269,22 @@ class SpotifyService {
         }
       } else {
         debugPrint('Failed to resume playback: ${response.statusCode} - ${response.body}');
+        
+        // Handle device not found error (404) by triggering reconnection
+        if (response.statusCode == 404) {
+          final errorBody = response.body;
+          if (errorBody.contains('Device not found')) {
+            debugPrint('Device not found during resume - clearing active device and triggering reconnection');
+            clearActiveDeviceId();
+            
+            // Try to trigger player reconnection
+            final reconnected = forceSpotifyPlayerReconnection();
+            if (reconnected) {
+              debugPrint('Player reconnection triggered for resume, will retry when ready');
+            }
+          }
+        }
+        
         return false;
       }
     } catch (e) {

@@ -240,8 +240,17 @@ class _MusicSectionState extends State<MusicSection> {
       
       // Play any pending track
       if (_pendingTrackUri != null) {
+        debugPrint('Device reconnected - playing pending track: $_pendingTrackUri');
         _playTrack(_pendingTrackUri!);
         _pendingTrackUri = null;
+      }
+      
+      // If we were trying to play a track but got "Device not found", retry now
+      if (_nowPlayingTrack != null && _isPlaybackPaused) {
+        debugPrint('Device reconnected - retrying playback for current track: ${_nowPlayingTrack!.name}');
+        Future.delayed(const Duration(milliseconds: 500), () {
+          _playTrack(_nowPlayingTrack!.uri);
+        });
       }
     });
 
@@ -422,29 +431,57 @@ class _MusicSectionState extends State<MusicSection> {
             _isPlaybackPaused = false;
           });
         } else {
-          // Store as pending
-        _pendingTrackUri = trackUri;
-        debugPrint('Storing track URI as pending: $trackUri');
-        
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-                content: Text('No Spotify devices available. Please open Spotify on any device.'),
-                duration: Duration(seconds: 3),
-            ),
-          );
+          // Store as pending and trigger reconnection
+          _pendingTrackUri = trackUri;
+          debugPrint('Storing track URI as pending: $trackUri');
+          
+          // Try to force player reconnection
+          final reconnected = forceSpotifyPlayerReconnection();
+          if (reconnected) {
+            debugPrint('Triggered player reconnection, will retry when ready');
+          }
+          
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Connecting to Spotify player...'),
+                duration: Duration(seconds: 2),
+              ),
+            );
           }
         }
       }
     } catch (e) {
       debugPrint('Error playing track: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error playing track: $e'),
-            duration: const Duration(seconds: 3),
-          ),
-        );
+      
+      // Handle device not found errors specifically
+      if (e.toString().contains('Device not found')) {
+        _pendingTrackUri = trackUri;
+        debugPrint('Device not found - storing track as pending and triggering reconnection');
+        
+        final reconnected = forceSpotifyPlayerReconnection();
+        if (reconnected) {
+          debugPrint('Triggered player reconnection due to device error');
+        }
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Reconnecting to Spotify...'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+      } else {
+        // Other errors
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error playing track: $e'),
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
       }
     }
   }

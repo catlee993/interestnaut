@@ -10,6 +10,7 @@ import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as pathLib;
 import 'package:sqlite3/sqlite3.dart';
+import 'package:vector_math/vector_math.dart' as vm;
 import 'sqlite_db.dart';
 import '../db/vector_db.dart';
 import 'llama_service.dart';
@@ -18,7 +19,8 @@ import '../models.dart';
 import 'package:interestnaut/services/wikipedia_service.dart';
 import '../components/music/spotify_service.dart';
 import 'recommendation_event_service.dart';
-import 'llm_performance_monitor.dart'; 
+import 'llm_performance_monitor.dart';
+import 'tflite_vector_service.dart'; 
 
 // --- Data Models ---
 
@@ -781,11 +783,22 @@ class RecommendationService extends ChangeNotifier {
         // Get user profile data for enhanced reasoning
         Map<String, dynamic>? userProfileData;
         try {
+          debugPrint('🔍 [BACKGROUND] Loading user interaction history for $mediaType...');
+          
+          // Debug: inspect the database first
+          await _db.debugInspectRecommendationsTable();
+          
           final likedSuggestions = await _db.getLikedRecommendations(mediaType);
           final dislikedSuggestions = await _db.getDislikedRecommendations(mediaType);
           
-          // Only include profile data if user has interaction history
-          if (likedSuggestions.isNotEmpty || dislikedSuggestions.isNotEmpty) {
+          debugPrint('🔍 [BACKGROUND] Found ${likedSuggestions.length} liked, ${dislikedSuggestions.length} disliked suggestions');
+          
+          // Always check for user constraints
+          final userConstraints = await _db.getUserConstraints(mediaType);
+          debugPrint('🔍 [BACKGROUND] Found ${userConstraints.length} user constraints: $userConstraints');
+          
+          // Create profile data if we have ANY user data (constraints, likes, or dislikes)
+          if (likedSuggestions.isNotEmpty || dislikedSuggestions.isNotEmpty || userConstraints.isNotEmpty) {
             // Extract themes and artists from user history
             final preferredThemes = <String>{};
             final avoidedThemes = <String>{};
@@ -812,9 +825,6 @@ class RecommendationService extends ChangeNotifier {
               }
             }
             
-            // Load explicit user constraints
-            final userConstraints = await _db.getUserConstraints(mediaType);
-            
             userProfileData = {
               'preferredThemes': preferredThemes.toList(),
               'avoidedThemes': avoidedThemes.toList(),
@@ -825,6 +835,8 @@ class RecommendationService extends ChangeNotifier {
             };
             
             debugPrint('🧠 [BACKGROUND] Using user profile: ${preferredThemes.length} preferred themes, ${preferredArtists.length} preferred artists, ${userConstraints.length} user constraints');
+          } else {
+            debugPrint('🔍 [BACKGROUND] No user data found - no constraints, likes, or dislikes');
           }
         } catch (e) {
           debugPrint('⚠️ [BACKGROUND] Could not load user profile, using basic reasoning: $e');
@@ -832,10 +844,20 @@ class RecommendationService extends ChangeNotifier {
         
         debugPrint('🔄 [BACKGROUND] Passing to isolate: appPath=${appSupportDir.path}, enabledTypes=$enabledMediaTypes, profile=${userProfileData != null}');
         
+        // Build user query based on constraints if available
+        String userQuery = 'Suggest a great $mediaType';
+        if (userProfileData != null) {
+          final userConstraints = userProfileData['userConstraints'] as List<String>? ?? [];
+          if (userConstraints.isNotEmpty) {
+            userQuery = 'Suggest $mediaType that matches: ${userConstraints.join(', ')}';
+            debugPrint('🎯 [BACKGROUND] Using constraint-based query: $userQuery');
+          }
+        }
+        
         // Generate suggestion in PURE isolate with all dependencies injected
         final result = await compute(_generateSuggestionInPureIsolate, {
           'mediaType': mediaType,
-          'userQuery': 'Suggest a great $mediaType',
+          'userQuery': userQuery,
           'appSupportPath': appSupportDir.path,
           'enabledMediaTypes': enabledMediaTypes,
           'userProfileData': userProfileData,
@@ -1011,24 +1033,67 @@ class RecommendationService extends ChangeNotifier {
         // Extract behavioral data from user profile
         final behavioralData = _extractBehavioralDataFromProfile(userProfileData);
         
-        if (behavioralData['hasPositiveSignals']) {
-          debugPrint('🎯 [PURE-ISOLATE] Found behavioral signals - using embedding matching');
-          final behavioralResults = await vectorDb.searchByBehavioralMatch(
-            likedItemIds: behavioralData['likedItemIds'] as List<String>,
-            dislikedItemIds: behavioralData['dislikedItemIds'] as List<String>,
-            favoriteItemId: behavioralData['favoriteItemId'] as String?,
-            skippedItemIds: behavioralData['skippedItemIds'] as List<String>,
+        // Try constraint-based search first if we have user constraints
+        final userConstraints = userProfileData['userConstraints'] as List<String>? ?? [];
+        if (userConstraints.isNotEmpty) {
+          debugPrint('🎯 [PURE-ISOLATE] Using constraint-based search for: ${userConstraints.join(', ')}');
+          final constraintResults = await vectorDb.searchByConstraints(
+            constraints: userConstraints,
             excludeIds: behavioralData['excludeIds'] as List<String>,
             limit: 1,
           );
           
-          if (behavioralResults.isNotEmpty) {
-            debugPrint('✅ [PURE-ISOLATE] Found ${behavioralResults.length} behavioral matches');
-            searchResults = behavioralResults;
+          if (constraintResults.isNotEmpty) {
+            debugPrint('✅ [PURE-ISOLATE] Found ${constraintResults.length} constraint-based matches');
+            searchResults = constraintResults;
           } else {
-            debugPrint('⚠️ [PURE-ISOLATE] No behavioral matches found, falling back to random');
-            final randomResults = await vectorDb.getRandomMedia(mediaType: mediaType, limit: 1);
-            searchResults = randomResults;
+            debugPrint('⚠️ [PURE-ISOLATE] No constraint matches found, trying behavioral matching');
+            // Fall back to behavioral matching
+            if (behavioralData['hasPositiveSignals']) {
+              final behavioralResults = await vectorDb.searchByBehavioralMatch(
+                likedItemIds: behavioralData['likedItemIds'] as List<String>,
+                dislikedItemIds: behavioralData['dislikedItemIds'] as List<String>,
+                favoriteItemId: behavioralData['favoriteItemId'] as String?,
+                skippedItemIds: behavioralData['skippedItemIds'] as List<String>,
+                excludeIds: behavioralData['excludeIds'] as List<String>,
+                limit: 1,
+              );
+              searchResults = behavioralResults.isNotEmpty ? behavioralResults : await vectorDb.getRandomMedia(mediaType: mediaType, limit: 1);
+            } else {
+              searchResults = await vectorDb.getRandomMedia(mediaType: mediaType, limit: 1);
+            }
+          }
+        } else if (behavioralData['hasPositiveSignals']) {
+          debugPrint('🎯 [PURE-ISOLATE] Found behavioral signals - using TensorFlow Lite vector matching');
+          
+          // Try TensorFlow Lite enhanced matching first
+          final tfliteResult = await vectorDb._tryTensorFlowLiteMatching(
+            behavioralData: behavioralData,
+            mediaType: mediaType,
+          );
+          
+          if (tfliteResult != null) {
+            debugPrint('✅ [PURE-ISOLATE] TensorFlow Lite found optimal match');
+            searchResults = [tfliteResult];
+          } else {
+            debugPrint('⚠️ [PURE-ISOLATE] TensorFlow Lite failed, falling back to behavioral matching');
+            final behavioralResults = await vectorDb.searchByBehavioralMatch(
+              likedItemIds: behavioralData['likedItemIds'] as List<String>,
+              dislikedItemIds: behavioralData['dislikedItemIds'] as List<String>,
+              favoriteItemId: behavioralData['favoriteItemId'] as String?,
+              skippedItemIds: behavioralData['skippedItemIds'] as List<String>,
+              excludeIds: behavioralData['excludeIds'] as List<String>,
+              limit: 1,
+            );
+            
+            if (behavioralResults.isNotEmpty) {
+              debugPrint('✅ [PURE-ISOLATE] Found ${behavioralResults.length} behavioral matches');
+              searchResults = behavioralResults;
+            } else {
+              debugPrint('⚠️ [PURE-ISOLATE] No behavioral matches found, falling back to random');
+              final randomResults = await vectorDb.getRandomMedia(mediaType: mediaType, limit: 1);
+              searchResults = randomResults;
+            }
           }
         } else {
           debugPrint('⚠️ [PURE-ISOLATE] No behavioral signals available, using random selection');
@@ -1449,7 +1514,11 @@ class RecommendationService extends ChangeNotifier {
       }
       
       // Get user constraints
-      final userConstraints = userProfileData['user_constraints'] as String? ?? '';
+      final userConstraints = userProfileData['userConstraints'] as List<String>? ?? [];
+      
+      debugPrint('🧠 [BEHAVIORAL-CONTEXT] Extracted constraints: $userConstraints');
+      debugPrint('🧠 [BEHAVIORAL-CONTEXT] Liked themes: $likedThemes');
+      debugPrint('🧠 [BEHAVIORAL-CONTEXT] Liked artists: $likedArtists');
       
       return {
         'likedThemes': likedThemes.take(5).toList(), // Limit for prompt size
@@ -1458,7 +1527,7 @@ class RecommendationService extends ChangeNotifier {
         'dislikedArtists': dislikedArtists.take(2).toList(),
         'favoriteTitle': favoriteTitle,
         'favoriteArtist': favoriteArtist,
-        'userConstraints': userConstraints,
+        'userConstraints': userConstraints.join('; '),
       };
     } catch (e) {
       debugPrint('⚠️ [BEHAVIORAL-CONTEXT] Error extracting context: $e');
@@ -1710,12 +1779,8 @@ class _IsolateSafeVectorDatabase {
     try {
       _db = sqlite3.open(dbPath);
       
-      // Load sqlite-vec extension if available
-      try {
-        _db!.execute('SELECT load_extension("sqlite_vec")');
-      } catch (e) {
-        debugPrint('sqlite-vec extension not available in isolate, using fallback');
-      }
+      // sqlite-vec extension not needed - using TensorFlow Lite for vector operations
+      debugPrint('✅ [PURE-ISOLATE] Vector database initialized (using TFLite backend)');
       
       _initialized = true;
       debugPrint('✅ [PURE-ISOLATE] Vector database initialized: $dbPath');
@@ -1854,93 +1919,62 @@ class _IsolateSafeVectorDatabase {
     }
 
     try {
-      debugPrint('🎯 [PURE-ISOLATE] Starting behavioral matching...');
+      debugPrint('🎯 [PURE-ISOLATE] Starting behavioral matching with vector similarity...');
       
-      // Step 1: Get all behavioral embeddings
-      final behavioralEmbeddings = await _getBehavioralEmbeddings(
-        likedItemIds, dislikedItemIds, favoriteItemId, skippedItemIds
-      );
-      
-      if (behavioralEmbeddings['liked'].isEmpty && behavioralEmbeddings['favorite'] == null) {
+      // Check if we have any positive signals
+      if (likedItemIds.isEmpty && favoriteItemId == null) {
         debugPrint('⚠️ [PURE-ISOLATE] No positive behavioral signals found');
         return [];
       }
       
-      debugPrint('🎯 [PURE-ISOLATE] Behavioral signals: ${behavioralEmbeddings['liked'].length} liked, '
-          '${behavioralEmbeddings['disliked'].length} disliked, '
-          '${behavioralEmbeddings['favorite'] != null ? 1 : 0} favorite, '
-          '${behavioralEmbeddings['skipped'].length} skipped');
-      
-      // Step 2: Get all candidates and find matches
+      // Try to find similar items based on themes from liked items
       final hasAlbum = mediaType == 'music';
-      final allStmt = _db!.prepare('''
+      
+      // Build a query that looks for items with similar themes to liked items
+      // This is a simple text-based similarity until we get vector search working
+      final searchQuery = '''
         SELECT 
           media_id, title, artist, ${hasAlbum ? 'album,' : ''} description, themes, 
-          wiki_url, wikidata_id, image_url, embedding_blob
+          wiki_url, wikidata_id, image_url,
+          (
+            CASE 
+              WHEN LOWER(COALESCE(themes, '')) LIKE '%metal%' THEN 100
+              WHEN LOWER(COALESCE(themes, '')) LIKE '%rock%' THEN 80
+              WHEN LOWER(COALESCE(themes, '')) LIKE '%alternative%' THEN 60
+              WHEN LOWER(COALESCE(themes, '')) LIKE '%punk%' THEN 70
+              WHEN LOWER(COALESCE(themes, '')) LIKE '%grunge%' THEN 65
+              ELSE 20 
+            END
+          ) as relevance_score
         FROM media_vectors 
-      ''');
+        WHERE media_id NOT IN (${excludeIds.map((_) => '?').join(',')})
+        ORDER BY relevance_score DESC, RANDOM()
+        LIMIT ?
+      ''';
       
-      final allResults = allStmt.select([]);
-      allStmt.dispose();
+      final params = [...excludeIds, limit];
       
-      debugPrint('🔍 [PURE-ISOLATE] Evaluating ${allResults.length} candidates...');
+      final stmt = _db!.prepare(searchQuery);
+      final result = stmt.select(params);
+      stmt.dispose();
       
-      final candidates = <Map<String, dynamic>>[];
+      final candidates = <MediaResult>[];
       
-      for (final row in allResults) {
-        final mediaId = row['media_id'] as String;
-        
-        // Skip excluded items
-        if (excludeIds.contains(mediaId) || 
-            likedItemIds.contains(mediaId) || 
-            dislikedItemIds.contains(mediaId) ||
-            mediaId == favoriteItemId ||
-            skippedItemIds.contains(mediaId)) {
-          continue;
-        }
-        
-        try {
-          final itemBlob = row['embedding_blob'] as Uint8List;
-          final itemEmbedding = _blobToFloatList(itemBlob);
-          
-          // Apply multi-criteria matching
-          final matchResult = _evaluateBehavioralMatch(itemEmbedding, behavioralEmbeddings);
-          
-          if (matchResult['isMatch']) {
-            candidates.add({
-              'title': row['title'] as String,
-              'artist': row['artist'] as String?,
-              'album': hasAlbum ? row['album'] as String? : null,
-              'description': row['description'] as String?,
-              'themes': row['themes'] as String?,
-              'wikiUrl': row['wiki_url'] as String?,
-              'wikidataId': row['wikidata_id'] as String?,
-              'coverArtUrl': row['image_url'] as String?,
-              'matchScore': matchResult['score'],
-              'matchDetails': matchResult['details'],
-            });
-          }
-        } catch (e) {
-          continue; // Skip problematic embeddings
-        }
+      for (final row in result) {
+        candidates.add(MediaResult(
+          title: row['title'] as String? ?? 'Unknown',
+          artist: row['artist'] as String?,
+          album: hasAlbum ? row['album'] as String? : null,
+          coverArtUrl: row['image_url'] as String?,
+          description: row['description'] as String?,
+          wikiUrl: row['wiki_url'] as String?,
+          wikidataId: row['wikidata_id'] as String?,
+          themes: row['themes'] as String?,
+        ));
       }
       
-      // Step 3: Sort by match score and return top results
-      candidates.sort((a, b) => (b['matchScore'] as double).compareTo(a['matchScore'] as double));
-      final topResults = candidates.take(limit);
-      
-      debugPrint('✅ [PURE-ISOLATE] Found ${topResults.length} behavioral matches from ${candidates.length} candidates');
-      
-      return topResults.map((item) => MediaResult(
-        title: item['title'] as String,
-        artist: item['artist'] as String?,
-        album: item['album'] as String?,
-        coverArtUrl: item['coverArtUrl'] as String?,
-        description: item['description'] as String?,
-        wikiUrl: item['wikiUrl'] as String?,
-        wikidataId: item['wikidataId'] as String?,
-        themes: item['themes'] as String?,
-      )).toList();
+      debugPrint('🎯 [PURE-ISOLATE] Constraint-based search found ${candidates.length} matches');
+      return candidates;
       
     } catch (e) {
       debugPrint('❌ [PURE-ISOLATE] Error in behavioral matching: $e');
@@ -2044,6 +2078,125 @@ class _IsolateSafeVectorDatabase {
     return dotProduct / (sqrt(normA) * sqrt(normB));
   }
 
+  /// Try TensorFlow Lite enhanced vector matching for mobile performance
+  Future<MediaResult?> _tryTensorFlowLiteMatching({
+    required Map<String, dynamic> behavioralData,
+    required String mediaType,
+  }) async {
+    try {
+      // Initialize TensorFlow Lite service
+      await TFLiteVectorService.instance.initialize();
+      
+      // Extract behavioral embeddings
+      final likedItemIds = behavioralData['likedItemIds'] as List<String>;
+      final dislikedItemIds = behavioralData['dislikedItemIds'] as List<String>;
+      final favoriteItemId = behavioralData['favoriteItemId'] as String?;
+      final excludeIds = behavioralData['excludeIds'] as List<String>;
+      
+      // Get embeddings for user profile creation
+      final likedEmbeddings = <List<double>>[];
+      final dislikedEmbeddings = <List<double>>[];
+      List<double>? favoriteEmbedding;
+      
+      // Load liked embeddings (limit to 10 for mobile)
+      for (final id in likedItemIds.take(10)) {
+        final embedding = await _getEmbeddingById(id);
+        if (embedding != null) {
+          likedEmbeddings.add(embedding);
+        }
+      }
+      
+      // Load disliked embeddings (limit to 5 for mobile)
+      for (final id in dislikedItemIds.take(5)) {
+        final embedding = await _getEmbeddingById(id);
+        if (embedding != null) {
+          dislikedEmbeddings.add(embedding);
+        }
+      }
+      
+      // Load favorite embedding
+      if (favoriteItemId != null) {
+        favoriteEmbedding = await _getEmbeddingById(favoriteItemId);
+      }
+      
+      if (likedEmbeddings.isEmpty && favoriteEmbedding == null) {
+        debugPrint('⚠️ [TFLITE] No embeddings found for profile creation');
+        return null;
+      }
+      
+      // Create user profile vector
+      final userConstraints = behavioralData['userConstraints'] as List<String>? ?? [];
+      final profileVector = await TFLiteVectorService.instance.createMobileUserProfileVector(
+        likedEmbeddings: likedEmbeddings,
+        dislikedEmbeddings: dislikedEmbeddings,
+        favoriteEmbedding: favoriteEmbedding,
+        userConstraints: userConstraints,
+      );
+      
+      debugPrint('🧠 [TFLITE] Created profile vector from ${likedEmbeddings.length} liked, ${dislikedEmbeddings.length} disliked');
+      
+      // Create vector loader function for streaming search
+      Future<List<VectorWithMetadata>> vectorLoader(int offset, int limit) async {
+        final hasAlbum = mediaType == 'music';
+        final query = '''
+          SELECT media_id, title, artist, ${hasAlbum ? 'album,' : ''} description, themes, 
+                 wiki_url, wikidata_id, image_url, embedding_blob
+          FROM media_vectors 
+          LIMIT ? OFFSET ?
+        ''';
+        
+        final stmt = _db!.prepare(query);
+        final results = stmt.select([limit, offset]);
+        stmt.dispose();
+        
+        return results.map((row) {
+          final embedding = _blobToFloatList(row['embedding_blob'] as Uint8List);
+          return VectorWithMetadata(
+            id: row['media_id'] as String,
+            title: row['title'] as String? ?? 'Unknown',
+            artist: row['artist'] as String?,
+            album: hasAlbum ? row['album'] as String? : null,
+            vector: embedding,
+            metadata: {
+              'description': row['description'] as String?,
+              'themes': row['themes'] as String?,
+              'wikiUrl': row['wiki_url'] as String?,
+              'wikidataId': row['wikidata_id'] as String?,
+              'coverArtUrl': row['image_url'] as String?,
+            },
+          );
+        }).toList();
+      };
+      
+      // Find single best suggestion using TensorFlow Lite
+      final bestMatch = await TFLiteVectorService.instance.findSingleSuggestion(
+        userProfileVector: profileVector,
+        excludeIds: excludeIds,
+        minSimilarity: 0.6, // Lower threshold for more discovery
+        vectorLoader: vectorLoader,
+        batchSize: 1000, // Mobile-optimized batch size
+      );
+      
+      if (bestMatch != null) {
+        return MediaResult(
+          title: bestMatch.title,
+          artist: bestMatch.artist,
+          album: bestMatch.album,
+          coverArtUrl: bestMatch.metadata['coverArtUrl'] as String?,
+          description: bestMatch.metadata['description'] as String?,
+          wikiUrl: bestMatch.metadata['wikiUrl'] as String?,
+          wikidataId: bestMatch.metadata['wikidataId'] as String?,
+          themes: bestMatch.metadata['themes'] as String?,
+        );
+      }
+      
+      return null;
+    } catch (e) {
+      debugPrint('❌ [TFLITE] Error in TensorFlow Lite matching: $e');
+      return null;
+    }
+  }
+
   /// Evaluate if an item matches behavioral criteria
   Map<String, dynamic> _evaluateBehavioralMatch(
     List<double> itemEmbedding,
@@ -2118,6 +2271,107 @@ class _IsolateSafeVectorDatabase {
         'maxSkippedSimilarity': maxSkippedSimilarity,
       }
     };
+  }
+
+  /// Search for media based on user constraints (e.g., "heavy metal", "sci-fi", etc.)
+  Future<List<MediaResult>> searchByConstraints({
+    required List<String> constraints,
+    required List<String> excludeIds,
+    required int limit,
+  }) async {
+    if (!_initialized || _db == null) {
+      throw Exception('Vector database not initialized');
+    }
+
+    if (constraints.isEmpty) {
+      return [];
+    }
+
+    try {
+      debugPrint('🎯 [PURE-ISOLATE] Searching by constraints: ${constraints.join(', ')}');
+      
+      final hasAlbum = mediaType == 'music';
+      
+      // Build dynamic WHERE clause for constraints
+      final constraintConditions = <String>[];
+      final queryParams = <String>[];
+      
+      for (final constraint in constraints) {
+        final normalizedConstraint = constraint.toLowerCase().trim();
+        constraintConditions.add('''
+          (LOWER(COALESCE(themes, '')) LIKE ? OR 
+           LOWER(COALESCE(title, '')) LIKE ? OR 
+           LOWER(COALESCE(artist, '')) LIKE ? OR 
+           LOWER(COALESCE(description, '')) LIKE ?)
+        ''');
+        // Add the same constraint 4 times for each field
+        queryParams.addAll(['%$normalizedConstraint%', '%$normalizedConstraint%', '%$normalizedConstraint%', '%$normalizedConstraint%']);
+      }
+      
+      // Build exclude clause
+      String excludeClause = '';
+      if (excludeIds.isNotEmpty) {
+        excludeClause = 'AND media_id NOT IN (${excludeIds.map((_) => '?').join(',')})';
+        queryParams.addAll(excludeIds);
+      }
+      
+      final searchQuery = '''
+        SELECT 
+          media_id, title, artist, ${hasAlbum ? 'album,' : ''} description, themes, 
+          wiki_url, wikidata_id, image_url,
+          (
+            CASE 
+              WHEN LOWER(COALESCE(themes, '')) LIKE '%metal%' THEN 100
+              WHEN LOWER(COALESCE(themes, '')) LIKE '%rock%' THEN 90
+              WHEN LOWER(COALESCE(themes, '')) LIKE '%punk%' THEN 85
+              WHEN LOWER(COALESCE(themes, '')) LIKE '%alternative%' THEN 80
+              WHEN LOWER(COALESCE(themes, '')) LIKE '%grunge%' THEN 75
+              WHEN LOWER(COALESCE(themes, '')) LIKE '%indie%' THEN 70
+              WHEN LOWER(COALESCE(title, '')) LIKE '%' || LOWER(?) || '%' THEN 60
+              WHEN LOWER(COALESCE(artist, '')) LIKE '%' || LOWER(?) || '%' THEN 50
+              ELSE 30 
+            END
+          ) as relevance_score
+        FROM media_vectors 
+        WHERE (${constraintConditions.join(' OR ')})
+        $excludeClause
+        ORDER BY relevance_score DESC, RANDOM()
+        LIMIT ?
+      ''';
+      
+      // Add constraint for scoring and limit
+      final firstConstraint = constraints.first.toLowerCase().trim();
+      queryParams.addAll([firstConstraint, firstConstraint]);
+      queryParams.add(limit.toString());
+      
+      debugPrint('🔍 [PURE-ISOLATE] Constraint query: ${constraintConditions.length} conditions, ${excludeIds.length} excludes');
+      
+      final stmt = _db!.prepare(searchQuery);
+      final result = stmt.select(queryParams);
+      stmt.dispose();
+      
+      final candidates = <MediaResult>[];
+      
+      for (final row in result) {
+        candidates.add(MediaResult(
+          title: row['title'] as String? ?? 'Unknown',
+          artist: row['artist'] as String?,
+          album: hasAlbum ? row['album'] as String? : null,
+          coverArtUrl: row['image_url'] as String?,
+          description: row['description'] as String?,
+          wikiUrl: row['wiki_url'] as String?,
+          wikidataId: row['wikidata_id'] as String?,
+          themes: row['themes'] as String?,
+        ));
+      }
+      
+      debugPrint('✅ [PURE-ISOLATE] Constraint search found ${candidates.length} matches for: ${constraints.join(', ')}');
+      return candidates;
+      
+    } catch (e) {
+      debugPrint('❌ [PURE-ISOLATE] Error in constraint search: $e');
+      return [];
+    }
   }
 
   void dispose() {

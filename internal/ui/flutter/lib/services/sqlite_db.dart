@@ -760,8 +760,11 @@ class SQLiteDatabase {
     await _ensureInitialized();
     
     try {
+      debugPrint('🗄️ [DB] Executing getLikedRecommendations query for: $mediaType');
       final stmt = _db!.prepare(getLikedRecommendationsQuery);
       final result = stmt.select([mediaType]);
+      
+      debugPrint('🗄️ [DB] getLikedRecommendations returned ${result.length} rows');
       
       final suggestions = result.map((row) => _mapRowToMediaSuggestion(row)).toList();
       stmt.dispose();
@@ -777,8 +780,11 @@ class SQLiteDatabase {
     await _ensureInitialized();
     
     try {
+      debugPrint('🗄️ [DB] Executing getDislikedRecommendations query for: $mediaType');
       final stmt = _db!.prepare(getDislikedRecommendationsQuery);
       final result = stmt.select([mediaType]);
+      
+      debugPrint('🗄️ [DB] getDislikedRecommendations returned ${result.length} rows');
       
       final suggestions = result.map((row) => _mapRowToMediaSuggestion(row)).toList();
       stmt.dispose();
@@ -812,6 +818,56 @@ class SQLiteDatabase {
     } catch (e) {
       debugPrint('Error getting user preference summary: $e');
       return {};
+    }
+  }
+
+  /// Debug method to inspect recommendations table
+  Future<void> debugInspectRecommendationsTable() async {
+    await _ensureInitialized();
+    
+    try {
+      // Check total count
+      final countStmt = _db!.prepare('SELECT COUNT(*) as count FROM recommendations');
+      final countResult = countStmt.select([]);
+      final totalCount = countResult.first['count'] as int;
+      countStmt.dispose();
+      
+      debugPrint('🗄️ [DEBUG] Total recommendations in database: $totalCount');
+      
+      // Check by status
+      final statusStmt = _db!.prepare('''
+        SELECT rs.name as status, COUNT(*) as count 
+        FROM recommendations r 
+        JOIN recommendation_status rs ON r.status_id = rs.id 
+        GROUP BY rs.name
+      ''');
+      final statusResult = statusStmt.select([]);
+      
+      debugPrint('🗄️ [DEBUG] Recommendations by status:');
+      for (final row in statusResult) {
+        debugPrint('🗄️ [DEBUG]   ${row['status']}: ${row['count']}');
+      }
+      statusStmt.dispose();
+      
+      // Check by media type
+      final mediaStmt = _db!.prepare('''
+        SELECT mt.name as media_type, rs.name as status, COUNT(*) as count 
+        FROM recommendations r 
+        JOIN media_types mt ON r.media_type_id = mt.id 
+        JOIN recommendation_status rs ON r.status_id = rs.id 
+        GROUP BY mt.name, rs.name
+        ORDER BY mt.name, rs.name
+      ''');
+      final mediaResult = mediaStmt.select([]);
+      
+      debugPrint('🗄️ [DEBUG] Recommendations by media type and status:');
+      for (final row in mediaResult) {
+        debugPrint('🗄️ [DEBUG]   ${row['media_type']} - ${row['status']}: ${row['count']}');
+      }
+      mediaStmt.dispose();
+      
+    } catch (e) {
+      debugPrint('🗄️ [DEBUG] Error inspecting recommendations table: $e');
     }
   }
 }

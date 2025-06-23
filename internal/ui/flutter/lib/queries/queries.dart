@@ -36,7 +36,9 @@ INSERT OR IGNORE INTO recommendation_status (name) VALUES
   ('liked'),
   ('disliked'),
   ('skipped'),
-  ('favorited');
+  ('favorited'),
+  ('added'),
+  ('watchlist');
 ''';
 
 // Create recommendations table with proper foreign keys
@@ -486,58 +488,64 @@ ORDER BY w.created_at DESC;
 // Get liked recommendations for a media type (for learning user preferences)
 const String getLikedRecommendationsQuery = '''
 SELECT
-  id,
-  query,
-  media_type,
-  title,
-  artist,
-  album,
-  cover_art_url,
-  description,
-  wiki_url,
-  wikidata_id,
-  bot_reasoning,
-  status,
-  themes,
-  media_id,
-  created_at,
-  updated_at
-FROM recommendations
-WHERE media_type = ? AND status = 'liked'
-ORDER BY updated_at DESC;
+  r.id,
+  r.query,
+  mt.name as media_type,
+  r.title,
+  r.primary_creator as artist,
+  '' as album,
+  r.cover_art_url,
+  r.description,
+  r.wiki_url,
+  r.wikidata_id,
+  r.bot_reasoning,
+  rs.name as status,
+  r.themes,
+  r.vector_media_id as media_id,
+  r.created_at,
+  r.updated_at
+FROM recommendations r
+JOIN media_types mt ON r.media_type_id = mt.id
+JOIN recommendation_status rs ON r.status_id = rs.id
+WHERE mt.name = ? AND rs.name = 'liked'
+ORDER BY r.updated_at DESC;
 ''';
 
 // Get disliked recommendations for a media type (for avoiding similar content)
 const String getDislikedRecommendationsQuery = '''
 SELECT
-  id,
-  query,
-  media_type,
-  title,
-  artist,
-  album,
-  cover_art_url,
-  description,
-  wiki_url,
-  wikidata_id,
-  bot_reasoning,
-  status,
-  themes,
-  created_at,
-  updated_at
-FROM recommendations
-WHERE media_type = ? AND status = 'disliked'
-ORDER BY updated_at DESC;
+  r.id,
+  r.query,
+  mt.name as media_type,
+  r.title,
+  r.primary_creator as artist,
+  '' as album,
+  r.cover_art_url,
+  r.description,
+  r.wiki_url,
+  r.wikidata_id,
+  r.bot_reasoning,
+  rs.name as status,
+  r.themes,
+  r.created_at,
+  r.updated_at
+FROM recommendations r
+JOIN media_types mt ON r.media_type_id = mt.id
+JOIN recommendation_status rs ON r.status_id = rs.id
+WHERE mt.name = ? AND rs.name = 'disliked'
+ORDER BY r.updated_at DESC;
 ''';
 
 // Get user preference summary for a media type
 const String getUserPreferenceSummaryQuery = '''
 SELECT 
-  status,
+  rs.name as status,
   COUNT(*) as count,
-  GROUP_CONCAT(DISTINCT themes) as all_themes,
-  GROUP_CONCAT(DISTINCT artist) as all_artists
-FROM recommendations 
-WHERE media_type = ? AND status IN ('liked', 'disliked', 'added')
-GROUP BY status;
+  GROUP_CONCAT(DISTINCT r.themes) as all_themes,
+  GROUP_CONCAT(DISTINCT r.primary_creator) as all_artists
+FROM recommendations r
+JOIN media_types mt ON r.media_type_id = mt.id
+JOIN recommendation_status rs ON r.status_id = rs.id
+WHERE mt.name = ? AND rs.name IN ('liked', 'disliked', 'added')
+GROUP BY rs.name;
 ''';
