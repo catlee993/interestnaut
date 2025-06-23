@@ -154,13 +154,10 @@ class _GameSectionState extends State<GameSection> {
     });
 
     try {
-      final suggestions = await _recommendationService.getSuggestions('video_game');
-      final libraryItems = suggestions.where((s) => 
-        s.status == SuggestionStatus.added
-      ).toList();
+      final allFavorites = await _db.getAllFavorites('video_game');
       
       setState(() {
-        _dbLikedSuggestions = libraryItems;
+        _dbLikedSuggestions = allFavorites;
         _isLoadingDbLibrary = false;
       });
     } catch (e) {
@@ -679,15 +676,17 @@ class _GameSectionState extends State<GameSection> {
                   child: _buildSuggestionContent(scrollOffset),
                 ),
                 
-                // Library section with proper spacing
-                SectionSpacing(
-                  child: _buildLibrarySection(),
-                ),
+                // Library section with proper spacing - only show if not empty or loading
+                if (_dbLikedSuggestions.isNotEmpty || _isLoadingDbLibrary)
+                  SectionSpacing(
+                    child: _buildLibrarySection(),
+                  ),
                 
-                // Playlist section with proper spacing
-                SectionSpacing(
-                  child: _buildPlaylistSection(),
-                ),
+                // Playlist section with proper spacing - only show if not empty or loading
+                if (_dbPlaylistSuggestions.isNotEmpty || _isLoadingDbPlaylist)
+                  SectionSpacing(
+                    child: _buildPlaylistSection(),
+                  ),
               ],
             );
           },

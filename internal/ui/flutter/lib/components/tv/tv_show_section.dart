@@ -160,13 +160,10 @@ class _TVShowSectionState extends State<TVShowSection> {
     });
 
     try {
-      final suggestions = await _recommendationService.getSuggestions('tv_show');
-      final libraryItems = suggestions.where((s) => 
-        s.status == SuggestionStatus.added
-      ).toList();
+      final allFavorites = await _db.getAllFavorites('tv_show');
       
       setState(() {
-        _dbLikedSuggestions = libraryItems;
+        _dbLikedSuggestions = allFavorites;
         _isLoadingDbLibrary = false;
       });
     } catch (e) {
@@ -790,15 +787,17 @@ class _TVShowSectionState extends State<TVShowSection> {
               child: _buildSuggestionContent(),
             ),
             
-            // Watchlist section with proper spacing
-            SectionSpacing(
-              child: _buildWatchlistSection(),
-            ),
+            // Watchlist section with proper spacing - only show if not empty or loading
+            if (_dbWatchlistSuggestions.isNotEmpty || _isLoadingDbWatchlist)
+              SectionSpacing(
+                child: _buildWatchlistSection(),
+              ),
             
-            // Library section with proper spacing
-            SectionSpacing(
-              child: _buildLibrarySection(),
-            ),
+            // Library section with proper spacing - only show if not empty or loading
+            if (_dbLikedSuggestions.isNotEmpty || _isLoadingDbLibrary)
+              SectionSpacing(
+                child: _buildLibrarySection(),
+              ),
           ],
         );
       },

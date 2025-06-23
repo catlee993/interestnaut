@@ -338,12 +338,12 @@ class LlamaService {
 
       // Use conservative settings optimized for efficiency
       _contextParams = ContextParams();
-      _contextParams!.nCtx = 512;           // Reduced context for faster processing
-      _contextParams!.nBatch = 128;         // Smaller batch size
-      _contextParams!.nUbatch = 128;        // Match batch size
-      _contextParams!.nThreads = 2;         // Fewer threads for stability
-      _contextParams!.nThreadsBatch = 2;    // Match thread count
-      _contextParams!.nPredict = 64;        // Much smaller prediction limit for simple responses
+      _contextParams!.nCtx = 2048;              // Context window
+      _contextParams!.nBatch = 512;             // Increased batch size to handle longer prompts
+      _contextParams!.nUbatch = 512;            // Match batch size
+      _contextParams!.nThreads = 2;             // Conservative thread count for mobile
+      _contextParams!.nThreadsBatch = 2;        // Match thread count
+      _contextParams!.nPredict = 128;       // Increased prediction limit for complete explanations
       _contextParams!.offloadKqv = true;    // Offload KQV operations to GPU
       _contextParams!.logitsAll = false;    // Don't compute logits for all tokens
       _contextParams!.embeddings = false;   // Don't compute embeddings
@@ -351,17 +351,17 @@ class LlamaService {
       _contextParams!.noPerfTimings = true; // Disable performance timings
       _contextParams!.defragThold = 0.5;
 
-      // Configure sampling for fast, simple responses
+      // Configure sampling for creative, engaging responses
       final samplerParams = SamplerParams();
-      samplerParams.greedy = false;            // Allow some sampling to avoid repetition
-      samplerParams.temp = 0.3;               // Slightly higher temperature for variety
-      samplerParams.topK = 15;                // More tokens for variety
-      samplerParams.topP = 0.7;               // Better sampling for completion
-      samplerParams.minP = 0.05;              // Higher minimum probability
+      samplerParams.greedy = false;            // Allow sampling for creativity
+      samplerParams.temp = 0.7;               // Higher temperature for more interesting responses
+      samplerParams.topK = 25;                // More tokens for variety
+      samplerParams.topP = 0.85;              // Better sampling diversity
+      samplerParams.minP = 0.03;              // Lower minimum for more options
       samplerParams.typical = 1.0;            // No typical sampling
-      samplerParams.penaltyLastTokens = 32;   // Smaller penalty window
-      samplerParams.penaltyRepeat = 1.2;      // Higher repetition penalty to avoid loops
-      samplerParams.penaltyFreq = 1.1;        // Frequency penalty to encourage variety
+      samplerParams.penaltyLastTokens = 48;   // Larger penalty window for better context
+      samplerParams.penaltyRepeat = 1.15;     // Moderate repetition penalty
+      samplerParams.penaltyFreq = 1.05;       // Light frequency penalty
       samplerParams.penaltyPresent = 1.0;     // No penalty for present tokens
       samplerParams.ignoreEOS = false;        // Respect EOS tokens
 
@@ -580,6 +580,7 @@ class LlamaService {
 
     try {
       print('Processing prompt with text: "${text.substring(0, min(100, text.length))}..."');
+      print('LlamaService: Using temperature: $temperature, topP: $topP (note: currently using global sampling parameters)');
 
       // Clear any existing generation first to prevent contamination
       try {
@@ -1474,7 +1475,7 @@ class LlamaService {
     return buffer.toString();
   }
 
-  /// Build optimized prompt for reasoning generation
+  /// Build optimized prompt for reasoning generation with smart truncation
   String _buildReasoningPrompt({
     required String userQuery,
     required String mediaTitle,
@@ -1486,36 +1487,101 @@ class LlamaService {
   }) {
     final buffer = StringBuffer();
     
-    // Clear, focused prompt structure
-    buffer.write('RECOMMENDATION: "$mediaTitle"');
-    if (artist != null && artist.isNotEmpty && artist.toLowerCase() != 'unknown') {
-      buffer.write(' by $artist');
-    }
-    buffer.write('\nUSER REQUEST: "$userQuery"');
+    // Smart truncation limits to prevent token overflow
+    const int maxTitleLength = 60;
+    const int maxArtistLength = 40;
+    const int maxUserQueryLength = 80;
+    const int maxThemesLength = 100;
+    const int maxUserProfileLength = 120;
     
-    // Add themes context (limit to 3 most relevant)
+    // Truncate media title if too long
+    String truncatedTitle = mediaTitle;
+    if (mediaTitle.length > maxTitleLength) {
+      truncatedTitle = mediaTitle.substring(0, maxTitleLength - 3) + '...';
+    }
+    
+    // Clear, focused prompt structure
+    buffer.write('RECOMMENDATION: "$truncatedTitle"');
+    
+    // Truncate artist/creator name if too long  
+    if (artist != null && artist.isNotEmpty && artist.toLowerCase() != 'unknown') {
+      String truncatedArtist = artist;
+      if (artist.length > maxArtistLength) {
+        truncatedArtist = artist.substring(0, maxArtistLength - 3) + '...';
+      }
+      buffer.write(' by $truncatedArtist');
+    }
+    
+    // Truncate user query if too long
+    String truncatedQuery = userQuery;
+    if (userQuery.length > maxUserQueryLength) {
+      truncatedQuery = userQuery.substring(0, maxUserQueryLength - 3) + '...';
+    }
+    buffer.write('\nUSER REQUEST: "$truncatedQuery"');
+    
+    // Add themes context (limit to 3 most relevant and truncate)
     if (themes != null && themes.isNotEmpty) {
-      final themeList = themes.split(',').map((t) => t.trim()).take(3).join(', ');
+      String themeList = themes.split(',').map((t) => t.trim()).take(3).join(', ');
+      if (themeList.length > maxThemesLength) {
+        themeList = themeList.substring(0, maxThemesLength - 3) + '...';
+      }
       buffer.write('\nTHEMES: $themeList');
     }
     
-    // Add user preferences and constraints
+    // Add user preferences and constraints (with truncation)
     if (userProfile != null && userProfile.isNotEmpty) {
+      String truncatedProfile = userProfile;
+      if (userProfile.length > maxUserProfileLength) {
+        truncatedProfile = userProfile.substring(0, maxUserProfileLength - 3) + '...';
+      }
+      
       if (userProfile.contains('CONSTRAINTS:')) {
         final parts = userProfile.split(' | CONSTRAINTS: ');
         if (parts.length == 2) {
-          buffer.write('\nUSER LIKES: ${parts[0]}');
-          buffer.write('\nREQUIREMENTS: ${parts[1]}');
+          String likes = parts[0];
+          String constraints = parts[1];
+          
+          // Truncate each part separately
+          if (likes.length > maxUserProfileLength ~/ 2) {
+            likes = likes.substring(0, (maxUserProfileLength ~/ 2) - 3) + '...';
+          }
+          if (constraints.length > maxUserProfileLength ~/ 2) {
+            constraints = constraints.substring(0, (maxUserProfileLength ~/ 2) - 3) + '...';
+          }
+          
+          buffer.write('\nUSER LIKES: $likes');
+          buffer.write('\nREQUIREMENTS: $constraints');
         } else {
-          buffer.write('\nUSER PROFILE: $userProfile');
+          buffer.write('\nUSER PROFILE: $truncatedProfile');
         }
       } else {
-        buffer.write('\nUSER LIKES: $userProfile');
+        buffer.write('\nUSER LIKES: $truncatedProfile');
       }
     }
     
-    buffer.write('\n\nWhy is this a good match? (1-2 sentences):');
-    return buffer.toString();
+    buffer.write('\n\nExplain why this is a perfect match (be specific and engaging):');
+    
+    // Final safety check - if prompt is still too long, truncate more aggressively
+    String finalPrompt = buffer.toString();
+    const int maxTotalPromptLength = 400; // Conservative limit for 512 token batch
+    
+    if (finalPrompt.length > maxTotalPromptLength) {
+      debugPrint('⚠️ Prompt still too long (${finalPrompt.length} chars), applying aggressive truncation');
+      
+      // Create minimal prompt as last resort
+      final minimalBuffer = StringBuffer();
+      minimalBuffer.write('RECOMMENDATION: "${truncatedTitle.length > 30 ? truncatedTitle.substring(0, 27) + '...' : truncatedTitle}"');
+      if (artist != null && artist.isNotEmpty && artist.toLowerCase() != 'unknown') {
+        String minimalArtist = artist.length > 20 ? artist.substring(0, 17) + '...' : artist;
+        minimalBuffer.write(' by $minimalArtist');
+      }
+             minimalBuffer.write('\nUSER REQUEST: "${truncatedQuery.length > 40 ? truncatedQuery.substring(0, 37) + '...' : truncatedQuery}"');
+       minimalBuffer.write('\n\nExplain why this fits perfectly:');
+      
+      finalPrompt = minimalBuffer.toString();
+    }
+    
+    return finalPrompt;
   }
 
   /// Clean distilled search response

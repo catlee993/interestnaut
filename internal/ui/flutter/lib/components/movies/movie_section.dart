@@ -186,21 +186,16 @@ class _MovieSectionState extends State<MovieSection> {
     });
 
     try {
-      debugPrint('📚 _loadDbLibrary fetching all suggestions');
-      final suggestions = await _recommendationService.getSuggestions('movie');
-      debugPrint('📚 _loadDbLibrary found ${suggestions.length} total suggestions');
+      debugPrint('📚 _loadDbLibrary fetching all favorites (recommendations + user-added)');
+      final allFavorites = await _db.getAllFavorites('movie');
+      debugPrint('📚 _loadDbLibrary found ${allFavorites.length} total favorites');
       
-      final libraryItems = suggestions.where((s) => 
-        s.status == SuggestionStatus.added
-      ).toList();
-      
-      debugPrint('📚 _loadDbLibrary filtered to ${libraryItems.length} library items');
-      for (final item in libraryItems) {
-        debugPrint('📚   - ${item.title} (status: ${item.status})');
+      for (final item in allFavorites) {
+        debugPrint('📚   - ${item.title} (ID: ${item.id}, status: ${item.status})');
       }
       
       setState(() {
-        _dbLikedSuggestions = libraryItems;
+        _dbLikedSuggestions = allFavorites;
         _isLoadingDbLibrary = false;
       });
       debugPrint('📚 _loadDbLibrary completed - final count: ${_dbLikedSuggestions.length}');
@@ -937,15 +932,17 @@ class _MovieSectionState extends State<MovieSection> {
                   child: _buildSuggestionContent(scrollOffset),
                 ),
                 
-                // Watchlist section with proper spacing
-                SectionSpacing(
-                  child: _buildWatchlistSection(),
-                ),
+                // Watchlist section with proper spacing - only show if not empty or loading
+                if (_dbWatchlistSuggestions.isNotEmpty || _isLoadingDbWatchlist)
+                  SectionSpacing(
+                    child: _buildWatchlistSection(),
+                  ),
                 
-                // Library section with proper spacing
-                SectionSpacing(
-                  child: _buildLibrarySection(),
-                ),
+                // Library section with proper spacing - only show if not empty or loading
+                if (_dbLikedSuggestions.isNotEmpty || _isLoadingDbLibrary)
+                  SectionSpacing(
+                    child: _buildLibrarySection(),
+                  ),
               ],
             );
           },

@@ -526,6 +526,14 @@ class SpotifyEvents {
     _playerReadyController.add(false);
   }
   
+  // Reset only connection state, preserve current track and playback state
+  static void resetConnectionState() {
+    debugPrint('SpotifyEvents: Resetting connection state (preserving playback)');
+    _isPlayerReady = false;
+    _playerReadyController.add(false);
+    // Note: We don't clear track or playback state - just connection readiness
+  }
+  
   // Stream getters
   static Stream<String> get onDeviceReady => _deviceReadyController.stream;
   static Stream<Track> get onTrackChange => _trackChangeController.stream;

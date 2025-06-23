@@ -62,21 +62,25 @@ class SQLiteDatabase {
   /// Create tables if they don't exist
   Future<void> _createTables() async {
     try {
-      // Create new schema tables
+      // Create new normalized schema tables
       _db!.execute(createMediaTypesTableQuery);
       _db!.execute(createRecommendationStatusTableQuery);
       _db!.execute(insertDefaultMediaTypesQuery);
       _db!.execute(insertDefaultRecommendationStatusQuery);
+      _db!.execute(createMediaItemsTableQuery);
       _db!.execute(createRecommendationsTableQuery);
+      _db!.execute(createUserFavoritesTableQuery);
+      _db!.execute(createWatchlistTableQuery);
       _db!.execute(createRecommendationMetadataTableQuery);
       _db!.execute(createUserConstraintsTableQuery);
-      _db!.execute(createUserAddedFavoritesTableQuery);
-      _db!.execute(createWatchlistTableQuery);
       
       // Create indexes for performance
-      _db!.execute('CREATE INDEX IF NOT EXISTS idx_recommendations_vector_media_id ON recommendations(vector_media_id);');
-      _db!.execute('CREATE INDEX IF NOT EXISTS idx_recommendations_media_type_id ON recommendations(media_type_id);');
+      _db!.execute('CREATE INDEX IF NOT EXISTS idx_media_items_vector_media_id ON media_items(vector_media_id);');
+      _db!.execute('CREATE INDEX IF NOT EXISTS idx_media_items_media_type_id ON media_items(media_type_id);');
+      _db!.execute('CREATE INDEX IF NOT EXISTS idx_recommendations_media_item_id ON recommendations(media_item_id);');
       _db!.execute('CREATE INDEX IF NOT EXISTS idx_recommendations_status_id ON recommendations(status_id);');
+      _db!.execute('CREATE INDEX IF NOT EXISTS idx_user_favorites_media_item_id ON user_favorites(media_item_id);');
+      _db!.execute('CREATE INDEX IF NOT EXISTS idx_watchlist_media_item_id ON watchlist(media_item_id);');
       
       // Run migrations for existing tables
       await _runMigrations();
@@ -133,21 +137,26 @@ class SQLiteDatabase {
       }
       
       if (isNew) {
-        // Insert new suggestion
-        final stmt = _db!.prepare(insertMediaSuggestionQuery);
+        // First, create or get the media item
+        final mediaItemId = await _createOrGetMediaItem(
+          mediaTypeId: mediaTypeId,
+          vectorMediaId: suggestion.mediaId,
+          title: suggestion.title ?? '',
+          primaryCreator: suggestion.artist,
+          coverArtUrl: suggestion.coverArtUrl,
+          description: suggestion.description,
+          wikiUrl: suggestion.wikiUrl,
+          wikidataId: suggestion.wikidataId,
+          themes: suggestion.themes,
+        );
+        
+        // Then create the recommendation that references the media item
+        final stmt = _db!.prepare(insertRecommendationQuery);
         stmt.execute([
+          mediaItemId,
           suggestion.query,
-          mediaTypeId,
-          suggestion.mediaId, // This is now vector_media_id
-          suggestion.title,
-          suggestion.artist, // This is now primary_creator
-          suggestion.coverArtUrl,
-          suggestion.description,
-          suggestion.wikiUrl,
-          suggestion.wikidataId,
           suggestion.botReasoning,
           statusId,
-          suggestion.themes,
           suggestion.createdAt.toIso8601String(),
           suggestion.updatedAt?.toIso8601String(),
         ]);
@@ -156,8 +165,15 @@ class SQLiteDatabase {
         stmt.dispose();
         return id;
       } else {
-        // Update existing suggestion - TODO: Need to create update query for new schema
-        throw UnimplementedError('Update not implemented for new schema yet');
+        // Update existing recommendation status
+        final stmt = _db!.prepare(updateRecommendationStatusQuery);
+        stmt.execute([
+          suggestion.status.toString().split('.').last,
+          now,
+          suggestion.id,
+        ]);
+        stmt.dispose();
+        return suggestion.id;
       }
     } catch (e) {
       debugPrint('Error saving media suggestion: $e');
@@ -182,6 +198,58 @@ class SQLiteDatabase {
     } catch (e) {
       debugPrint('Error getting status ID: $e');
       return null;
+    }
+  }
+
+  /// Create or get existing media item
+  /// Returns the media item ID
+  Future<int> _createOrGetMediaItem({
+    required int mediaTypeId,
+    String? vectorMediaId,
+    required String title,
+    String? primaryCreator,
+    String? coverArtUrl,
+    String? description,
+    String? wikiUrl,
+    String? wikidataId,
+    String? themes,
+  }) async {
+    try {
+      final now = DateTime.now().toIso8601String();
+      
+      // First try to find existing media item
+      final existingStmt = _db!.prepare(getMediaItemByTitleCreatorQuery);
+      final existingResult = existingStmt.select([title, primaryCreator ?? '', '']);
+      
+      if (existingResult.isNotEmpty) {
+        final id = existingResult.first['id'] as int;
+        existingStmt.dispose();
+        return id;
+      }
+      existingStmt.dispose();
+      
+      // Create new media item
+      final insertStmt = _db!.prepare(insertOrGetMediaItemQuery);
+      insertStmt.execute([
+        mediaTypeId,
+        vectorMediaId,
+        title,
+        primaryCreator,
+        coverArtUrl,
+        description,
+        wikiUrl,
+        wikidataId,
+        themes,
+        now,
+        null, // updated_at
+      ]);
+      
+      final id = _db!.lastInsertRowId;
+      insertStmt.dispose();
+      return id;
+    } catch (e) {
+      debugPrint('Error creating or getting media item: $e');
+      rethrow;
     }
   }
 
@@ -221,13 +289,13 @@ class SQLiteDatabase {
       ResultSet result;
       
       if (statusFilter != null) {
-        final stmt = _db!.prepare(getAllMediaSuggestionsWithStatusQuery);
+        final stmt = _db!.prepare(getRecommendationsByStatusQuery);
         final statusStr = statusFilter.toString().split('.').last;
-        result = stmt.select([mediaType, statusStr, limit]);
+        result = stmt.select([mediaType, statusStr]);
         stmt.dispose();
       } else {
-        final stmt = _db!.prepare(getAllMediaSuggestionsQuery);
-        result = stmt.select([mediaType, limit]);
+        final stmt = _db!.prepare(getPendingSuggestionsNotInWatchlistQuery);
+        result = stmt.select([mediaType]);
         stmt.dispose();
       }
       
@@ -248,7 +316,7 @@ class SQLiteDatabase {
     
     try {
       final List<MediaSuggestion> suggestions = [];
-      final stmt = _db!.prepare(getPendingMediaSuggestionsQuery);
+      final stmt = _db!.prepare(getPendingSuggestionsNotInWatchlistQuery);
       final result = stmt.select([mediaType]);
       
       for (final row in result) {
@@ -324,6 +392,7 @@ class SQLiteDatabase {
       stmt.execute([
         recommendationId,
         DateTime.now().toIso8601String(),
+        recommendationId,
       ]);
       stmt.dispose();
     } catch (e) {
@@ -337,7 +406,7 @@ class SQLiteDatabase {
     await _ensureInitialized();
     
     try {
-      final stmt = _db!.prepare(removeFromWatchlistQuery);
+      final stmt = _db!.prepare(removeFromWatchlistByRecommendationQuery);
       stmt.execute([recommendationId]);
       stmt.dispose();
     } catch (e) {
@@ -385,7 +454,7 @@ class SQLiteDatabase {
     await _ensureInitialized();
     
     try {
-      final stmt = _db!.prepare(isInWatchlistQuery);
+      final stmt = _db!.prepare(isInWatchlistByRecommendationQuery);
       final result = stmt.select([recommendationId]);
       
       final count = result.isNotEmpty ? result.first['count'] as int : 0;
@@ -624,7 +693,7 @@ class SQLiteDatabase {
       final favorites = result.map((row) => {
         'id': row['id'] as int,
         'title': row['title'] as String,
-        'artist': row['artist'] as String?,
+        'artist': row['primary_creator'] as String?,
         'cover_art_url': row['cover_art_url'] as String?,
         'themes': row['themes'] as String?,
         'created_at': row['created_at'] as String,
@@ -649,7 +718,7 @@ class SQLiteDatabase {
       final favorites = result.map((row) => {
         'id': row['id'] as int,
         'title': row['title'] as String,
-        'artist': row['artist'] as String?,
+        'artist': row['primary_creator'] as String?,
         'cover_art_url': row['cover_art_url'] as String?,
         'themes': row['themes'] as String?,
         'created_at': row['created_at'] as String,
@@ -660,6 +729,124 @@ class SQLiteDatabase {
       return favorites;
     } catch (e) {
       debugPrint('Error getting all user favorites: $e');
+      return [];
+    }
+  }
+
+  /// Add item to favorites from search results (user-added, not from recommendation)
+  Future<void> addSearchItemToFavorites({
+    required String mediaType,
+    required String title,
+    required String primaryCreator,
+    String? vectorMediaId,
+    String? coverArtUrl,
+    String? description,
+    String? wikiUrl,
+    String? wikidataId,
+    String? themes,
+  }) async {
+    await _ensureInitialized();
+    
+    try {
+      final mediaTypeId = await getMediaTypeId(mediaType);
+      if (mediaTypeId == null) {
+        throw Exception('Invalid media type: $mediaType');
+      }
+      
+      // Create or get the media item
+      final mediaItemId = await _createOrGetMediaItem(
+        mediaTypeId: mediaTypeId,
+        vectorMediaId: vectorMediaId,
+        title: title,
+        primaryCreator: primaryCreator,
+        coverArtUrl: coverArtUrl,
+        description: description,
+        wikiUrl: wikiUrl,
+        wikidataId: wikidataId,
+        themes: themes,
+      );
+      
+      // Add to favorites (user-added, no recommendation)
+      final stmt = _db!.prepare(addUserFavoriteQuery);
+      stmt.execute([mediaItemId, DateTime.now().toIso8601String()]);
+      stmt.dispose();
+    } catch (e) {
+      debugPrint('Error adding search item to favorites: $e');
+      rethrow;
+    }
+  }
+
+  /// Add item to watchlist from search results (user-added, not from recommendation)
+  Future<void> addSearchItemToWatchlist({
+    required String mediaType,
+    required String title,
+    required String primaryCreator,
+    String? vectorMediaId,
+    String? coverArtUrl,
+    String? description,
+    String? wikiUrl,
+    String? wikidataId,
+    String? themes,
+  }) async {
+    await _ensureInitialized();
+    
+    try {
+      final mediaTypeId = await getMediaTypeId(mediaType);
+      if (mediaTypeId == null) {
+        throw Exception('Invalid media type: $mediaType');
+      }
+      
+      // Create or get the media item
+      final mediaItemId = await _createOrGetMediaItem(
+        mediaTypeId: mediaTypeId,
+        vectorMediaId: vectorMediaId,
+        title: title,
+        primaryCreator: primaryCreator,
+        coverArtUrl: coverArtUrl,
+        description: description,
+        wikiUrl: wikiUrl,
+        wikidataId: wikidataId,
+        themes: themes,
+      );
+      
+      // Add to watchlist (user-added, no recommendation)
+      final stmt = _db!.prepare(addUserWatchlistQuery);
+      stmt.execute([mediaItemId, DateTime.now().toIso8601String()]);
+      stmt.dispose();
+    } catch (e) {
+      debugPrint('Error adding search item to watchlist: $e');
+      rethrow;
+    }
+  }
+
+  /// Search media items by title or creator
+  Future<List<Map<String, dynamic>>> searchMediaItems(String mediaType, String searchTerm) async {
+    await _ensureInitialized();
+    
+    try {
+      final stmt = _db!.prepare(searchMediaItemsQuery);
+      final searchPattern = '%$searchTerm%';
+      final result = stmt.select([mediaType, searchPattern, searchPattern]);
+      
+      final items = result.map((row) => {
+        'media_item_id': row['media_item_id'] as int,
+        'vector_media_id': row['vector_media_id'] as String?,
+        'title': row['title'] as String,
+        'primary_creator': row['primary_creator'] as String?,
+        'cover_art_url': row['cover_art_url'] as String?,
+        'description': row['description'] as String?,
+        'wiki_url': row['wiki_url'] as String?,
+        'wikidata_id': row['wikidata_id'] as String?,
+        'themes': row['themes'] as String?,
+        'media_type': row['media_type'] as String,
+        'created_at': row['created_at'] as String,
+        'updated_at': row['updated_at'] as String?,
+      }).toList();
+      
+      stmt.dispose();
+      return items;
+    } catch (e) {
+      debugPrint('Error searching media items: $e');
       return [];
     }
   }
@@ -878,6 +1065,53 @@ class SQLiteDatabase {
     } catch (e) {
       debugPrint('Error getting user preference summary: $e');
       return {};
+    }
+  }
+
+  /// Get all favorites for a media type (both recommendation-based and user-added)
+  Future<List<MediaSuggestion>> getAllFavorites(String mediaType) async {
+    await _ensureInitialized();
+    
+    try {
+      debugPrint('🗄️ [DB] Getting all favorites for: $mediaType');
+      
+      // Get recommendation-based favorites (status = 'added')
+      final recommendationFavorites = await getFavoritedRecommendations(mediaType);
+      debugPrint('🗄️ [DB] Found ${recommendationFavorites.length} recommendation-based favorites');
+      
+      // Get user-added favorites from user_favorites table
+      final userFavoritesStmt = _db!.prepare(getUserAddedFavoritesForMediaQuery);
+      final userFavoritesResult = userFavoritesStmt.select([mediaType]);
+      
+      final userFavorites = userFavoritesResult.map((row) => MediaSuggestion(
+        id: -(row['id'] as int), // Use negative ID to distinguish from recommendations
+        query: 'User Added',
+        mediaType: mediaType,
+        title: row['title'] as String,
+        artist: row['primary_creator'] as String?,
+        coverArtUrl: row['cover_art_url'] as String?,
+        description: null,
+        wikiUrl: null,
+        wikidataId: null,
+        botReasoning: 'Added from search',
+        themes: row['themes'] as String?,
+        mediaId: row['vector_media_id'] as String?,
+        status: SuggestionStatus.added,
+        createdAt: DateTime.parse(row['created_at'] as String),
+        updatedAt: null,
+      )).toList();
+      
+      userFavoritesStmt.dispose();
+      debugPrint('🗄️ [DB] Found ${userFavorites.length} user-added favorites');
+      
+      // Combine both lists
+      final allFavorites = [...recommendationFavorites, ...userFavorites];
+      debugPrint('🗄️ [DB] Total favorites: ${allFavorites.length}');
+      
+      return allFavorites;
+    } catch (e) {
+      debugPrint('Error getting all favorites: $e');
+      return [];
     }
   }
 

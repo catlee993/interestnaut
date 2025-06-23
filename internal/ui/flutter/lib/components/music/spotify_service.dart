@@ -745,9 +745,9 @@ class SpotifyService {
       
       // Check response
       if (response.statusCode == 200) {
-        // Reset player state to ensure clean initialization after token refresh
-        SpotifyEvents.resetPlayerState();
-        debugPrint('Reset Spotify player state during token refresh');
+        // Reset connection state but preserve current playback during token refresh
+        SpotifyEvents.resetConnectionState();
+        debugPrint('Reset Spotify connection state during token refresh (preserving playback)');
         
         final data = jsonDecode(response.body);
         final accessToken = data['access_token'] as String;

@@ -1538,30 +1538,68 @@ class RecommendationService extends ChangeNotifier {
       
       final startTime = DateTime.now();
       
-      // Simplified LLM approach with better error handling
+      // Simplified LLM approach with better error handling and truncation
       try {
-        // Create a simple, focused prompt
+        // Create a simple, focused prompt with smart truncation
         final constraints = behavioralContext['userConstraints'] as String;
         final likedThemes = behavioralContext['likedThemes'] as List<String>;
         
-        String simplePrompt = "Why recommend \"$mediaTitle\"";
+        // Apply truncation limits to prevent token overflow
+        const int maxTitleLength = 50;
+        const int maxArtistLength = 35;
+        const int maxConstraintsLength = 80;
+        const int maxThemesLength = 90;
+        
+        // Truncate media title if too long
+        String truncatedTitle = mediaTitle;
+        if (mediaTitle.length > maxTitleLength) {
+          truncatedTitle = mediaTitle.substring(0, maxTitleLength - 3) + '...';
+        }
+        
+        String simplePrompt = "Why recommend \"$truncatedTitle\"";
+        
+        // Add artist with truncation
         if (artist != null && artist.isNotEmpty) {
-          simplePrompt += " by $artist";
+          String truncatedArtist = artist;
+          if (artist.length > maxArtistLength) {
+            truncatedArtist = artist.substring(0, maxArtistLength - 3) + '...';
+          }
+          simplePrompt += " by $truncatedArtist";
         }
         simplePrompt += "?";
         
-        // Add context if available
+        // Add context if available (with truncation)
         if (constraints.isNotEmpty) {
-          simplePrompt += " User likes: $constraints.";
+          String truncatedConstraints = constraints;
+          if (constraints.length > maxConstraintsLength) {
+            truncatedConstraints = constraints.substring(0, maxConstraintsLength - 3) + '...';
+          }
+          simplePrompt += " User likes: $truncatedConstraints.";
         } else if (likedThemes.isNotEmpty) {
           simplePrompt += " User likes: ${likedThemes.take(2).join(', ')}.";
         }
         
         if (themes != null && themes.isNotEmpty) {
-          simplePrompt += " This has: $themes.";
+          String truncatedThemes = themes;
+          if (themes.length > maxThemesLength) {
+            truncatedThemes = themes.substring(0, maxThemesLength - 3) + '...';
+          }
+          simplePrompt += " This has: $truncatedThemes.";
         }
         
-        simplePrompt += " Explain briefly why it fits.";
+        simplePrompt += " Explain why this is a great match.";
+        
+        // Final safety check for prompt length
+        const int maxPromptLength = 350;
+        if (simplePrompt.length > maxPromptLength) {
+          debugPrint('⚠️ [ISOLATE-LLM] Simple prompt too long (${simplePrompt.length} chars), applying aggressive truncation');
+          simplePrompt = "Why recommend \"${truncatedTitle.length > 30 ? truncatedTitle.substring(0, 27) + '...' : truncatedTitle}\"";
+          if (artist != null && artist.isNotEmpty) {
+            String minimalArtist = artist.length > 20 ? artist.substring(0, 17) + '...' : artist;
+            simplePrompt += " by $minimalArtist";
+          }
+                     simplePrompt += "? Explain why it's perfect.";
+        }
         
         debugPrint('🧠 [ISOLATE-LLM] Simple prompt: "$simplePrompt"');
         

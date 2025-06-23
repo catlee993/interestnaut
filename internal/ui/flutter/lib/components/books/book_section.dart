@@ -174,21 +174,17 @@ class _BookSectionState extends State<BookSection> {
     });
 
     try {
-      debugPrint('📚 _loadDbLibrary fetching all suggestions');
-      final suggestions = await _recommendationService.getSuggestions('book');
-      debugPrint('📚 _loadDbLibrary found ${suggestions.length} total suggestions');
-      final libraryItems = suggestions.where((s) => 
-        s.status == SuggestionStatus.added
-      ).toList();
-      debugPrint('📚 _loadDbLibrary filtered to ${libraryItems.length} library items');
+      debugPrint('📚 _loadDbLibrary fetching all favorites (recommendations + user-added)');
+      final allFavorites = await _db.getAllFavorites('book');
+      debugPrint('📚 _loadDbLibrary found ${allFavorites.length} total favorites');
       
       // Debug print each library item
-      for (final item in libraryItems) {
-        debugPrint('📚   - ${item.title} (status: ${item.status})');
+      for (final item in allFavorites) {
+        debugPrint('📚   - ${item.title} (ID: ${item.id}, status: ${item.status})');
       }
       
       setState(() {
-        _dbLikedSuggestions = libraryItems;
+        _dbLikedSuggestions = allFavorites;
         _isLoadingDbLibrary = false;
       });
       debugPrint('📚 _loadDbLibrary completed - final count: ${_dbLikedSuggestions.length}');

@@ -1030,20 +1030,23 @@ class _MusicSectionState extends State<MusicSection> {
                     child: _buildSuggestionContent(scrollOffset),
                   ),
                   
-                  // Playlist section with proper spacing
-                  SectionSpacing(
-                    child: _buildPlaylistSection(),
-                  ),
+                  // Playlist section with proper spacing - only show if not empty or loading
+                  if (_dbPlaylistSuggestions.isNotEmpty || _isLoadingDbPlaylist)
+                    SectionSpacing(
+                      child: _buildPlaylistSection(),
+                    ),
                   
-                  // Library section with proper spacing
-                  SectionSpacing(
-                    child: _buildDbLibrarySectionWrapper(),
-                  ),
+                  // Library section with proper spacing - only show if not empty or loading
+                  if (_dbLikedSuggestions.isNotEmpty || _isLoadingDbLibrary)
+                    SectionSpacing(
+                      child: _buildDbLibrarySectionWrapper(),
+                    ),
                   
-                  // Spotify library section with proper spacing
-                  SectionSpacing(
-                    child: _buildSpotifyLibrarySection(),
-                  ),
+                  // Spotify library section with proper spacing - only show if not empty or loading
+                  if (_likedTracks.isNotEmpty || _isLoadingLibrary)
+                    SectionSpacing(
+                      child: _buildSpotifyLibrarySection(),
+                    ),
                 ],
               ),
             );
@@ -1627,14 +1630,11 @@ class _MusicSectionState extends State<MusicSection> {
     });
 
     try {
-      // Only get favorited (added) suggestions for the library
-      final addedSuggestions = await _recommendationService.getSuggestions(
-        'music',
-        status: SuggestionStatus.added,
-      );
+      // Get all favorites (both recommendation-based and user-added)
+      final allFavorites = await _db.getAllFavorites('music');
       
       setState(() {
-        _dbLikedSuggestions = addedSuggestions;
+        _dbLikedSuggestions = allFavorites;
         _isLoadingDbLibrary = false;
       });
     } catch (e) {

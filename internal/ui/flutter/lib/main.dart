@@ -27,6 +27,7 @@ import 'services/llama_service.dart';
 import 'services/wikidata_service.dart';
 import 'services/wikipedia_service.dart';
 import 'services/recommendation_service.dart';
+import 'services/sqlite_db.dart';
 import 'services/ffi_init.dart';
 import 'services/go_bindings.dart';
 import 'models.dart';
@@ -620,8 +621,29 @@ class _UnifiedSearchHandlerState extends State<_UnifiedSearchHandler> {
           );
         }
       }
-    } else if (item is WikipediaSearchResult) {
-      // For Wikipedia results, add to favorites/watchlist
+    } else if (item is WikidataSearchResult) {
+      // For vector database results, add to favorites
+      await _addToFavorites(item);
+    }
+  }
+
+  Future<void> _addToFavorites(WikidataSearchResult item) async {
+    try {
+      final db = SQLiteDatabase();
+      
+      // Add directly to favorites using the new normalized schema
+      await db.addSearchItemToFavorites(
+        mediaType: _convertMediaTypeToDb(widget.mediaType),
+        title: item.title,
+        primaryCreator: item.artist ?? '',
+        vectorMediaId: item.id?.toString(),
+        coverArtUrl: item.imageUrl,
+        description: item.description,
+        wikiUrl: item.additionalData?['wikiUrl'],
+        wikidataId: item.additionalData?['wikidataId'],
+        themes: item.additionalData?['themes'],
+      );
+      
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -630,42 +652,107 @@ class _UnifiedSearchHandlerState extends State<_UnifiedSearchHandler> {
           ),
         );
       }
+      
+      debugPrint('✅ Added search result to favorites: ${item.title}');
+    } catch (e) {
+      debugPrint('❌ Error adding to favorites: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to add to favorites: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
     }
   }
 
-  Future<void> _handleRemove(dynamic item) async {
-    if (item is SimpleTrack) {
+  String _convertMediaTypeToDb(String mediaType) {
+    switch (mediaType.toLowerCase()) {
+      case 'music':
+        return 'music';
+      case 'movie':
+      case 'movies':
+        return 'movie';
+      case 'tv':
+      case 'show':
+      case 'shows':
+        return 'tv_show';
+      case 'book':
+      case 'books':
+        return 'book';
+      case 'game':
+      case 'games':
+        return 'video_game';
+      default:
+        return mediaType;
+    }
+  }
+
+  Future<void> _handleAddToWatchlist(dynamic item) async {
+    if (item is WikidataSearchResult) {
       try {
-        await _spotifyService.removeTrack(item.id);
+        final db = SQLiteDatabase();
+        
+        // Add directly to watchlist using the new normalized schema
+        await db.addSearchItemToWatchlist(
+          mediaType: _convertMediaTypeToDb(widget.mediaType),
+          title: item.title,
+          primaryCreator: item.artist ?? '',
+          vectorMediaId: item.id?.toString(),
+          coverArtUrl: item.imageUrl,
+          description: item.description,
+          wikiUrl: item.additionalData?['wikiUrl'],
+          wikidataId: item.additionalData?['wikidataId'],
+          themes: item.additionalData?['themes'],
+        );
+        
+        String watchlistTerm = _getWatchlistTerminology();
+        
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Removed "${item.name}" from your library'),
+              content: Text('Added "${item.title}" to your ${watchlistTerm.toLowerCase()}'),
               duration: const Duration(seconds: 2),
             ),
           );
         }
+        
+        debugPrint('✅ Added search result to ${watchlistTerm.toLowerCase()}: ${item.title}');
       } catch (e) {
-        debugPrint('Error removing track: $e');
+        debugPrint('❌ Error adding to watchlist: $e');
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Failed to remove track: $e'),
+              content: Text('Failed to add to watchlist: $e'),
+              backgroundColor: Colors.red,
               duration: const Duration(seconds: 3),
             ),
           );
         }
       }
-    } else if (item is WikipediaSearchResult) {
-      // For Wikipedia results, remove from favorites/watchlist
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Removed "${item.title}" from your favorites'),
-            duration: const Duration(seconds: 2),
-          ),
-        );
-      }
+    }
+  }
+
+  String _getWatchlistTerminology() {
+    switch (widget.mediaType.toLowerCase()) {
+      case 'music':
+        return 'Playlist';
+      case 'movie':
+      case 'movies':
+      case 'tv':
+      case 'show':
+      case 'shows':
+        return 'Watchlist';
+      case 'book':
+      case 'books':
+        return 'Reading List';
+      case 'game':
+      case 'games':
+        return 'Playlist';
+      default:
+        return 'List';
     }
   }
 
@@ -680,7 +767,7 @@ class _UnifiedSearchHandlerState extends State<_UnifiedSearchHandler> {
         onSearch: _performSearch,
         onPlay: _handlePlay,
         onSave: _handleSave,
-        onRemove: _handleRemove,
+        onRemove: (track) async {}, // TODO: Implement remove functionality
         onRetry: () => _performSearch(widget.searchQuery),
         onClose: widget.onClearSearch,
       );
@@ -692,7 +779,7 @@ class _UnifiedSearchHandlerState extends State<_UnifiedSearchHandler> {
         isLoading: _isLoading,
         error: _error,
         onAddToFavorites: _handleSave,
-        onAddToWatchlist: _handleRemove,
+        onAddToWatchlist: _handleAddToWatchlist,
         onRetry: () => _performSearch(widget.searchQuery),
         onClose: widget.onClearSearch,
       );
