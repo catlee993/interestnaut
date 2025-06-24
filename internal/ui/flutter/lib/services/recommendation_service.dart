@@ -36,6 +36,7 @@ enum SuggestionStatus {
 
 class MediaSuggestion {
   final int id; 
+  final int? mediaItemId;  // Links to media_items table
   final String query; 
   final String mediaType; 
   final String? title; 
@@ -54,6 +55,7 @@ class MediaSuggestion {
 
   MediaSuggestion({
     this.id = 0, 
+    this.mediaItemId,
     required this.query,
     required this.mediaType,
     this.title,
@@ -74,6 +76,7 @@ class MediaSuggestion {
   factory MediaSuggestion.fromJson(Map<String, dynamic> json) {
     return MediaSuggestion(
       id: json['id'] as int,
+      mediaItemId: json['media_item_id'] as int?,
       query: json['query'] as String,
       mediaType: json['media_type'] as String,
       title: json['title'] as String?,
@@ -99,6 +102,7 @@ class MediaSuggestion {
 
   Map<String, dynamic> toJson() => {
         'id': id,
+        'media_item_id': mediaItemId,
         'query': query,
         'media_type': mediaType,
         'title': title,
@@ -268,10 +272,7 @@ class RecommendationService extends ChangeNotifier {
       
       debugPrint('Found ${tracks.length} tracks in Discover Weekly');
       
-      final existingMusic = await _db.getAllMediaSuggestions(
-        mediaType: 'music',
-        limit: 100,
-      );
+      final existingMusic = await _db.getAllMediaSuggestions('music');
       
       int addedCount = 0;
       
@@ -519,14 +520,9 @@ class RecommendationService extends ChangeNotifier {
       // Removed automatic queue ensuring - suggestions are now generated on-demand only
       
       if (status != null) {
-        return await _db.getAllMediaSuggestions(
-          mediaType: mediaType,
-          statusFilter: status,
-        );
+        return await _db.getAllMediaSuggestions(mediaType, status: status.toString().split('.').last);
       } else {
-        return await _db.getAllMediaSuggestions(
-          mediaType: mediaType,
-        );
+        return await _db.getAllMediaSuggestions(mediaType);
       }
     } catch (e) {
       debugPrint('Error getting suggestions: $e');
@@ -708,11 +704,7 @@ class RecommendationService extends ChangeNotifier {
   /// Get next pending suggestion from database queue
   Future<MediaSuggestion?> _getNextPendingSuggestion(String mediaType) async {
     try {
-      final suggestions = await _db.getAllMediaSuggestions(
-        mediaType: mediaType,
-        statusFilter: SuggestionStatus.pending,
-        limit: 1,
-      );
+      final suggestions = await _db.getAllMediaSuggestions(mediaType, status: 'pending');
       
       if (suggestions.isNotEmpty) {
         return suggestions.first;

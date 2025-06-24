@@ -63,9 +63,30 @@ class MusicSection extends StatefulWidget {
 
   @override
   State<MusicSection> createState() => _MusicSectionState();
+  
+  // Static method to refresh favorites from search
+  static void refreshFavoritesFromSearch() {
+    final context = _MusicSectionState._currentContext;
+    if (context != null) {
+      final state = context.findAncestorStateOfType<_MusicSectionState>();
+      state?._loadDbLibrary();
+    }
+  }
+
+  // Static method to refresh playlist from search
+  static void refreshPlaylistFromSearch() {
+    final context = _MusicSectionState._currentContext;
+    if (context != null) {
+      final state = context.findAncestorStateOfType<_MusicSectionState>();
+      state?._loadDbPlaylist();
+    }
+  }
 }
 
 class _MusicSectionState extends State<MusicSection> {
+  // Static context for search refresh
+  static BuildContext? _currentContext;
+  
   // State variables
   bool _isAuthenticated = false;
   final bool _isLoading = true;
@@ -144,7 +165,8 @@ class _MusicSectionState extends State<MusicSection> {
         switch (event.type) {
           case RecommendationEventType.suggestionReady:
             if (event.suggestion != null) {
-              _updateWithRealSuggestion(event.suggestion!);
+              // Reload the suggestion from database to ensure we have complete data including mediaItemId
+              _reloadSuggestionFromDatabase(event.suggestion!.id);
             }
             break;
           case RecommendationEventType.suggestionError:
@@ -281,6 +303,30 @@ class _MusicSectionState extends State<MusicSection> {
     _playerReadySubscription?.cancel();
     _recommendationEventSubscription?.cancel();
     super.dispose();
+  }
+
+  // Reload a specific suggestion from database to get complete data
+  Future<void> _reloadSuggestionFromDatabase(int suggestionId) async {
+    try {
+      debugPrint('🎵 _reloadSuggestionFromDatabase called for ID: $suggestionId');
+      final suggestion = await _db.getRecommendationById(suggestionId);
+      if (suggestion != null) {
+        debugPrint('🎵 _reloadSuggestionFromDatabase loaded: ${suggestion.title} (mediaItemId: ${suggestion.mediaItemId})');
+        _updateWithRealSuggestion(suggestion);
+      } else {
+        debugPrint('🎵 _reloadSuggestionFromDatabase failed to load suggestion with ID: $suggestionId');
+        setState(() {
+          _dbSuggestionError = 'Failed to load suggestion';
+          _isLoadingDbSuggestion = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('🎵 _reloadSuggestionFromDatabase error: $e');
+      setState(() {
+        _dbSuggestionError = 'Error loading suggestion: $e';
+        _isLoadingDbSuggestion = false;
+      });
+    }
   }
 
   // Check if user is authenticated on init and when the auth state changes
@@ -728,6 +774,12 @@ class _MusicSectionState extends State<MusicSection> {
         SuggestionStatus.added,
       );
 
+      // Also add to favorites table using media_item_id
+      if (_currentDbSuggestion!.mediaItemId == null) {
+        throw Exception('Cannot add to favorites: mediaItemId is null');
+      }
+      await _db.addToFavorites(_currentDbSuggestion!.mediaItemId!);
+
       setState(() {
         _hasFavoritedCurrentSuggestion = true;
       });
@@ -762,6 +814,11 @@ class _MusicSectionState extends State<MusicSection> {
         SuggestionStatus.skipped,
       );
 
+      // Also remove from favorites table using media_item_id
+      if (_currentDbSuggestion!.mediaItemId != null) {
+        await _db.removeFromFavorites(_currentDbSuggestion!.mediaItemId!);
+      }
+
       setState(() {
         _hasFavoritedCurrentSuggestion = false;
       });
@@ -789,20 +846,25 @@ class _MusicSectionState extends State<MusicSection> {
 
     try {
       // Check if ID is valid and remove from playlist if present
-      if (_currentDbSuggestion!.id > 0) {
-        final isInWatchlist = await _db.isInWatchlist(_currentDbSuggestion!.id);
+      if (_currentDbSuggestion!.mediaItemId != null) {
+        final isInWatchlist = await _db.isInWatchlist(_currentDbSuggestion!.mediaItemId!);
         if (isInWatchlist) {
-          await _db.removeFromWatchlist(_currentDbSuggestion!.id);
+          await _db.removeFromWatchlist(_currentDbSuggestion!.mediaItemId!);
           // Refresh playlist since item was removed from there too
           _loadDbPlaylist();
         }
       }
       
-      // Set status to disliked (this will remove from favorites if favorited)
+      // Set status to disliked
       await _recommendationService.updateSuggestionStatus(
         _currentDbSuggestion!.id,
         SuggestionStatus.disliked,
       );
+
+      // Also remove from favorites table if it was favorited
+      if (_hasFavoritedCurrentSuggestion && _currentDbSuggestion!.mediaItemId != null) {
+        await _db.removeFromFavorites(_currentDbSuggestion!.mediaItemId!);
+      }
       
       // Refresh library in case item was favorited
       _loadDbLibrary();
@@ -953,8 +1015,11 @@ class _MusicSectionState extends State<MusicSection> {
     });
 
     try {
-      // Add to watchlist table
-      await _db.addToWatchlist(_currentDbSuggestion!.id);
+      // Add to watchlist table using media_item_id
+      if (_currentDbSuggestion!.mediaItemId == null) {
+        throw Exception('Cannot add to playlist: mediaItemId is null');
+      }
+      await _db.addToWatchlist(_currentDbSuggestion!.mediaItemId!);
 
       // Update suggestion status so it's no longer pending (won't appear in queue again)
       await _recommendationService.updateSuggestionStatus(
@@ -995,6 +1060,9 @@ class _MusicSectionState extends State<MusicSection> {
   // Build the main music section UI
   @override
   Widget build(BuildContext context) {
+    // Store context for static refresh method
+    _currentContext = context;
+    
     debugPrint('🎵 build() method called - starting to build widget tree');
     
     final stackWidget = Stack(
@@ -1022,23 +1090,23 @@ class _MusicSectionState extends State<MusicSection> {
                     ),
                   ),
                   
-                  // Suggestion content with reduced spacing for app sections
+                  // Suggestion content with minimal spacing for app sections
                   SectionSpacing(
-                    customSpacing: 20.0, // Reduced from 32px to 20px for tighter app sections
+                    customSpacing: 12.0, // Minimal spacing for tight app section grouping
                     child: _buildSuggestionContent(scrollOffset),
                   ),
                   
-                  // Playlist section with reduced spacing - only show if not empty or loading
+                  // Playlist section with minimal spacing - only show if not empty or loading
                   if (_dbPlaylistSuggestions.isNotEmpty || _isLoadingDbPlaylist)
                     SectionSpacing(
-                      customSpacing: 20.0, // Reduced spacing for app sections
+                      customSpacing: 12.0, // Minimal spacing for tight app section grouping
                       child: _buildPlaylistSection(),
                     ),
                   
-                  // Library section with reduced spacing - only show if not empty or loading
+                  // Library section with minimal spacing - only show if not empty or loading
                   if (_dbLikedSuggestions.isNotEmpty || _isLoadingDbLibrary)
                     SectionSpacing(
-                      customSpacing: 20.0, // Reduced spacing for app sections
+                      customSpacing: 12.0, // Minimal spacing for tight app section grouping
                       child: _buildDbLibrarySectionWrapper(),
                     ),
                   
@@ -1073,7 +1141,7 @@ class _MusicSectionState extends State<MusicSection> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                'Error: $_dbSuggestionError',
+                'Failed to get a suggestion',
                 style: const TextStyle(
                   color: Colors.white54,
                   fontSize: 16,

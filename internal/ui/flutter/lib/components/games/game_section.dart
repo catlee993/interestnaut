@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../common/scroll_content_wrapper.dart';
-import '../common/media_grid.dart';
+
 import '../common/media_library_grid.dart';
 import '../common/suggestion_action_buttons.dart';
 import '../common/loading_suggestion.dart';
@@ -16,9 +16,30 @@ class GameSection extends StatefulWidget {
 
   @override
   State<GameSection> createState() => _GameSectionState();
+  
+  // Static method to refresh favorites from search
+  static void refreshFavoritesFromSearch() {
+    final context = _GameSectionState._currentContext;
+    if (context != null) {
+      final state = context.findAncestorStateOfType<_GameSectionState>();
+      state?._loadDbLibrary();
+    }
+  }
+
+  // Static method to refresh playlist from search
+  static void refreshPlaylistFromSearch() {
+    final context = _GameSectionState._currentContext;
+    if (context != null) {
+      final state = context.findAncestorStateOfType<_GameSectionState>();
+      state?._loadDbPlaylist();
+    }
+  }
 }
 
 class _GameSectionState extends State<GameSection> {
+  // Static context for search refresh
+  static BuildContext? _currentContext;
+  
   // Database suggestion state
   MediaSuggestion? _currentDbSuggestion;
   String? _dbSuggestionError;
@@ -50,13 +71,8 @@ class _GameSectionState extends State<GameSection> {
       switch (event.type) {
         case RecommendationEventType.suggestionReady:
           if (event.suggestion != null) {
-            setState(() {
-              _currentDbSuggestion = event.suggestion;
-              _isLoadingDbSuggestion = false;
-              _dbSuggestionError = null;
-              _hasLikedCurrentSuggestion = false;
-              _hasFavoritedCurrentSuggestion = false;
-            });
+            // Reload the suggestion from database to ensure we have complete data including mediaItemId
+            _reloadSuggestionFromDatabase(event.suggestion!.id);
           }
           break;
         case RecommendationEventType.suggestionError:
@@ -80,6 +96,36 @@ class _GameSectionState extends State<GameSection> {
   void dispose() {
     _eventSubscription?.cancel();
     super.dispose();
+  }
+
+  // Reload a specific suggestion from database to get complete data
+  Future<void> _reloadSuggestionFromDatabase(int suggestionId) async {
+    try {
+      debugPrint('🎮 _reloadSuggestionFromDatabase called for ID: $suggestionId');
+      final suggestion = await _db.getRecommendationById(suggestionId);
+      if (suggestion != null) {
+        debugPrint('🎮 _reloadSuggestionFromDatabase loaded: ${suggestion.title} (mediaItemId: ${suggestion.mediaItemId})');
+        setState(() {
+          _currentDbSuggestion = suggestion;
+          _isLoadingDbSuggestion = false;
+          _dbSuggestionError = null;
+          _hasLikedCurrentSuggestion = false;
+          _hasFavoritedCurrentSuggestion = false;
+        });
+      } else {
+        debugPrint('🎮 _reloadSuggestionFromDatabase failed to load suggestion with ID: $suggestionId');
+        setState(() {
+          _dbSuggestionError = 'Failed to load suggestion';
+          _isLoadingDbSuggestion = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('🎮 _reloadSuggestionFromDatabase error: $e');
+      setState(() {
+        _dbSuggestionError = 'Error loading suggestion: $e';
+        _isLoadingDbSuggestion = false;
+      });
+    }
   }
 
   // Load a DB suggestion for video games
@@ -253,6 +299,12 @@ class _GameSectionState extends State<GameSection> {
         SuggestionStatus.added,
       );
 
+      // Also add to favorites table using media_item_id
+      if (_currentDbSuggestion!.mediaItemId == null) {
+        throw Exception('Cannot add to favorites: mediaItemId is null');
+      }
+      await _db.addToFavorites(_currentDbSuggestion!.mediaItemId!);
+
       setState(() {
         _hasFavoritedCurrentSuggestion = true;
       });
@@ -287,6 +339,11 @@ class _GameSectionState extends State<GameSection> {
         SuggestionStatus.skipped,
       );
 
+      // Also remove from favorites table using media_item_id
+      if (_currentDbSuggestion!.mediaItemId != null) {
+        await _db.removeFromFavorites(_currentDbSuggestion!.mediaItemId!);
+      }
+
       setState(() {
         _hasFavoritedCurrentSuggestion = false;
       });
@@ -314,19 +371,24 @@ class _GameSectionState extends State<GameSection> {
 
     try {
       // Check if ID is valid and remove from playlist if present
-      if (_currentDbSuggestion!.id > 0) {
-        final isInPlaylist = await _db.isInWatchlist(_currentDbSuggestion!.id);
+      if (_currentDbSuggestion!.mediaItemId != null) {
+        final isInPlaylist = await _db.isInWatchlist(_currentDbSuggestion!.mediaItemId!);
         if (isInPlaylist) {
-          await _db.removeFromWatchlist(_currentDbSuggestion!.id);
+          await _db.removeFromWatchlist(_currentDbSuggestion!.mediaItemId!);
           _loadDbPlaylist(); // Refresh playlist
         }
       }
       
-      // Set status to disliked (this will remove from favorites if favorited)
+      // Set status to disliked
       await _recommendationService.updateSuggestionStatus(
         _currentDbSuggestion!.id,
         SuggestionStatus.disliked,
       );
+
+      // Also remove from favorites table if it was favorited
+      if (_hasFavoritedCurrentSuggestion && _currentDbSuggestion!.mediaItemId != null) {
+        await _db.removeFromFavorites(_currentDbSuggestion!.mediaItemId!);
+      }
       
       // Refresh library in case item was favorited
       _loadDbLibrary();
@@ -429,7 +491,11 @@ class _GameSectionState extends State<GameSection> {
     });
 
     try {
-      await _db.addToWatchlist(_currentDbSuggestion!.id);
+      // Add to playlist table using media_item_id
+      if (_currentDbSuggestion!.mediaItemId == null) {
+        throw Exception('Cannot add to playlist: mediaItemId is null');
+      }
+      await _db.addToWatchlist(_currentDbSuggestion!.mediaItemId!);
 
       // Update suggestion status so it's no longer pending (won't appear in queue again)
       await _recommendationService.updateSuggestionStatus(
@@ -466,33 +532,6 @@ class _GameSectionState extends State<GameSection> {
       });
     }
   }
-
-  // Build playlist section
-  Widget _buildDbPlaylistSection() {
-    return MediaLibraryGrid(
-      suggestions: _dbPlaylistSuggestions,
-      mediaType: 'video_game',
-      isWatchlist: true,
-      onRemove: _removeFromPlaylist,
-      onLike: _likePlaylistItem,
-      onDislike: _dislikePlaylistItem,
-      onFavorite: _favoritePlaylistItem,
-    );
-  }
-
-  // Build library section
-  Widget _buildDbLibrarySection() {
-    return MediaLibraryGrid(
-      suggestions: _dbLikedSuggestions,
-      mediaType: 'video_game',
-      isWatchlist: false,
-      onRemove: _removeFromLibrary,
-      onAddToWatchlist: _addLibraryItemToPlaylist,
-      onUnfavorite: _removeFromLibrary,
-      watchlistItems: _dbPlaylistSuggestions,
-    );
-  }
-
 
 
   // Remove from playlist
@@ -640,15 +679,20 @@ class _GameSectionState extends State<GameSection> {
 
   @override
   Widget build(BuildContext context) {
+    // Store context for static refresh method
+    _currentContext = context;
+    
     return Stack(
       children: [
         // Main content using universal layout system
         MediaSectionLayout(
           headerHeight: 106.0,
           builder: (scrollOffset) {
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 100), // Add padding for playbar
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
                 // Title with consistent spacing
                 ComponentSpacing(
                   child: Center(
@@ -663,23 +707,27 @@ class _GameSectionState extends State<GameSection> {
                   ),
                 ),
                 
-                // Suggestion content with consistent spacing
-                ComponentSpacing(
+                // Suggestion content with minimal spacing for app sections
+                SectionSpacing(
+                  customSpacing: 12.0, // Minimal spacing for tight app section grouping
                   child: _buildSuggestionContent(scrollOffset),
                 ),
                 
-                // Library section with proper spacing - only show if not empty or loading
+                // Library section with minimal spacing - only show if not empty or loading
                 if (_dbLikedSuggestions.isNotEmpty || _isLoadingDbLibrary)
                   SectionSpacing(
+                    customSpacing: 12.0, // Minimal spacing for tight app section grouping
                     child: _buildLibrarySection(),
                   ),
                 
-                // Playlist section with proper spacing - only show if not empty or loading
+                // Playlist section with minimal spacing - only show if not empty or loading
                 if (_dbPlaylistSuggestions.isNotEmpty || _isLoadingDbPlaylist)
                   SectionSpacing(
+                    customSpacing: 12.0, // Minimal spacing for tight app section grouping
                     child: _buildPlaylistSection(),
                   ),
-              ],
+                ],
+              ),
             );
           },
         ),
@@ -699,7 +747,7 @@ class _GameSectionState extends State<GameSection> {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Text(
-                'Error: $_dbSuggestionError',
+                'Failed to get a suggestion',
                 style: const TextStyle(
                   color: Colors.white54,
                   fontSize: 16,
@@ -707,7 +755,7 @@ class _GameSectionState extends State<GameSection> {
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 16),
-              ElevatedButton(
+              OutlinedButton(
                 onPressed: _loadDbSuggestion,
                 child: const Text('Try Again'),
               ),
@@ -936,91 +984,59 @@ class _GameSectionState extends State<GameSection> {
   // Helper method to build library section
   Widget _buildLibrarySection() {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            const Text(
-              'My Library',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-                color: Colors.white,
-              ),
-            ),
-            if (_dbLikedSuggestions.isNotEmpty)
-              Text(
-                '${_dbLikedSuggestions.length} games',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.white.withOpacity(0.6),
-                ),
-              ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        if (_isLoadingDbLibrary)
-          const Center(
-            child: Padding(
-              padding: EdgeInsets.all(24),
-              child: CircularProgressIndicator(),
-            ),
-          )
-        else if (_dbLikedSuggestions.isEmpty)
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: const Color(0xFF282828),
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: const Text(
-              'No games in your library yet.\nFavorite games to see them here!',
-              style: TextStyle(
-                color: Colors.white54,
-                fontSize: 16,
-              ),
-              textAlign: TextAlign.center,
-            ),
-          )
-        else
-          MediaLibraryGrid(
-            suggestions: _dbLikedSuggestions,
-            watchlistItems: _dbPlaylistSuggestions,
-            mediaType: 'video_game',
-            isWatchlist: false,
-            onRemove: (suggestion) async {
-              await _removeFromLibrary(suggestion);
-            },
-            onLike: (suggestion) async {
-              await _recommendationService.updateSuggestionStatus(
-                suggestion.id,
-                SuggestionStatus.liked,
-              );
-            },
-            onDislike: (suggestion) async {
-              await _recommendationService.updateSuggestionStatus(
-                suggestion.id,
-                SuggestionStatus.disliked,
-              );
-            },
-            onAddToWatchlist: (suggestion) async {
-              await _addLibraryItemToPlaylist(suggestion);
-            },
-            onRemoveFromWatchlist: (suggestion) async {
-              await _removeFromPlaylist(suggestion);
-            },
-            onFavorite: (suggestion) async {
-              await _recommendationService.updateSuggestionStatus(
-                suggestion.id,
-                SuggestionStatus.added,
-              );
-            },
-            onUnfavorite: (suggestion) async {
-              await _removeFromLibrary(suggestion);
-            },
+        const SizedBox(height: 32.0), // Add spacing before the title
+        const Center(
+          child: Text(
+            'FAVORITES',
+            style: AppTheme.sectionHeaderMedium,
           ),
+        ),
+        const SizedBox(height: 24.0), // Add spacing between title and content
+        ComponentSpacing(
+          child: _isLoadingDbLibrary
+            ? const Center(
+                child: CircularProgressIndicator(
+                  color: Color(0xFFA855F7),
+                ),
+              )
+            : MediaLibraryGrid(
+                  suggestions: _dbLikedSuggestions,
+                  watchlistItems: _dbPlaylistSuggestions,
+                  mediaType: 'video_game',
+                  isWatchlist: false,
+                  onRemove: (suggestion) async {
+                    await _removeFromLibrary(suggestion);
+                  },
+                  onLike: (suggestion) async {
+                    await _recommendationService.updateSuggestionStatus(
+                      suggestion.id,
+                      SuggestionStatus.liked,
+                    );
+                  },
+                  onDislike: (suggestion) async {
+                    await _recommendationService.updateSuggestionStatus(
+                      suggestion.id,
+                      SuggestionStatus.disliked,
+                    );
+                  },
+                  onAddToWatchlist: (suggestion) async {
+                    await _addLibraryItemToPlaylist(suggestion);
+                  },
+                  onRemoveFromWatchlist: (suggestion) async {
+                    await _removeFromPlaylist(suggestion);
+                  },
+                  onFavorite: (suggestion) async {
+                    await _recommendationService.updateSuggestionStatus(
+                      suggestion.id,
+                      SuggestionStatus.added,
+                    );
+                  },
+                  onUnfavorite: (suggestion) async {
+                    await _removeFromLibrary(suggestion);
+                  },
+                ),
+        ),
       ],
     );
   }
@@ -1028,56 +1044,23 @@ class _GameSectionState extends State<GameSection> {
   // Helper method to build playlist section
   Widget _buildPlaylistSection() {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            const Text(
-              'Want to Play',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-                color: Colors.white,
-              ),
-            ),
-            if (_dbPlaylistSuggestions.isNotEmpty)
-              Text(
-                '${_dbPlaylistSuggestions.length} games',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.white.withOpacity(0.6),
-                ),
-              ),
-          ],
+        const SizedBox(height: 32.0), // Add spacing before the title
+        const Center(
+          child: Text(
+            'PLAYLIST',
+            style: AppTheme.sectionHeaderMedium,
+          ),
         ),
-        const SizedBox(height: 12),
-        if (_isLoadingDbPlaylist)
-          const Center(
-            child: Padding(
-              padding: EdgeInsets.all(24),
-              child: CircularProgressIndicator(),
-            ),
-          )
-        else if (_dbPlaylistSuggestions.isEmpty)
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: const Color(0xFF282828),
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: const Text(
-              'No games in your playlist yet.\nAdd games you want to play later!',
-              style: TextStyle(
-                color: Colors.white54,
-                fontSize: 16,
-              ),
-              textAlign: TextAlign.center,
-            ),
-          )
-        else
-          MediaLibraryGrid(
+        const SizedBox(height: 24.0), // Add spacing between title and content
+        ComponentSpacing(
+          child: _isLoadingDbPlaylist
+            ? const Center(
+                child: CircularProgressIndicator(
+                  color: Color(0xFFA855F7),
+                ),
+              )
+            : MediaLibraryGrid(
             suggestions: _dbPlaylistSuggestions,
             watchlistItems: _dbPlaylistSuggestions,
             mediaType: 'video_game',
@@ -1113,6 +1096,7 @@ class _GameSectionState extends State<GameSection> {
               await _removeFromLibrary(suggestion);
             },
           ),
+        ),
       ],
     );
   }

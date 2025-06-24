@@ -16,9 +16,30 @@ class TVShowSection extends StatefulWidget {
 
   @override
   State<TVShowSection> createState() => _TVShowSectionState();
+  
+  // Static method to refresh favorites from search
+  static void refreshFavoritesFromSearch() {
+    final context = _TVShowSectionState._currentContext;
+    if (context != null) {
+      final state = context.findAncestorStateOfType<_TVShowSectionState>();
+      state?._loadDbLibrary();
+    }
+  }
+
+  // Static method to refresh watchlist from search
+  static void refreshWatchlistFromSearch() {
+    final context = _TVShowSectionState._currentContext;
+    if (context != null) {
+      final state = context.findAncestorStateOfType<_TVShowSectionState>();
+      state?._loadDbWatchlist();
+    }
+  }
 }
 
 class _TVShowSectionState extends State<TVShowSection> {
+  // Static context for search refresh
+  static BuildContext? _currentContext;
+  
   // Database suggestion state
   MediaSuggestion? _currentDbSuggestion;
   String? _dbSuggestionError;
@@ -50,13 +71,8 @@ class _TVShowSectionState extends State<TVShowSection> {
       switch (event.type) {
         case RecommendationEventType.suggestionReady:
           if (event.suggestion != null) {
-            setState(() {
-              _currentDbSuggestion = event.suggestion;
-              _isLoadingDbSuggestion = false;
-              _dbSuggestionError = null;
-              _hasLikedCurrentSuggestion = false;
-              _hasFavoritedCurrentSuggestion = false;
-            });
+            // Reload the suggestion from database to ensure we have complete data including mediaItemId
+            _reloadSuggestionFromDatabase(event.suggestion!.id);
           }
           break;
         case RecommendationEventType.suggestionError:
@@ -80,6 +96,36 @@ class _TVShowSectionState extends State<TVShowSection> {
   void dispose() {
     _eventSubscription?.cancel();
     super.dispose();
+  }
+
+  // Reload a specific suggestion from database to get complete data
+  Future<void> _reloadSuggestionFromDatabase(int suggestionId) async {
+    try {
+      debugPrint('📺 _reloadSuggestionFromDatabase called for ID: $suggestionId');
+      final suggestion = await _db.getRecommendationById(suggestionId);
+      if (suggestion != null) {
+        debugPrint('📺 _reloadSuggestionFromDatabase loaded: ${suggestion.title} (mediaItemId: ${suggestion.mediaItemId})');
+        setState(() {
+          _currentDbSuggestion = suggestion;
+          _isLoadingDbSuggestion = false;
+          _dbSuggestionError = null;
+          _hasLikedCurrentSuggestion = false;
+          _hasFavoritedCurrentSuggestion = false;
+        });
+      } else {
+        debugPrint('📺 _reloadSuggestionFromDatabase failed to load suggestion with ID: $suggestionId');
+        setState(() {
+          _dbSuggestionError = 'Failed to load suggestion';
+          _isLoadingDbSuggestion = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('📺 _reloadSuggestionFromDatabase error: $e');
+      setState(() {
+        _dbSuggestionError = 'Error loading suggestion: $e';
+        _isLoadingDbSuggestion = false;
+      });
+    }
   }
 
   // Load a DB suggestion for TV shows
@@ -259,6 +305,12 @@ class _TVShowSectionState extends State<TVShowSection> {
         SuggestionStatus.added,
       );
 
+      // Also add to favorites table using media_item_id
+      if (_currentDbSuggestion!.mediaItemId == null) {
+        throw Exception('Cannot add to favorites: mediaItemId is null');
+      }
+      await _db.addToFavorites(_currentDbSuggestion!.mediaItemId!);
+
       setState(() {
         _hasFavoritedCurrentSuggestion = true;
       });
@@ -293,6 +345,11 @@ class _TVShowSectionState extends State<TVShowSection> {
         SuggestionStatus.skipped,
       );
 
+      // Also remove from favorites table using media_item_id
+      if (_currentDbSuggestion!.mediaItemId != null) {
+        await _db.removeFromFavorites(_currentDbSuggestion!.mediaItemId!);
+      }
+
       setState(() {
         _hasFavoritedCurrentSuggestion = false;
       });
@@ -320,19 +377,24 @@ class _TVShowSectionState extends State<TVShowSection> {
 
     try {
       // Check if ID is valid and remove from watchlist if present
-      if (_currentDbSuggestion!.id > 0) {
-        final isInWatchlist = await _db.isInWatchlist(_currentDbSuggestion!.id);
+      if (_currentDbSuggestion!.mediaItemId != null) {
+        final isInWatchlist = await _db.isInWatchlist(_currentDbSuggestion!.mediaItemId!);
         if (isInWatchlist) {
-          await _db.removeFromWatchlist(_currentDbSuggestion!.id);
+          await _db.removeFromWatchlist(_currentDbSuggestion!.mediaItemId!);
           _loadDbWatchlist(); // Refresh watchlist
         }
       }
       
-      // Set status to disliked (this will remove from favorites if favorited)
+      // Set status to disliked
       await _recommendationService.updateSuggestionStatus(
         _currentDbSuggestion!.id,
         SuggestionStatus.disliked,
       );
+
+      // Also remove from favorites table if it was favorited
+      if (_hasFavoritedCurrentSuggestion && _currentDbSuggestion!.mediaItemId != null) {
+        await _db.removeFromFavorites(_currentDbSuggestion!.mediaItemId!);
+      }
       
       // Refresh library in case item was favorited
       _loadDbLibrary();
@@ -435,7 +497,11 @@ class _TVShowSectionState extends State<TVShowSection> {
     });
 
     try {
-      await _db.addToWatchlist(_currentDbSuggestion!.id);
+      // Add to watchlist table using media_item_id
+      if (_currentDbSuggestion!.mediaItemId == null) {
+        throw Exception('Cannot add to watchlist: mediaItemId is null');
+      }
+      await _db.addToWatchlist(_currentDbSuggestion!.mediaItemId!);
 
       // Update suggestion status so it's no longer pending (won't appear in queue again)
       await _recommendationService.updateSuggestionStatus(
@@ -753,11 +819,16 @@ class _TVShowSectionState extends State<TVShowSection> {
 
   @override
   Widget build(BuildContext context) {
+    // Store context for static refresh method
+    _currentContext = context;
+    
     return MediaSectionLayout(
       builder: (scrollOffset) {
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 100), // Add padding for playbar
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
             // Title with consistent spacing
             ComponentSpacing(
               child: Center(
@@ -788,7 +859,8 @@ class _TVShowSectionState extends State<TVShowSection> {
               SectionSpacing(
                 child: _buildLibrarySection(),
               ),
-          ],
+                      ],
+          ),
         );
       },
     );
@@ -806,7 +878,7 @@ class _TVShowSectionState extends State<TVShowSection> {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Text(
-                'Error: $_dbSuggestionError',
+                'Failed to get a suggestion',
                 style: const TextStyle(
                   color: Colors.white54,
                   fontSize: 16,
@@ -814,7 +886,7 @@ class _TVShowSectionState extends State<TVShowSection> {
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 16),
-              ElevatedButton(
+              OutlinedButton(
                 onPressed: _loadDbSuggestion,
                 child: const Text('Try Again'),
               ),

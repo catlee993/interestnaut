@@ -17,9 +17,30 @@ class BookSection extends StatefulWidget {
 
   @override
   State<BookSection> createState() => _BookSectionState();
+  
+  // Static method to refresh favorites from search
+  static void refreshFavoritesFromSearch() {
+    final context = _BookSectionState._currentContext;
+    if (context != null) {
+      final state = context.findAncestorStateOfType<_BookSectionState>();
+      state?._loadDbLibrary();
+    }
+  }
+
+  // Static method to refresh reading list from search
+  static void refreshReadingListFromSearch() {
+    final context = _BookSectionState._currentContext;
+    if (context != null) {
+      final state = context.findAncestorStateOfType<_BookSectionState>();
+      state?._loadDbReadingList();
+    }
+  }
 }
 
 class _BookSectionState extends State<BookSection> {
+  // Static context for search refresh
+  static BuildContext? _currentContext;
+  
   // Database suggestion state
   MediaSuggestion? _currentDbSuggestion;
   String? _dbSuggestionError;
@@ -56,13 +77,8 @@ class _BookSectionState extends State<BookSection> {
       switch (event.type) {
         case RecommendationEventType.suggestionReady:
           if (event.suggestion != null) {
-            setState(() {
-              _currentDbSuggestion = event.suggestion;
-              _isLoadingDbSuggestion = false;
-              _dbSuggestionError = null;
-              _hasLikedCurrentSuggestion = false;
-              _hasFavoritedCurrentSuggestion = false;
-            });
+            // Reload the suggestion from database to ensure we have complete data including mediaItemId
+            _reloadSuggestionFromDatabase(event.suggestion!.id);
           }
           break;
         case RecommendationEventType.suggestionError:
@@ -86,6 +102,36 @@ class _BookSectionState extends State<BookSection> {
   void dispose() {
     _eventSubscription?.cancel();
     super.dispose();
+  }
+
+  // Reload a specific suggestion from database to get complete data
+  Future<void> _reloadSuggestionFromDatabase(int suggestionId) async {
+    try {
+      debugPrint('📚 _reloadSuggestionFromDatabase called for ID: $suggestionId');
+      final suggestion = await _db.getRecommendationById(suggestionId);
+      if (suggestion != null) {
+        debugPrint('📚 _reloadSuggestionFromDatabase loaded: ${suggestion.title} (mediaItemId: ${suggestion.mediaItemId})');
+        setState(() {
+          _currentDbSuggestion = suggestion;
+          _isLoadingDbSuggestion = false;
+          _dbSuggestionError = null;
+          _hasLikedCurrentSuggestion = false;
+          _hasFavoritedCurrentSuggestion = false;
+        });
+      } else {
+        debugPrint('📚 _reloadSuggestionFromDatabase failed to load suggestion with ID: $suggestionId');
+        setState(() {
+          _dbSuggestionError = 'Failed to load suggestion';
+          _isLoadingDbSuggestion = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('📚 _reloadSuggestionFromDatabase error: $e');
+      setState(() {
+        _dbSuggestionError = 'Error loading suggestion: $e';
+        _isLoadingDbSuggestion = false;
+      });
+    }
   }
 
   // Convert MediaSuggestion to MediaSuggestionItem for the unified layout
@@ -290,6 +336,14 @@ class _BookSectionState extends State<BookSection> {
         _currentDbSuggestion!.id,
         SuggestionStatus.added,
       );
+
+      debugPrint('💜 _addToFavorites adding to favorites table');
+      // Also add to favorites table using media_item_id
+      if (_currentDbSuggestion!.mediaItemId == null) {
+        throw Exception('Cannot add to favorites: mediaItemId is null');
+      }
+      await _db.addToFavorites(_currentDbSuggestion!.mediaItemId!);
+
       debugPrint('💜 _addToFavorites setting favorited state to true');
 
       setState(() {
@@ -327,6 +381,11 @@ class _BookSectionState extends State<BookSection> {
         SuggestionStatus.skipped,
       );
 
+      // Also remove from favorites table using media_item_id
+      if (_currentDbSuggestion!.mediaItemId != null) {
+        await _db.removeFromFavorites(_currentDbSuggestion!.mediaItemId!);
+      }
+
       setState(() {
         _hasFavoritedCurrentSuggestion = false;
       });
@@ -356,19 +415,24 @@ class _BookSectionState extends State<BookSection> {
 
     try {
       // Check if ID is valid and remove from watchlist if present
-      if (_currentDbSuggestion!.id > 0) {
-        final isInWatchlist = await _db.isInWatchlist(_currentDbSuggestion!.id);
+      if (_currentDbSuggestion!.mediaItemId != null) {
+        final isInWatchlist = await _db.isInWatchlist(_currentDbSuggestion!.mediaItemId!);
         if (isInWatchlist) {
-          await _db.removeFromWatchlist(_currentDbSuggestion!.id);
+          await _db.removeFromWatchlist(_currentDbSuggestion!.mediaItemId!);
           _loadDbReadingList(); // Refresh reading list
         }
       }
       
-      // Set status to disliked (this will remove from favorites if favorited)
+      // Set status to disliked
       await _recommendationService.updateSuggestionStatus(
         _currentDbSuggestion!.id,
         SuggestionStatus.disliked,
       );
+
+      // Also remove from favorites table if it was favorited
+      if (_hasFavoritedCurrentSuggestion && _currentDbSuggestion!.mediaItemId != null) {
+        await _db.removeFromFavorites(_currentDbSuggestion!.mediaItemId!);
+      }
       
       // Refresh library in case item was favorited
       _loadDbLibrary();
@@ -651,11 +715,16 @@ class _BookSectionState extends State<BookSection> {
 
   @override
   Widget build(BuildContext context) {
+    // Store context for static refresh method
+    _currentContext = context;
+    
     return MediaSectionLayout(
       builder: (scrollOffset) {
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 100), // Add padding for playbar
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
             // Title with consistent spacing
             ComponentSpacing(
               child: Center(
@@ -686,7 +755,8 @@ class _BookSectionState extends State<BookSection> {
               SectionSpacing(
                 child: _buildLibrarySection(),
               ),
-          ],
+                      ],
+          ),
         );
       },
     );
@@ -702,7 +772,7 @@ class _BookSectionState extends State<BookSection> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Text(
-              'Error: $_dbSuggestionError',
+              'Failed to get a suggestion',
               style: const TextStyle(
                 color: Colors.white54,
                 fontSize: 16,
@@ -710,7 +780,7 @@ class _BookSectionState extends State<BookSection> {
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 16),
-            ElevatedButton(
+            OutlinedButton(
               onPressed: _loadDbSuggestion,
               child: const Text('Try Again'),
             ),

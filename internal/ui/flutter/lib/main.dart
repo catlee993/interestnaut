@@ -654,6 +654,34 @@ class _UnifiedSearchHandlerState extends State<_UnifiedSearchHandler> {
       }
       
       debugPrint('✅ Added search result to favorites: ${item.title}');
+      
+      // Database operation is complete (await above), now refresh immediately
+      // Use WidgetsBinding to ensure refresh happens after current frame
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        // Refresh the appropriate section's favorites list
+        switch (widget.mediaType.toLowerCase()) {
+          case 'music':
+            MusicSection.refreshFavoritesFromSearch();
+            break;
+          case 'movie':
+          case 'movies':
+            MovieSection.refreshFavoritesFromSearch();
+            break;
+          case 'tv':
+          case 'show':
+          case 'shows':
+            TVShowSection.refreshFavoritesFromSearch();
+            break;
+          case 'book':
+          case 'books':
+            BookSection.refreshFavoritesFromSearch();
+            break;
+          case 'game':
+          case 'games':
+            GameSection.refreshFavoritesFromSearch();
+            break;
+        }
+      });
     } catch (e) {
       debugPrint('❌ Error adding to favorites: $e');
       if (mounted) {
@@ -690,6 +718,35 @@ class _UnifiedSearchHandlerState extends State<_UnifiedSearchHandler> {
     }
   }
 
+  void _refreshWatchlistForMediaType(String mediaType) {
+    try {
+      switch (mediaType.toLowerCase()) {
+        case 'music':
+          MusicSection.refreshPlaylistFromSearch();
+          break;
+        case 'movie':
+        case 'movies':
+          MovieSection.refreshWatchlistFromSearch();
+          break;
+        case 'tv':
+        case 'show':
+        case 'shows':
+          TVShowSection.refreshWatchlistFromSearch();
+          break;
+        case 'book':
+        case 'books':
+          BookSection.refreshReadingListFromSearch();
+          break;
+        case 'game':
+        case 'games':
+          GameSection.refreshPlaylistFromSearch();
+          break;
+      }
+    } catch (e) {
+      debugPrint('❌ Error refreshing watchlist: $e');
+    }
+  }
+
   Future<void> _handleAddToWatchlist(dynamic item) async {
     if (item is WikidataSearchResult) {
       try {
@@ -720,6 +777,13 @@ class _UnifiedSearchHandlerState extends State<_UnifiedSearchHandler> {
         }
         
         debugPrint('✅ Added search result to ${watchlistTerm.toLowerCase()}: ${item.title}');
+        
+        // Database operation is complete (await above), now refresh immediately
+        // Use WidgetsBinding to ensure refresh happens after current frame
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          // Refresh the appropriate section's watchlist
+          _refreshWatchlistForMediaType(widget.mediaType);
+        });
       } catch (e) {
         debugPrint('❌ Error adding to watchlist: $e');
         if (mounted) {

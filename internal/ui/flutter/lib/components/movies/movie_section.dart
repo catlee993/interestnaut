@@ -17,9 +17,36 @@ class MovieSection extends StatefulWidget {
 
   @override
   State<MovieSection> createState() => _MovieSectionState();
+  
+  // Static method to refresh favorites from search
+  static void refreshFavoritesFromSearch() {
+    debugPrint('🎬 MovieSection.refreshFavoritesFromSearch() called');
+    final state = _MovieSectionState._currentState;
+    if (state != null && state.mounted) {
+      debugPrint('🎬 MovieSection.refreshFavoritesFromSearch() found state, refreshing library');
+      state._loadDbLibrary();
+    } else {
+      debugPrint('🎬 MovieSection.refreshFavoritesFromSearch() no state found or not mounted');
+    }
+  }
+
+  // Static method to refresh watchlist from search
+  static void refreshWatchlistFromSearch() {
+    debugPrint('🎬 MovieSection.refreshWatchlistFromSearch() called');
+    final state = _MovieSectionState._currentState;
+    if (state != null && state.mounted) {
+      debugPrint('🎬 MovieSection.refreshWatchlistFromSearch() found state, refreshing watchlist');
+      state._loadDbWatchlist();
+    } else {
+      debugPrint('🎬 MovieSection.refreshWatchlistFromSearch() no state found or not mounted');
+    }
+  }
 }
 
 class _MovieSectionState extends State<MovieSection> {
+  // Static state reference for search refresh
+  static _MovieSectionState? _currentState;
+  
   // Database suggestion state
   MediaSuggestion? _currentDbSuggestion;
   String? _dbSuggestionError;
@@ -44,19 +71,17 @@ class _MovieSectionState extends State<MovieSection> {
   @override
   void initState() {
     super.initState();
+    // Set static reference for search refresh
+    _currentState = this;
+    
     // Listen to recommendation events for this media type
     _eventSubscription = _eventService.eventsForMediaType('movie').listen((event) {
       debugPrint('📱 Movie section received event: ${event.type}');
       switch (event.type) {
         case RecommendationEventType.suggestionReady:
           if (event.suggestion != null) {
-            setState(() {
-              _currentDbSuggestion = event.suggestion;
-              _isLoadingDbSuggestion = false;
-              _dbSuggestionError = null;
-              _hasLikedCurrentSuggestion = false;
-              _hasFavoritedCurrentSuggestion = false;
-            });
+            // Reload the suggestion from database to ensure we have complete data including mediaItemId
+            _reloadSuggestionFromDatabase(event.suggestion!.id);
           }
           break;
         case RecommendationEventType.suggestionError:
@@ -79,7 +104,41 @@ class _MovieSectionState extends State<MovieSection> {
   @override
   void dispose() {
     _eventSubscription?.cancel();
+    // Clear static reference when disposing
+    if (_currentState == this) {
+      _currentState = null;
+    }
     super.dispose();
+  }
+
+  // Reload a specific suggestion from database to get complete data
+  Future<void> _reloadSuggestionFromDatabase(int suggestionId) async {
+    try {
+      debugPrint('📱 _reloadSuggestionFromDatabase called for ID: $suggestionId');
+      final suggestion = await _db.getRecommendationById(suggestionId);
+      if (suggestion != null) {
+        debugPrint('📱 _reloadSuggestionFromDatabase loaded: ${suggestion.title} (mediaItemId: ${suggestion.mediaItemId})');
+        setState(() {
+          _currentDbSuggestion = suggestion;
+          _isLoadingDbSuggestion = false;
+          _dbSuggestionError = null;
+          _hasLikedCurrentSuggestion = false;
+          _hasFavoritedCurrentSuggestion = false;
+        });
+      } else {
+        debugPrint('📱 _reloadSuggestionFromDatabase failed to load suggestion with ID: $suggestionId');
+        setState(() {
+          _dbSuggestionError = 'Failed to load suggestion';
+          _isLoadingDbSuggestion = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('📱 _reloadSuggestionFromDatabase error: $e');
+      setState(() {
+        _dbSuggestionError = 'Error loading suggestion: $e';
+        _isLoadingDbSuggestion = false;
+      });
+    }
   }
 
   // Load a DB suggestion for movies
@@ -336,6 +395,13 @@ class _MovieSectionState extends State<MovieSection> {
         SuggestionStatus.added,
       );
 
+      debugPrint('💜 _addToFavorites adding to favorites table');
+      // Also add to favorites table using media_item_id
+      if (_currentDbSuggestion!.mediaItemId == null) {
+        throw Exception('Cannot add to favorites: mediaItemId is null');
+      }
+      await _db.addToFavorites(_currentDbSuggestion!.mediaItemId!);
+
       debugPrint('💜 _addToFavorites setting favorited state to true');
       setState(() {
         _hasFavoritedCurrentSuggestion = true;
@@ -375,6 +441,11 @@ class _MovieSectionState extends State<MovieSection> {
         _currentDbSuggestion!.id,
         SuggestionStatus.skipped,
       );
+
+      // Also remove from favorites table using media_item_id
+      if (_currentDbSuggestion!.mediaItemId != null) {
+        await _db.removeFromFavorites(_currentDbSuggestion!.mediaItemId!);
+      }
 
       setState(() {
         _hasFavoritedCurrentSuggestion = false;
@@ -420,28 +491,32 @@ class _MovieSectionState extends State<MovieSection> {
       } else {
         debugPrint('🔴 _dislikeDbSuggestion checking watchlist status');
         // First, check if item is in watchlist and remove it
-        final isInWatchlist = await _db.isInWatchlist(_currentDbSuggestion!.id);
-        if (isInWatchlist) {
-          debugPrint('🔴 _dislikeDbSuggestion removing from watchlist');
-          await _db.removeFromWatchlist(_currentDbSuggestion!.id);
-          // Refresh watchlist since item was removed from there too
-          _loadDbWatchlist();
+        if (_currentDbSuggestion!.mediaItemId != null) {
+          final isInWatchlist = await _db.isInWatchlist(_currentDbSuggestion!.mediaItemId!);
+          if (isInWatchlist) {
+            debugPrint('🔴 _dislikeDbSuggestion removing from watchlist');
+            await _db.removeFromWatchlist(_currentDbSuggestion!.mediaItemId!);
+            // Refresh watchlist since item was removed from there too
+            _loadDbWatchlist();
+          }
         }
       }
       
       debugPrint('🔴 _dislikeDbSuggestion updating status to disliked');
-      // Then set status to disliked (this will remove from favorites if favorited)
+      // Then set status to disliked
       await _recommendationService.updateSuggestionStatus(
         _currentDbSuggestion!.id,
         SuggestionStatus.disliked,
       );
+
+      // Also remove from favorites table if it was favorited
+      if (_hasFavoritedCurrentSuggestion && _currentDbSuggestion!.mediaItemId != null) {
+        debugPrint('🔴 _dislikeDbSuggestion removing from favorites table');
+        await _db.removeFromFavorites(_currentDbSuggestion!.mediaItemId!);
+      }
       
       // Refresh library in case item was favorited
       _loadDbLibrary();
-
-      // Small delay to ensure database update is committed
-      debugPrint('🔴 _dislikeDbSuggestion waiting for database update to commit');
-      await Future.delayed(const Duration(milliseconds: 100));
 
       debugPrint('🔴 _dislikeDbSuggestion moving to next suggestion');
       // Move to next suggestion after disliking (non-blocking)
@@ -506,9 +581,7 @@ class _MovieSectionState extends State<MovieSection> {
         debugPrint('⏭️ _skipDbSuggestion skipping status update (already favorited/liked)');
       }
 
-      // Small delay to ensure database update is committed
-      debugPrint('⏭️ _skipDbSuggestion waiting for database update to commit');
-      await Future.delayed(const Duration(milliseconds: 100));
+
 
       debugPrint('⏭️ _skipDbSuggestion moving to next suggestion');
       // Move to next suggestion after skipping (non-blocking)
@@ -562,8 +635,11 @@ class _MovieSectionState extends State<MovieSection> {
 
     try {
       debugPrint('📚 _addDbSuggestionToWatchlist adding to watchlist table');
-      // Add to watchlist table
-      await _db.addToWatchlist(_currentDbSuggestion!.id);
+      // Add to watchlist table using media_item_id
+      if (_currentDbSuggestion!.mediaItemId == null) {
+        throw Exception('Cannot add to watchlist: mediaItemId is null');
+      }
+      await _db.addToWatchlist(_currentDbSuggestion!.mediaItemId!);
 
       // Update suggestion status so it's no longer pending (won't appear in queue again)
       await _recommendationService.updateSuggestionStatus(
@@ -594,7 +670,7 @@ class _MovieSectionState extends State<MovieSection> {
       debugPrint('📚 Error adding DB suggestion to watchlist: $e');
       // Revert local state on error
       setState(() {
-        _dbWatchlistSuggestions.removeWhere((item) => item.id == _currentDbSuggestion!.id);
+        _dbWatchlistSuggestions.removeWhere((item) => item.mediaItemId == _currentDbSuggestion!.mediaItemId);
       });
     } finally {
       setState(() {
@@ -748,11 +824,14 @@ class _MovieSectionState extends State<MovieSection> {
   // Remove from watchlist
   Future<void> _removeFromWatchlist(MediaSuggestion suggestion) async {
     try {
-      await _db.removeFromWatchlist(suggestion.id);
+      if (suggestion.mediaItemId == null) {
+        throw Exception('Cannot remove from watchlist: mediaItemId is null');
+      }
+      await _db.removeFromWatchlist(suggestion.mediaItemId!);
       
       // Immediately update local state so button updates right away
       setState(() {
-        _dbWatchlistSuggestions.removeWhere((item) => item.id == suggestion.id);
+        _dbWatchlistSuggestions.removeWhere((item) => item.mediaItemId == suggestion.mediaItemId);
       });
       
       ScaffoldMessenger.of(context).showSnackBar(
@@ -775,7 +854,10 @@ class _MovieSectionState extends State<MovieSection> {
   Future<void> _dislikeWatchlistItem(MediaSuggestion suggestion) async {
     try {
       // Remove from watchlist table
-      await _db.removeFromWatchlist(suggestion.id);
+      if (suggestion.mediaItemId == null) {
+        throw Exception('Cannot remove from watchlist: mediaItemId is null');
+      }
+      await _db.removeFromWatchlist(suggestion.mediaItemId!);
       
       // Set status to disliked
       await _recommendationService.updateSuggestionStatus(
@@ -802,7 +884,10 @@ class _MovieSectionState extends State<MovieSection> {
   Future<void> _likeWatchlistItem(MediaSuggestion suggestion) async {
     try {
       // Remove from watchlist table
-      await _db.removeFromWatchlist(suggestion.id);
+      if (suggestion.mediaItemId == null) {
+        throw Exception('Cannot remove from watchlist: mediaItemId is null');
+      }
+      await _db.removeFromWatchlist(suggestion.mediaItemId!);
       
       // Only change status if not already favorited (added)
       if (suggestion.status != SuggestionStatus.added) {
@@ -831,7 +916,10 @@ class _MovieSectionState extends State<MovieSection> {
   Future<void> _favoriteWatchlistItem(MediaSuggestion suggestion) async {
     try {
       // Use the new method that handles both recommendation-based and user-added items
-      await _db.moveFromWatchlistToFavorites(suggestion.id);
+      if (suggestion.mediaItemId == null) {
+        throw Exception('Cannot move to favorites: mediaItemId is null');
+      }
+      await _db.moveFromWatchlistToFavorites(suggestion.mediaItemId!);
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -850,8 +938,14 @@ class _MovieSectionState extends State<MovieSection> {
 
   // Add library item to watchlist
   Future<void> _addLibraryItemToWatchlist(MediaSuggestion suggestion) async {
+    debugPrint('🎬 _addLibraryItemToWatchlist called for: ${suggestion.title} (ID: ${suggestion.id})');
     try {
-      await _db.addToWatchlist(suggestion.id);
+      if (suggestion.mediaItemId == null) {
+        throw Exception('Cannot add to watchlist: mediaItemId is null');
+      }
+      debugPrint('🎬 _addLibraryItemToWatchlist calling db.addToWatchlist(${suggestion.mediaItemId})');
+      await _db.addToWatchlist(suggestion.mediaItemId!);
+      debugPrint('🎬 _addLibraryItemToWatchlist successfully added to database');
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -860,9 +954,10 @@ class _MovieSectionState extends State<MovieSection> {
         ),
       );
 
+      debugPrint('🎬 _addLibraryItemToWatchlist calling _loadDbWatchlist()');
       _loadDbWatchlist();
     } catch (e) {
-      debugPrint('Error adding library item to watchlist: $e');
+      debugPrint('🎬 Error adding library item to watchlist: $e');
     }
   }
 
@@ -870,10 +965,15 @@ class _MovieSectionState extends State<MovieSection> {
   Future<void> _removeFromLibrary(MediaSuggestion suggestion) async {
     try {
       // Use the proper removal method that handles both recommendation-based and user-added items
-      await _db.removeFromFavorites(suggestion.id);
+      if (suggestion.mediaItemId == null) {
+        throw Exception('Cannot remove from favorites: mediaItemId is null');
+      }
+      await _db.removeFromFavorites(suggestion.mediaItemId!);
 
       // If the removed item is the currently displayed suggestion, update the state
-      if (_currentDbSuggestion != null && _currentDbSuggestion!.id == suggestion.id) {
+      if (_currentDbSuggestion != null && 
+          _currentDbSuggestion!.mediaItemId != null &&
+          _currentDbSuggestion!.mediaItemId == suggestion.mediaItemId) {
         setState(() {
           _hasFavoritedCurrentSuggestion = false;
         });
@@ -894,15 +994,18 @@ class _MovieSectionState extends State<MovieSection> {
 
   @override
   Widget build(BuildContext context) {
+    
     return Stack(
       children: [
         // Main content using universal layout system
         MediaSectionLayout(
           headerHeight: 106.0,
           builder: (scrollOffset) {
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 100), // Add padding for playbar
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
                 // Title with consistent spacing
                 ComponentSpacing(
                   child: Center(
@@ -933,7 +1036,8 @@ class _MovieSectionState extends State<MovieSection> {
                   SectionSpacing(
                     child: _buildLibrarySection(),
                   ),
-              ],
+                ],
+              ),
             );
           },
         ),
@@ -953,7 +1057,7 @@ class _MovieSectionState extends State<MovieSection> {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Text(
-                'Error: $_dbSuggestionError',
+                'Failed to get a suggestion',
                 style: const TextStyle(
                   color: Colors.white54,
                   fontSize: 16,
@@ -961,7 +1065,7 @@ class _MovieSectionState extends State<MovieSection> {
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 16),
-              ElevatedButton(
+              OutlinedButton(
                 onPressed: _loadDbSuggestion,
                 child: const Text('Try Again'),
               ),
@@ -1160,7 +1264,8 @@ class _MovieSectionState extends State<MovieSection> {
                       hasLikedCurrentSuggestion: _hasLikedCurrentSuggestion,
                       hasFavoritedCurrentSuggestion: _hasFavoritedCurrentSuggestion,
                       isInWatchlist: _currentDbSuggestion != null && 
-                        _dbWatchlistSuggestions.any((item) => item.id == _currentDbSuggestion!.id),
+                        _currentDbSuggestion!.mediaItemId != null &&
+                        _dbWatchlistSuggestions.any((item) => item.mediaItemId == _currentDbSuggestion!.mediaItemId),
                       isProcessing: _isLoadingDbSuggestion,
                       onLike: _likeDbSuggestion,
                       onDislike: _dislikeDbSuggestion,
@@ -1168,7 +1273,8 @@ class _MovieSectionState extends State<MovieSection> {
                       onUnfavorite: _removeFromFavorites,
                       onAddToWatchlist: () {
                         final inWatchlist = _currentDbSuggestion != null && 
-                          _dbWatchlistSuggestions.any((item) => item.id == _currentDbSuggestion!.id);
+                          _currentDbSuggestion!.mediaItemId != null &&
+                          _dbWatchlistSuggestions.any((item) => item.mediaItemId == _currentDbSuggestion!.mediaItemId);
                         if (inWatchlist) {
                           if (_currentDbSuggestion != null) {
                             _removeFromWatchlist(_currentDbSuggestion!);
