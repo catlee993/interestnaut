@@ -1655,14 +1655,33 @@ class RecommendationService extends ChangeNotifier {
           }
         }
         
-        debugPrint('🧠 [ISOLATE-LLM] Simple prompt: "$simplePrompt"');
+        debugPrint('🧠 [ISOLATE-LLM] Calling LLM service with proper parameters');
+        
+        // Extract user's favorite themes for better prompting
+        String userLikes = '';
+        if (userProfileData != null) {
+          final favoriteItems = userProfileData['favorite_items'] as List<dynamic>? ?? [];
+          final likedThemes = <String>{};
+          for (final item in favoriteItems) {
+            if (item is Map<String, dynamic>) {
+              final itemThemes = item['themes'] as String?;
+              if (itemThemes != null) {
+                likedThemes.addAll(itemThemes.split(',').map((t) => t.trim()));
+              }
+            }
+          }
+          if (likedThemes.isNotEmpty) {
+            userLikes = likedThemes.take(3).join(', ');
+          }
+        }
         
         final response = await llamaService.generateExplanation(
           mediaTitle: mediaTitle,
           artist: artist ?? '',
           themes: themes ?? '',
-          userQuery: simplePrompt,
+          userQuery: userQuery,
           mediaType: mediaType,
+          userProfile: userLikes.isNotEmpty ? userLikes : null,
         ).timeout(
           const Duration(seconds: 8), // Longer timeout since we reduced vector processing load
           onTimeout: () {
@@ -1673,14 +1692,19 @@ class RecommendationService extends ChangeNotifier {
         
         final duration = DateTime.now().difference(startTime).inMilliseconds;
         
-        // Simple validation - reject obvious failures
-        if (response.trim().isNotEmpty && 
+        // Enhanced validation - reject obvious failures and bad responses
+        final trimmedResponse = response.trim();
+        final isValidResponse = trimmedResponse.isNotEmpty && 
             !response.contains('ERROR') &&
             !response.contains('LlamaException') &&
             !response.contains('Failed to eval') &&
-            response.trim() != '1.' &&
-            response.trim() != '1' &&
-            response.length > 5) {
+            trimmedResponse != '1.' &&
+            trimmedResponse != '1' &&
+            !RegExp(r'^\d+(\.\d+)?\s*(out\s*of\s*\d+)?$').hasMatch(trimmedResponse) &&
+            !RegExp(r'^\s*\n\s*$').hasMatch(trimmedResponse) &&
+            trimmedResponse.length > 15;
+        
+        if (isValidResponse) {
           debugPrint('🧠 [ISOLATE-LLM] ✅ Simple LLM reasoning SUCCESS in ${duration}ms');
           return response.trim();
         } else {

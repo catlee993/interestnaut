@@ -548,6 +548,7 @@ class LlamaService {
     String? artist,
     String? themes,
     String? description,
+    String? userProfile,
     double? similarity,
   }) async {
     // Use the new optimized reasoning method - will throw if LLM not available
@@ -557,6 +558,7 @@ class LlamaService {
         mediaType: mediaType,
         artist: artist,
         themes: themes,
+        userProfile: userProfile,
         similarity: similarity,
       );
   }
@@ -1369,9 +1371,9 @@ class LlamaService {
       // Use balanced generation with larger batch size
       final response = await _generateFastResponse(
         prompt,
-        maxTokens: 80,        // Increased with larger batch size
-        temperature: 0.5,     // Balanced creativity and stability
-        stopSequences: ['.', '!', '?', '\n'],
+        maxTokens: 100,       // Increased for fuller responses
+        temperature: 0.7,     // Higher creativity to avoid short responses
+        stopSequences: ['.', '!', '?'],  // Removed \n to allow longer explanations
       );
       
       stopwatch.stop();
@@ -1510,11 +1512,14 @@ class LlamaService {
     
     // Build structured prompt for TinyLlama - helps prevent hallucination
     String minimalPrompt;
-    if (context.isNotEmpty) {
-      // Use clear instruction format that TinyLlama understands better
-      minimalPrompt = 'Recommend: "$title"$creator\nFeatures: $context\nWhy good:';
+    if (context.isNotEmpty && userProfile != null && userProfile!.isNotEmpty) {
+      // Use your suggested format for clear connections
+      minimalPrompt = 'User likes: $userProfile\nThis has: $context\nExplain why this matches the user\'s taste:';
+    } else if (context.isNotEmpty) {
+      // Fallback when no user profile available
+      minimalPrompt = 'Movie: "$title"$creator\nGenres: $context\nWhy recommend:';
     } else {
-      minimalPrompt = 'Recommend: "$title"$creator\nWhy good:';
+      minimalPrompt = 'Movie: "$title"$creator\nWhy this appeals to viewers:';
     }
     
     // Safety check - more reasonable limits for 1024 batch size
@@ -1523,16 +1528,16 @@ class LlamaService {
              String shorterTitle = title.length > 20 ? title.substring(0, 17) + '...' : title;
        String shorterContext = context.length > 40 ? context.substring(0, 37) + '...' : context;
        if (shorterContext.isNotEmpty) {
-         minimalPrompt = 'Recommend: "$shorterTitle"$creator\nHas: $shorterContext\nGood because:';
+         minimalPrompt = 'Movie: "$shorterTitle"$creator\nGenre: $shorterContext\nWhy recommend:';
        } else {
-         minimalPrompt = 'Recommend: "$shorterTitle"$creator\nGood because:';
+         minimalPrompt = 'Movie: "$shorterTitle"$creator\nWhy recommend:';
        }
     }
     
          // Final safety - only if still too long
      if (minimalPrompt.length > 150) {
        String ultraTitle = title.length > 15 ? title.substring(0, 12) + '...' : title;
-       minimalPrompt = 'Movie: "$ultraTitle"\nWhy good:';
+       minimalPrompt = 'Film: "$ultraTitle"\nBrief review:';
      }
     
     debugPrint('🧠 [ISOLATE-LLM] Simple prompt: "$minimalPrompt"');
@@ -1563,21 +1568,32 @@ class LlamaService {
   String _cleanReasoningResponse(String response) {
     String cleaned = response.trim();
     
-    // Check for common hallucination patterns
-    final hallucinations = [
+    // Check for common hallucination patterns and bad responses
+    final badPatterns = [
       'based on the passage above',
       'call me by your name',
       'camera angles',
       'how does the director',
       'passage above',
       'above passage',
+      // New patterns for bad responses
+      RegExp(r'^\d+(\.\d+)?\s*(out\s*of\s*\d+)?$'), // Just ratings like "8 out of 10"
+      RegExp(r'^\d+\.?$'), // Just numbers like "8" or "8."
+      RegExp(r'^\s*\n\s*$'), // Just whitespace/newlines
     ];
     
     final lowerResponse = cleaned.toLowerCase();
-    final isHallucinating = hallucinations.any((pattern) => lowerResponse.contains(pattern));
+    final isBadResponse = badPatterns.any((pattern) {
+      if (pattern is String) {
+        return lowerResponse.contains(pattern);
+      } else if (pattern is RegExp) {
+        return pattern.hasMatch(cleaned);
+      }
+      return false;
+    });
     
-    if (isHallucinating || cleaned.isEmpty || cleaned.length < 10) {
-      // Return a simple, safe response instead of hallucinated content
+    if (isBadResponse || cleaned.isEmpty || cleaned.length < 15) {
+      // Return a simple, safe response instead of bad content
       return 'A compelling choice with interesting themes and strong storytelling.';
     }
     
