@@ -9,6 +9,7 @@ import '../../services/recommendation_service.dart';
 import '../../services/recommendation_event_service.dart';
 import '../../services/sqlite_db.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import '../../theme.dart';
 
 class GameSection extends StatefulWidget {
   const GameSection({super.key});
@@ -485,6 +486,7 @@ class _GameSectionState extends State<GameSection> {
       suggestions: _dbLikedSuggestions,
       mediaType: 'video_game',
       isWatchlist: false,
+      onRemove: _removeFromLibrary,
       onAddToWatchlist: _addLibraryItemToPlaylist,
       onUnfavorite: _removeFromLibrary,
       watchlistItems: _dbPlaylistSuggestions,
@@ -613,10 +615,8 @@ class _GameSectionState extends State<GameSection> {
   // Remove from library
   Future<void> _removeFromLibrary(MediaSuggestion suggestion) async {
     try {
-      await _recommendationService.updateSuggestionStatus(
-        suggestion.id,
-        SuggestionStatus.skipped,
-      );
+      // Use the proper removal method that handles both recommendation-based and user-added items
+      await _db.removeFromFavorites(suggestion.id);
 
       // If the removed item is the currently displayed suggestion, update the state
       if (_currentDbSuggestion != null && _currentDbSuggestion!.id == suggestion.id) {
@@ -655,12 +655,8 @@ class _GameSectionState extends State<GameSection> {
                     child: Opacity(
                       opacity: (scrollOffset <= 70) ? 1.0 : 0.0,
                       child: const Text(
-                        'Suggested for You',
-                        style: TextStyle(
-                          fontSize: 24.0,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
+                        'SUGGESTED',
+                        style: AppTheme.sectionHeaderLarge,
                         textAlign: TextAlign.center,
                       ),
                     ),

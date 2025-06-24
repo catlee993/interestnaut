@@ -42,7 +42,7 @@ class LibrarySection extends StatelessWidget {
           const Padding(
             padding: EdgeInsets.only(left: 16.0, bottom: 16.0),
             child: Text(
-              'Your Library',
+                                      'FAVORITES',
               style: TextStyle(
                 color: Colors.white,
                 fontSize: 20,

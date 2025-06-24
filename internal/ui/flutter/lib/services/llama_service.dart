@@ -1559,7 +1559,7 @@ class LlamaService {
       }
     }
     
-    buffer.write('\n\nExplain why this is a perfect match (be specific and engaging):');
+    buffer.write('\n\nTask: Write a compelling 2-3 sentence explanation of why this recommendation perfectly matches what the user is looking for. Focus on the specific qualities and themes that make it appealing.\n\nExplanation:');
     
     // Final safety check - if prompt is still too long, truncate more aggressively
     String finalPrompt = buffer.toString();
@@ -1576,7 +1576,7 @@ class LlamaService {
         minimalBuffer.write(' by $minimalArtist');
       }
              minimalBuffer.write('\nUSER REQUEST: "${truncatedQuery.length > 40 ? truncatedQuery.substring(0, 37) + '...' : truncatedQuery}"');
-       minimalBuffer.write('\n\nExplain why this fits perfectly:');
+       minimalBuffer.write('\n\nTask: Explain why this is a great recommendation in 1-2 sentences.\n\nExplanation:');
       
       finalPrompt = minimalBuffer.toString();
     }

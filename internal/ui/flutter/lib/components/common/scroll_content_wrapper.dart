@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../theme.dart';
 
 // Universal layout constants - single source of truth for all spacing
 class LayoutConstants {
@@ -163,8 +164,8 @@ class ExampleUsage extends StatelessWidget {
             Opacity(
               opacity: scrollOffset < LayoutConstants.defaultHeaderHeight ? 1.0 : 0.0,
               child: const Text(
-                'Suggested for You',
-                style: TextStyle(fontSize: 24.0),
+                                                                                 'SUGGESTED',
+                  style: AppTheme.sectionHeaderLarge,
               ),
             ),
             ComponentSpacing(

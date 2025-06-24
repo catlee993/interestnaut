@@ -402,13 +402,24 @@ class SQLiteDatabase {
   }
 
   /// Remove recommendation from watchlist
-  Future<void> removeFromWatchlist(int recommendationId) async {
+  Future<void> removeFromWatchlist(int itemId) async {
     await _ensureInitialized();
     
     try {
-      final stmt = _db!.prepare(removeFromWatchlistByRecommendationQuery);
-      stmt.execute([recommendationId]);
-      stmt.dispose();
+      if (itemId < 0) {
+        // User-added item (negative ID) - remove by media_item_id
+        final mediaItemId = -itemId; // Convert back to positive media_item_id
+        final stmt = _db!.prepare('DELETE FROM watchlist WHERE media_item_id = ?');
+        stmt.execute([mediaItemId]);
+        stmt.dispose();
+        debugPrint('🗄️ [DB] Removed user-added item from watchlist (media_item_id: $mediaItemId)');
+      } else {
+        // Recommendation-based item (positive ID) - remove by recommendation_id
+        final stmt = _db!.prepare(removeFromWatchlistByRecommendationQuery);
+        stmt.execute([itemId]);
+        stmt.dispose();
+        debugPrint('🗄️ [DB] Removed recommendation from watchlist (recommendation_id: $itemId)');
+      }
     } catch (e) {
       debugPrint('Error removing from watchlist: $e');
       rethrow;
@@ -1201,6 +1212,31 @@ class SQLiteDatabase {
       
     } catch (e) {
       debugPrint('🗄️ [DEBUG] Error inspecting recommendations table: $e');
+    }
+  }
+
+  /// Remove item from favorites (handles both recommendation-based and user-added items)
+  Future<void> removeFromFavorites(int itemId) async {
+    await _ensureInitialized();
+    
+    try {
+      if (itemId < 0) {
+        // User-added item (negative ID) - remove from user_favorites table
+        final mediaItemId = -itemId; // Convert back to positive media_item_id
+        final stmt = _db!.prepare('DELETE FROM user_favorites WHERE media_item_id = ?');
+        stmt.execute([mediaItemId]);
+        stmt.dispose();
+        debugPrint('🗄️ [DB] Removed user-added item from favorites (media_item_id: $mediaItemId)');
+      } else {
+        // Recommendation-based item (positive ID) - update status to pending
+        final statusStmt = _db!.prepare(updateRecommendationStatusQuery);
+        statusStmt.execute(['pending', DateTime.now().toIso8601String(), itemId]);
+        statusStmt.dispose();
+        debugPrint('🗄️ [DB] Removed recommendation from favorites (recommendation_id: $itemId)');
+      }
+    } catch (e) {
+      debugPrint('Error removing from favorites: $e');
+      rethrow;
     }
   }
 }

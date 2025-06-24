@@ -135,8 +135,8 @@ class MediaLibraryCard extends StatelessWidget {
               ),
             ),
             
-            // Remove button for watchlist/saved views (top-right)
-            if (isWatchlist && onRemove != null)
+            // Remove button for watchlist/library views (top-right)
+            if (onRemove != null)
               Positioned(
                 top: 8,
                 right: 8,

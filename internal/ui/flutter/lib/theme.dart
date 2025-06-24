@@ -57,18 +57,43 @@ class AppTheme {
       
   static TextStyle get logoTextStyle => const TextStyle(
     fontFamily: 'Inter',
-    fontWeight: FontWeight.w300,
+    fontWeight: FontWeight.w100,
     fontSize: 14,
-    letterSpacing: 1.0,
+    letterSpacing: 1.8,
     height: 1.0,
     textBaseline: TextBaseline.alphabetic,
   );
   
   static TextStyle get headerSelectorStyle => const TextStyle(
     fontFamily: 'Inter',
-    fontWeight: FontWeight.w300,
+    fontWeight: FontWeight.w100,
     fontSize: 14, 
-    letterSpacing: 1.0,
+    letterSpacing: 1.5,
+    color: Colors.white,
+  );
+  
+  // Section header styles - minimalist and consistent
+  static const TextStyle sectionHeaderLarge = TextStyle(
+    fontFamily: 'Inter',
+    fontWeight: FontWeight.w200,
+    fontSize: 24,
+    letterSpacing: 3.1, // 24 * 0.129 = proportional to logoTextStyle
+    color: Colors.white,
+  );
+  
+  static const TextStyle sectionHeaderMedium = TextStyle(
+    fontFamily: 'Inter',
+    fontWeight: FontWeight.w200,
+    fontSize: 20,
+    letterSpacing: 2.6, // 20 * 0.129 = proportional to logoTextStyle
+    color: Colors.white,
+  );
+  
+  static const TextStyle sectionHeaderSmall = TextStyle(
+    fontFamily: 'Inter',
+    fontWeight: FontWeight.w200,
+    fontSize: 18,
+    letterSpacing: 2.3, // 18 * 0.129 = proportional to logoTextStyle
     color: Colors.white,
   );
 

@@ -1556,7 +1556,9 @@ class RecommendationService extends ChangeNotifier {
           truncatedTitle = mediaTitle.substring(0, maxTitleLength - 3) + '...';
         }
         
-        String simplePrompt = "Why recommend \"$truncatedTitle\"";
+        // Start with media type context to avoid confusion
+        String mediaTypeLabel = _getMediaTypeLabel(mediaType);
+        String simplePrompt = "Why recommend this $mediaTypeLabel \"$truncatedTitle\"";
         
         // Add artist with truncation
         if (artist != null && artist.isNotEmpty) {
@@ -1593,12 +1595,13 @@ class RecommendationService extends ChangeNotifier {
         const int maxPromptLength = 350;
         if (simplePrompt.length > maxPromptLength) {
           debugPrint('⚠️ [ISOLATE-LLM] Simple prompt too long (${simplePrompt.length} chars), applying aggressive truncation');
-          simplePrompt = "Why recommend \"${truncatedTitle.length > 30 ? truncatedTitle.substring(0, 27) + '...' : truncatedTitle}\"";
+          String mediaTypeLabel = _getMediaTypeLabel(mediaType);
+          simplePrompt = "Why recommend this $mediaTypeLabel \"${truncatedTitle.length > 30 ? truncatedTitle.substring(0, 27) + '...' : truncatedTitle}\"";
           if (artist != null && artist.isNotEmpty) {
             String minimalArtist = artist.length > 20 ? artist.substring(0, 17) + '...' : artist;
             simplePrompt += " by $minimalArtist";
           }
-                     simplePrompt += "? Explain why it's perfect.";
+          simplePrompt += "? Explain why it's perfect.";
         }
         
         debugPrint('🧠 [ISOLATE-LLM] Simple prompt: "$simplePrompt"');
@@ -1664,6 +1667,18 @@ class RecommendationService extends ChangeNotifier {
         description: description,
         similarity: similarity,
       );
+    }
+  }
+
+  /// Get user-friendly media type label
+  static String _getMediaTypeLabel(String mediaType) {
+    switch (mediaType.toLowerCase()) {
+      case 'music': return 'song';
+      case 'movie': return 'movie';
+      case 'tv_show': return 'TV show';
+      case 'book': return 'book';
+      case 'video_game': return 'game';
+      default: return 'item';
     }
   }
 

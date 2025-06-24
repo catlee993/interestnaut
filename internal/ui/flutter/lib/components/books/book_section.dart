@@ -10,6 +10,7 @@ import '../../services/recommendation_event_service.dart';
 import '../../services/sqlite_db.dart';
 import 'book_card.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import '../../theme.dart';
 
 class BookSection extends StatefulWidget {
   const BookSection({super.key});
@@ -521,6 +522,7 @@ class _BookSectionState extends State<BookSection> {
   // Remove from reading list
   Future<void> _removeFromReadingList(MediaSuggestion suggestion) async {
     try {
+      // Use the proper removal method that handles both recommendation-based and user-added items
       await _db.removeFromWatchlist(suggestion.id);
       
       ScaffoldMessenger.of(context).showSnackBar(
@@ -624,10 +626,8 @@ class _BookSectionState extends State<BookSection> {
   // Remove from library (unfavorite)
   Future<void> _removeFromLibrary(MediaSuggestion suggestion) async {
     try {
-      await _recommendationService.updateSuggestionStatus(
-        suggestion.id,
-        SuggestionStatus.skipped,
-      );
+      // Use the proper removal method that handles both recommendation-based and user-added items
+      await _db.removeFromFavorites(suggestion.id);
       
       // If the removed item is the currently displayed suggestion, update the state
       if (_currentDbSuggestion != null && _currentDbSuggestion!.id == suggestion.id) {
@@ -662,12 +662,8 @@ class _BookSectionState extends State<BookSection> {
                 child: Opacity(
                   opacity: (scrollOffset <= 70) ? 1.0 : 0.0,
                   child: const Text(
-                    'Suggested for You',
-                    style: TextStyle(
-                      fontSize: 24.0,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
+                                                                                         'SUGGESTED',
+                      style: AppTheme.sectionHeaderLarge,
                     textAlign: TextAlign.center,
                   ),
                 ),
@@ -986,16 +982,14 @@ class _BookSectionState extends State<BookSection> {
   Widget _buildReadingListSection() {
     return Column(
       children: [
+        const SizedBox(height: 32.0), // Add spacing before the title
         const Center(
           child: Text(
-            'Your Reading List',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-            ),
+                                                                         'READLIST',
+              style: AppTheme.sectionHeaderMedium,
           ),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 24.0), // Add spacing between title and content
         if (_isLoadingDbReadingList)
           const Center(
             child: CircularProgressIndicator(
@@ -1031,16 +1025,14 @@ class _BookSectionState extends State<BookSection> {
   Widget _buildLibrarySection() {
     return Column(
       children: [
+        const SizedBox(height: 32.0), // Add spacing before the title
         const Center(
           child: Text(
-            'Your Library',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-            ),
+                                                                         'FAVORITES',
+              style: AppTheme.sectionHeaderMedium,
           ),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 24.0), // Add spacing between title and content
         if (_isLoadingDbLibrary)
           const Center(
             child: CircularProgressIndicator(
@@ -1063,6 +1055,7 @@ class _BookSectionState extends State<BookSection> {
             suggestions: _dbLikedSuggestions,
             mediaType: 'book',
             isWatchlist: false,
+            onRemove: _removeFromLibrary,
             onAddToWatchlist: _addLibraryItemToReadingList,
             onUnfavorite: _removeFromLibrary,
             watchlistItems: _dbReadingListSuggestions,

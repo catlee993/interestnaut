@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../models.dart';
 import 'media_suggestion_display.dart';
+import '../../theme.dart';
 
 class MediaSectionLayout<T> extends StatelessWidget {
   final String type;
@@ -122,7 +123,7 @@ class MediaSectionLayout<T> extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('Suggested for You', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white)),
+              Text('SUGGESTED', style: AppTheme.sectionHeaderMedium),
               const SizedBox(height: 12),
               if (suggestedItem != null)
                 MediaSuggestionDisplay(
@@ -195,7 +196,7 @@ class MediaSectionLayout<T> extends StatelessWidget {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Text('Your Library', style: TextStyle(fontSize: 18, color: Colors.white)),
+                    Text('FAVORITES', style: AppTheme.sectionHeaderSmall),
                     const SizedBox(width: 12),
                     Text(
                       showLibrary ? 'Hide (${savedItems.length})' : 'Show (${savedItems.length})',

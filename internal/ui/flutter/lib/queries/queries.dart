@@ -594,7 +594,7 @@ SELECT COUNT(*) as count FROM watchlist WHERE recommendation_id = ?;
 
 // Get user added favorites (legacy compatibility)
 const String getUserAddedFavoritesForMediaQuery = '''
-SELECT uf.id, mi.title, mi.primary_creator, mi.vector_media_id,
+SELECT mi.id, mi.title, mi.primary_creator, mi.vector_media_id,
        mi.cover_art_url, mi.themes, uf.created_at
 FROM user_favorites uf
 JOIN media_items mi ON uf.media_item_id = mi.id
@@ -605,7 +605,7 @@ ORDER BY uf.created_at DESC;
 
 // Get all user added favorites (legacy compatibility)
 const String getAllUserAddedFavoritesQuery = '''
-SELECT uf.id, mi.title, mi.primary_creator, mi.vector_media_id,
+SELECT mi.id, mi.title, mi.primary_creator, mi.vector_media_id,
        mi.cover_art_url, mi.themes, uf.created_at, mt.name as media_type
 FROM user_favorites uf
 JOIN media_items mi ON uf.media_item_id = mi.id

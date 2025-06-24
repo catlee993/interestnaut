@@ -19,6 +19,7 @@ import 'spotify_service.dart';
 
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import '../../utils/text_utils.dart';
+import '../../theme.dart';
 
 
 // A helper class to adapt Track to MediaItem for compatibility
@@ -1013,38 +1014,38 @@ class _MusicSectionState extends State<MusicSection> {
                       child: Opacity(
                         opacity: (scrollOffset <= 70) ? 1.0 : 0.0,
                         child: const Text(
-                          'Suggested for You',
-                          style: TextStyle(
-                            fontSize: 24.0,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                          ),
+                          'SUGGESTED',
+                          style: AppTheme.sectionHeaderLarge,
                           textAlign: TextAlign.center,
                         ),
                       ),
                     ),
                   ),
                   
-                  // Suggestion content with consistent spacing
-                  ComponentSpacing(
+                  // Suggestion content with reduced spacing for app sections
+                  SectionSpacing(
+                    customSpacing: 20.0, // Reduced from 32px to 20px for tighter app sections
                     child: _buildSuggestionContent(scrollOffset),
                   ),
                   
-                  // Playlist section with proper spacing - only show if not empty or loading
+                  // Playlist section with reduced spacing - only show if not empty or loading
                   if (_dbPlaylistSuggestions.isNotEmpty || _isLoadingDbPlaylist)
                     SectionSpacing(
+                      customSpacing: 20.0, // Reduced spacing for app sections
                       child: _buildPlaylistSection(),
                     ),
                   
-                  // Library section with proper spacing - only show if not empty or loading
+                  // Library section with reduced spacing - only show if not empty or loading
                   if (_dbLikedSuggestions.isNotEmpty || _isLoadingDbLibrary)
                     SectionSpacing(
+                      customSpacing: 20.0, // Reduced spacing for app sections
                       child: _buildDbLibrarySectionWrapper(),
                     ),
                   
-                  // Spotify library section with proper spacing - only show if not empty or loading
+                  // Spotify library section with full spacing - only show if not empty or loading
                   if (_likedTracks.isNotEmpty || _isLoadingLibrary)
                     SectionSpacing(
+                      // Using default 32px spacing to separate external Spotify content
                       child: _buildSpotifyLibrarySection(),
                     ),
                 ],
@@ -1309,15 +1310,14 @@ class _MusicSectionState extends State<MusicSection> {
   Widget _buildPlaylistSection() {
     return Column(
       children: [
+        const SizedBox(height: 32.0), // Add spacing before the title
         const Center(
           child: Text(
-            'Your Playlist',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-            ),
+                                    'PLAYLIST',
+            style: AppTheme.sectionHeaderMedium,
           ),
         ),
+        const SizedBox(height: 24.0), // Add spacing between title and content
         ComponentSpacing(
           child: _isLoadingDbPlaylist
             ? const Center(
@@ -1346,15 +1346,14 @@ class _MusicSectionState extends State<MusicSection> {
   Widget _buildDbLibrarySectionWrapper() {
     return Column(
       children: [
+        const SizedBox(height: 32.0), // Add spacing before the title
         const Center(
           child: Text(
-            'Your Library',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-            ),
+                                    'FAVORITES',
+            style: AppTheme.sectionHeaderMedium,
           ),
         ),
+        const SizedBox(height: 24.0), // Add spacing between title and content
         ComponentSpacing(
           child: _isLoadingDbLibrary
             ? const Center(
@@ -1386,11 +1385,8 @@ class _MusicSectionState extends State<MusicSection> {
         const SizedBox(height: 32.0), // Add spacing before the title
         const Center(
           child: Text(
-            'Your Spotify Liked Tracks',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-            ),
+                                    'SPOTIFY PLAYLIST',
+            style: AppTheme.sectionHeaderMedium,
           ),
         ),
         const SizedBox(height: 24.0), // Add more spacing between title and content
@@ -1440,10 +1436,7 @@ class _MusicSectionState extends State<MusicSection> {
         children: [
           const Text(
             'Connect to Spotify',
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-            ),
+            style: AppTheme.sectionHeaderLarge,
           ),
           const SizedBox(height: 16),
           const Text(
@@ -1688,6 +1681,7 @@ class _MusicSectionState extends State<MusicSection> {
       suggestions: _dbLikedSuggestions,
       mediaType: 'music',
       isWatchlist: false,
+      onRemove: _removeFromLibrary,
       onAddToWatchlist: _addLibraryItemToPlaylist,
       onUnfavorite: _removeFromLibrary,
       watchlistItems: _dbPlaylistSuggestions,
@@ -1910,10 +1904,8 @@ class _MusicSectionState extends State<MusicSection> {
   // Remove from library
   Future<void> _removeFromLibrary(MediaSuggestion suggestion) async {
     try {
-      await _recommendationService.updateSuggestionStatus(
-        suggestion.id,
-        SuggestionStatus.skipped,
-      );
+      // Use the proper removal method that handles both recommendation-based and user-added items
+      await _db.removeFromFavorites(suggestion.id);
 
       // If the removed item is the currently displayed suggestion, update the state
       if (_currentDbSuggestion != null && _currentDbSuggestion!.id == suggestion.id) {

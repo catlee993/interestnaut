@@ -9,6 +9,7 @@ import '../../services/recommendation_event_service.dart';
 import '../../services/sqlite_db.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import '../../utils/text_utils.dart';
+import '../../theme.dart';
 
 
 class MovieSection extends StatefulWidget {
@@ -621,6 +622,7 @@ class _MovieSectionState extends State<MovieSection> {
       suggestions: _dbLikedSuggestions,
       mediaType: 'movie',
       isWatchlist: false,
+      onRemove: _removeFromLibrary,
       onAddToWatchlist: _addLibraryItemToWatchlist,
       onUnfavorite: _removeFromLibrary,
       watchlistItems: _dbWatchlistSuggestions,
@@ -867,10 +869,8 @@ class _MovieSectionState extends State<MovieSection> {
   // Remove from library
   Future<void> _removeFromLibrary(MediaSuggestion suggestion) async {
     try {
-      await _recommendationService.updateSuggestionStatus(
-        suggestion.id,
-        SuggestionStatus.skipped,
-      );
+      // Use the proper removal method that handles both recommendation-based and user-added items
+      await _db.removeFromFavorites(suggestion.id);
 
       // If the removed item is the currently displayed suggestion, update the state
       if (_currentDbSuggestion != null && _currentDbSuggestion!.id == suggestion.id) {
@@ -909,12 +909,8 @@ class _MovieSectionState extends State<MovieSection> {
                     child: Opacity(
                       opacity: (scrollOffset <= 70) ? 1.0 : 0.0,
                       child: const Text(
-                        'Suggested for You',
-                        style: TextStyle(
-                          fontSize: 24.0,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
+                        'SUGGESTED',
+                        style: AppTheme.sectionHeaderLarge,
                         textAlign: TextAlign.center,
                       ),
                     ),
@@ -1197,15 +1193,14 @@ class _MovieSectionState extends State<MovieSection> {
   Widget _buildWatchlistSection() {
     return Column(
       children: [
+        const SizedBox(height: 32.0), // Add spacing before the title
         const Center(
           child: Text(
-            'Your Watchlist',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-            ),
+                                    'WATCHLIST',
+            style: AppTheme.sectionHeaderMedium,
           ),
         ),
+        const SizedBox(height: 24.0), // Add spacing between title and content
         ComponentSpacing(
           child: _isLoadingDbWatchlist
             ? const Center(
@@ -1234,15 +1229,14 @@ class _MovieSectionState extends State<MovieSection> {
   Widget _buildLibrarySection() {
     return Column(
       children: [
+        const SizedBox(height: 32.0), // Add spacing before the title
         const Center(
           child: Text(
-            'Your Library',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-            ),
+                                    'FAVORITES',
+            style: AppTheme.sectionHeaderMedium,
           ),
         ),
+        const SizedBox(height: 24.0), // Add spacing between title and content
         ComponentSpacing(
           child: _isLoadingDbLibrary
             ? const Center(

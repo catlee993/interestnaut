@@ -9,6 +9,7 @@ import '../../services/recommendation_event_service.dart';
 import '../../services/sqlite_db.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import '../common/scroll_content_wrapper.dart';
+import '../../theme.dart';
 
 class TVShowSection extends StatefulWidget {
   const TVShowSection({super.key});
@@ -487,6 +488,7 @@ class _TVShowSectionState extends State<TVShowSection> {
       suggestions: _dbLikedSuggestions,
       mediaType: 'tv_show',
       isWatchlist: false,
+      onRemove: _removeFromLibrary,
       onAddToWatchlist: _addLibraryItemToWatchlist,
       onUnfavorite: _removeFromLibrary,
       watchlistItems: _dbWatchlistSuggestions,
@@ -687,10 +689,8 @@ class _TVShowSectionState extends State<TVShowSection> {
   // Remove from library
   Future<void> _removeFromLibrary(MediaSuggestion suggestion) async {
     try {
-      await _recommendationService.updateSuggestionStatus(
-        suggestion.id,
-        SuggestionStatus.pending,  // Use pending so it can appear in suggestions again
-      );
+      // Use the proper removal method that handles both recommendation-based and user-added items
+      await _db.removeFromFavorites(suggestion.id);
 
       // If the removed item is the currently displayed suggestion, update the state
       if (_currentDbSuggestion != null && _currentDbSuggestion!.id == suggestion.id) {
@@ -764,12 +764,8 @@ class _TVShowSectionState extends State<TVShowSection> {
                 child: Opacity(
                   opacity: (scrollOffset <= 70) ? 1.0 : 0.0,
                   child: const Text(
-                    'Suggested for You',
-                    style: TextStyle(
-                      fontSize: 24.0,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
+                                                                                         'SUGGESTED',
+                      style: AppTheme.sectionHeaderLarge,
                     textAlign: TextAlign.center,
                   ),
                 ),
@@ -1050,15 +1046,14 @@ class _TVShowSectionState extends State<TVShowSection> {
   Widget _buildWatchlistSection() {
     return Column(
       children: [
+        const SizedBox(height: 32.0), // Add spacing before the title
         const Center(
           child: Text(
-            'Your Watchlist',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-            ),
+                                                                         'WATCHLIST',
+              style: AppTheme.sectionHeaderMedium,
           ),
         ),
+        const SizedBox(height: 24.0), // Add spacing between title and content
         ComponentSpacing(
           child: _isLoadingDbWatchlist
             ? const Center(
@@ -1087,15 +1082,14 @@ class _TVShowSectionState extends State<TVShowSection> {
   Widget _buildLibrarySection() {
     return Column(
       children: [
+        const SizedBox(height: 32.0), // Add spacing before the title
         const Center(
           child: Text(
-            'Your Library',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-            ),
+                                                                         'FAVORITES',
+              style: AppTheme.sectionHeaderMedium,
           ),
         ),
+        const SizedBox(height: 24.0), // Add spacing between title and content
         ComponentSpacing(
           child: _isLoadingDbLibrary
             ? const Center(
