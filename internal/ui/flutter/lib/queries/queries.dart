@@ -389,37 +389,8 @@ WHERE mt.name = ? AND rs.name = 'disliked'
 ORDER BY r.updated_at DESC;
 ''';
 
-// Get favorited recommendations for behavioral analysis
-const String getFavoritedRecommendationsQuery = '''
-SELECT r.id, r.media_item_id, r.query, r.bot_reasoning, rs.name as status,
-       r.created_at, r.updated_at,
-       mi.vector_media_id, mi.title, mi.primary_creator, mi.cover_art_url,
-       mi.description, mi.wiki_url, mi.wikidata_id, mi.themes,
-       mt.name as media_type
-FROM recommendations r
-JOIN media_items mi ON r.media_item_id = mi.id
-JOIN media_types mt ON mi.media_type_id = mt.id
-JOIN recommendation_status rs ON r.status_id = rs.id
-JOIN favorites f ON mi.id = f.media_item_id
-WHERE mt.name = ?
-ORDER BY f.created_at DESC;
-''';
-
-// Get watchlisted recommendations for behavioral analysis
-const String getWatchlistedRecommendationsQuery = '''
-SELECT r.id, r.media_item_id, r.query, r.bot_reasoning, rs.name as status,
-       r.created_at, r.updated_at,
-       mi.vector_media_id, mi.title, mi.primary_creator, mi.cover_art_url,
-       mi.description, mi.wiki_url, mi.wikidata_id, mi.themes,
-       mt.name as media_type
-FROM recommendations r
-JOIN media_items mi ON r.media_item_id = mi.id
-JOIN media_types mt ON mi.media_type_id = mt.id
-JOIN recommendation_status rs ON r.status_id = rs.id
-JOIN watchlist w ON mi.id = w.media_item_id
-WHERE mt.name = ?
-ORDER BY w.created_at DESC;
-''';
+// Note: getFavoritedRecommendationsQuery and getWatchlistedRecommendationsQuery have been removed
+// Use getAllFavoritesQuery and getWatchlistItemsQuery instead, which work with the normalized schema
 
 // Get skipped recommendations for behavioral analysis
 const String getSkippedRecommendationsQuery = '''

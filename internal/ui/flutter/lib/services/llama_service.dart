@@ -339,8 +339,8 @@ class LlamaService {
       // Use conservative settings optimized for efficiency
       _contextParams = ContextParams();
       _contextParams!.nCtx = 2048;              // Context window
-      _contextParams!.nBatch = 512;             // Increased batch size to handle longer prompts
-      _contextParams!.nUbatch = 512;            // Match batch size
+              _contextParams!.nBatch = 1024;            // Optimal batch size for modern mobile devices
+        _contextParams!.nUbatch = 1024;           // Match batch size
       _contextParams!.nThreads = 2;             // Conservative thread count for mobile
       _contextParams!.nThreadsBatch = 2;        // Match thread count
       _contextParams!.nPredict = 128;       // Increased prediction limit for complete explanations
@@ -1366,12 +1366,12 @@ class LlamaService {
         similarity: similarity,
       );
       
-      // Use balanced generation for quality explanations
+      // Use balanced generation with larger batch size
       final response = await _generateFastResponse(
         prompt,
-        maxTokens: 120,       // Longer for complete explanations
-        temperature: 0.8,     // More creative for personalization
-        stopSequences: ['.', '!', '?'],
+        maxTokens: 80,        // Increased with larger batch size
+        temperature: 0.5,     // Balanced creativity and stability
+        stopSequences: ['.', '!', '?', '\n'],
       );
       
       stopwatch.stop();
@@ -1402,8 +1402,8 @@ class LlamaService {
       // Set optimized parameters for fast generation
       await processPromptWithParams(prompt, temperature: temperature);
 
-      // Set timeout for complete responses
-      timeoutTimer = Timer(const Duration(milliseconds: 2000), () {
+      // Set reasonable timeout for mobile generation
+      timeoutTimer = Timer(const Duration(milliseconds: 2500), () {
         if (!completer.isCompleted) {
           _llamaParent?.stop();
           completer.complete(buffer.toString().trim());
@@ -1485,103 +1485,58 @@ class LlamaService {
     String? userProfile,
     double? similarity,
   }) {
-    final buffer = StringBuffer();
+    // Ultra-conservative approach - start with the simplest possible prompt
+    // TinyLlama works best with very short, focused prompts
     
-    // Smart truncation limits to prevent token overflow
-    const int maxTitleLength = 60;
-    const int maxArtistLength = 40;
-    const int maxUserQueryLength = 80;
-    const int maxThemesLength = 100;
-    const int maxUserProfileLength = 120;
-    
-    // Truncate media title if too long
-    String truncatedTitle = mediaTitle;
-    if (mediaTitle.length > maxTitleLength) {
-      truncatedTitle = mediaTitle.substring(0, maxTitleLength - 3) + '...';
-    }
-    
-    // Clear, focused prompt structure
-    buffer.write('RECOMMENDATION: "$truncatedTitle"');
-    
-    // Truncate artist/creator name if too long  
+    // Level 1: Minimal prompt (preferred)
+    String title = mediaTitle.length > 25 ? mediaTitle.substring(0, 22) + '...' : mediaTitle;
+    String creator = '';
     if (artist != null && artist.isNotEmpty && artist.toLowerCase() != 'unknown') {
-      String truncatedArtist = artist;
-      if (artist.length > maxArtistLength) {
-        truncatedArtist = artist.substring(0, maxArtistLength - 3) + '...';
-      }
-      buffer.write(' by $truncatedArtist');
+      creator = artist.length > 20 ? ' by ${artist.substring(0, 17)}...' : ' by $artist';
     }
     
-    // Truncate user query if too long
-    String truncatedQuery = userQuery;
-    if (userQuery.length > maxUserQueryLength) {
-      truncatedQuery = userQuery.substring(0, maxUserQueryLength - 3) + '...';
-    }
-    buffer.write('\nUSER REQUEST: "$truncatedQuery"');
-    
-    // Add themes context (limit to 3 most relevant and truncate)
+    // Simple context from themes (max 2 words)
+    String context = '';
     if (themes != null && themes.isNotEmpty) {
-      String themeList = themes.split(',').map((t) => t.trim()).take(3).join(', ');
-      if (themeList.length > maxThemesLength) {
-        themeList = themeList.substring(0, maxThemesLength - 3) + '...';
-      }
-      buffer.write('\nTHEMES: $themeList');
-    }
-    
-    // Add user preferences and constraints (with truncation)
-    if (userProfile != null && userProfile.isNotEmpty) {
-      String truncatedProfile = userProfile;
-      if (userProfile.length > maxUserProfileLength) {
-        truncatedProfile = userProfile.substring(0, maxUserProfileLength - 3) + '...';
-      }
-      
-      if (userProfile.contains('CONSTRAINTS:')) {
-        final parts = userProfile.split(' | CONSTRAINTS: ');
-        if (parts.length == 2) {
-          String likes = parts[0];
-          String constraints = parts[1];
-          
-          // Truncate each part separately
-          if (likes.length > maxUserProfileLength ~/ 2) {
-            likes = likes.substring(0, (maxUserProfileLength ~/ 2) - 3) + '...';
-          }
-          if (constraints.length > maxUserProfileLength ~/ 2) {
-            constraints = constraints.substring(0, (maxUserProfileLength ~/ 2) - 3) + '...';
-          }
-          
-          buffer.write('\nUSER LIKES: $likes');
-          buffer.write('\nREQUIREMENTS: $constraints');
-        } else {
-          buffer.write('\nUSER PROFILE: $truncatedProfile');
-        }
-      } else {
-        buffer.write('\nUSER LIKES: $truncatedProfile');
+      final themeWords = themes.split(',')
+          .map((t) => t.trim())
+          .where((t) => t.length > 2 && t.length < 15) // Filter reasonable themes
+          .take(2)
+          .join(', ');
+      if (themeWords.isNotEmpty) {
+        context = themeWords.length > 30 ? themeWords.substring(0, 27) + '...' : themeWords;
       }
     }
     
-    buffer.write('\n\nTask: Write a compelling 2-3 sentence explanation of why this recommendation perfectly matches what the user is looking for. Focus on the specific qualities and themes that make it appealing.\n\nExplanation:');
-    
-    // Final safety check - if prompt is still too long, truncate more aggressively
-    String finalPrompt = buffer.toString();
-    const int maxTotalPromptLength = 400; // Conservative limit for 512 token batch
-    
-    if (finalPrompt.length > maxTotalPromptLength) {
-      debugPrint('⚠️ Prompt still too long (${finalPrompt.length} chars), applying aggressive truncation');
-      
-      // Create minimal prompt as last resort
-      final minimalBuffer = StringBuffer();
-      minimalBuffer.write('RECOMMENDATION: "${truncatedTitle.length > 30 ? truncatedTitle.substring(0, 27) + '...' : truncatedTitle}"');
-      if (artist != null && artist.isNotEmpty && artist.toLowerCase() != 'unknown') {
-        String minimalArtist = artist.length > 20 ? artist.substring(0, 17) + '...' : artist;
-        minimalBuffer.write(' by $minimalArtist');
-      }
-             minimalBuffer.write('\nUSER REQUEST: "${truncatedQuery.length > 40 ? truncatedQuery.substring(0, 37) + '...' : truncatedQuery}"');
-       minimalBuffer.write('\n\nTask: Explain why this is a great recommendation in 1-2 sentences.\n\nExplanation:');
-      
-      finalPrompt = minimalBuffer.toString();
+    // Build structured prompt for TinyLlama - helps prevent hallucination
+    String minimalPrompt;
+    if (context.isNotEmpty) {
+      // Use clear instruction format that TinyLlama understands better
+      minimalPrompt = 'Recommend: "$title"$creator\nFeatures: $context\nWhy good:';
+    } else {
+      minimalPrompt = 'Recommend: "$title"$creator\nWhy good:';
     }
     
-    return finalPrompt;
+    // Safety check - more reasonable limits for 1024 batch size
+    if (minimalPrompt.length > 200) {
+      // Level 2: Moderate fallback
+             String shorterTitle = title.length > 20 ? title.substring(0, 17) + '...' : title;
+       String shorterContext = context.length > 40 ? context.substring(0, 37) + '...' : context;
+       if (shorterContext.isNotEmpty) {
+         minimalPrompt = 'Recommend: "$shorterTitle"$creator\nHas: $shorterContext\nGood because:';
+       } else {
+         minimalPrompt = 'Recommend: "$shorterTitle"$creator\nGood because:';
+       }
+    }
+    
+         // Final safety - only if still too long
+     if (minimalPrompt.length > 150) {
+       String ultraTitle = title.length > 15 ? title.substring(0, 12) + '...' : title;
+       minimalPrompt = 'Movie: "$ultraTitle"\nWhy good:';
+     }
+    
+    debugPrint('🧠 [ISOLATE-LLM] Simple prompt: "$minimalPrompt"');
+    return minimalPrompt;
   }
 
   /// Clean distilled search response
@@ -1604,9 +1559,31 @@ class LlamaService {
     return terms.isNotEmpty ? terms : originalQuery;
   }
 
-  /// Clean reasoning response
+  /// Clean reasoning response and detect hallucinations
   String _cleanReasoningResponse(String response) {
     String cleaned = response.trim();
+    
+    // Check for common hallucination patterns
+    final hallucinations = [
+      'based on the passage above',
+      'call me by your name',
+      'camera angles',
+      'how does the director',
+      'passage above',
+      'above passage',
+    ];
+    
+    final lowerResponse = cleaned.toLowerCase();
+    final isHallucinating = hallucinations.any((pattern) => lowerResponse.contains(pattern));
+    
+    if (isHallucinating || cleaned.isEmpty || cleaned.length < 10) {
+      // Return a simple, safe response instead of hallucinated content
+      return 'A compelling choice with interesting themes and strong storytelling.';
+    }
+    
+    // Remove common artifacts
+    cleaned = cleaned.replaceAll(RegExp(r'^(Based on|According to).*?,?\s*'), '');
+    cleaned = cleaned.replaceAll(RegExp(r'passage above.*$', caseSensitive: false), '');
     
     // Ensure proper sentence ending
     if (cleaned.isNotEmpty && 

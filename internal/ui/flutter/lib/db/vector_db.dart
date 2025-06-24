@@ -956,7 +956,8 @@ class VectorDatabase {
     required String mediaType,
     required List<String> likedItemIds,        // Max 3 liked items
     required List<String> dislikedItemIds,     // Max 3 disliked items
-    String? favoriteItemId,                    // Single favorite item
+    List<String> favoriteItemIds = const [],   // Multiple favorite items
+    List<String> watchlistItemIds = const [],  // Watchlist items
     List<String> skippedItemIds = const [],    // Max 2-3 skipped items
     List<String> excludeIds = const [],        // Already recommended items
     int limit = 1,                             // Usually just need 1 suggestion
@@ -973,17 +974,20 @@ class VectorDatabase {
       
       // Step 1: Get all behavioral embeddings
       final behavioralEmbeddings = await _getBehavioralEmbeddings(
-        db, likedItemIds, dislikedItemIds, favoriteItemId, skippedItemIds
+        db, likedItemIds, dislikedItemIds, favoriteItemIds, watchlistItemIds, skippedItemIds
       );
       
-      if (behavioralEmbeddings['liked'].isEmpty && behavioralEmbeddings['favorite'] == null) {
+      if (behavioralEmbeddings['liked'].isEmpty && 
+          behavioralEmbeddings['favorites'].isEmpty && 
+          behavioralEmbeddings['watchlist'].isEmpty) {
         debugPrint('⚠️ No positive behavioral signals found, falling back to random');
         return [];
       }
       
-      debugPrint('🎯 Behavioral signals: ${behavioralEmbeddings['liked'].length} liked, '
+      debugPrint('🎯 [VECTOR-DB] Behavioral signals: ${behavioralEmbeddings['liked'].length} liked, '
           '${behavioralEmbeddings['disliked'].length} disliked, '
-          '${behavioralEmbeddings['favorite'] != null ? 1 : 0} favorite, '
+          '${behavioralEmbeddings['favorites'].length} favorites, '
+          '${behavioralEmbeddings['watchlist'].length} watchlist, '
           '${behavioralEmbeddings['skipped'].length} skipped');
       
       // Step 2: Get total count and prepare for batch processing
@@ -1017,7 +1021,8 @@ class VectorDatabase {
           if (excludeIds.contains(mediaId) || 
               likedItemIds.contains(mediaId) || 
               dislikedItemIds.contains(mediaId) ||
-              mediaId == favoriteItemId ||
+              favoriteItemIds.contains(mediaId) ||
+              watchlistItemIds.contains(mediaId) ||
               skippedItemIds.contains(mediaId)) {
             continue;
           }
@@ -1029,7 +1034,8 @@ class VectorDatabase {
             // Step 4: Apply multi-criteria matching
             final matchResult = _evaluateBehavioralMatch(
               itemEmbedding, 
-              behavioralEmbeddings
+              behavioralEmbeddings,
+              mediaTitle: row['title'] as String,
             );
             
             if (matchResult['isMatch']) {
@@ -1092,13 +1098,15 @@ class VectorDatabase {
     Database db,
     List<String> likedItemIds,
     List<String> dislikedItemIds,
-    String? favoriteItemId,
+    List<String> favoriteItemIds,
+    List<String> watchlistItemIds,
     List<String> skippedItemIds,
   ) async {
     final result = {
       'liked': <List<double>>[],
       'disliked': <List<double>>[],
-      'favorite': null as List<double>?,
+      'favorites': <List<double>>[],
+      'watchlist': <List<double>>[],
       'skipped': <List<double>>[],
     };
     
@@ -1118,9 +1126,20 @@ class VectorDatabase {
       }
     }
     
-    // Get favorite embedding (single embedding, not a list)
-    if (favoriteItemId != null) {
-      result['favorite'] = await _getEmbeddingById(db, favoriteItemId);
+    // Get favorite embeddings (multiple favorites)
+    for (final id in favoriteItemIds) {
+      final embedding = await _getEmbeddingById(db, id);
+      if (embedding != null) {
+        (result['favorites'] as List<List<double>>).add(embedding);
+      }
+    }
+    
+    // Get watchlist embeddings
+    for (final id in watchlistItemIds) {
+      final embedding = await _getEmbeddingById(db, id);
+      if (embedding != null) {
+        (result['watchlist'] as List<List<double>>).add(embedding);
+      }
     }
     
     // Get skipped embeddings
@@ -1155,16 +1174,19 @@ class VectorDatabase {
   /// Evaluate if an item matches behavioral criteria
   Map<String, dynamic> _evaluateBehavioralMatch(
     List<double> itemEmbedding,
-    Map<String, dynamic> behavioralEmbeddings,
-  ) {
+    Map<String, dynamic> behavioralEmbeddings, {
+    String? mediaTitle,
+  }) {
     final likedEmbeddings = behavioralEmbeddings['liked'] as List<List<double>>;
     final dislikedEmbeddings = behavioralEmbeddings['disliked'] as List<List<double>>;
-    final favoriteEmbedding = behavioralEmbeddings['favorite'] as List<double>?;
+    final favoriteEmbeddings = behavioralEmbeddings['favorites'] as List<List<double>>;
+    final watchlistEmbeddings = behavioralEmbeddings['watchlist'] as List<List<double>>;
     final skippedEmbeddings = behavioralEmbeddings['skipped'] as List<List<double>>;
     
     // Calculate similarities
     double maxLikedSimilarity = 0.0;
-    double favoriteSimilarity = 0.0;
+    double maxFavoriteSimilarity = 0.0;
+    double maxWatchlistSimilarity = 0.0;
     double maxDislikedSimilarity = 0.0;
     double maxSkippedSimilarity = 0.0;
     
@@ -1176,9 +1198,20 @@ class VectorDatabase {
       }
     }
     
-    // Check against favorite
-    if (favoriteEmbedding != null) {
-      favoriteSimilarity = _cosineSimilarity(itemEmbedding, favoriteEmbedding);
+    // Check against favorites
+    for (final favoriteEmbedding in favoriteEmbeddings) {
+      final similarity = _cosineSimilarity(itemEmbedding, favoriteEmbedding);
+      if (similarity > maxFavoriteSimilarity) {
+        maxFavoriteSimilarity = similarity;
+      }
+    }
+    
+    // Check against watchlist
+    for (final watchlistEmbedding in watchlistEmbeddings) {
+      final similarity = _cosineSimilarity(itemEmbedding, watchlistEmbedding);
+      if (similarity > maxWatchlistSimilarity) {
+        maxWatchlistSimilarity = similarity;
+      }
     }
     
     // Check against disliked items
@@ -1198,8 +1231,8 @@ class VectorDatabase {
     }
     
     // Apply your criteria:
-    // 1. Must be 0.7+ similar to liked items OR 0.5+ similar to favorite
-    final hasPositiveMatch = maxLikedSimilarity >= 0.7 || favoriteSimilarity >= 0.5;
+    // 1. Must be 0.7+ similar to liked items OR 0.5+ similar to favorites OR 0.4+ similar to watchlist
+    final hasPositiveMatch = maxLikedSimilarity >= 0.7 || maxFavoriteSimilarity >= 0.5 || maxWatchlistSimilarity >= 0.4;
     
     // 2. Must be 0.3 or less similar to disliked items
     final passesDislikedFilter = maxDislikedSimilarity <= 0.3;
@@ -1212,7 +1245,7 @@ class VectorDatabase {
     // Calculate overall match score (higher = better)
     double score = 0.0;
     if (hasPositiveMatch) {
-      score += max(maxLikedSimilarity * 0.7, favoriteSimilarity * 0.5);
+      score += max(max(maxLikedSimilarity * 0.7, maxFavoriteSimilarity * 0.5), maxWatchlistSimilarity * 0.4);
     }
     if (passesDislikedFilter) {
       score += 0.2; // Bonus for passing dislike filter
@@ -1221,12 +1254,29 @@ class VectorDatabase {
       score -= 0.3; // Penalty for being like skipped items
     }
     
+    // Log detailed similarity analysis for matches
+    if (isMatch && mediaTitle != null) {
+      debugPrint('✅ [VECTOR-MATCH] "$mediaTitle" - Score: ${score.toStringAsFixed(3)} | '
+          'Liked: ${maxLikedSimilarity.toStringAsFixed(3)}, '
+          'Favorites: ${maxFavoriteSimilarity.toStringAsFixed(3)}, '
+          'Watchlist: ${maxWatchlistSimilarity.toStringAsFixed(3)}, '
+          'Disliked: ${maxDislikedSimilarity.toStringAsFixed(3)}, '
+          'Skipped: ${maxSkippedSimilarity.toStringAsFixed(3)}');
+    } else if (mediaTitle != null && (maxFavoriteSimilarity > 0.3 || maxLikedSimilarity > 0.5)) {
+      // Log near-misses for debugging
+      debugPrint('⚠️ [VECTOR-NEAR] "$mediaTitle" - Score: ${score.toStringAsFixed(3)} | '
+          'Liked: ${maxLikedSimilarity.toStringAsFixed(3)}, '
+          'Favorites: ${maxFavoriteSimilarity.toStringAsFixed(3)}, '
+          'Reason: ${!hasPositiveMatch ? "Low similarity" : !passesDislikedFilter ? "Too similar to disliked" : "Too similar to skipped"}');
+    }
+    
     return {
       'isMatch': isMatch,
       'score': score,
       'details': {
         'maxLikedSimilarity': maxLikedSimilarity,
-        'favoriteSimilarity': favoriteSimilarity,
+        'maxFavoriteSimilarity': maxFavoriteSimilarity,
+        'maxWatchlistSimilarity': maxWatchlistSimilarity,
         'maxDislikedSimilarity': maxDislikedSimilarity,
         'maxSkippedSimilarity': maxSkippedSimilarity,
       }

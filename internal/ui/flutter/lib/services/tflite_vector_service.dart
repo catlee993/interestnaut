@@ -164,36 +164,52 @@ class TFLiteVectorService {
   Future<List<double>> createMobileUserProfileVector({
     required List<List<double>> likedEmbeddings,
     required List<List<double>> dislikedEmbeddings,
-    List<double>? favoriteEmbedding,
+    List<List<double>> favoriteEmbeddings = const [],
+    List<List<double>> watchlistEmbeddings = const [],
     required List<String> userConstraints,
     int maxLikedSamples = 10,     // Limit for mobile memory
     int maxDislikedSamples = 5,   // Fewer negative samples needed
+    int maxFavoriteSamples = 8,   // Favorites are high-signal
+    int maxWatchlistSamples = 5,  // Watchlist is medium-signal
   }) async {
-    if (likedEmbeddings.isEmpty && favoriteEmbedding == null) {
+    if (likedEmbeddings.isEmpty && favoriteEmbeddings.isEmpty && watchlistEmbeddings.isEmpty) {
       throw ArgumentError('Need at least one positive signal to create profile');
     }
     
     // Limit samples for mobile performance
     final limitedLiked = likedEmbeddings.take(maxLikedSamples).toList();
     final limitedDisliked = dislikedEmbeddings.take(maxDislikedSamples).toList();
+    final limitedFavorites = favoriteEmbeddings.take(maxFavoriteSamples).toList();
+    final limitedWatchlist = watchlistEmbeddings.take(maxWatchlistSamples).toList();
     
-    List<double> profileVector;
+    debugPrint('🧠 [TFLITE] Building profile from: ${limitedLiked.length} liked, ${limitedFavorites.length} favorites, ${limitedWatchlist.length} watchlist, ${limitedDisliked.length} disliked');
     
-    if (limitedLiked.isNotEmpty) {
-      // Create base profile from recent liked songs
-      profileVector = _averageVectors(limitedLiked);
-      
-      // Boost with favorite if available (3x weight for single suggestion focus)
-      if (favoriteEmbedding != null) {
-        profileVector = _weightedAverage([
-          (profileVector, limitedLiked.length.toDouble()),
-          (favoriteEmbedding, 3.0)  // Higher weight for single-suggestion focus
-        ]);
-      }
-    } else {
-      // Only favorite available
-      profileVector = List<double>.from(favoriteEmbedding!);
+    // Collect all positive signals with appropriate weights
+    final weightedVectors = <(List<double>, double)>[];
+    
+    // Add liked items (weight: 1.0)
+    for (final liked in limitedLiked) {
+      weightedVectors.add((liked, 1.0));
     }
+    
+    // Add favorites (weight: 2.0 - higher signal)
+    for (final favorite in limitedFavorites) {
+      weightedVectors.add((favorite, 2.0));
+      debugPrint('📊 [TFLITE] Added favorite with 2.0x weight');
+    }
+    
+    // Add watchlist items (weight: 1.5 - medium signal)
+    for (final watchlist in limitedWatchlist) {
+      weightedVectors.add((watchlist, 1.5));
+      debugPrint('📊 [TFLITE] Added watchlist item with 1.5x weight');
+    }
+    
+    if (weightedVectors.isEmpty) {
+      throw ArgumentError('No positive signals available after filtering');
+    }
+    
+    // Create weighted profile vector
+    List<double> profileVector = _weightedAverage(weightedVectors);
     
     // Apply constraint-based adjustments
     for (final constraint in userConstraints) {
@@ -205,7 +221,7 @@ class TFLiteVectorService {
       profileVector = _applyNegativeFiltering(profileVector, limitedDisliked);
     }
     
-    debugPrint('🧠 Mobile profile created: ${limitedLiked.length} liked, ${limitedDisliked.length} disliked, ${userConstraints.length} constraints');
+    debugPrint('🧠 [TFLITE] Mobile profile created: ${limitedLiked.length} liked, ${limitedFavorites.length} favorites, ${limitedWatchlist.length} watchlist, ${limitedDisliked.length} disliked, ${userConstraints.length} constraints');
     
     return profileVector;
   }
@@ -298,17 +314,21 @@ class TFLiteVectorService {
     required List<String> excludeIds,
     required double minSimilarity,
     required Future<List<VectorWithMetadata>> Function(int offset, int limit) vectorLoader,
-    int batchSize = 1000, // Process 1k vectors at a time for mobile
+    int batchSize = 500, // Smaller batches for faster initial results
   }) async {
-    debugPrint('🔍 Starting mobile single-suggestion search with profile vector');
+    debugPrint('🔍 [TFLITE] Starting mobile single-suggestion search (threshold: $minSimilarity)');
     
     VectorWithMetadata? bestMatch;
     double bestSimilarity = minSimilarity;
     int processedCount = 0;
     int offset = 0;
+    int goodMatches = 0;
+    
+    final stopwatch = Stopwatch()..start();
     
     // Stream through vectors in batches to avoid memory issues
     while (true) {
+      final batchStopwatch = Stopwatch()..start();
       final batch = await vectorLoader(offset, batchSize);
       if (batch.isEmpty) break;
       
@@ -326,32 +346,62 @@ class TFLiteVectorService {
         // Skip excluded items
         if (excludeIds.contains(candidate.id)) continue;
         
-        // Update best match if this is better
-        if (similarity > bestSimilarity) {
+        // Count good matches for early termination
+        if (similarity > 0.6 && similarity <= 0.75) {
+          goodMatches++;
+          debugPrint('📊 [TFLITE] Good match: ${candidate.title} (${similarity.toStringAsFixed(3)})');
+        }
+        
+        // Update best match if this is better (but cap at 0.75 for diversity)
+        if (similarity > bestSimilarity && similarity <= 0.75) {
           bestSimilarity = similarity;
           bestMatch = candidate;
+          debugPrint('🎯 [TFLITE] New best: ${candidate.title} (${similarity.toStringAsFixed(3)})');
+        } else if (similarity > 0.75) {
+          debugPrint('🚫 [TFLITE] Skipping too similar: ${candidate.title} (${similarity.toStringAsFixed(3)}) - too close to favorites');
         }
       }
       
       processedCount += batch.length;
       offset += batchSize;
+      batchStopwatch.stop();
       
-      // Early termination if we found a very good match
-      if (bestSimilarity > 0.9) {
-        debugPrint('🎯 Found excellent match (${bestSimilarity.toStringAsFixed(3)}) after $processedCount vectors');
+      // More aggressive early termination strategies (capped at 0.75 for diversity)
+      if (bestSimilarity > 0.7) {
+        debugPrint('🎯 [TFLITE] Great match found (${bestSimilarity.toStringAsFixed(3)}) after $processedCount vectors in ${stopwatch.elapsedMilliseconds}ms');
         break;
       }
       
-      // Progress logging for large searches
-      if (processedCount % 10000 == 0) {
-        debugPrint('📊 Processed $processedCount vectors, best similarity: ${bestSimilarity.toStringAsFixed(3)}');
+      // Stop after finding several good options
+      if (goodMatches >= 3 && bestSimilarity > 0.65) {
+        debugPrint('🎯 [TFLITE] Found multiple good matches, stopping early after $processedCount vectors');
+        break;
+      }
+      
+      // Time-based early termination for mobile responsiveness
+      if (stopwatch.elapsedMilliseconds > 3000) { // 3 second limit
+        debugPrint('⏰ [TFLITE] Time limit reached (3s), stopping search with best match so far');
+        break;
+      }
+      
+      // Progress logging every 2.5k vectors (faster feedback)
+      if (processedCount % 2500 == 0) {
+        debugPrint('📊 [TFLITE] Processed $processedCount vectors in ${stopwatch.elapsedMilliseconds}ms, best: ${bestSimilarity.toStringAsFixed(3)} (batch: ${batchStopwatch.elapsedMilliseconds}ms)');
+      }
+      
+      // Stop after reasonable search if we have a decent match
+      if (processedCount >= 10000 && bestSimilarity > 0.6) {
+        debugPrint('🔄 [TFLITE] Searched 10k vectors, found decent match, stopping');
+        break;
       }
     }
     
+    stopwatch.stop();
+    
     if (bestMatch != null) {
-      debugPrint('✅ Single suggestion found: ${bestMatch.title} (similarity: ${bestSimilarity.toStringAsFixed(3)})');
+      debugPrint('✅ [TFLITE] Single suggestion found: ${bestMatch.title} (similarity: ${bestSimilarity.toStringAsFixed(3)}) after ${stopwatch.elapsedMilliseconds}ms, $processedCount vectors');
     } else {
-      debugPrint('❌ No suitable suggestion found above threshold $minSimilarity');
+      debugPrint('❌ [TFLITE] No suitable suggestion found above threshold $minSimilarity after ${stopwatch.elapsedMilliseconds}ms');
     }
     
     return bestMatch;

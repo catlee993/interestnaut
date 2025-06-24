@@ -784,11 +784,19 @@ class RecommendationService extends ChangeNotifier {
           final dislikedSuggestions = await _db.getDislikedRecommendations(mediaType);
           
           // ENHANCED: Also collect favorite, watchlist, and skipped suggestions as behavioral signals
-          final favoriteSuggestions = await _db.getFavoritedRecommendations(mediaType); // SuggestionStatus.added
-          final watchlistSuggestions = await _db.getWatchlistedRecommendations(mediaType); // SuggestionStatus.watchlist
+          final favoriteSuggestions = await _db.getAllFavorites(mediaType); // From favorites table
+          final watchlistSuggestions = await _db.getWatchlist(mediaType); // From watchlist table
           final skippedSuggestions = await _db.getSkippedRecommendations(mediaType); // SuggestionStatus.skipped
           
           debugPrint('🔍 [BACKGROUND] Found ${likedSuggestions.length} liked, ${dislikedSuggestions.length} disliked, ${favoriteSuggestions.length} favorited, ${watchlistSuggestions.length} watchlisted, ${skippedSuggestions.length} skipped suggestions');
+          
+          // Debug: Print favorite titles to confirm they're being found
+          if (favoriteSuggestions.isNotEmpty) {
+            debugPrint('🔍 [BACKGROUND] Favorite titles: ${favoriteSuggestions.map((s) => s.title).join(', ')}');
+          }
+          if (watchlistSuggestions.isNotEmpty) {
+            debugPrint('🔍 [BACKGROUND] Watchlist titles: ${watchlistSuggestions.map((s) => s.title).join(', ')}');
+          }
           
           // Always check for user constraints
           final userConstraints = await _db.getUserConstraints(mediaType);
@@ -997,8 +1005,9 @@ class RecommendationService extends ChangeNotifier {
     final likedItemIds = <String>[];
     final dislikedItemIds = <String>[];
     final skippedItemIds = <String>[];
+    final favoriteItemIds = <String>[];
+    final watchlistItemIds = <String>[];
     final excludeIds = <String>[];
-    String? favoriteItemId;
     
     try {
       // Extract from liked items
@@ -1025,31 +1034,41 @@ class RecommendationService extends ChangeNotifier {
         }
       }
       
-      // Extract favorite item
-      final favoriteItem = userProfileData['favorite_item'] as Map<String, dynamic>?;
-      if (favoriteItem != null && favoriteItem['media_id'] != null) {
-        favoriteItemId = favoriteItem['media_id'] as String;
+      // Extract from favorite items (plural)
+      final favoriteItems = userProfileData['favorite_items'] as List<dynamic>? ?? [];
+      for (final item in favoriteItems) {
+        if (item is Map<String, dynamic> && item['media_id'] != null) {
+          favoriteItemIds.add(item['media_id'] as String);
+        }
+      }
+      
+      // Extract from watchlist items
+      final watchlistItems = userProfileData['watchlist_items'] as List<dynamic>? ?? [];
+      for (final item in watchlistItems) {
+        if (item is Map<String, dynamic> && item['media_id'] != null) {
+          watchlistItemIds.add(item['media_id'] as String);
+        }
       }
       
       // Exclude all interacted items from new suggestions
       excludeIds.addAll(likedItemIds);
       excludeIds.addAll(dislikedItemIds);
       excludeIds.addAll(skippedItemIds);
-      if (favoriteItemId != null) {
-        excludeIds.add(favoriteItemId);
-      }
+      excludeIds.addAll(favoriteItemIds);
+      excludeIds.addAll(watchlistItemIds);
       
-      final hasPositiveSignals = likedItemIds.isNotEmpty || favoriteItemId != null;
+      final hasPositiveSignals = likedItemIds.isNotEmpty || favoriteItemIds.isNotEmpty || watchlistItemIds.isNotEmpty;
       
       debugPrint('🎯 [BEHAVIORAL-EXTRACT] Extracted: ${likedItemIds.length} liked, '
           '${dislikedItemIds.length} disliked, ${skippedItemIds.length} skipped, '
-          '${favoriteItemId != null ? 1 : 0} favorite, hasPositive: $hasPositiveSignals');
+          '${favoriteItemIds.length} favorites, ${watchlistItemIds.length} watchlist, hasPositive: $hasPositiveSignals');
       
       return {
         'likedItemIds': likedItemIds,
         'dislikedItemIds': dislikedItemIds,
         'skippedItemIds': skippedItemIds,
-        'favoriteItemId': favoriteItemId,
+        'favoriteItemIds': favoriteItemIds,
+        'watchlistItemIds': watchlistItemIds,
         'excludeIds': excludeIds,
         'hasPositiveSignals': hasPositiveSignals,
       };
@@ -1059,7 +1078,8 @@ class RecommendationService extends ChangeNotifier {
         'likedItemIds': <String>[],
         'dislikedItemIds': <String>[],
         'skippedItemIds': <String>[],
-        'favoriteItemId': null,
+        'favoriteItemIds': <String>[],
+        'watchlistItemIds': <String>[],
         'excludeIds': <String>[],
         'hasPositiveSignals': false,
       };
@@ -1118,7 +1138,8 @@ class RecommendationService extends ChangeNotifier {
               final behavioralResults = await vectorDb.searchByBehavioralMatch(
                 likedItemIds: behavioralData['likedItemIds'] as List<String>,
                 dislikedItemIds: behavioralData['dislikedItemIds'] as List<String>,
-                favoriteItemId: behavioralData['favoriteItemId'] as String?,
+                favoriteItemIds: behavioralData['favoriteItemIds'] as List<String>,
+                watchlistItemIds: behavioralData['watchlistItemIds'] as List<String>,
                 skippedItemIds: behavioralData['skippedItemIds'] as List<String>,
                 excludeIds: behavioralData['excludeIds'] as List<String>,
                 limit: 1,
@@ -1134,7 +1155,8 @@ class RecommendationService extends ChangeNotifier {
           final behavioralResults = await vectorDb.searchByBehavioralMatch(
             likedItemIds: behavioralData['likedItemIds'] as List<String>,
             dislikedItemIds: behavioralData['dislikedItemIds'] as List<String>,
-            favoriteItemId: behavioralData['favoriteItemId'] as String?,
+            favoriteItemIds: behavioralData['favoriteItemIds'] as List<String>,
+            watchlistItemIds: behavioralData['watchlistItemIds'] as List<String>,
             skippedItemIds: behavioralData['skippedItemIds'] as List<String>,
             excludeIds: behavioralData['excludeIds'] as List<String>,
             limit: 1,
@@ -1155,7 +1177,8 @@ class RecommendationService extends ChangeNotifier {
             final behavioralResults = await vectorDb.searchByBehavioralMatch(
               likedItemIds: behavioralData['likedItemIds'] as List<String>,
               dislikedItemIds: behavioralData['dislikedItemIds'] as List<String>,
-              favoriteItemId: behavioralData['favoriteItemId'] as String?,
+              favoriteItemIds: behavioralData['favoriteItemIds'] as List<String>,
+              watchlistItemIds: behavioralData['watchlistItemIds'] as List<String>,
               skippedItemIds: behavioralData['skippedItemIds'] as List<String>,
               excludeIds: behavioralData['excludeIds'] as List<String>,
               limit: 1,
@@ -1548,9 +1571,9 @@ class RecommendationService extends ChangeNotifier {
           truncatedTitle = mediaTitle.substring(0, maxTitleLength - 3) + '...';
         }
         
-        // Start with media type context to avoid confusion
+        // Build enhanced prompt that explains the behavioral connection
         String mediaTypeLabel = _getMediaTypeLabel(mediaType);
-        String simplePrompt = "Why recommend this $mediaTypeLabel \"$truncatedTitle\"";
+        String simplePrompt = "Recommend: \"$truncatedTitle\"";
         
         // Add artist with truncation
         if (artist != null && artist.isNotEmpty) {
@@ -1560,40 +1583,76 @@ class RecommendationService extends ChangeNotifier {
           }
           simplePrompt += " by $truncatedArtist";
         }
-        simplePrompt += "?";
         
-        // Add context if available (with truncation)
-        if (constraints.isNotEmpty) {
-          String truncatedConstraints = constraints;
-          if (constraints.length > maxConstraintsLength) {
-            truncatedConstraints = constraints.substring(0, maxConstraintsLength - 3) + '...';
+        // Ultra-focused prompt for TinyLlama: Pick BEST overlap only
+        final favoriteItems = userProfileData['favorite_items'] as List<dynamic>? ?? [];
+        String bestOverlap = '';
+        
+        if (favoriteItems.isNotEmpty && themes != null && themes.isNotEmpty) {
+          final currentThemeList = themes.split(',').map((t) => t.trim().toLowerCase()).toList();
+          String bestFavorite = '';
+          String bestTheme = '';
+          
+          // Find the SINGLE best thematic match
+          for (final item in favoriteItems.take(3)) {
+            final title = item['title'] as String? ?? '';
+            final favThemes = item['themes'] as String? ?? '';
+            
+            if (title.isNotEmpty && favThemes.isNotEmpty) {
+              final favThemeList = favThemes.split(',').map((t) => t.trim()).toList();
+              
+              // Look for exact or strong matches
+              for (final favTheme in favThemeList) {
+                for (final currTheme in currentThemeList) {
+                  if (favTheme.toLowerCase() == currTheme || 
+                      favTheme.toLowerCase().contains(currTheme) ||
+                      currTheme.contains(favTheme.toLowerCase())) {
+                    bestFavorite = title.length > 20 ? title.substring(0, 17) + '...' : title;
+                    bestTheme = favTheme.length > 15 ? favTheme.substring(0, 12) + '...' : favTheme;
+                    break;
+                  }
+                }
+                if (bestFavorite.isNotEmpty) break;
+              }
+            }
+            if (bestFavorite.isNotEmpty) break;
           }
-          simplePrompt += " User likes: $truncatedConstraints.";
-        } else if (likedThemes.isNotEmpty) {
-          simplePrompt += " User likes: ${likedThemes.take(2).join(', ')}.";
+          
+          if (bestFavorite.isNotEmpty && bestTheme.isNotEmpty) {
+            bestOverlap = "$bestFavorite: $bestTheme";
+          } else if (favoriteItems.isNotEmpty) {
+            // Fallback: just use first favorite title
+            final firstTitle = favoriteItems.first['title'] as String? ?? '';
+            if (firstTitle.isNotEmpty) {
+              bestOverlap = firstTitle.length > 25 ? firstTitle.substring(0, 22) + '...' : firstTitle;
+            }
+          }
         }
         
-        if (themes != null && themes.isNotEmpty) {
-          String truncatedThemes = themes;
-          if (themes.length > maxThemesLength) {
-            truncatedThemes = themes.substring(0, maxThemesLength - 3) + '...';
-          }
-          simplePrompt += " This has: $truncatedThemes.";
+        // Build ultra-simple prompt that's clearly a recommendation explanation
+        if (bestOverlap.isNotEmpty) {
+          simplePrompt += " matches your interest in $bestOverlap. Explain the connection.";
+        } else {
+          // No specific overlap found, keep it simple
+          simplePrompt += " matches your taste. Explain why.";
         }
-        
-        simplePrompt += " Explain why this is a great match.";
         
         // Final safety check for prompt length
-        const int maxPromptLength = 350;
+        const int maxPromptLength = 300;
         if (simplePrompt.length > maxPromptLength) {
           debugPrint('⚠️ [ISOLATE-LLM] Simple prompt too long (${simplePrompt.length} chars), applying aggressive truncation');
-          String mediaTypeLabel = _getMediaTypeLabel(mediaType);
-          simplePrompt = "Why recommend this $mediaTypeLabel \"${truncatedTitle.length > 30 ? truncatedTitle.substring(0, 27) + '...' : truncatedTitle}\"";
+          simplePrompt = "Recommend: \"${truncatedTitle.length > 25 ? truncatedTitle.substring(0, 22) + '...' : truncatedTitle}\"";
           if (artist != null && artist.isNotEmpty) {
-            String minimalArtist = artist.length > 20 ? artist.substring(0, 17) + '...' : artist;
+            String minimalArtist = artist.length > 15 ? artist.substring(0, 12) + '...' : artist;
             simplePrompt += " by $minimalArtist";
           }
-          simplePrompt += "? Explain why it's perfect.";
+          
+          // Ultra-minimal fallback - find single best connection
+          if (bestOverlap.isNotEmpty) {
+            simplePrompt += " like $bestOverlap. Why?";
+          } else {
+            simplePrompt += ". Why good?";
+          }
         }
         
         debugPrint('🧠 [ISOLATE-LLM] Simple prompt: "$simplePrompt"');
@@ -2109,7 +2168,8 @@ class _IsolateSafeVectorDatabase {
   Future<List<MediaResult>> searchByBehavioralMatch({
     required List<String> likedItemIds,
     required List<String> dislikedItemIds,
-    String? favoriteItemId,
+    List<String> favoriteItemIds = const [],
+    List<String> watchlistItemIds = const [],
     List<String> skippedItemIds = const [],
     List<String> excludeIds = const [],
     int limit = 1,
@@ -2122,7 +2182,7 @@ class _IsolateSafeVectorDatabase {
       debugPrint('🎯 [PURE-ISOLATE] Starting behavioral matching with vector similarity...');
       
       // Check if we have any positive signals
-      if (likedItemIds.isEmpty && favoriteItemId == null) {
+      if (likedItemIds.isEmpty && favoriteItemIds.isEmpty && watchlistItemIds.isEmpty) {
         debugPrint('⚠️ [PURE-ISOLATE] No positive behavioral signals found');
         return [];
       }
@@ -2280,19 +2340,24 @@ class _IsolateSafeVectorDatabase {
       // Extract behavioral embeddings
       final likedItemIds = behavioralData['likedItemIds'] as List<String>;
       final dislikedItemIds = behavioralData['dislikedItemIds'] as List<String>;
-      final favoriteItemId = behavioralData['favoriteItemId'] as String?;
+      final favoriteItemIds = behavioralData['favoriteItemIds'] as List<String>;
+      final watchlistItemIds = behavioralData['watchlistItemIds'] as List<String>;
       final excludeIds = behavioralData['excludeIds'] as List<String>;
+      
+      debugPrint('🔍 [TFLITE] Behavioral data: ${likedItemIds.length} liked, ${dislikedItemIds.length} disliked, ${favoriteItemIds.length} favorites, ${watchlistItemIds.length} watchlist');
       
       // Get embeddings for user profile creation
       final likedEmbeddings = <List<double>>[];
       final dislikedEmbeddings = <List<double>>[];
-      List<double>? favoriteEmbedding;
+      final favoriteEmbeddings = <List<double>>[];
+      final watchlistEmbeddings = <List<double>>[];
       
       // Load liked embeddings (mobile-friendly limit)
       for (final id in likedItemIds.take(5)) {
         final embedding = await _getEmbeddingById(id);
         if (embedding != null) {
           likedEmbeddings.add(embedding);
+          debugPrint('📊 [TFLITE] Loaded liked embedding for: $id');
         }
       }
       
@@ -2301,16 +2366,30 @@ class _IsolateSafeVectorDatabase {
         final embedding = await _getEmbeddingById(id);
         if (embedding != null) {
           dislikedEmbeddings.add(embedding);
+          debugPrint('📊 [TFLITE] Loaded disliked embedding for: $id');
         }
       }
       
-      // Load favorite embedding
-      if (favoriteItemId != null) {
-        favoriteEmbedding = await _getEmbeddingById(favoriteItemId);
+      // Load favorite embeddings (mobile-friendly limit)
+      for (final id in favoriteItemIds.take(5)) {
+        final embedding = await _getEmbeddingById(id);
+        if (embedding != null) {
+          favoriteEmbeddings.add(embedding);
+          debugPrint('📊 [TFLITE] Loaded favorite embedding for: $id');
+        }
       }
       
-      if (likedEmbeddings.isEmpty && favoriteEmbedding == null) {
-        debugPrint('⚠️ [TFLITE] No embeddings found for profile creation');
+      // Load watchlist embeddings (mobile-friendly limit)
+      for (final id in watchlistItemIds.take(3)) {
+        final embedding = await _getEmbeddingById(id);
+        if (embedding != null) {
+          watchlistEmbeddings.add(embedding);
+          debugPrint('📊 [TFLITE] Loaded watchlist embedding for: $id');
+        }
+      }
+      
+      if (likedEmbeddings.isEmpty && favoriteEmbeddings.isEmpty && watchlistEmbeddings.isEmpty) {
+        debugPrint('⚠️ [TFLITE] No positive embeddings found for profile creation');
         return null;
       }
       
@@ -2319,11 +2398,12 @@ class _IsolateSafeVectorDatabase {
       final profileVector = await TFLiteVectorService.instance.createMobileUserProfileVector(
         likedEmbeddings: likedEmbeddings,
         dislikedEmbeddings: dislikedEmbeddings,
-        favoriteEmbedding: favoriteEmbedding,
+        favoriteEmbeddings: favoriteEmbeddings,
+        watchlistEmbeddings: watchlistEmbeddings,
         userConstraints: userConstraints,
       );
       
-      debugPrint('🧠 [TFLITE] Created profile vector from ${likedEmbeddings.length} liked, ${dislikedEmbeddings.length} disliked');
+      debugPrint('🧠 [TFLITE] Created profile vector from ${likedEmbeddings.length} liked, ${dislikedEmbeddings.length} disliked, ${favoriteEmbeddings.length} favorites, ${watchlistEmbeddings.length} watchlist');
       
       // Create mobile-friendly vector loader with collection limits
       Future<List<VectorWithMetadata>> vectorLoader(int offset, int limit) async {

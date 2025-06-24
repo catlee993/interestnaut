@@ -673,39 +673,8 @@ class SQLiteDatabase {
     }
   }
 
-  /// Get favorited recommendations for behavioral analysis
-  Future<List<MediaSuggestion>> getFavoritedRecommendations(String mediaType) async {
-    await _ensureInitialized();
-
-    try {
-      final stmt = _db!.prepare(getFavoritedRecommendationsQuery);
-      final result = stmt.select([mediaType]);
-
-      final suggestions = result.map((row) => _mapRowToMediaSuggestion(row)).toList();
-      stmt.dispose();
-      return suggestions;
-    } catch (e) {
-      debugPrint('Error getting favorited recommendations: $e');
-      return [];
-    }
-  }
-
-  /// Get watchlisted recommendations for behavioral analysis
-  Future<List<MediaSuggestion>> getWatchlistedRecommendations(String mediaType) async {
-    await _ensureInitialized();
-
-    try {
-      final stmt = _db!.prepare(getWatchlistedRecommendationsQuery);
-      final result = stmt.select([mediaType]);
-
-      final suggestions = result.map((row) => _mapRowToMediaSuggestion(row)).toList();
-      stmt.dispose();
-      return suggestions;
-    } catch (e) {
-      debugPrint('Error getting watchlisted recommendations: $e');
-      return [];
-    }
-  }
+  // Note: getFavoritedRecommendations and getWatchlistedRecommendations have been removed
+  // Use getAllFavorites() and getWatchlist() instead, which work with the normalized schema
 
   /// Get skipped recommendations for behavioral analysis
   Future<List<MediaSuggestion>> getSkippedRecommendations(String mediaType) async {
