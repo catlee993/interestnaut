@@ -1647,11 +1647,11 @@ class RecommendationService extends ChangeNotifier {
             simplePrompt += " by $minimalArtist";
           }
           
-          // Ultra-minimal fallback - find single best connection
+          // Ultra-minimal fallback - clear recommendation context
           if (bestOverlap.isNotEmpty) {
-            simplePrompt += " like $bestOverlap. Why?";
+            simplePrompt += " fits your taste for $bestOverlap. Why?";
           } else {
-            simplePrompt += ". Why good?";
+            simplePrompt += " suits your preferences. Why?";
           }
         }
         
