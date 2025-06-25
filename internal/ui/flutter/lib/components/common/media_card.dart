@@ -121,14 +121,17 @@ class MediaCard extends StatelessWidget {
                     // Title with optional tooltip for overview
                     Tooltip(
                       message: item.overview ?? '',
-                      child: Text(
-                        item.title,
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          color: AppTheme.textPrimary,
-                          fontWeight: FontWeight.bold,
+                      child: Transform.scale(
+                        scaleX: 1.2, // Horizontally stretch the title
+                        child: Text(
+                          item.title,
+                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            color: AppTheme.textPrimary,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
                     

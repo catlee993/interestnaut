@@ -95,7 +95,7 @@ class MediaSectionLayout<T> extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Missing API Credentials', style: TextStyle(color: Color(0xFF0091EA), fontSize: 18, fontWeight: FontWeight.bold)),
+                Text('Missing API Credentials', style: AppTheme.apiCredentialsHeaderStyle),
                 const SizedBox(height: 8),
                 Text(
                   type == 'game'
@@ -112,7 +112,7 @@ class MediaSectionLayout<T> extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Search Results', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white)),
+                AppTheme.wideSearchResultsHeader('Search Results'),
                 const SizedBox(height: 12),
                 renderSearchResults(),
               ],
@@ -123,7 +123,7 @@ class MediaSectionLayout<T> extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('SUGGESTED', style: AppTheme.sectionHeaderMedium),
+              AppTheme.wideSuggestionHeaderMedium('SUGGESTED'),
               const SizedBox(height: 12),
               if (suggestedItem != null)
                 MediaSuggestionDisplay(
@@ -164,7 +164,7 @@ class MediaSectionLayout<T> extends StatelessWidget {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Text('Your $queueName', style: const TextStyle(fontSize: 18, color: Colors.white)),
+                    AppTheme.wideLibraryHeader('Your $queueName'),
                     const SizedBox(width: 12),
                     Text(
                       showWatchlist ? 'Hide (${watchlistItems.length})' : 'Show (${watchlistItems.length})',
@@ -196,7 +196,7 @@ class MediaSectionLayout<T> extends StatelessWidget {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Text('FAVORITES', style: AppTheme.sectionHeaderSmall),
+                    AppTheme.wideLibraryHeaderSmall('FAVORITES'),
                     const SizedBox(width: 12),
                     Text(
                       showLibrary ? 'Hide (${savedItems.length})' : 'Show (${savedItems.length})',

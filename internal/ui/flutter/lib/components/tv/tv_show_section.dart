@@ -554,7 +554,6 @@ class _TVShowSectionState extends State<TVShowSection> {
       suggestions: _dbLikedSuggestions,
       mediaType: 'tv_show',
       isWatchlist: false,
-      onRemove: _removeFromLibrary,
       onAddToWatchlist: _addLibraryItemToWatchlist,
       onUnfavorite: _removeFromLibrary,
       watchlistItems: _dbWatchlistSuggestions,
@@ -686,7 +685,7 @@ class _TVShowSectionState extends State<TVShowSection> {
   // Remove from watchlist
   Future<void> _removeFromWatchlist(MediaSuggestion suggestion) async {
     try {
-      await _db.removeFromWatchlist(suggestion.id);
+      await _db.removeFromWatchlist(suggestion.mediaItemId!);
       
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -704,7 +703,7 @@ class _TVShowSectionState extends State<TVShowSection> {
   // Dislike a watchlist item
   Future<void> _dislikeWatchlistItem(MediaSuggestion suggestion) async {
     try {
-      await _db.removeFromWatchlist(suggestion.id);
+      await _db.removeFromWatchlist(suggestion.mediaItemId!);
       
       await _recommendationService.updateSuggestionStatus(
         suggestion.id,
@@ -728,7 +727,7 @@ class _TVShowSectionState extends State<TVShowSection> {
   // Like a watchlist item
   Future<void> _likeWatchlistItem(MediaSuggestion suggestion) async {
     try {
-      await _db.removeFromWatchlist(suggestion.id);
+      await _db.removeFromWatchlist(suggestion.mediaItemId!);
       
       // Only change status if not already favorited (added)
       if (suggestion.status != SuggestionStatus.added) {
@@ -755,8 +754,7 @@ class _TVShowSectionState extends State<TVShowSection> {
   // Remove from library
   Future<void> _removeFromLibrary(MediaSuggestion suggestion) async {
     try {
-      // Use the proper removal method that handles both recommendation-based and user-added items
-      await _db.removeFromFavorites(suggestion.id);
+      await _db.removeFromFavorites(suggestion.mediaItemId!);
 
       // If the removed item is the currently displayed suggestion, update the state
       if (_currentDbSuggestion != null && _currentDbSuggestion!.id == suggestion.id) {
@@ -781,8 +779,7 @@ class _TVShowSectionState extends State<TVShowSection> {
   // Favorite a watchlist item
   Future<void> _favoriteWatchlistItem(MediaSuggestion suggestion) async {
     try {
-      // Use the new method that handles both recommendation-based and user-added items
-      await _db.moveFromWatchlistToFavorites(suggestion.id);
+      await _db.moveFromWatchlistToFavorites(suggestion.mediaItemId!);
       
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -802,7 +799,7 @@ class _TVShowSectionState extends State<TVShowSection> {
   // Add library item to watchlist
   Future<void> _addLibraryItemToWatchlist(MediaSuggestion suggestion) async {
     try {
-      await _db.addToWatchlist(suggestion.id);
+      await _db.addToWatchlist(suggestion.mediaItemId!);
       
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -834,10 +831,8 @@ class _TVShowSectionState extends State<TVShowSection> {
               child: Center(
                 child: Opacity(
                   opacity: (scrollOffset <= 70) ? 1.0 : 0.0,
-                  child: const Text(
-                                                                                         'SUGGESTED',
-                      style: AppTheme.sectionHeaderLarge,
-                    textAlign: TextAlign.center,
+                  child: Center(
+                    child: AppTheme.themedSuggestionHeader('SUGGESTED'),
                   ),
                 ),
               ),
@@ -1119,11 +1114,8 @@ class _TVShowSectionState extends State<TVShowSection> {
     return Column(
       children: [
         const SizedBox(height: 32.0), // Add spacing before the title
-        const Center(
-          child: Text(
-                                                                         'WATCHLIST',
-              style: AppTheme.sectionHeaderMedium,
-          ),
+        Center(
+          child: AppTheme.themedLibraryHeader('WATCHLIST'),
         ),
         const SizedBox(height: 24.0), // Add spacing between title and content
         ComponentSpacing(
@@ -1155,11 +1147,8 @@ class _TVShowSectionState extends State<TVShowSection> {
     return Column(
       children: [
         const SizedBox(height: 32.0), // Add spacing before the title
-        const Center(
-          child: Text(
-                                                                         'FAVORITES',
-              style: AppTheme.sectionHeaderMedium,
-          ),
+        Center(
+          child: AppTheme.themedLibraryHeader('FAVORITES'),
         ),
         const SizedBox(height: 24.0), // Add spacing between title and content
         ComponentSpacing(

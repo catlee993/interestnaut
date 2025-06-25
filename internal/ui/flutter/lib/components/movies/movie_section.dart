@@ -1011,10 +1011,8 @@ class _MovieSectionState extends State<MovieSection> {
                   child: Center(
                     child: Opacity(
                       opacity: (scrollOffset <= 70) ? 1.0 : 0.0,
-                      child: const Text(
-                        'SUGGESTED',
-                        style: AppTheme.sectionHeaderLarge,
-                        textAlign: TextAlign.center,
+                      child: Center(
+                        child: AppTheme.themedSuggestionHeader('SUGGESTED'),
                       ),
                     ),
                   ),
@@ -1300,11 +1298,8 @@ class _MovieSectionState extends State<MovieSection> {
     return Column(
       children: [
         const SizedBox(height: 32.0), // Add spacing before the title
-        const Center(
-          child: Text(
-                                    'WATCHLIST',
-            style: AppTheme.sectionHeaderMedium,
-          ),
+        Center(
+          child: AppTheme.themedLibraryHeader('WATCHLIST'),
         ),
         const SizedBox(height: 24.0), // Add spacing between title and content
         ComponentSpacing(
@@ -1336,11 +1331,8 @@ class _MovieSectionState extends State<MovieSection> {
     return Column(
       children: [
         const SizedBox(height: 32.0), // Add spacing before the title
-        const Center(
-          child: Text(
-                                    'FAVORITES',
-            style: AppTheme.sectionHeaderMedium,
-          ),
+        Center(
+          child: AppTheme.themedLibraryHeader('FAVORITES'),
         ),
         const SizedBox(height: 24.0), // Add spacing between title and content
         ComponentSpacing(

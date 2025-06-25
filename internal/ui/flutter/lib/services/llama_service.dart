@@ -1368,12 +1368,12 @@ class LlamaService {
         similarity: similarity,
       );
       
-      // Use balanced generation with larger batch size
+      // Use balanced generation with optimized stopping
       final response = await _generateFastResponse(
         prompt,
-        maxTokens: 100,       // Increased for fuller responses
-        temperature: 0.7,     // Higher creativity to avoid short responses
-        stopSequences: ['.', '!', '?'],  // Removed \n to allow longer explanations
+        maxTokens: 60,        // Reduced to keep responses focused
+        temperature: 0.6,     // Slightly lower for more focused responses
+        stopSequences: ['.', '!', '?', '\n\n', 'I do not', 'I can suggest'],  // Stop at punctuation and self-referential rambling
       );
       
       stopwatch.stop();
@@ -1513,8 +1513,8 @@ class LlamaService {
     // Build structured prompt for TinyLlama - helps prevent hallucination
     String minimalPrompt;
     if (context.isNotEmpty && userProfile != null && userProfile!.isNotEmpty) {
-      // Use your suggested format for clear connections
-      minimalPrompt = 'User likes: $userProfile\nThis has: $context\nExplain why this matches the user\'s taste:';
+      // Use your suggested format with more constraining instruction
+      minimalPrompt = 'User likes: $userProfile\nThis has: $context\nConnection:';
     } else if (context.isNotEmpty) {
       // Fallback when no user profile available
       minimalPrompt = 'Movie: "$title"$creator\nGenres: $context\nWhy recommend:';
@@ -1592,7 +1592,14 @@ class LlamaService {
       return false;
     });
     
-    if (isBadResponse || cleaned.isEmpty || cleaned.length < 15) {
+    // Check for rambling responses
+    final isRambling = cleaned.length > 150 || 
+                      cleaned.split(' ').length > 25 ||
+                      cleaned.contains('music') ||
+                      cleaned.contains('literature') ||
+                      cleaned.contains('I do not have');
+    
+    if (isBadResponse || cleaned.isEmpty || cleaned.length < 15 || isRambling) {
       // Return a simple, safe response instead of bad content
       return 'A compelling choice with interesting themes and strong storytelling.';
     }

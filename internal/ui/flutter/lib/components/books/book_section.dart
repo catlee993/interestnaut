@@ -542,20 +542,36 @@ class _BookSectionState extends State<BookSection> {
 
   // Add DB suggestion to reading list and move to next
   Future<void> _addDbSuggestionToReadingList() async {
-    if (_currentDbSuggestion == null || _isLoadingDbSuggestion) return;
+    debugPrint('📚 _addDbSuggestionToReadingList called - currentSuggestion: ${_currentDbSuggestion?.title}');
+    
+    if (_currentDbSuggestion == null || _isLoadingDbSuggestion) {
+      debugPrint('📚 _addDbSuggestionToReadingList early return - currentSuggestion is null or loading');
+      return;
+    }
 
     setState(() {
       _isLoadingDbSuggestion = true;
     });
 
     try {
-      await _db.addToWatchlist(_currentDbSuggestion!.id);
+      debugPrint('📚 _addDbSuggestionToReadingList adding to watchlist table');
+      // Add to watchlist table using media_item_id
+      if (_currentDbSuggestion!.mediaItemId == null) {
+        throw Exception('Cannot add to reading list: mediaItemId is null');
+      }
+      await _db.addToWatchlist(_currentDbSuggestion!.mediaItemId!);
       
       // Update suggestion status so it's no longer pending (won't appear in queue again)
       await _recommendationService.updateSuggestionStatus(
         _currentDbSuggestion!.id,
         SuggestionStatus.watchlist, // Mark as watchlisted for future LLM learning
       );
+      
+      debugPrint('📚 _addDbSuggestionToReadingList updating local state');
+      // Immediately update local state so button updates right away
+      setState(() {
+        _dbReadingListSuggestions.add(_currentDbSuggestion!);
+      });
       
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -564,18 +580,18 @@ class _BookSectionState extends State<BookSection> {
         ),
       );
 
-      // Immediately update the local state to reflect the change
-      setState(() {
-        _dbReadingListSuggestions.add(_currentDbSuggestion!);
-      });
-
-      // Refresh reading list in background
+      debugPrint('📚 _addDbSuggestionToReadingList refreshing reading list');
+      // Refresh reading list in background to ensure consistency
       _loadDbReadingList();
 
       // Note: Add to reading list action keeps the suggestion active until user manually hits next
       debugPrint('📚 _addDbSuggestionToReadingList completed - keeping suggestion active');
     } catch (e) {
       debugPrint('Error adding to reading list: $e');
+      // Revert local state on error
+      setState(() {
+        _dbReadingListSuggestions.removeWhere((item) => item.mediaItemId == _currentDbSuggestion!.mediaItemId);
+      });
     } finally {
       setState(() {
         _isLoadingDbSuggestion = false;
@@ -587,7 +603,7 @@ class _BookSectionState extends State<BookSection> {
   Future<void> _removeFromReadingList(MediaSuggestion suggestion) async {
     try {
       // Use the proper removal method that handles both recommendation-based and user-added items
-      await _db.removeFromWatchlist(suggestion.id);
+      await _db.removeFromWatchlist(suggestion.mediaItemId!);
       
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -606,7 +622,7 @@ class _BookSectionState extends State<BookSection> {
   Future<void> _likeReadingListItem(MediaSuggestion suggestion) async {
     try {
       // Remove from reading list since user has reacted
-      await _db.removeFromWatchlist(suggestion.id);
+      await _db.removeFromWatchlist(suggestion.mediaItemId!);
       
       await _recommendationService.updateSuggestionStatus(
         suggestion.id,
@@ -629,7 +645,7 @@ class _BookSectionState extends State<BookSection> {
   // Dislike a reading list item
   Future<void> _dislikeReadingListItem(MediaSuggestion suggestion) async {
     try {
-      await _db.removeFromWatchlist(suggestion.id);
+      await _db.removeFromWatchlist(suggestion.mediaItemId!);
       await _recommendationService.updateSuggestionStatus(
         suggestion.id,
         SuggestionStatus.disliked,
@@ -653,7 +669,7 @@ class _BookSectionState extends State<BookSection> {
   Future<void> _favoriteReadingListItem(MediaSuggestion suggestion) async {
     try {
       // Use the new method that handles both recommendation-based and user-added items
-      await _db.moveFromWatchlistToFavorites(suggestion.id);
+      await _db.moveFromWatchlistToFavorites(suggestion.mediaItemId!);
       
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -672,7 +688,7 @@ class _BookSectionState extends State<BookSection> {
   // Add library item to reading list
   Future<void> _addLibraryItemToReadingList(MediaSuggestion suggestion) async {
     try {
-      await _db.addToWatchlist(suggestion.id);
+      await _db.addToWatchlist(suggestion.mediaItemId!);
       
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -687,11 +703,10 @@ class _BookSectionState extends State<BookSection> {
     }
   }
 
-  // Remove from library (unfavorite)
+  // Remove from library
   Future<void> _removeFromLibrary(MediaSuggestion suggestion) async {
     try {
-      // Use the proper removal method that handles both recommendation-based and user-added items
-      await _db.removeFromFavorites(suggestion.id);
+      await _db.removeFromFavorites(suggestion.mediaItemId!);
       
       // If the removed item is the currently displayed suggestion, update the state
       if (_currentDbSuggestion != null && _currentDbSuggestion!.id == suggestion.id) {
@@ -730,10 +745,8 @@ class _BookSectionState extends State<BookSection> {
               child: Center(
                 child: Opacity(
                   opacity: (scrollOffset <= 70) ? 1.0 : 0.0,
-                  child: const Text(
-                                                                                         'SUGGESTED',
-                      style: AppTheme.sectionHeaderLarge,
-                    textAlign: TextAlign.center,
+                  child: Center(
+                    child: AppTheme.themedSuggestionHeader('SUGGESTED'),
                   ),
                 ),
               ),
@@ -1019,7 +1032,8 @@ class _BookSectionState extends State<BookSection> {
                       hasLikedCurrentSuggestion: _hasLikedCurrentSuggestion,
                       hasFavoritedCurrentSuggestion: _hasFavoritedCurrentSuggestion,
                       isInWatchlist: _currentDbSuggestion != null && 
-                        _dbReadingListSuggestions.any((item) => item.id == _currentDbSuggestion!.id),
+                        _currentDbSuggestion!.mediaItemId != null &&
+                        _dbReadingListSuggestions.any((item) => item.mediaItemId == _currentDbSuggestion!.mediaItemId),
                       isProcessing: _isLoadingDbSuggestion,
                       onLike: _likeDbSuggestion,
                       onDislike: _dislikeDbSuggestion,
@@ -1027,7 +1041,8 @@ class _BookSectionState extends State<BookSection> {
                       onUnfavorite: _removeFromFavorites,
                       onAddToWatchlist: () {
                         final inReadingList = _currentDbSuggestion != null && 
-                          _dbReadingListSuggestions.any((item) => item.id == _currentDbSuggestion!.id);
+                          _currentDbSuggestion!.mediaItemId != null &&
+                          _dbReadingListSuggestions.any((item) => item.mediaItemId == _currentDbSuggestion!.mediaItemId);
                         if (inReadingList) {
                           if (_currentDbSuggestion != null) {
                             _removeFromReadingList(_currentDbSuggestion!);
@@ -1053,11 +1068,8 @@ class _BookSectionState extends State<BookSection> {
     return Column(
       children: [
         const SizedBox(height: 32.0), // Add spacing before the title
-        const Center(
-          child: Text(
-                                                                         'READLIST',
-              style: AppTheme.sectionHeaderMedium,
-          ),
+        Center(
+          child: AppTheme.themedLibraryHeader('READLIST'),
         ),
         const SizedBox(height: 24.0), // Add spacing between title and content
         if (_isLoadingDbReadingList)
@@ -1096,11 +1108,8 @@ class _BookSectionState extends State<BookSection> {
     return Column(
       children: [
         const SizedBox(height: 32.0), // Add spacing before the title
-        const Center(
-          child: Text(
-                                                                         'FAVORITES',
-              style: AppTheme.sectionHeaderMedium,
-          ),
+        Center(
+          child: AppTheme.themedLibraryHeader('FAVORITES'),
         ),
         const SizedBox(height: 24.0), // Add spacing between title and content
         if (_isLoadingDbLibrary)
@@ -1125,7 +1134,6 @@ class _BookSectionState extends State<BookSection> {
             suggestions: _dbLikedSuggestions,
             mediaType: 'book',
             isWatchlist: false,
-            onRemove: _removeFromLibrary,
             onAddToWatchlist: _addLibraryItemToReadingList,
             onUnfavorite: _removeFromLibrary,
             watchlistItems: _dbReadingListSuggestions,

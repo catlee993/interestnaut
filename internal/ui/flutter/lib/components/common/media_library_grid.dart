@@ -3,6 +3,13 @@ import '../../services/recommendation_service.dart';
 import 'media_library_card.dart';
 import '../../utils/text_utils.dart';
 
+/// Card format options for different media types
+enum CardFormat {
+  square,  // For music albums - 1:1 ratio
+  poster,  // For movies, TV shows, books - 2:3 ratio (taller)
+  cover,   // For game covers - slightly taller than square
+}
+
 /// A reusable grid component for displaying media library/watchlist items
 /// Provides consistent 3-column layout with proper spacing
 class MediaLibraryGrid extends StatelessWidget {
@@ -17,6 +24,7 @@ class MediaLibraryGrid extends StatelessWidget {
   final Function(MediaSuggestion)? onFavorite;
   final Function(MediaSuggestion)? onUnfavorite;
   final List<MediaSuggestion> watchlistItems;
+  final CardFormat? cardFormat; // Optional override for card format
 
   const MediaLibraryGrid({
     Key? key,
@@ -31,6 +39,7 @@ class MediaLibraryGrid extends StatelessWidget {
     this.onFavorite,
     this.onUnfavorite,
     this.watchlistItems = const [],
+    this.cardFormat, // Allow manual override
   }) : super(key: key);
 
   @override
@@ -54,6 +63,7 @@ class MediaLibraryGrid extends StatelessWidget {
         isWatchlist: isWatchlist,
         mediaType: mediaType,
         isInWatchlist: isInWatchlist,
+        cardFormat: cardFormat ?? _getCardFormat(), // Use override or auto-detect
         onRemove: onRemove != null ? () => onRemove!(suggestion) : null,
         onLike: onLike != null ? () => onLike!(suggestion) : null,
         onDislike: onDislike != null ? () => onDislike!(suggestion) : null,
@@ -66,19 +76,71 @@ class MediaLibraryGrid extends StatelessWidget {
     );
   }
 
-  /// Get the appropriate aspect ratio for the media type
-  double _getAspectRatio() {
+  /// Get the card format based on media type
+  CardFormat _getCardFormat() {
     switch (mediaType) {
       case 'music':
-        return 1.0; // Square aspect ratio for albums
+        return CardFormat.square; // Albums are square
       case 'movie':
       case 'tv_show':
+      case 'tv':
       case 'book':
-        return 0.7; // Poster aspect ratio (taller rectangles)
+        return CardFormat.poster; // Movies, TV, books use poster format
       case 'video_game':
-        return 0.8; // Game cover aspect ratio
+      case 'game':
+        return CardFormat.cover; // Games use cover format
       default:
-        return 1.2; // Default aspect ratio
+        return CardFormat.poster; // Default to poster
+    }
+  }
+
+  /// Get the appropriate aspect ratio for the card format
+  double _getAspectRatio() {
+    final format = cardFormat ?? _getCardFormat();
+    
+    switch (format) {
+      case CardFormat.square:
+        return 1.0; // Perfect square (1:1)
+      case CardFormat.poster:
+        return 0.7; // Poster format (2:3 ratio - taller)
+      case CardFormat.cover:
+        return 0.8; // Game cover format (4:5 ratio - slightly taller)
+    }
+  }
+
+  /// Helper method to get aspect ratio for a specific media type (static utility)
+  static double getAspectRatioForMediaType(String mediaType) {
+    switch (mediaType) {
+      case 'music':
+        return 1.0; // Square for albums
+      case 'movie':
+      case 'tv_show':
+      case 'tv':
+      case 'book':
+        return 0.7; // Poster format
+      case 'video_game':
+      case 'game':
+        return 0.8; // Game cover format
+      default:
+        return 0.7; // Default to poster
+    }
+  }
+
+  /// Helper method to get card format for a specific media type (static utility)
+  static CardFormat getCardFormatForMediaType(String mediaType) {
+    switch (mediaType) {
+      case 'music':
+        return CardFormat.square;
+      case 'movie':
+      case 'tv_show':
+      case 'tv':
+      case 'book':
+        return CardFormat.poster;
+      case 'video_game':
+      case 'game':
+        return CardFormat.cover;
+      default:
+        return CardFormat.poster;
     }
   }
 } 

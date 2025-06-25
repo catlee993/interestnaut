@@ -537,7 +537,7 @@ class _GameSectionState extends State<GameSection> {
   // Remove from playlist
   Future<void> _removeFromPlaylist(MediaSuggestion suggestion) async {
     try {
-      await _db.removeFromWatchlist(suggestion.id);
+      await _db.removeFromWatchlist(suggestion.mediaItemId!);
       
       // Immediately update local state so UI updates right away
       setState(() {
@@ -565,7 +565,7 @@ class _GameSectionState extends State<GameSection> {
   // Dislike a playlist item
   Future<void> _dislikePlaylistItem(MediaSuggestion suggestion) async {
     try {
-      await _db.removeFromWatchlist(suggestion.id);
+      await _db.removeFromWatchlist(suggestion.mediaItemId!);
       
       await _recommendationService.updateSuggestionStatus(
         suggestion.id,
@@ -589,7 +589,7 @@ class _GameSectionState extends State<GameSection> {
   // Like a playlist item
   Future<void> _likePlaylistItem(MediaSuggestion suggestion) async {
     try {
-      await _db.removeFromWatchlist(suggestion.id);
+      await _db.removeFromWatchlist(suggestion.mediaItemId!);
       
       // Only change status if not already favorited (added)
       if (suggestion.status != SuggestionStatus.added) {
@@ -617,7 +617,7 @@ class _GameSectionState extends State<GameSection> {
   Future<void> _favoritePlaylistItem(MediaSuggestion suggestion) async {
     try {
       // Use the new method that handles both recommendation-based and user-added items
-      await _db.moveFromWatchlistToFavorites(suggestion.id);
+      await _db.moveFromWatchlistToFavorites(suggestion.mediaItemId!);
       
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -636,7 +636,7 @@ class _GameSectionState extends State<GameSection> {
   // Add library item to playlist
   Future<void> _addLibraryItemToPlaylist(MediaSuggestion suggestion) async {
     try {
-      await _db.addToWatchlist(suggestion.id);
+      await _db.addToWatchlist(suggestion.mediaItemId!);
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -655,7 +655,7 @@ class _GameSectionState extends State<GameSection> {
   Future<void> _removeFromLibrary(MediaSuggestion suggestion) async {
     try {
       // Use the proper removal method that handles both recommendation-based and user-added items
-      await _db.removeFromFavorites(suggestion.id);
+      await _db.removeFromFavorites(suggestion.mediaItemId!);
 
       // If the removed item is the currently displayed suggestion, update the state
       if (_currentDbSuggestion != null && _currentDbSuggestion!.id == suggestion.id) {
@@ -698,10 +698,8 @@ class _GameSectionState extends State<GameSection> {
                   child: Center(
                     child: Opacity(
                       opacity: (scrollOffset <= 70) ? 1.0 : 0.0,
-                      child: const Text(
-                        'SUGGESTED',
-                        style: AppTheme.sectionHeaderLarge,
-                        textAlign: TextAlign.center,
+                      child: Center(
+                        child: AppTheme.themedSuggestionHeader('SUGGESTED'),
                       ),
                     ),
                   ),
@@ -986,11 +984,8 @@ class _GameSectionState extends State<GameSection> {
     return Column(
       children: [
         const SizedBox(height: 32.0), // Add spacing before the title
-        const Center(
-          child: Text(
-            'FAVORITES',
-            style: AppTheme.sectionHeaderMedium,
-          ),
+        Center(
+          child: AppTheme.themedLibraryHeader('FAVORITES'),
         ),
         const SizedBox(height: 24.0), // Add spacing between title and content
         ComponentSpacing(
@@ -1005,9 +1000,6 @@ class _GameSectionState extends State<GameSection> {
                   watchlistItems: _dbPlaylistSuggestions,
                   mediaType: 'video_game',
                   isWatchlist: false,
-                  onRemove: (suggestion) async {
-                    await _removeFromLibrary(suggestion);
-                  },
                   onLike: (suggestion) async {
                     await _recommendationService.updateSuggestionStatus(
                       suggestion.id,
@@ -1046,11 +1038,8 @@ class _GameSectionState extends State<GameSection> {
     return Column(
       children: [
         const SizedBox(height: 32.0), // Add spacing before the title
-        const Center(
-          child: Text(
-            'PLAYLIST',
-            style: AppTheme.sectionHeaderMedium,
-          ),
+        Center(
+          child: AppTheme.themedLibraryHeader('PLAYLIST'),
         ),
         const SizedBox(height: 24.0), // Add spacing between title and content
         ComponentSpacing(

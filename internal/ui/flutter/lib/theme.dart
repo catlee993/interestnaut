@@ -1,15 +1,15 @@
 import 'package:flutter/material.dart';
 
-/// Interestnaut app theme - matches React/MUI styling
+/// Interestnaut app theme - all values are easily editable here
 class AppTheme {
-  // Core colors from App.css and theme.ts
+  // === EDITABLE COLORS ===
   static const Color primaryColor = Color(0xFF7B68EE); // Medium slate blue
   static const Color primaryHover = Color(0xFF9370DB); // Medium purple
   static const Color accentColor = Color(0xFFA855F7); // Lighter purple
   static const Color spotifyGreen = Color(0xFF1DB954); // Spotify brand color
   static const Color spotifyGreenHover = Color(0xFF1ED760); // Spotify hover
   
-  static const Color backgroundColor = Color(0xFF121212); // Very dark gray - exact MUI value
+  static const Color backgroundColor = Color(0xFF121212); // Very dark gray
   static const Color surfaceColor = Color(0xFF282828); // Dark gray for cards
   static const Color surfaceHover = Color(0xFF383838); // Slightly lighter gray
   static const Color cardBackgroundColor = Color(0xFF282828); // Card background
@@ -17,12 +17,28 @@ class AppTheme {
   
   static const Color textPrimary = Color(0xFFFFFFFF); // White
   static const Color textSecondary = Color(0xFFB3B3B3); // Light gray
+  static const Color textTertiary = Color(0xFF808080); // Medium gray
   
   static const Color errorColor = Color(0xFFFF4444); // Red
-  static const Color purpleRed = Color(0xFFC23B85); // For errors/warnings
-  static const Color purpleBlue = Color(0xFF6A5ACD); // For specific UI elements
-
-  // Logo gradient colors - exactly matching MUI
+  static const Color warningColor = Color(0xFFFFAA00); // Orange
+  static const Color successColor = Color(0xFF00CC44); // Green
+  static const Color infoColor = Color(0xFF0091EA); // Blue
+  static const Color purpleRed = Color(0xFFC23B85); // For errors/warnings - legacy compatibility
+  static const Color purpleBlue = Color(0xFF6A5ACD); // For specific UI elements - legacy compatibility
+  
+  // === EDITABLE SPACING ===
+  static const double spacingXS = 4;
+  static const double spacingSM = 8;
+  static const double spacingMD = 16;
+  static const double spacingLG = 24;
+  static const double spacingXL = 32;
+  
+  // === EDITABLE BORDER RADIUS ===
+  static const double borderRadius = 8;
+  static const double cardBorderRadius = 12;
+  static const double buttonBorderRadius = 24;
+  
+  // === EDITABLE GRADIENTS ===
   static const Gradient logoGradient = LinearGradient(
     colors: [Color(0xFFC165DD), Color(0xFF9880FF)],
     begin: Alignment.topLeft,
@@ -30,33 +46,13 @@ class AppTheme {
     stops: [0.3, 0.9],
   );
 
-  // Spacing values from App.css
-  static const double spacingXS = 4;
-  static const double spacingSM = 8;
-  static const double spacingMD = 16;
-  static const double spacingLG = 24;
-  static const double spacingXL = 32;
-
-  // Border radius
-  static const double borderRadius = 8;
-  static const double cardBorderRadius = 12;
-  static const double buttonBorderRadius = 24; // Matching MUI's rounded buttons - increased to match screenshot
-
-  // Typography
-  static TextStyle get headingStyle => const TextStyle(
-        fontFamily: 'Inter, Roboto, -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif',
-        fontWeight: FontWeight.w600,
-        color: textPrimary,
-      );
-
-  static TextStyle get bodyStyle => const TextStyle(
-        fontFamily: 'Inter, Roboto, -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif',
-        fontWeight: FontWeight.w400,
-        color: textPrimary,
-      );
-      
-  static TextStyle get logoTextStyle => const TextStyle(
-    fontFamily: 'Inter',
+  // === EDITABLE TYPOGRAPHY ===
+  static const String fontFamily = 'Inter';
+  static const String fullFontFamily = 'Inter, Roboto, -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif';
+  
+  // Logo text style
+  static const TextStyle logoTextStyle = TextStyle(
+    fontFamily: fontFamily,
     fontWeight: FontWeight.w100,
     fontSize: 14,
     letterSpacing: 1.8,
@@ -64,38 +60,135 @@ class AppTheme {
     textBaseline: TextBaseline.alphabetic,
   );
   
-  static TextStyle get headerSelectorStyle => const TextStyle(
-    fontFamily: 'Inter',
+  // Header selector (media type tabs)
+  static const TextStyle headerSelectorStyle = TextStyle(
+    fontFamily: fontFamily,
     fontWeight: FontWeight.w100,
-    fontSize: 14, 
+    fontSize: 14,
     letterSpacing: 1.5,
-    color: Colors.white,
+    color: textPrimary,
   );
   
-  // Section header styles - minimalist and consistent
+  // Section header styles - easily customizable
   static const TextStyle sectionHeaderLarge = TextStyle(
-    fontFamily: 'Inter',
+    fontFamily: fontFamily,
     fontWeight: FontWeight.w200,
     fontSize: 24,
-    letterSpacing: 3.1, // 24 * 0.129 = proportional to logoTextStyle
-    color: Colors.white,
+    letterSpacing: 3.0,
+    color: textPrimary,
   );
   
   static const TextStyle sectionHeaderMedium = TextStyle(
-    fontFamily: 'Inter',
+    fontFamily: fontFamily,
     fontWeight: FontWeight.w200,
     fontSize: 20,
-    letterSpacing: 2.6, // 20 * 0.129 = proportional to logoTextStyle
-    color: Colors.white,
+    letterSpacing: 2.5,
+    color: textPrimary,
   );
   
   static const TextStyle sectionHeaderSmall = TextStyle(
-    fontFamily: 'Inter',
+    fontFamily: fontFamily,
     fontWeight: FontWeight.w200,
     fontSize: 18,
-    letterSpacing: 2.3, // 18 * 0.129 = proportional to logoTextStyle
-    color: Colors.white,
+    letterSpacing: 2.25,
+    color: textPrimary,
   );
+  
+  // Search results header style
+  static const TextStyle searchResultsHeaderStyle = TextStyle(
+    fontFamily: fontFamily,
+    fontWeight: FontWeight.bold,
+    fontSize: 20,
+    color: textPrimary,
+  );
+  
+  // Library/Watchlist header style
+  static TextStyle get libraryHeaderStyle => TextStyle(
+    fontFamily: fontFamily,
+    fontWeight: FontWeight.w200,
+    fontSize: 18,
+    letterSpacing: 2.3 * libraryHeaderLetterSpacing,
+    color: textPrimary,
+  );
+  
+  // API credentials header style
+  static const TextStyle apiCredentialsHeaderStyle = TextStyle(
+    fontFamily: fontFamily,
+    fontWeight: FontWeight.bold,
+    fontSize: 18,
+    color: infoColor,
+  );
+  
+  // === EDITABLE SECTION HEADER SCALING ===
+  // Separate scaling for different types of section headers
+  static const double suggestionHeaderScaleX = 1.15; // SUGGESTED headers - original width
+  static const double libraryHeaderScaleX = 1.25; // Library/Watchlist headers - original width
+  
+  // Letter spacing for section headers
+  static const double suggestionHeaderLetterSpacing = 1.10; // Letter spacing for SUGGESTED headers
+  static const double libraryHeaderLetterSpacing = 1.0; // Letter spacing for Library/Watchlist headers
+  
+  // SUGGESTION HEADERS (SUGGESTED, etc.)
+  static Widget wideSuggestionHeaderLarge(String text) => Transform.scale(
+    scaleX: suggestionHeaderScaleX,
+    child: Text(text, style: suggestionHeaderLarge),
+  );
+  
+  static Widget wideSuggestionHeaderMedium(String text) => Transform.scale(
+    scaleX: suggestionHeaderScaleX,
+    child: Text(text, style: suggestionHeaderMedium),
+  );
+  
+  static Widget wideSuggestionHeaderSmall(String text) => Transform.scale(
+    scaleX: suggestionHeaderScaleX,
+    child: Text(text, style: suggestionHeaderSmall),
+  );
+  
+  // LIBRARY/WATCHLIST HEADERS (Your Library, Your Watchlist, FAVORITES, etc.)
+  static Widget wideLibraryHeaderLarge(String text) => Transform.scale(
+    scaleX: libraryHeaderScaleX,
+    child: Text(text, style: libraryHeaderLarge),
+  );
+  
+  static Widget wideLibraryHeaderMedium(String text) => Transform.scale(
+    scaleX: libraryHeaderScaleX,
+    child: Text(text, style: libraryHeaderMedium),
+  );
+  
+  static Widget wideLibraryHeaderSmall(String text) => Transform.scale(
+    scaleX: libraryHeaderScaleX,
+    child: Text(text, style: libraryHeaderSmall),
+  );
+  
+  // Specific library header with its own style
+  static Widget wideLibraryHeader(String text) => Transform.scale(
+    scaleX: libraryHeaderScaleX,
+    child: Text(text, style: libraryHeaderStyle),
+  );
+  
+  // Search results header
+  static Widget wideSearchResultsHeader(String text) => Transform.scale(
+    scaleX: libraryHeaderScaleX, // Use library scale for search results
+    child: Text(text, style: searchResultsHeaderStyle),
+  );
+
+  // Legacy functions for backward compatibility
+  static Widget wideHeaderLarge(String text) => wideSuggestionHeaderLarge(text);
+  static Widget wideHeaderMedium(String text) => wideSuggestionHeaderMedium(text);
+  static Widget wideHeaderSmall(String text) => wideSuggestionHeaderSmall(text);
+
+  // Legacy text styles for compatibility
+  static const TextStyle headingStyle = TextStyle(
+        fontFamily: fullFontFamily,
+        fontWeight: FontWeight.w600,
+        color: textPrimary,
+      );
+
+  static const TextStyle bodyStyle = TextStyle(
+        fontFamily: fullFontFamily,
+        fontWeight: FontWeight.w400,
+        color: textPrimary,
+      );
 
   /// Returns the main ThemeData for the app
   static ThemeData get theme {
@@ -425,4 +518,82 @@ class AppTheme {
       ),
     );
   }
+
+  // THEMED HEADER FUNCTIONS using AppTheme scaling values
+  
+  /// Create a suggestion header (SUGGESTED, etc.) with proper scaling
+  static Widget themedSuggestionHeader(String text) {
+    return Transform(
+      transform: Matrix4.identity()..scale(suggestionHeaderScaleX, 1.0),
+      alignment: Alignment.center,
+      child: Text(
+        text,
+        style: suggestionHeaderLarge, // Use the suggestion style with configurable letter spacing
+        textAlign: TextAlign.center,
+      ),
+    );
+  }
+  
+  /// Create a library/watchlist header with proper scaling
+  static Widget themedLibraryHeader(String text) {
+    return Transform(
+      transform: Matrix4.identity()..scale(libraryHeaderScaleX, 1.0),
+      alignment: Alignment.center,
+      child: Text(
+        text,
+        style: libraryHeaderMedium, // Use the library style with configurable letter spacing
+        textAlign: TextAlign.center,
+      ),
+    );
+  }
+
+  // Suggestion header styles - use configurable letter spacing
+  static TextStyle get suggestionHeaderLarge => TextStyle(
+    fontFamily: fontFamily,
+    fontWeight: FontWeight.w200,
+    fontSize: 24,
+    letterSpacing: 3.0 * suggestionHeaderLetterSpacing,
+    color: textPrimary,
+  );
+  
+  static TextStyle get suggestionHeaderMedium => TextStyle(
+    fontFamily: fontFamily,
+    fontWeight: FontWeight.w200,
+    fontSize: 20,
+    letterSpacing: 2.5 * suggestionHeaderLetterSpacing,
+    color: textPrimary,
+  );
+  
+  static TextStyle get suggestionHeaderSmall => TextStyle(
+    fontFamily: fontFamily,
+    fontWeight: FontWeight.w200,
+    fontSize: 18,
+    letterSpacing: 2.25 * suggestionHeaderLetterSpacing,
+    color: textPrimary,
+  );
+
+  // Library header styles - use configurable letter spacing
+  static TextStyle get libraryHeaderLarge => TextStyle(
+    fontFamily: fontFamily,
+    fontWeight: FontWeight.w200,
+    fontSize: 24,
+    letterSpacing: 3.0 * libraryHeaderLetterSpacing,
+    color: textPrimary,
+  );
+  
+  static TextStyle get libraryHeaderMedium => TextStyle(
+    fontFamily: fontFamily,
+    fontWeight: FontWeight.w200,
+    fontSize: 20,
+    letterSpacing: 2.5 * libraryHeaderLetterSpacing,
+    color: textPrimary,
+  );
+  
+  static TextStyle get libraryHeaderSmall => TextStyle(
+    fontFamily: fontFamily,
+    fontWeight: FontWeight.w200,
+    fontSize: 18,
+    letterSpacing: 2.25 * libraryHeaderLetterSpacing,
+    color: textPrimary,
+  );
 }

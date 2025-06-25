@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import '../../services/recommendation_service.dart';
 import '../../utils/text_utils.dart';
+import 'media_library_grid.dart'; // Import for CardFormat enum
 
 /// A reusable card component for displaying media items in library/watchlist sections
 /// Based on the music section's beautiful styling with gradient overlay and action buttons
@@ -9,6 +10,7 @@ class MediaLibraryCard extends StatelessWidget {
   final MediaSuggestion suggestion;
   final bool isWatchlist;
   final String mediaType;
+  final CardFormat cardFormat; // Add card format parameter
   final VoidCallback? onRemove;
   final VoidCallback? onLike;
   final VoidCallback? onDislike;
@@ -23,6 +25,7 @@ class MediaLibraryCard extends StatelessWidget {
     required this.suggestion,
     required this.isWatchlist,
     required this.mediaType,
+    required this.cardFormat, // Make it required
     this.onRemove,
     this.onLike,
     this.onDislike,
@@ -135,8 +138,8 @@ class MediaLibraryCard extends StatelessWidget {
               ),
             ),
             
-            // Remove button for watchlist/library views (top-right)
-            if (onRemove != null)
+            // Remove button for watchlist views ONLY (top-right)
+            if (isWatchlist && onRemove != null)
               Positioned(
                 top: 8,
                 right: 8,

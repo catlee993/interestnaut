@@ -1081,10 +1081,8 @@ class _MusicSectionState extends State<MusicSection> {
                     child: Center(
                       child: Opacity(
                         opacity: (scrollOffset <= 70) ? 1.0 : 0.0,
-                        child: const Text(
-                          'SUGGESTED',
-                          style: AppTheme.sectionHeaderLarge,
-                          textAlign: TextAlign.center,
+                        child: Center(
+                          child: AppTheme.themedSuggestionHeader('SUGGESTED'),
                         ),
                       ),
                     ),
@@ -1415,11 +1413,8 @@ class _MusicSectionState extends State<MusicSection> {
     return Column(
       children: [
         const SizedBox(height: 32.0), // Add spacing before the title
-        const Center(
-          child: Text(
-                                    'FAVORITES',
-            style: AppTheme.sectionHeaderMedium,
-          ),
+        Center(
+          child: AppTheme.themedLibraryHeader('FAVORITES'),
         ),
         const SizedBox(height: 24.0), // Add spacing between title and content
         ComponentSpacing(
@@ -1451,11 +1446,8 @@ class _MusicSectionState extends State<MusicSection> {
     return Column(
       children: [
         const SizedBox(height: 32.0), // Add spacing before the title
-        const Center(
-          child: Text(
-                                    'SPOTIFY PLAYLIST',
-            style: AppTheme.sectionHeaderMedium,
-          ),
+        Center(
+          child: AppTheme.themedLibraryHeader('SPOTIFY PLAYLIST'),
         ),
         const SizedBox(height: 24.0), // Add more spacing between title and content
         ComponentSpacing(
@@ -1749,7 +1741,6 @@ class _MusicSectionState extends State<MusicSection> {
       suggestions: _dbLikedSuggestions,
       mediaType: 'music',
       isWatchlist: false,
-      onRemove: _removeFromLibrary,
       onAddToWatchlist: _addLibraryItemToPlaylist,
       onUnfavorite: _removeFromLibrary,
       watchlistItems: _dbPlaylistSuggestions,
@@ -1782,7 +1773,7 @@ class _MusicSectionState extends State<MusicSection> {
   // Add to watchlist (now with real implementation)
   Future<void> _addToWatchlist(MediaSuggestion suggestion) async {
     try {
-      await _db.addToWatchlist(suggestion.id);
+      await _db.addToWatchlist(suggestion.mediaItemId!);
       
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -1809,7 +1800,7 @@ class _MusicSectionState extends State<MusicSection> {
   // Remove from watchlist
   Future<void> _removeFromWatchlist(MediaSuggestion suggestion) async {
     try {
-      await _db.removeFromWatchlist(suggestion.id);
+      await _db.removeFromWatchlist(suggestion.mediaItemId!);
       
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -1837,7 +1828,7 @@ class _MusicSectionState extends State<MusicSection> {
   Future<void> _dislikeWatchlistItem(MediaSuggestion suggestion) async {
     try {
       // First, remove from watchlist table
-      await _db.removeFromWatchlist(suggestion.id);
+      await _db.removeFromWatchlist(suggestion.mediaItemId!);
       
       // Then, if the item is liked/added (in favorites), set status to disliked
       // This will remove it from both playlist and library sections
@@ -1891,7 +1882,7 @@ class _MusicSectionState extends State<MusicSection> {
   Future<void> _likeWatchlistItem(MediaSuggestion suggestion) async {
     try {
       // Remove from watchlist table
-      await _db.removeFromWatchlist(suggestion.id);
+      await _db.removeFromWatchlist(suggestion.mediaItemId!);
       
       // Only change status if not already favorited (added)
       if (suggestion.status != SuggestionStatus.added) {
@@ -1927,7 +1918,7 @@ class _MusicSectionState extends State<MusicSection> {
   Future<void> _favoriteWatchlistItem(MediaSuggestion suggestion) async {
     try {
       // Use the new method that handles both recommendation-based and user-added items
-      await _db.moveFromWatchlistToFavorites(suggestion.id);
+      await _db.moveFromWatchlistToFavorites(suggestion.mediaItemId!);
       
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -1954,7 +1945,7 @@ class _MusicSectionState extends State<MusicSection> {
   // Add library item to playlist
   Future<void> _addLibraryItemToPlaylist(MediaSuggestion suggestion) async {
     try {
-      await _db.addToWatchlist(suggestion.id);
+      await _db.addToWatchlist(suggestion.mediaItemId!);
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -1973,7 +1964,7 @@ class _MusicSectionState extends State<MusicSection> {
   Future<void> _removeFromLibrary(MediaSuggestion suggestion) async {
     try {
       // Use the proper removal method that handles both recommendation-based and user-added items
-      await _db.removeFromFavorites(suggestion.id);
+      await _db.removeFromFavorites(suggestion.mediaItemId!);
 
       // If the removed item is the currently displayed suggestion, update the state
       if (_currentDbSuggestion != null && _currentDbSuggestion!.id == suggestion.id) {
