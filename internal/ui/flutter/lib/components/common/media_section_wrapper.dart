@@ -298,24 +298,15 @@ class MediaSectionWrapper extends StatelessWidget {
                     mediaType: mediaType,
                     hasLikedCurrentSuggestion: controller.hasLikedCurrentSuggestion,
                     hasFavoritedCurrentSuggestion: controller.hasFavoritedCurrentSuggestion,
-                    isInWatchlist: controller.currentDbSuggestion != null && 
-                      controller.dbWatchlistSuggestions.any((item) => item.id == controller.currentDbSuggestion!.id),
+                    isInWatchlist: controller.isInWatchlistCurrentSuggestion,
                     isProcessing: controller.isLoadingDbSuggestion,
                     onLike: controller.likeDbSuggestion,
                     onDislike: controller.dislikeDbSuggestion,
                     onFavorite: controller.addToFavorites,
-                    onUnfavorite: () {
-                      if (controller.currentDbSuggestion?.mediaItemId != null) {
-                        controller.removeFromFavorites(controller.currentDbSuggestion!.mediaItemId!);
-                      }
-                    },
+                    onUnfavorite: controller.unfavoriteCurrentSuggestion,
                     onAddToWatchlist: () {
-                      final inWatchlist = controller.currentDbSuggestion != null && 
-                        controller.dbWatchlistSuggestions.any((item) => item.id == controller.currentDbSuggestion!.id);
-                      if (inWatchlist) {
-                        if (controller.currentDbSuggestion != null) {
-                          controller.removeFromWatchlist(controller.currentDbSuggestion!.mediaItemId!);
-                        }
+                      if (controller.isInWatchlistCurrentSuggestion) {
+                        controller.removeCurrentSuggestionFromWatchlist();
                       } else {
                         controller.addDbSuggestionToWatchlist();
                       }

@@ -12,18 +12,34 @@ class MusicSection extends StatefulWidget {
   State<MusicSection> createState() => _MusicSectionState();
   
   // Static method to refresh favorites from search
-  static void refreshFavoritesFromSearch() {
+  static void refreshFavoritesFromSearch({String? title, String? primaryCreator}) {
     final state = _MusicSectionState._currentState;
     if (state != null && state.mounted) {
       state._controller?.loadDbLibrary();
+      
+      // Sync current suggestion state if search item matches
+      if (title != null && primaryCreator != null) {
+        state._controller?.syncCurrentSuggestionFromSearch(
+          title: title,
+          primaryCreator: primaryCreator,
+        );
+      }
     }
   }
 
   // Static method to refresh playlist from search
-  static void refreshPlaylistFromSearch() {
+  static void refreshPlaylistFromSearch({String? title, String? primaryCreator}) {
     final state = _MusicSectionState._currentState;
     if (state != null && state.mounted) {
       state._controller?.loadDbWatchlist();
+      
+      // Sync current suggestion state if search item matches
+      if (title != null && primaryCreator != null) {
+        state._controller?.syncCurrentSuggestionFromSearch(
+          title: title,
+          primaryCreator: primaryCreator,
+        );
+      }
     }
   }
 }

@@ -1,41 +1,40 @@
 import '../common/base_media_section_controller.dart';
 import '../../services/recommendation_service.dart';
+import 'package:flutter/foundation.dart';
 
 /// Game-specific controller that extends the base controller
 /// Games have no unique behavior, so this is just a thin wrapper
 class GameSectionController extends BaseMediaSectionController {
   GameSectionController() : super('video_game');
   
-  // Games don't need any special behavior beyond the base controller
-  // All the suggestion loading, library management, etc. is handled by the base class
-  
+  // Override base controller methods for game-specific behavior
   @override
   void onSuggestionLiked(MediaSuggestion suggestion) {
-    // Game-specific behavior when suggestion is liked (if needed)
-    // For now, just use the default behavior
+    // Game-specific behavior when suggestion is liked
+    debugPrint('Game suggestion liked: ${suggestion.title}');
   }
   
   @override
   void onSuggestionDisliked(MediaSuggestion suggestion) {
-    // Game-specific behavior when suggestion is disliked (if needed)
-    // For now, just use the default behavior
+    // Game-specific behavior when suggestion is disliked
+    debugPrint('Game suggestion disliked: ${suggestion.title}');
   }
   
   @override
   void onSuggestionSkipped(MediaSuggestion suggestion) {
-    // Game-specific behavior when suggestion is skipped (if needed)
-    // For now, just use the default behavior
+    // Game-specific behavior when suggestion is skipped
+    debugPrint('Game suggestion skipped: ${suggestion.title}');
   }
   
   @override
   void onSuggestionFavorited(MediaSuggestion suggestion) {
-    // Game-specific behavior when suggestion is favorited (if needed)
-    // For now, just use the default behavior
+    // Game-specific behavior when suggestion is favorited
+    debugPrint('Game suggestion favorited: ${suggestion.title}');
   }
   
   @override
   void onSuggestionAddedToWatchlist(MediaSuggestion suggestion) {
-    // Game-specific behavior when suggestion is added to playlist (if needed)
-    // For now, just use the default behavior
+    // Game-specific behavior when suggestion is added to playlist
+    debugPrint('Game suggestion added to playlist: ${suggestion.title}');
   }
 } 

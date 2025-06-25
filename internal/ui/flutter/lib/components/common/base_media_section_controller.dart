@@ -17,6 +17,7 @@ abstract class BaseMediaSectionController extends ChangeNotifier {
   String? _dbSuggestionError;
   bool _hasLikedCurrentSuggestion = false;
   bool _hasFavoritedCurrentSuggestion = false;
+  bool _isInWatchlistCurrentSuggestion = false;
   
   // Common library/watchlist state
   List<MediaSuggestion> _dbLikedSuggestions = [];
@@ -37,6 +38,7 @@ abstract class BaseMediaSectionController extends ChangeNotifier {
   String? get dbSuggestionError => _dbSuggestionError;
   bool get hasLikedCurrentSuggestion => _hasLikedCurrentSuggestion;
   bool get hasFavoritedCurrentSuggestion => _hasFavoritedCurrentSuggestion;
+  bool get isInWatchlistCurrentSuggestion => _isInWatchlistCurrentSuggestion;
   
   List<MediaSuggestion> get dbLikedSuggestions => _dbLikedSuggestions;
   List<MediaSuggestion> get dbWatchlistSuggestions => _dbWatchlistSuggestions;
@@ -71,6 +73,96 @@ abstract class BaseMediaSectionController extends ChangeNotifier {
       loadDbWatchlist(),
     ]);
   }
+
+  /// Update the state flags for the current suggestion based on database status
+  Future<void> _updateCurrentSuggestionState() async {
+    if (_currentDbSuggestion == null) {
+      _hasLikedCurrentSuggestion = false;
+      _hasFavoritedCurrentSuggestion = false;
+      _isInWatchlistCurrentSuggestion = false;
+      return;
+    }
+
+    try {
+      // Use the new database query to get status with joins
+      final suggestionWithStatus = await _db.getSuggestionWithStatus(_currentDbSuggestion!.id);
+      
+      if (suggestionWithStatus != null) {
+        _hasLikedCurrentSuggestion = suggestionWithStatus.hasLiked;
+        _hasFavoritedCurrentSuggestion = suggestionWithStatus.hasFavorited;
+        _isInWatchlistCurrentSuggestion = suggestionWithStatus.isInWatchlist;
+      } else {
+        // Fallback to default state if query fails
+        _hasLikedCurrentSuggestion = false;
+        _hasFavoritedCurrentSuggestion = false;
+        _isInWatchlistCurrentSuggestion = false;
+      }
+      
+    } catch (e) {
+      debugPrint('Error updating current suggestion state: $e');
+      _hasLikedCurrentSuggestion = false;
+      _hasFavoritedCurrentSuggestion = false;
+      _isInWatchlistCurrentSuggestion = false;
+    }
+  }
+
+  /// Check if a suggestion is the current active suggestion and sync state if needed
+  Future<void> _syncCurrentSuggestionIfMatches(MediaSuggestion suggestion) async {
+    if (_currentDbSuggestion != null && 
+        (_currentDbSuggestion!.id == suggestion.id || 
+         _currentDbSuggestion!.mediaItemId == suggestion.mediaItemId)) {
+      debugPrint('🔄 Syncing current suggestion state after external action');
+      await _updateCurrentSuggestionState();
+      notifyListeners();
+    }
+  }
+
+  /// Check if a search item matches the current suggestion by title/creator and sync state
+  Future<void> _syncCurrentSuggestionIfMatchesSearchItem({
+    required String title,
+    required String primaryCreator,
+  }) async {
+    if (_currentDbSuggestion != null) {
+      // Check if title and creator match the current suggestion
+      final currentTitle = _currentDbSuggestion!.title?.toLowerCase() ?? '';
+      final currentCreator = _currentDbSuggestion!.artist?.toLowerCase() ?? '';
+      
+      if (currentTitle == title.toLowerCase() && 
+          currentCreator == primaryCreator.toLowerCase()) {
+        debugPrint('🔄 Syncing current suggestion state after search item action: $title by $primaryCreator');
+        await _updateCurrentSuggestionState();
+        notifyListeners();
+      }
+    }
+  }
+
+  /// Public method to sync current suggestion state from external search actions
+  Future<void> syncCurrentSuggestionFromSearch({
+    required String title,
+    required String primaryCreator,
+  }) async {
+    await _syncCurrentSuggestionIfMatchesSearchItem(
+      title: title,
+      primaryCreator: primaryCreator,
+    );
+  }
+
+  /// Check if a suggestion is the current active suggestion and handle dislike auto-next
+  Future<void> _handleCurrentSuggestionDislike(MediaSuggestion suggestion) async {
+    if (_currentDbSuggestion != null && 
+        (_currentDbSuggestion!.id == suggestion.id || 
+         _currentDbSuggestion!.mediaItemId == suggestion.mediaItemId)) {
+      debugPrint('🔄 Current suggestion was disliked from external action - moving to next');
+      
+             // Update the current suggestion status
+       _currentDbSuggestion!.status = SuggestionStatus.disliked;
+      
+      // Trigger the dislike callback and move to next
+      onSuggestionDisliked(_currentDbSuggestion!);
+      _moveToNextSuggestion();
+      _recommendationService.generateSuggestionOnDemand(mediaType);
+    }
+  }
   
   /// Load suggestion from database
   Future<void> loadDbSuggestion() async {
@@ -99,8 +191,7 @@ abstract class BaseMediaSectionController extends ChangeNotifier {
       if (suggestions.isNotEmpty) {
         _currentDbSuggestion = suggestions.first;
         _isLoadingDbSuggestion = false;
-        _hasLikedCurrentSuggestion = false;
-        _hasFavoritedCurrentSuggestion = false;
+        await _updateCurrentSuggestionState();
         notifyListeners();
       } else {
         final loadingSuggestion = await _recommendationService.generateSuggestionOnDemand(mediaType);
@@ -162,22 +253,61 @@ abstract class BaseMediaSectionController extends ChangeNotifier {
     }
   }
   
-  /// Like current suggestion
+  /// Like current suggestion (toggle like/unlike)
   Future<void> likeDbSuggestion() async {
     if (_currentDbSuggestion == null) return;
     
     try {
+      if (_hasLikedCurrentSuggestion) {
+        // Unlike: clear all relationships and set to disliked/skipped
+        await _unlikeCurrentSuggestion();
+      } else {
+        // Like: set status to liked
+        await _recommendationService.updateSuggestionStatus(
+          _currentDbSuggestion!.id,
+          SuggestionStatus.liked,
+        );
+        
+        // Update state from database
+        await _updateCurrentSuggestionState();
+        notifyListeners();
+        
+        onSuggestionLiked(_currentDbSuggestion!);
+      }
+    } catch (e) {
+      debugPrint('Error toggling like on DB suggestion: $e');
+    }
+  }
+
+  /// Unlike current suggestion (clear all relationships and restore to pending)
+  Future<void> _unlikeCurrentSuggestion() async {
+    if (_currentDbSuggestion == null) return;
+    
+    try {
+      // Remove from favorites if favorited
+      if (_hasFavoritedCurrentSuggestion && _currentDbSuggestion!.mediaItemId != null) {
+        await _db.removeFromFavorites(_currentDbSuggestion!.mediaItemId!);
+        loadDbLibrary();
+      }
+      
+      // Remove from watchlist if in watchlist
+      if (_isInWatchlistCurrentSuggestion && _currentDbSuggestion!.mediaItemId != null) {
+        await _db.removeFromWatchlist(_currentDbSuggestion!.mediaItemId!);
+        loadDbWatchlist();
+      }
+      
+      // Set status back to pending (since user undid all actions, treat as no action taken)
       await _recommendationService.updateSuggestionStatus(
         _currentDbSuggestion!.id,
-        SuggestionStatus.liked,
+        SuggestionStatus.pending,
       );
       
-      _hasLikedCurrentSuggestion = true;
+      // Update state from database
+      await _updateCurrentSuggestionState();
       notifyListeners();
       
-      onSuggestionLiked(_currentDbSuggestion!);
     } catch (e) {
-      debugPrint('Error liking DB suggestion: $e');
+      debugPrint('Error unliking current suggestion: $e');
     }
   }
   
@@ -227,7 +357,13 @@ abstract class BaseMediaSectionController extends ChangeNotifier {
     notifyListeners();
     
     try {
-      if (!_hasFavoritedCurrentSuggestion && !_hasLikedCurrentSuggestion) {
+      // Only mark as skipped if no action has been taken 
+      // (not liked, favorited, watchlisted, or already disliked/unliked)
+      final currentStatus = _currentDbSuggestion!.status;
+      if (!_hasFavoritedCurrentSuggestion && 
+          !_hasLikedCurrentSuggestion && 
+          !_isInWatchlistCurrentSuggestion &&
+          currentStatus != SuggestionStatus.disliked) {
         await _recommendationService.updateSuggestionStatus(
           _currentDbSuggestion!.id,
           SuggestionStatus.skipped,
@@ -256,13 +392,46 @@ abstract class BaseMediaSectionController extends ChangeNotifier {
         SuggestionStatus.added,
       );
       
-      _hasFavoritedCurrentSuggestion = true;
+      // Update state from database
+      await _updateCurrentSuggestionState();
       notifyListeners();
       
       loadDbLibrary();
       onSuggestionFavorited(_currentDbSuggestion!);
     } catch (e) {
       debugPrint('Error adding to favorites: $e');
+    }
+  }
+
+  /// Remove current suggestion from favorites (unfavorite)
+  Future<void> unfavoriteCurrentSuggestion() async {
+    if (_currentDbSuggestion == null) return;
+    
+    try {
+      await _db.removeFromFavorites(_currentDbSuggestion!.mediaItemId!);
+      
+      // Determine the status to restore based on current state
+      SuggestionStatus statusToRestore;
+      if (_hasLikedCurrentSuggestion) {
+        // If it's liked, restore to liked status
+        statusToRestore = SuggestionStatus.liked;
+      } else {
+        // If not liked (regardless of watchlist status), restore to pending
+        statusToRestore = SuggestionStatus.pending;
+      }
+      
+      await _recommendationService.updateSuggestionStatus(
+        _currentDbSuggestion!.id,
+        statusToRestore,
+      );
+      
+      // Update state from database
+      await _updateCurrentSuggestionState();
+      notifyListeners();
+      
+      loadDbLibrary();
+    } catch (e) {
+      debugPrint('Error unfavoriting current suggestion: $e');
     }
   }
   
@@ -272,10 +441,40 @@ abstract class BaseMediaSectionController extends ChangeNotifier {
     
     try {
       await _db.addToWatchlist(_currentDbSuggestion!.mediaItemId!);
+      
+      // Update state from database
+      await _updateCurrentSuggestionState();
+      notifyListeners();
+      
       loadDbWatchlist();
       onSuggestionAddedToWatchlist(_currentDbSuggestion!);
     } catch (e) {
       debugPrint('Error adding to watchlist: $e');
+    }
+  }
+
+  /// Remove current suggestion from watchlist
+  Future<void> removeCurrentSuggestionFromWatchlist() async {
+    if (_currentDbSuggestion == null) return;
+    
+    try {
+      await _db.removeFromWatchlist(_currentDbSuggestion!.mediaItemId!);
+      
+      // If this was the only action (not liked, not favorited), ensure status is pending
+      if (!_hasLikedCurrentSuggestion && !_hasFavoritedCurrentSuggestion) {
+        await _recommendationService.updateSuggestionStatus(
+          _currentDbSuggestion!.id,
+          SuggestionStatus.pending,
+        );
+      }
+      
+      // Update state from database
+      await _updateCurrentSuggestionState();
+      notifyListeners();
+      
+      loadDbWatchlist();
+    } catch (e) {
+      debugPrint('Error removing from watchlist: $e');
     }
   }
   
@@ -288,15 +487,15 @@ abstract class BaseMediaSectionController extends ChangeNotifier {
     if (filteredSuggestions.isNotEmpty) {
       _currentDbSuggestion = filteredSuggestions.first;
       _isLoadingDbSuggestion = false;
-      _hasLikedCurrentSuggestion = false;
-      _hasFavoritedCurrentSuggestion = false;
+      await _updateCurrentSuggestionState();
       notifyListeners();
-    } else {
-      _currentDbSuggestion = null;
-      _isLoadingDbSuggestion = true;
-      _hasLikedCurrentSuggestion = false;
-      _hasFavoritedCurrentSuggestion = false;
-      notifyListeners();
+            } else {
+          _currentDbSuggestion = null;
+          _isLoadingDbSuggestion = true;
+          _hasLikedCurrentSuggestion = false;
+          _hasFavoritedCurrentSuggestion = false;
+          _isInWatchlistCurrentSuggestion = false;
+          notifyListeners();
       
       Timer(const Duration(seconds: 30), () {
         if (_isLoadingDbSuggestion && _currentDbSuggestion == null) {
@@ -315,8 +514,7 @@ abstract class BaseMediaSectionController extends ChangeNotifier {
         _currentDbSuggestion = suggestion;
         _isLoadingDbSuggestion = false;
         _dbSuggestionError = null;
-        _hasLikedCurrentSuggestion = false;
-        _hasFavoritedCurrentSuggestion = false;
+        await _updateCurrentSuggestionState();
         notifyListeners();
       }
     } catch (e) {
@@ -332,6 +530,12 @@ abstract class BaseMediaSectionController extends ChangeNotifier {
     try {
       await _db.removeFromFavorites(mediaItemId);
       loadDbLibrary();
+      
+      // Check if this affects the current suggestion
+      if (_currentDbSuggestion?.mediaItemId == mediaItemId) {
+        await _updateCurrentSuggestionState();
+        notifyListeners();
+      }
     } catch (e) {
       debugPrint('Error removing from favorites: $e');
     }
@@ -342,6 +546,12 @@ abstract class BaseMediaSectionController extends ChangeNotifier {
     try {
       await _db.removeFromWatchlist(mediaItemId);
       loadDbWatchlist();
+      
+      // Check if this affects the current suggestion
+      if (_currentDbSuggestion?.mediaItemId == mediaItemId) {
+        await _updateCurrentSuggestionState();
+        notifyListeners();
+      }
     } catch (e) {
       debugPrint('Error removing from watchlist: $e');
     }
@@ -362,6 +572,9 @@ abstract class BaseMediaSectionController extends ChangeNotifier {
       
       loadDbWatchlist();
       loadDbLibrary();
+      
+      // Sync current suggestion state if this item matches
+      await _syncCurrentSuggestionIfMatches(suggestion);
     } catch (e) {
       debugPrint('Error liking watchlist item: $e');
     }
@@ -379,6 +592,9 @@ abstract class BaseMediaSectionController extends ChangeNotifier {
       
       loadDbWatchlist();
       loadDbLibrary();
+      
+      // Handle current suggestion dislike (auto-next behavior)
+      await _handleCurrentSuggestionDislike(suggestion);
     } catch (e) {
       debugPrint('Error disliking watchlist item: $e');
     }
@@ -392,6 +608,9 @@ abstract class BaseMediaSectionController extends ChangeNotifier {
       // Refresh both sections
       loadDbWatchlist();
       loadDbLibrary();
+      
+      // Sync current suggestion state if this item matches
+      await _syncCurrentSuggestionIfMatches(suggestion);
     } catch (e) {
       debugPrint('Error favoriting watchlist item: $e');
     }
@@ -402,6 +621,9 @@ abstract class BaseMediaSectionController extends ChangeNotifier {
     try {
       await _db.addToWatchlist(suggestion.mediaItemId!);
       loadDbWatchlist();
+      
+      // Sync current suggestion state if this item matches
+      await _syncCurrentSuggestionIfMatches(suggestion);
     } catch (e) {
       debugPrint('Error adding library item to watchlist: $e');
     }

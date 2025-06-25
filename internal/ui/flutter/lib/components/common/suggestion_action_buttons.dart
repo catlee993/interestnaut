@@ -112,22 +112,33 @@ class SuggestionActionButtons extends StatelessWidget {
   Widget build(BuildContext context) {
     return ActionButtonsWrapper(
       children: [
-        // Like button
+        // Like button - toggleable, disabled when favorited (since favorite > like)
         if (onLike != null)
           ElevatedButton.icon(
-            onPressed: (isProcessing || hasLikedCurrentSuggestion || hasFavoritedCurrentSuggestion) ? null : onLike,
+            onPressed: (isProcessing || hasFavoritedCurrentSuggestion) ? () {
+              if (hasFavoritedCurrentSuggestion) {
+                debugPrint('🔘 Like button pressed but disabled because item is favorited');
+              } else {
+                debugPrint('🔘 Like button pressed but disabled due to isProcessing: $isProcessing');
+              }
+            } : () {
+              debugPrint('🔘 Like button pressed - isProcessing: $isProcessing, hasLiked: $hasLikedCurrentSuggestion');
+              onLike?.call();
+            },
             icon: Icon(
-              hasLikedCurrentSuggestion ? Icons.thumb_up : Icons.thumb_up_outlined,
+              // Show as liked only if liked AND not favorited (favorite takes priority)
+              (hasLikedCurrentSuggestion && !hasFavoritedCurrentSuggestion) ? Icons.thumb_up : Icons.thumb_up_outlined,
               size: 16
             ),
             label: Text(
-              hasLikedCurrentSuggestion ? 'Liked' : 'Like',
+              (hasLikedCurrentSuggestion && !hasFavoritedCurrentSuggestion) ? 'Liked' : 'Like',
               style: const TextStyle(fontSize: 13)
             ),
             style: _getButtonStyle(
-              isActive: hasLikedCurrentSuggestion,
+              // Show as active only if liked AND not favorited (favorite takes priority)
+              isActive: hasLikedCurrentSuggestion && !hasFavoritedCurrentSuggestion,
               activeColor: Colors.green,
-              isDisabled: isProcessing || hasLikedCurrentSuggestion || hasFavoritedCurrentSuggestion,
+              isDisabled: isProcessing || hasFavoritedCurrentSuggestion,
             ),
           ),
 
@@ -179,7 +190,7 @@ class SuggestionActionButtons extends StatelessWidget {
             ),
           ),
 
-        // Watchlist button
+        // Watchlist button - shows as active whenever in watchlist (can coexist with favorite and like)
         if (onAddToWatchlist != null)
           ElevatedButton.icon(
             onPressed: isProcessing ? () {
@@ -189,6 +200,7 @@ class SuggestionActionButtons extends StatelessWidget {
               onAddToWatchlist?.call();
             },
             icon: Icon(
+              // Show as added whenever in watchlist (regardless of other states)
               isInWatchlist ? Icons.bookmark_added : Icons.bookmark_add,
               size: 16
             ),
@@ -197,6 +209,7 @@ class SuggestionActionButtons extends StatelessWidget {
               style: const TextStyle(fontSize: 13)
             ),
             style: _getButtonStyle(
+              // Show as active whenever in watchlist (regardless of other states)
               isActive: isInWatchlist,
               activeColor: Colors.blue,
               isDisabled: isProcessing,
@@ -209,15 +222,15 @@ class SuggestionActionButtons extends StatelessWidget {
             onPressed: isProcessing ? () {
               debugPrint('🔘 Skip button pressed but disabled due to isProcessing: $isProcessing');
             } : () {
-              debugPrint('🔘 Skip button pressed - isProcessing: $isProcessing, hasLiked: $hasLikedCurrentSuggestion, hasFavorited: $hasFavoritedCurrentSuggestion');
+              debugPrint('🔘 Skip button pressed - isProcessing: $isProcessing, hasLiked: $hasLikedCurrentSuggestion, hasFavorited: $hasFavoritedCurrentSuggestion, isInWatchlist: $isInWatchlist');
               onSkip?.call();
             },
             icon: Icon(
-              (hasLikedCurrentSuggestion || hasFavoritedCurrentSuggestion) ? Icons.arrow_forward : Icons.skip_next,
+              (hasLikedCurrentSuggestion || hasFavoritedCurrentSuggestion || isInWatchlist) ? Icons.arrow_forward : Icons.skip_next,
               size: 16
             ),
             label: Text(
-              (hasLikedCurrentSuggestion || hasFavoritedCurrentSuggestion) ? 'Next' : 'Skip',
+              (hasLikedCurrentSuggestion || hasFavoritedCurrentSuggestion || isInWatchlist) ? 'Next' : 'Skip',
               style: const TextStyle(fontSize: 13)
             ),
             style: _getButtonStyle(

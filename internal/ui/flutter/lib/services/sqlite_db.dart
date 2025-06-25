@@ -715,6 +715,69 @@ class SQLiteDatabase {
     }
   }
 
+  /// Get suggestion with current status (favorite/watchlist) determined by joins
+  Future<SuggestionWithStatus?> getSuggestionWithStatus(int suggestionId) async {
+    await _ensureInitialized();
+
+    try {
+      const query = '''
+      SELECT r.id, r.media_item_id, r.query, r.bot_reasoning, rs.name as status,
+             r.created_at, r.updated_at,
+             mi.vector_media_id, mi.title, mi.primary_creator, mi.cover_art_url,
+             mi.description, mi.wiki_url, mi.wikidata_id, mi.themes,
+             mt.name as media_type,
+             CASE WHEN f.media_item_id IS NOT NULL THEN 1 ELSE 0 END as is_favorited,
+             CASE WHEN w.media_item_id IS NOT NULL THEN 1 ELSE 0 END as is_in_watchlist
+      FROM recommendations r
+      JOIN media_items mi ON r.media_item_id = mi.id
+      JOIN media_types mt ON mi.media_type_id = mt.id
+      JOIN recommendation_status rs ON r.status_id = rs.id
+      LEFT JOIN favorites f ON mi.id = f.media_item_id
+      LEFT JOIN watchlist w ON mi.id = w.media_item_id
+      WHERE r.id = ?
+      ''';
+
+      final stmt = _db!.prepare(query);
+      final result = stmt.select([suggestionId]);
+
+      if (result.isEmpty) {
+        stmt.dispose();
+        return null;
+      }
+
+      final row = result.first;
+      final suggestion = _mapRowToMediaSuggestion(row);
+      final isFavorited = (row['is_favorited'] as int) == 1;
+      final isInWatchlist = (row['is_in_watchlist'] as int) == 1;
+      
+      // Determine the effective status based on joins and current status
+      bool hasLiked = false;
+      bool hasFavorited = isFavorited;
+      bool isInWatchlistStatus = isInWatchlist;
+      
+      // Show liked if not favorited and status is liked (can coexist with watchlist)
+      // Priority: Favorite > Like > Watchlist > Pending > Disliked
+      if (!isFavorited && suggestion.status == SuggestionStatus.liked) {
+        hasLiked = true;
+      }
+      
+      // If status is disliked, it means it was "unliked" - all flags should be false
+      // If status is pending or skipped, no action has been taken - all flags should be false
+      // The flags are already set correctly above based on the database joins
+
+      stmt.dispose();
+      return SuggestionWithStatus(
+        suggestion: suggestion,
+        hasLiked: hasLiked,
+        hasFavorited: hasFavorited,
+        isInWatchlist: isInWatchlistStatus,
+      );
+    } catch (e) {
+      debugPrint('Error getting suggestion with status: $e');
+      return null;
+    }
+  }
+
   /// Debug inspect recommendations table
   Future<void> debugInspectRecommendationsTable() async {
     await _ensureInitialized();

@@ -13,6 +13,7 @@ class MusicSectionController extends BaseMediaSectionController {
   bool _isAuthenticated = false;
   List<Track> _likedTracks = [];
   bool _isLoadingLibrary = false;
+  bool _isPaginating = false; // New state for pagination loading
   Track? _nowPlayingTrack;
   bool _isPlaybackPaused = true;
   
@@ -45,6 +46,7 @@ class MusicSectionController extends BaseMediaSectionController {
   bool get isAuthenticated => _isAuthenticated;
   List<Track> get likedTracks => _likedTracks;
   bool get isLoadingLibrary => _isLoadingLibrary;
+  bool get isPaginating => _isPaginating;
   Track? get nowPlayingTrack => _nowPlayingTrack;
   bool get isPlaybackPaused => _isPlaybackPaused;
   
@@ -136,7 +138,16 @@ class MusicSectionController extends BaseMediaSectionController {
   }
   
   Future<void> _loadSpotifyLibrary([int page = 1]) async {
-    _isLoadingLibrary = true;
+    // Only show loading on initial load (when we have no tracks)
+    final isInitialLoad = _likedTracks.isEmpty;
+    final isPagination = !isInitialLoad && page != _currentSpotifyPage;
+    
+    if (isInitialLoad) {
+      _isLoadingLibrary = true;
+    } else if (isPagination) {
+      _isPaginating = true;
+    }
+    
     if (!_isDisposed) {
       notifyListeners();
     }
@@ -151,12 +162,14 @@ class MusicSectionController extends BaseMediaSectionController {
       _currentSpotifyPage = page;
       _totalSpotifyTracks = total;
       _isLoadingLibrary = false;
+      _isPaginating = false;
       if (!_isDisposed) {
         notifyListeners();
       }
     } catch (e) {
       debugPrint('Error loading Spotify library: $e');
       _isLoadingLibrary = false;
+      _isPaginating = false;
       if (!_isDisposed) {
         notifyListeners();
       }

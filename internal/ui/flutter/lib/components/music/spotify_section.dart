@@ -31,7 +31,8 @@ class SpotifySection extends StatelessWidget {
       return _buildSpotifyAuthPrompt(context);
     }
 
-    if (controller.isLoadingLibrary) {
+    // Only show loading spinner for initial load, not pagination
+    if (controller.isLoadingLibrary && controller.likedTracks.isEmpty) {
       return const Center(
         child: CircularProgressIndicator(
           color: AppTheme.spotifyGreen,
@@ -39,7 +40,7 @@ class SpotifySection extends StatelessWidget {
       );
     }
 
-    if (controller.likedTracks.isEmpty) {
+    if (controller.likedTracks.isEmpty && !controller.isLoadingLibrary) {
       return const Padding(
         padding: EdgeInsets.symmetric(vertical: 32),
         child: Center(
@@ -52,20 +53,51 @@ class SpotifySection extends StatelessWidget {
       );
     }
 
-    // Use the full-featured LibrarySection with pagination and controls
-    return LibrarySection(
-      savedTracks: controller.likedTracks,
-      currentPage: controller.currentSpotifyPage,
-      totalTracks: controller.totalSpotifyTracks,
-      itemsPerPage: controller.itemsPerPage,
-      nowPlayingTrack: controller.nowPlayingTrack,
-      isPlaybackPaused: controller.isPlaybackPaused,
-      onPlay: controller.playSpotifyTrack,
-      onSave: controller.saveSpotifyTrack,
-      onRemove: controller.removeSpotifyTrack,
-      onNextPage: controller.nextSpotifyPage,
-      onPrevPage: controller.prevSpotifyPage,
-      showHeader: false, // We already have the header above
+    // Show tracks even during pagination - LibrarySection will handle pagination state
+    return Column(
+      children: [
+        // Optional: Add a subtle pagination indicator
+        if (controller.isPaginating)
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: AppTheme.spotifyGreen,
+                  ),
+                ),
+                SizedBox(width: 8),
+                Text(
+                  'Loading...',
+                  style: TextStyle(
+                    color: AppTheme.textSecondary,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        // Use the full-featured LibrarySection with pagination and controls
+        LibrarySection(
+          savedTracks: controller.likedTracks,
+          currentPage: controller.currentSpotifyPage,
+          totalTracks: controller.totalSpotifyTracks,
+          itemsPerPage: controller.itemsPerPage,
+          nowPlayingTrack: controller.nowPlayingTrack,
+          isPlaybackPaused: controller.isPlaybackPaused,
+          onPlay: controller.playSpotifyTrack,
+          onSave: controller.saveSpotifyTrack,
+          onRemove: controller.removeSpotifyTrack,
+          onNextPage: controller.nextSpotifyPage,
+          onPrevPage: controller.prevSpotifyPage,
+          showHeader: false, // We already have the header above
+        ),
+      ],
     );
   }
 

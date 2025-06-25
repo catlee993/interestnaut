@@ -661,24 +661,39 @@ class _UnifiedSearchHandlerState extends State<_UnifiedSearchHandler> {
         // Refresh the appropriate section's favorites list
         switch (widget.mediaType.toLowerCase()) {
           case 'music':
-            MusicSection.refreshFavoritesFromSearch();
+            MusicSection.refreshFavoritesFromSearch(
+              title: item.title,
+              primaryCreator: item.artist ?? '',
+            );
             break;
           case 'movie':
           case 'movies':
-            MovieSection.refreshFavoritesFromSearch();
+            MovieSection.refreshFavoritesFromSearch(
+              title: item.title,
+              primaryCreator: item.artist ?? '',
+            );
             break;
           case 'tv':
           case 'show':
           case 'shows':
-            TVShowSection.refreshFavoritesFromSearch();
+            TVShowSection.refreshFavoritesFromSearch(
+              title: item.title,
+              primaryCreator: item.artist ?? '',
+            );
             break;
           case 'book':
           case 'books':
-            BookSection.refreshFavoritesFromSearch();
+            BookSection.refreshFavoritesFromSearch(
+              title: item.title,
+              primaryCreator: item.artist ?? '',
+            );
             break;
           case 'game':
           case 'games':
-            GameSection.refreshFavoritesFromSearch();
+            GameSection.refreshFavoritesFromSearch(
+              title: item.title,
+              primaryCreator: item.artist ?? '',
+            );
             break;
         }
       });
@@ -718,28 +733,43 @@ class _UnifiedSearchHandlerState extends State<_UnifiedSearchHandler> {
     }
   }
 
-  void _refreshWatchlistForMediaType(String mediaType) {
+  void _refreshWatchlistForMediaType(String mediaType, {String? title, String? primaryCreator}) {
     try {
       switch (mediaType.toLowerCase()) {
         case 'music':
-          MusicSection.refreshPlaylistFromSearch();
+          MusicSection.refreshPlaylistFromSearch(
+            title: title,
+            primaryCreator: primaryCreator,
+          );
           break;
         case 'movie':
         case 'movies':
-          MovieSection.refreshWatchlistFromSearch();
+          MovieSection.refreshWatchlistFromSearch(
+            title: title,
+            primaryCreator: primaryCreator,
+          );
           break;
         case 'tv':
         case 'show':
         case 'shows':
-          TVShowSection.refreshWatchlistFromSearch();
+          TVShowSection.refreshWatchlistFromSearch(
+            title: title,
+            primaryCreator: primaryCreator,
+          );
           break;
         case 'book':
         case 'books':
-          BookSection.refreshReadingListFromSearch();
+          BookSection.refreshReadingListFromSearch(
+            title: title,
+            primaryCreator: primaryCreator,
+          );
           break;
         case 'game':
         case 'games':
-          GameSection.refreshPlaylistFromSearch();
+          GameSection.refreshPlaylistFromSearch(
+            title: title,
+            primaryCreator: primaryCreator,
+          );
           break;
       }
     } catch (e) {
@@ -782,7 +812,11 @@ class _UnifiedSearchHandlerState extends State<_UnifiedSearchHandler> {
         // Use WidgetsBinding to ensure refresh happens after current frame
         WidgetsBinding.instance.addPostFrameCallback((_) {
           // Refresh the appropriate section's watchlist
-          _refreshWatchlistForMediaType(widget.mediaType);
+          _refreshWatchlistForMediaType(
+            widget.mediaType,
+            title: item.title,
+            primaryCreator: item.artist ?? '',
+          );
         });
       } catch (e) {
         debugPrint('❌ Error adding to watchlist: $e');

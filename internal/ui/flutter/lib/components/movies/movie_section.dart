@@ -9,18 +9,34 @@ class MovieSection extends StatefulWidget {
   State<MovieSection> createState() => _MovieSectionState();
   
   // Static method to refresh favorites from search
-  static void refreshFavoritesFromSearch() {
+  static void refreshFavoritesFromSearch({String? title, String? primaryCreator}) {
     final state = _MovieSectionState._currentState;
     if (state != null && state.mounted) {
       state._controller?.loadDbLibrary();
+      
+      // Sync current suggestion state if search item matches
+      if (title != null && primaryCreator != null) {
+        state._controller?.syncCurrentSuggestionFromSearch(
+          title: title,
+          primaryCreator: primaryCreator,
+        );
+      }
     }
   }
 
   // Static method to refresh watchlist from search
-  static void refreshWatchlistFromSearch() {
+  static void refreshWatchlistFromSearch({String? title, String? primaryCreator}) {
     final state = _MovieSectionState._currentState;
     if (state != null && state.mounted) {
       state._controller?.loadDbWatchlist();
+      
+      // Sync current suggestion state if search item matches
+      if (title != null && primaryCreator != null) {
+        state._controller?.syncCurrentSuggestionFromSearch(
+          title: title,
+          primaryCreator: primaryCreator,
+        );
+      }
     }
   }
 }

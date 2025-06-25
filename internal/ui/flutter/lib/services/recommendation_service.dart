@@ -198,6 +198,22 @@ class MediaSuggestion {
   }
 }
 
+/// Wrapper class that contains a suggestion with its current status flags
+/// determined by database joins (favorite/watchlist status)
+class SuggestionWithStatus {
+  final MediaSuggestion suggestion;
+  final bool hasLiked;
+  final bool hasFavorited;
+  final bool isInWatchlist;
+
+  SuggestionWithStatus({
+    required this.suggestion,
+    required this.hasLiked,
+    required this.hasFavorited,
+    required this.isInWatchlist,
+  });
+}
+
 class RecommendationService extends ChangeNotifier {
   static final RecommendationService _instance = RecommendationService._internal();
   factory RecommendationService() => _instance;
