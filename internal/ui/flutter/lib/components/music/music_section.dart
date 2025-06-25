@@ -3,7 +3,7 @@ import '../common/media_section_wrapper.dart';
 import '../common/media_library_grid.dart';
 import 'music_section_controller.dart';
 import 'spotify_section.dart';
-import 'spotify_player_overlay.dart';
+
 
 class MusicSection extends StatefulWidget {
   const MusicSection({super.key});
@@ -80,7 +80,6 @@ class _MusicSectionState extends State<MusicSection> {
         // Spotify section with authentication and library
         SpotifySection(controller: _controller!),
       ],
-      playerOverlay: SpotifyPlayerOverlay(controller: _controller!),
     );
   }
 }

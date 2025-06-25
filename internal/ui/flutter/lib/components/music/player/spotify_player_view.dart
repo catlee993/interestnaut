@@ -105,15 +105,19 @@ class _SeekBarState extends State<_SeekBar> with TickerProviderStateMixin {
               max: widget.duration.toDouble(),
               value: math.min(_dragValue, widget.duration.toDouble()),
               onChanged: (value) {
-                setState(() {
-                  _dragging = true;
-                  _dragValue = value;
-                });
+                if (mounted) {
+                  setState(() {
+                    _dragging = true;
+                    _dragValue = value;
+                  });
+                }
               },
               onChangeEnd: (value) {
-                setState(() {
-                  _dragging = false;
-                });
+                if (mounted) {
+                  setState(() {
+                    _dragging = false;
+                  });
+                }
                 widget.onSeeked(value.round());
               },
             ),
@@ -188,10 +192,12 @@ class _SpotifyPlayerState extends State<SpotifyPlayer> {
     // Listen for device ready events
     _deviceReadySubscription = SpotifyEvents.onDeviceReady.listen((deviceId) {
       debugPrint('SpotifyPlayer received device ready event: $deviceId');
-      setState(() {
-        _isPlayerReady = true;
-        _deviceId = deviceId; // Store the device ID for API calls
-      });
+      if (mounted) {
+        setState(() {
+          _isPlayerReady = true;
+          _deviceId = deviceId; // Store the device ID for API calls
+        });
+      }
     });
     
     // Listen for track change events
@@ -250,7 +256,9 @@ class _SpotifyPlayerState extends State<SpotifyPlayer> {
     // Start polling for playback state to get track duration and accurate position
     _pollingTimer?.cancel();
     _pollingTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      _getPlaybackStateFromSpotify();
+      if (mounted) {
+        _getPlaybackStateFromSpotify();
+      }
     });
   }
   
@@ -295,10 +303,12 @@ class _SpotifyPlayerState extends State<SpotifyPlayer> {
     if (track.uri.isNotEmpty) {
       _spotifyService.playTrack(track.uri);
       // Optimistically update state for better UI responsiveness
-      setState(() {
-        _isPlaying = true;
-        _startProgressTimer();
-      });
+      if (mounted) {
+        setState(() {
+          _isPlaying = true;
+          _startProgressTimer();
+        });
+      }
     }
   }
   
@@ -336,9 +346,11 @@ class _SpotifyPlayerState extends State<SpotifyPlayer> {
   }
   
   void _seekTo(int position) {
-    setState(() {
-      _position = position;
-    });
+    if (mounted) {
+      setState(() {
+        _position = position;
+      });
+    }
     
     // Call Spotify API to seek if authenticated
     if (_currentTrack != null) {

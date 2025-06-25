@@ -24,6 +24,9 @@ class MusicSectionController extends BaseMediaSectionController {
   // Spotify services
   final SpotifyService _spotifyService = SpotifyService();
   
+  // Track if this controller has been disposed
+  bool _isDisposed = false;
+  
   // Spotify subscriptions
   StreamSubscription? _authSubscription;
   StreamSubscription? _deviceIdSubscription;
@@ -53,52 +56,66 @@ class MusicSectionController extends BaseMediaSectionController {
   void _setupSpotifyListeners() {
     // Listen for Spotify player ready event
     _playerReadySubscription = SpotifyEvents.onPlayerReady.listen((isReady) {
-      debugPrint('MusicSection received player ready event: $isReady');
-      notifyListeners();
+      if (!_isDisposed) {
+        debugPrint('MusicSection received player ready event: $isReady');
+        notifyListeners();
+      }
     });
     
     // Listen for authentication status changes
     _authSubscription =
         _spotifyService.onAuthStatusChange.listen((authEvent) {
-      _isAuthenticated = authEvent.isAuthenticated;
-      notifyListeners();
-      
-      if (authEvent.isAuthenticated) {
-        _loadSpotifyLibrary();
+      if (!_isDisposed) {
+        _isAuthenticated = authEvent.isAuthenticated;
+        notifyListeners();
+        
+        if (authEvent.isAuthenticated) {
+          _loadSpotifyLibrary();
+        }
       }
     });
 
     // Listen for playback state changes
     _playbackStateSubscription =
         _spotifyService.onPlaybackStateChange.listen((isPaused) {
-      _isPlaybackPaused = isPaused;
-      notifyListeners();
+      if (!_isDisposed) {
+        _isPlaybackPaused = isPaused;
+        notifyListeners();
+      }
     });
 
     // Listen for track changes
     _trackChangeSubscription = _spotifyService.onTrackChange.listen((trackEvent) {
-      // Convert MediaItem to Track if needed
-      _nowPlayingTrack = trackEvent.item != null ? _convertMediaItemToTrack(trackEvent.item!) : null;
-      notifyListeners();
+      if (!_isDisposed) {
+        // Convert MediaItem to Track if needed
+        _nowPlayingTrack = trackEvent.item != null ? _convertMediaItemToTrack(trackEvent.item!) : null;
+        notifyListeners();
+      }
     });
 
     // Listen for device ID changes
     _deviceIdSubscription = _spotifyService.onDeviceIdChange.listen((deviceId) {
-      // Handle device ID changes if needed
-      notifyListeners();
+      if (!_isDisposed) {
+        // Handle device ID changes if needed
+        notifyListeners();
+      }
     });
 
     // Listen for Spotify events
     _spotifyEventsTrackSubscription =
         SpotifyEvents.onTrackChange.listen((track) {
-      _nowPlayingTrack = track;
-      notifyListeners();
+      if (!_isDisposed) {
+        _nowPlayingTrack = track;
+        notifyListeners();
+      }
     });
 
     _spotifyEventsPlaybackSubscription =
         SpotifyEvents.onPlaybackStateChange.listen((playbackState) {
-      _isPlaybackPaused = !playbackState.isPlaying; // Use isPlaying instead of isPaused
-      notifyListeners();
+      if (!_isDisposed) {
+        _isPlaybackPaused = !playbackState.isPlaying; // Use isPlaying instead of isPaused
+        notifyListeners();
+      }
     });
   }
   
@@ -106,7 +123,9 @@ class MusicSectionController extends BaseMediaSectionController {
     try {
       final isAuth = _spotifyService.isAuthenticated; // It's a getter, not a method
       _isAuthenticated = isAuth;
-      notifyListeners();
+      if (!_isDisposed) {
+        notifyListeners();
+      }
       
       if (isAuth) {
         await _loadSpotifyLibrary();
@@ -118,7 +137,9 @@ class MusicSectionController extends BaseMediaSectionController {
   
   Future<void> _loadSpotifyLibrary([int page = 1]) async {
     _isLoadingLibrary = true;
-    notifyListeners();
+    if (!_isDisposed) {
+      notifyListeners();
+    }
     
     try {
       final offset = (page - 1) * _itemsPerPage;
@@ -130,11 +151,15 @@ class MusicSectionController extends BaseMediaSectionController {
       _currentSpotifyPage = page;
       _totalSpotifyTracks = total;
       _isLoadingLibrary = false;
-      notifyListeners();
+      if (!_isDisposed) {
+        notifyListeners();
+      }
     } catch (e) {
       debugPrint('Error loading Spotify library: $e');
       _isLoadingLibrary = false;
-      notifyListeners();
+      if (!_isDisposed) {
+        notifyListeners();
+      }
     }
   }
   
@@ -323,6 +348,7 @@ class MusicSectionController extends BaseMediaSectionController {
   
   @override
   void dispose() {
+    _isDisposed = true;
     _authSubscription?.cancel();
     _deviceIdSubscription?.cancel();
     _playbackStateSubscription?.cancel();
