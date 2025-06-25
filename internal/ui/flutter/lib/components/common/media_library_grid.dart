@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../services/recommendation_service.dart';
 import 'media_library_card.dart';
-import '../../utils/text_utils.dart';
 
 /// Card format options for different media types
 enum CardFormat {

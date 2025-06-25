@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../models.dart';
 import '../tracks/track_card.dart';
-import '../../common/media_grid.dart';
 
 class LibrarySection extends StatelessWidget {
   final List<Track> savedTracks;
