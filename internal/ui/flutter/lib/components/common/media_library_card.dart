@@ -3,6 +3,7 @@ import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import '../../services/recommendation_service.dart';
 import '../../utils/text_utils.dart';
 import 'media_library_grid.dart'; // Import for CardFormat enum
+import '../../theme.dart';
 
 /// A reusable card component for displaying media items in library/watchlist sections
 /// Based on the music section's beautiful styling with gradient overlay and action buttons
@@ -37,40 +38,11 @@ class MediaLibraryCard extends StatelessWidget {
   }) : super(key: key);
 
   IconData _getMediaIcon() {
-    switch (mediaType) {
-      case 'music':
-        return Icons.music_note;
-      case 'movie':
-        return Icons.movie;
-      case 'book':
-        return Icons.book;
-      case 'game':
-      case 'video_game':
-        return Icons.videogame_asset;
-      case 'tv':
-      case 'tv_show':
-        return Icons.tv;
-      default:
-        return Icons.media_bluetooth_on;
-    }
+    return AppTheme.getMediaIcon(mediaType);
   }
 
   String _getWatchlistTerminology() {
-    switch (mediaType) {
-      case 'music':
-        return 'playlist';
-      case 'movie':
-      case 'tv':
-      case 'tv_show':
-        return 'watchlist';
-      case 'book':
-        return 'reading list';
-      case 'game':
-      case 'video_game':
-        return 'wishlist';
-      default:
-        return 'list';
-    }
+    return AppTheme.getMediaListActionName(mediaType);
   }
 
   @override

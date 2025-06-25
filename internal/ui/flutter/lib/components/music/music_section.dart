@@ -1238,11 +1238,7 @@ class _MusicSectionState extends State<MusicSection> {
                     // Track title
                     Text(
                       _currentDbSuggestion!.title ?? 'Unknown Track',
-                      style: const TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.white,
-                      ),
+                      style: AppTheme.mediaTitleStyle.copyWith(fontSize: 24),
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 8),
@@ -1250,11 +1246,7 @@ class _MusicSectionState extends State<MusicSection> {
                     // Artist info
                     Text(
                       'by ${TextUtils.formatArtistNames(_currentDbSuggestion!.artist)}',
-                      style: TextStyle(
-                        fontSize: 15,
-                        color: Colors.white.withOpacity(0.7),
-                        fontWeight: FontWeight.w400,
-                      ),
+                      style: AppTheme.mediaDescriptionStyle.copyWith(fontSize: 15),
                       textAlign: TextAlign.center,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -1273,14 +1265,9 @@ class _MusicSectionState extends State<MusicSection> {
                                   child: Padding(
                                     padding: const EdgeInsets.only(bottom: 8),
                                     child: SingleChildScrollView(
-                                      child: Text(
+                                      child:                                       Text(
                                         _currentDbSuggestion!.description!,
-                                        style: const TextStyle(
-                                          fontSize: 14,
-                                          color: Colors.white,
-                                          height: 1.5,
-                                          fontWeight: FontWeight.w400,
-                                        ),
+                                        style: AppTheme.mediaDescriptionStyle.copyWith(height: 1.5),
                                         textAlign: TextAlign.center,
                                       ),
                                     ),
@@ -1325,14 +1312,9 @@ class _MusicSectionState extends State<MusicSection> {
                                         const SizedBox(height: 12),
                                         Flexible(
                                           child: SingleChildScrollView(
-                                            child: Text(
+                                            child:                                             Text(
                                               _currentDbSuggestion!.botReasoning!,
-                                              style: TextStyle(
-                                                fontSize: 14,
-                                                color: Colors.white.withOpacity(0.6),
-                                                height: 1.5,
-                                                fontWeight: FontWeight.w400,
-                                              ),
+                                              style: AppTheme.botReasoningStyle.copyWith(height: 1.5),
                                               textAlign: TextAlign.center,
                                             ),
                                           ),

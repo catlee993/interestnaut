@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'consistent_layout_wrapper.dart';
+import '../../theme.dart';
 
 /// Generic action buttons for media suggestions
 /// Provides consistent styling and behavior across all media types
@@ -32,39 +33,11 @@ class SuggestionActionButtons extends StatelessWidget {
   }) : super(key: key);
 
   String _getWatchlistTerminology() {
-    switch (mediaType) {
-      case 'music':
-        return 'Playlist';
-      case 'book':
-        return 'Reading List';
-      case 'movie':
-      case 'tv':
-      case 'tv_show':
-        return 'Watchlist';
-      case 'game':
-      case 'video_game':
-        return 'Playlist';
-      default:
-        return 'List';
-    }
+    return AppTheme.getMediaListName(mediaType);
   }
 
   String _getWatchlistTerminologyAction() {
-    switch (mediaType) {
-      case 'music':
-        return 'playlist';
-      case 'book':
-        return 'reading list';
-      case 'movie':
-      case 'tv':
-      case 'tv_show':
-        return 'watchlist';
-      case 'game':
-      case 'video_game':
-        return 'playlist';
-      default:
-        return 'list';
-    }
+    return AppTheme.getMediaListActionName(mediaType);
   }
 
   ButtonStyle _getButtonStyle({

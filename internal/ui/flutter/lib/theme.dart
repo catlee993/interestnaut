@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'media_type_config.dart';
 
 /// Interestnaut app theme - all values are easily editable here
 class AppTheme {
@@ -26,6 +27,132 @@ class AppTheme {
   static const Color purpleRed = Color(0xFFC23B85); // For errors/warnings - legacy compatibility
   static const Color purpleBlue = Color(0xFF6A5ACD); // For specific UI elements - legacy compatibility
   
+  // === MEDIA TYPE CONFIGURATION ===
+  // Centralized configuration for all media types - single source of truth
+  
+  // Configuration class for media types
+  static const Map<String, MediaTypeConfig> mediaTypes = {
+    'music': MediaTypeConfig(
+      displayName: 'Music',
+      pluralDisplayName: 'Music',
+      icon: Icons.music_note,
+      fallbackIcon: Icons.music_note,
+      listName: 'Playlist',
+      listActionName: 'playlist',
+      searchPlaceholder: 'Search tracks...',
+      estimatedDbSize: '928 MB',
+      headerDisplayName: 'MUSIC',
+    ),
+    'movie': MediaTypeConfig(
+      displayName: 'Movie',
+      pluralDisplayName: 'Movies', 
+      icon: Icons.movie,
+      fallbackIcon: Icons.movie,
+      listName: 'Watchlist',
+      listActionName: 'watchlist',
+      searchPlaceholder: 'Search movies...',
+      estimatedDbSize: '440 MB',
+      headerDisplayName: 'MOVIES',
+    ),
+    'tv_show': MediaTypeConfig(
+      displayName: 'TV Show',
+      pluralDisplayName: 'TV Shows',
+      icon: Icons.tv,
+      fallbackIcon: Icons.tv,
+      listName: 'Watchlist', 
+      listActionName: 'watchlist',
+      searchPlaceholder: 'Search TV shows...',
+      estimatedDbSize: '238 MB',
+      headerDisplayName: 'SHOWS',
+    ),
+    'book': MediaTypeConfig(
+      displayName: 'Book',
+      pluralDisplayName: 'Books',
+      icon: Icons.book,
+      fallbackIcon: Icons.menu_book,
+      listName: 'Reading List',
+      listActionName: 'reading list',
+      searchPlaceholder: 'Search books...',
+      estimatedDbSize: '191 MB',
+      headerDisplayName: 'BOOKS',
+    ),
+    'video_game': MediaTypeConfig(
+      displayName: 'Video Game',
+      pluralDisplayName: 'Video Games',
+      icon: Icons.videogame_asset,
+      fallbackIcon: Icons.sports_esports,
+      listName: 'Playlist',
+      listActionName: 'playlist',
+      searchPlaceholder: 'Search games...',
+      estimatedDbSize: '84 MB',
+      headerDisplayName: 'GAMES',
+    ),
+    // Legacy aliases for compatibility
+    'game': MediaTypeConfig(
+      displayName: 'Game',
+      pluralDisplayName: 'Games',
+      icon: Icons.videogame_asset,
+      fallbackIcon: Icons.sports_esports,
+      listName: 'Playlist',
+      listActionName: 'playlist',
+      searchPlaceholder: 'Search games...',
+      estimatedDbSize: '84 MB',
+      headerDisplayName: 'GAMES',
+    ),
+    'tv': MediaTypeConfig(
+      displayName: 'TV Show',
+      pluralDisplayName: 'TV Shows',
+      icon: Icons.tv,
+      fallbackIcon: Icons.tv,
+      listName: 'Watchlist',
+      listActionName: 'watchlist',
+      searchPlaceholder: 'Search TV shows...',
+      estimatedDbSize: '238 MB',
+      headerDisplayName: 'SHOWS',
+    ),
+  };
+
+  // Helper methods to access media type configuration
+  static MediaTypeConfig getMediaConfig(String mediaType) {
+    return mediaTypes[mediaType] ?? const MediaTypeConfig.unknown();
+  }
+  
+  static String getMediaDisplayName(String mediaType) {
+    return getMediaConfig(mediaType).displayName;
+  }
+  
+  static String getMediaPluralDisplayName(String mediaType) {
+    return getMediaConfig(mediaType).pluralDisplayName;
+  }
+  
+  static IconData getMediaIcon(String mediaType) {
+    return getMediaConfig(mediaType).icon;
+  }
+  
+  static IconData getMediaFallbackIcon(String mediaType) {
+    return getMediaConfig(mediaType).fallbackIcon;
+  }
+  
+  static String getMediaListName(String mediaType) {
+    return getMediaConfig(mediaType).listName;
+  }
+  
+  static String getMediaListActionName(String mediaType) {
+    return getMediaConfig(mediaType).listActionName;
+  }
+  
+  static String getMediaSearchPlaceholder(String mediaType) {
+    return getMediaConfig(mediaType).searchPlaceholder;
+  }
+  
+  static String getMediaEstimatedDbSize(String mediaType) {
+    return getMediaConfig(mediaType).estimatedDbSize;
+  }
+  
+  static String getMediaHeaderDisplayName(String mediaType) {
+    return getMediaConfig(mediaType).headerDisplayName;
+  }
+
   // === EDITABLE SPACING ===
   static const double spacingXS = 4;
   static const double spacingSM = 8;
@@ -117,6 +244,36 @@ class AppTheme {
     fontWeight: FontWeight.bold,
     fontSize: 18,
     color: infoColor,
+  );
+  
+  // === MEDIA CONTENT TEXT STYLES ===
+  // Media title style - for suggested media item titles (with built-in scaling)
+  static const TextStyle mediaTitleStyle = TextStyle(
+    fontFamily: fontFamily,
+    fontWeight: FontWeight.w400,
+    fontSize: 16,
+    color: textPrimary,
+    letterSpacing: 0.5,
+    height: 1.5, // Built-in line height for taller appearance
+  );
+  
+  // Media description style - for suggested media item descriptions (with built-in scaling)
+  static const TextStyle mediaDescriptionStyle = TextStyle(
+    fontFamily: fontFamily,
+    fontWeight: FontWeight.w300,
+    fontSize: 14,
+    color: textSecondary,
+    height: 1.6, // Built-in line height for taller appearance
+  );
+  
+  // Bot reasoning style - for AI reasoning about media suggestions (with built-in scaling)
+  static const TextStyle botReasoningStyle = TextStyle(
+    fontFamily: fontFamily,
+    fontWeight: FontWeight.w300,
+    fontSize: 13,
+    color: textTertiary,
+    fontStyle: FontStyle.italic,
+    height: 1.5, // Built-in line height for taller appearance
   );
   
   // === EDITABLE SECTION HEADER SCALING ===

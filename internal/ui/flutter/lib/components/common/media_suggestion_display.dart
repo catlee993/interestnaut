@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../models.dart';
+import '../../theme.dart';
 
 class MediaSuggestionDisplay extends StatelessWidget {
   final String mediaType;
@@ -160,14 +161,14 @@ class MediaSuggestionDisplay extends StatelessWidget {
               children: [
                 Text(
                   suggestedItem?.title ?? '',
-                  style: Theme.of(context).textTheme.headlineSmall,
+                  style: AppTheme.mediaTitleStyle.copyWith(fontSize: 24),
                 ),
                 if (mediaType == 'movie')
                   Padding(
                     padding: const EdgeInsets.only(top: 4.0),
-                    child: Text(
+                    child:                     Text(
                       '${suggestedItem?.releaseDate?.substring(0, 4) ?? ''}${suggestedItem?.rating != null ? ' • Rating: ${suggestedItem?.rating}/10' : ''}${suggestedItem?.voteCount != null ? ' (${suggestedItem?.voteCount} votes)' : ''}',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(color: Colors.black54),
+                      style: AppTheme.mediaDescriptionStyle,
                     ),
                   ),
                 if (suggestedItem?.artist != null)

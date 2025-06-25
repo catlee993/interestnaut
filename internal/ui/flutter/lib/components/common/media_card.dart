@@ -29,21 +29,7 @@ class MediaCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final hasPoster = item.posterPath.isNotEmpty;
-    final isMovie = item.mediaType == 'movie';
-    final isBook = item.mediaType == 'book';
-    final isTV = item.mediaType == 'tv';
-    final isGame = item.mediaType == 'game';
-    final isAudiobook = item.mediaType == 'audiobook';
-    
-    final mediaIcon = isMovie 
-        ? Icons.movie 
-        : isBook 
-            ? Icons.menu_book 
-            : isTV 
-                ? Icons.tv 
-                : isGame 
-                    ? Icons.sports_esports
-                    : Icons.headphones;
+    final mediaIcon = AppTheme.getMediaFallbackIcon(item.mediaType);
 
     return Card(
       elevation: 4,
@@ -138,7 +124,7 @@ class MediaCard extends StatelessWidget {
                     const SizedBox(height: 4),
                     
                     // Author for books/audiobooks, Release date for others
-                    if (isBook && item.author != null)
+                    if ((item.mediaType == 'book' || item.mediaType == 'audiobook') && item.author != null)
                       Text(
                         item.author!,
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
@@ -147,7 +133,7 @@ class MediaCard extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       )
-                    else if (!isBook && item.releaseDate != null)
+                    else if (!(item.mediaType == 'book' || item.mediaType == 'audiobook') && item.releaseDate != null)
                       Text(
                         item.releaseDate!,
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
