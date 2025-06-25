@@ -142,6 +142,10 @@ class MediaSectionWrapper extends StatelessWidget {
       decoration: BoxDecoration(
         color: const Color(0xFF282828),
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: Colors.white.withOpacity(0.3), // Same as suggestion control buttons
+          width: 1,
+        ),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -183,11 +187,7 @@ class MediaSectionWrapper extends StatelessWidget {
                   // Media title
                   Text(
                     suggestion.title ?? 'Unknown ${AppTheme.getMediaDisplayName(mediaType)}',
-                    style: const TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.white,
-                    ),
+                    style: AppTheme.mediaTitleStyle,
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 8),
@@ -196,11 +196,7 @@ class MediaSectionWrapper extends StatelessWidget {
                   if (suggestion.artist?.isNotEmpty == true)
                     Text(
                       _getArtistText(suggestion.artist!),
-                      style: TextStyle(
-                        fontSize: 15,
-                        color: Colors.white.withOpacity(0.7),
-                        fontWeight: FontWeight.w400,
-                      ),
+                      style: AppTheme.mediaArtistStyle,
                       textAlign: TextAlign.center,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -221,12 +217,7 @@ class MediaSectionWrapper extends StatelessWidget {
                                   child: SingleChildScrollView(
                                     child: Text(
                                       suggestion.description!,
-                                      style: const TextStyle(
-                                        fontSize: 14,
-                                        color: Colors.white,
-                                        height: 1.5,
-                                        fontWeight: FontWeight.w400,
-                                      ),
+                                      style: AppTheme.mediaDescriptionStyle,
                                       textAlign: TextAlign.center,
                                     ),
                                   ),
@@ -273,12 +264,7 @@ class MediaSectionWrapper extends StatelessWidget {
                                         child: SingleChildScrollView(
                                           child: Text(
                                             suggestion.botReasoning!,
-                                            style: TextStyle(
-                                              fontSize: 14,
-                                              color: Colors.white.withOpacity(0.6),
-                                              height: 1.5,
-                                              fontWeight: FontWeight.w400,
-                                            ),
+                                            style: AppTheme.botReasoningStyle,
                                             textAlign: TextAlign.center,
                                           ),
                                         ),

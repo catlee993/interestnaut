@@ -247,34 +247,47 @@ class AppTheme {
   );
   
   // === MEDIA CONTENT TEXT STYLES ===
-  // Media title style - for suggested media item titles (with built-in scaling)
+  // Media title style - for suggested media item titles with stylized wide letter spacing
   static const TextStyle mediaTitleStyle = TextStyle(
     fontFamily: fontFamily,
-    fontWeight: FontWeight.w400,
-    fontSize: 16,
+    fontWeight: FontWeight.w300, // Thinner weight
+    fontSize: 24, // Larger for suggestion titles
     color: textPrimary,
-    letterSpacing: 0.5,
-    height: 1.5, // Built-in line height for taller appearance
+    letterSpacing: 2.0, // More exaggerated wide letter spacing
+    height: 1.3,
   );
   
-  // Media description style - for suggested media item descriptions (with built-in scaling)
+  // Media artist/creator style - for artist/creator info with stylized wide letter spacing
+  static const TextStyle mediaArtistStyle = TextStyle(
+    fontFamily: fontFamily,
+    fontWeight: FontWeight.w200, // Thinner weight
+    fontSize: 15,
+    color: textSecondary,
+    letterSpacing: 1.4, // More exaggerated wide letter spacing
+    height: 1.4,
+  );
+  
+  // Media description style - for suggested media item descriptions with stylized wide letter spacing
   static const TextStyle mediaDescriptionStyle = TextStyle(
     fontFamily: fontFamily,
-    fontWeight: FontWeight.w300,
+    fontWeight: FontWeight.w200, // Thinner weight
     fontSize: 14,
-    color: textSecondary,
-    height: 1.6, // Built-in line height for taller appearance
+    color: textPrimary,
+    letterSpacing: 1.0, // More exaggerated wide letter spacing
+    height: 1.6,
   );
   
-  // Bot reasoning style - for AI reasoning about media suggestions (with built-in scaling)
+  // Bot reasoning style - for AI reasoning about media suggestions with stylized wide letter spacing
   static const TextStyle botReasoningStyle = TextStyle(
     fontFamily: fontFamily,
-    fontWeight: FontWeight.w300,
-    fontSize: 13,
+    fontWeight: FontWeight.w200, // Thinner weight
+    fontSize: 14,
     color: textTertiary,
-    fontStyle: FontStyle.italic,
-    height: 1.5, // Built-in line height for taller appearance
+    letterSpacing: 0.8, // More exaggerated wide letter spacing
+    height: 1.6,
   );
+
+
   
   // === EDITABLE SECTION HEADER SCALING ===
   // Separate scaling for different types of section headers
@@ -507,15 +520,15 @@ class AppTheme {
       displayMedium: headingStyle.copyWith(fontSize: 45),
       displaySmall: headingStyle.copyWith(fontSize: 36),
       
-      // Headline styles
-      headlineLarge: headingStyle.copyWith(fontSize: 32),
+      // Headline styles - using our media styles for suggestion content
+      headlineLarge: mediaTitleStyle, // For suggestion titles
       headlineMedium: headingStyle.copyWith(fontSize: 28),
       headlineSmall: headingStyle.copyWith(fontSize: 24),
       
-      // Title styles
-      titleLarge: headingStyle.copyWith(fontSize: 22),
-      titleMedium: headingStyle.copyWith(fontSize: 16, fontWeight: FontWeight.w400),
-      titleSmall: headingStyle.copyWith(fontSize: 14, fontWeight: FontWeight.w400),
+      // Title styles - using our media styles for content
+      titleLarge: mediaArtistStyle, // For artist/creator info
+      titleMedium: mediaDescriptionStyle, // For media descriptions
+      titleSmall: botReasoningStyle, // For bot reasoning
       
       // Label styles - for buttons, tabs, etc.
       labelLarge: const TextStyle(
@@ -538,6 +551,44 @@ class AppTheme {
         fontWeight: FontWeight.w500,
         color: textSecondary,
         letterSpacing: 0.5,
+      ),
+    ).copyWith(
+      // Custom suggestion content styles
+      // Using headlineSmall for suggestion title (24px with wide spacing)
+      headlineSmall: const TextStyle(
+        fontFamily: fontFamily,
+        fontWeight: FontWeight.w400,
+        fontSize: 24,
+        letterSpacing: 1.2,
+        color: textPrimary,
+        height: 1.3,
+      ),
+      // Using titleMedium for suggestion artist/creator (15px with subtle spacing)
+      titleMedium: const TextStyle(
+        fontFamily: fontFamily,
+        fontWeight: FontWeight.w300,
+        fontSize: 15,
+        letterSpacing: 0.8,
+        color: textSecondary,
+        height: 1.4,
+      ),
+      // Using bodyLarge for suggestion description (14px with subtle spacing)
+      bodyLarge: const TextStyle(
+        fontFamily: fontFamily,
+        fontWeight: FontWeight.w300,
+        fontSize: 14,
+        letterSpacing: 0.6,
+        color: textPrimary,
+        height: 1.6,
+      ),
+      // Using bodyMedium for suggestion reasoning (14px with subtle spacing)
+      bodyMedium: const TextStyle(
+        fontFamily: fontFamily,
+        fontWeight: FontWeight.w300,
+        fontSize: 14,
+        letterSpacing: 0.5,
+        color: textTertiary,
+        height: 1.6,
       ),
     );
   }
