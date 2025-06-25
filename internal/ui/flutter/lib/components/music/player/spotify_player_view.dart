@@ -458,10 +458,10 @@ class _SpotifyPlayerState extends State<SpotifyPlayer> {
                           _currentTrack!.name,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
+                          style: const TextStyle(
                             fontWeight: FontWeight.bold,
                             fontSize: 14,
-                            color: theme.textTheme.titleSmall?.color,
+                            color: Colors.white, // More visible white text
                           ),
                         ),
                         const SizedBox(height: 4),
@@ -469,9 +469,9 @@ class _SpotifyPlayerState extends State<SpotifyPlayer> {
                           '${_currentTrack!.artist} - ${_currentTrack!.album.name}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
+                          style: const TextStyle(
                             fontSize: 12,
-                            color: theme.textTheme.bodySmall?.color?.withOpacity(0.7),
+                            color: Colors.white70, // More visible than the previous gray
                           ),
                         ),
                       ],

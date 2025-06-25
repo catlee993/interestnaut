@@ -300,7 +300,18 @@ class MusicSectionController extends BaseMediaSectionController {
   // Track action methods for LibrarySection
   Future<void> playSpotifyTrack(Track track) async {
     try {
-      await _spotifyService.playTrack(track.uri);
+      // Check if this track is currently playing
+      if (_nowPlayingTrack?.id == track.id) {
+        // Same track - toggle play/pause
+        if (_isPlaybackPaused) {
+          await resumePlayback();
+        } else {
+          await pausePlayback();
+        }
+      } else {
+        // Different track - play the new track
+        await _spotifyService.playTrack(track.uri);
+      }
     } catch (e) {
       debugPrint('Error playing Spotify track: $e');
     }
