@@ -14,6 +14,11 @@ class SpotifySection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Hide entire section (including header) if not connected
+    if (!controller.isAuthenticated) {
+      return const SizedBox.shrink();
+    }
+    
     return Column(
       children: [
         const SizedBox(height: 32.0), // Add spacing before the title
@@ -27,10 +32,6 @@ class SpotifySection extends StatelessWidget {
   }
 
   Widget _buildSpotifyContent(BuildContext context) {
-    if (!controller.isAuthenticated) {
-      return _buildSpotifyAuthPrompt(context);
-    }
-
     // Only show loading spinner for initial load, not pagination
     if (controller.isLoadingLibrary && controller.likedTracks.isEmpty) {
       return const Center(
@@ -41,12 +42,17 @@ class SpotifySection extends StatelessWidget {
     }
 
     if (controller.likedTracks.isEmpty && !controller.isLoadingLibrary) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 32),
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 48),
         child: Center(
           child: Text(
-            'No liked tracks found in your Spotify library.',
-            style: TextStyle(color: AppTheme.textSecondary),
+            'ADD SOMETHING TO YOUR LIKES',
+            style: TextStyle(
+              color: AppTheme.textSecondary.withOpacity(0.7),
+              fontSize: 16,
+              fontWeight: FontWeight.w200,
+              letterSpacing: 1.5, // Wide letter spacing for Interestnaut theme
+            ),
             textAlign: TextAlign.center,
           ),
         ),
@@ -101,50 +107,5 @@ class SpotifySection extends StatelessWidget {
     );
   }
 
-  Widget _buildSpotifyAuthPrompt(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: AppTheme.surfaceColor,
-        borderRadius: BorderRadius.circular(AppTheme.cardBorderRadius),
-      ),
-      child: Column(
-        children: [
-          const Icon(
-            FontAwesomeIcons.spotify,
-            color: AppTheme.spotifyGreen,
-            size: 48,
-          ),
-          const SizedBox(height: 16),
-          const Text(
-            'Connect to Spotify',
-            style: TextStyle(
-              color: AppTheme.textPrimary,
-              fontSize: 18,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            'Connect your Spotify account to see your liked tracks and play music.',
-            style: TextStyle(
-              color: AppTheme.textSecondary,
-              fontSize: 14,
-            ),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 16),
-          ElevatedButton.icon(
-            onPressed: () => controller.authenticateSpotify(context),
-            icon: const Icon(FontAwesomeIcons.spotify),
-            label: const Text('Connect Spotify'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppTheme.spotifyGreen,
-              foregroundColor: Colors.white,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+
 } 

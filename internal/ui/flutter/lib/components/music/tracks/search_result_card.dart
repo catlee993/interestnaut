@@ -118,19 +118,24 @@ class _SearchResultCardState extends State<SearchResultCard> {
   Widget _buildSearchLayout(Map<String, dynamic> info, bool canPlay) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        // Calculate artwork size - use 85% of card width to maximize artwork space
+        // Calculate artwork size - leave room for controls at bottom (about 50px for controls + padding)
+        final controlsHeight = 50.0;
+        final topMargin = 6.0;
+        final availableArtworkHeight = constraints.maxHeight - controlsHeight - topMargin;
         final artworkSize = constraints.maxWidth * 0.85;
+        // Use the smaller of width-based or height-based size to ensure it fits
+        final finalArtworkSize = artworkSize < availableArtworkHeight ? artworkSize : availableArtworkHeight;
         
         return Column(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            // Album artwork - larger square to optimize space usage
+            // Album artwork - sized to fit available space
             Container(
-              margin: const EdgeInsets.only(top: 6.0), // Reduced top margin
-              width: artworkSize,
-              height: artworkSize,
+              margin: const EdgeInsets.only(top: 6.0),
+              width: finalArtworkSize,
+              height: finalArtworkSize,
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(4), // 4px for large devices per Spotify guidelines
+                borderRadius: BorderRadius.circular(4),
                 child: info['albumArtUrl'] != null && info['albumArtUrl'].isNotEmpty
                     ? Image.network(
                         info['albumArtUrl'],
@@ -153,10 +158,10 @@ class _SearchResultCardState extends State<SearchResultCard> {
               ),
             ),
             
-            // Controls panel at bottom - moved closer to bottom with less spacing
+            // Controls panel at bottom - back at the bottom with fixed positioning
             Expanded(
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(6.0, 2.0, 6.0, 4.0), // Reduced top padding, moved closer to bottom
+                padding: const EdgeInsets.fromLTRB(6.0, 2.0, 6.0, 4.0),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.center, // Center align all items
