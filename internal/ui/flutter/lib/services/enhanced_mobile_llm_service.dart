@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
-import 'llama_service.dart';
+import 'tflite_llm_service.dart';
 import 'mobile_performance_config.dart';
 
 /// Enhanced Mobile LLM Service
@@ -11,14 +11,14 @@ class EnhancedMobileLLMService {
   factory EnhancedMobileLLMService() => _instance;
   EnhancedMobileLLMService._internal();
   
-  final LlamaService _llamaService = LlamaService();
+  final TFLiteLLMService _tfliteService = TFLiteLLMService();
   final List<String> _recentResponses = [];
   int _consecutiveFailures = 0;
   
   /// Initialize the enhanced mobile LLM service
   Future<bool> initialize() async {
     try {
-      return await _llamaService.initializeAuto();
+      return await _tfliteService.initialize();
     } catch (e) {
       debugPrint('❌ Enhanced Mobile LLM initialization failed: $e');
       return false;
@@ -39,7 +39,7 @@ class EnhancedMobileLLMService {
     
     try {
       // Try LLM generation with mobile constraints
-      if (_llamaService.isInitialized && _consecutiveFailures < 3) {
+      if (_tfliteService.isInitialized && _consecutiveFailures < 3) {
         final llmResponse = await _generateValidatedLLMResponse(
           userQuery: userQuery,
           mediaTitle: mediaTitle,
@@ -115,7 +115,7 @@ class EnhancedMobileLLMService {
       );
       
              // Generate with mobile constraints
-       final response = await _llamaService.generateReasoningExplanation(
+       final response = await _tfliteService.generateReasoningExplanation(
          userQuery: userQuery,
          mediaTitle: mediaTitle,
          mediaType: mediaType,
@@ -356,7 +356,7 @@ Why recommend?''';
     return {
       'consecutiveFailures': _consecutiveFailures,
       'totalResponses': _recentResponses.length,
-      'isLLMAvailable': _llamaService.isInitialized,
+      'isLLMAvailable': _tfliteService.isInitialized,
       'fallbackUsageRate': _consecutiveFailures > 0 ? _consecutiveFailures / max(1, _recentResponses.length) : 0.0,
     };
   }
@@ -366,4 +366,7 @@ Why recommend?''';
     _consecutiveFailures = 0;
     debugPrint('🔄 LLM failure counter reset');
   }
+  
+  /// Check if the service is initialized
+  bool get isInitialized => _tfliteService.isInitialized;
 } 

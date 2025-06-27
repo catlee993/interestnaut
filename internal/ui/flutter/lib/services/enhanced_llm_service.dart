@@ -4,7 +4,7 @@ import 'dart:isolate';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'sqlite_db.dart';
-import 'llama_service.dart';
+import 'tflite_llm_service.dart';
 import 'recommendation_service.dart';
 import '../models.dart';
 
@@ -17,7 +17,7 @@ class EnhancedLLMService {
   factory EnhancedLLMService() => _instance;
   EnhancedLLMService._internal();
 
-  final LlamaService _llamaService = LlamaService();
+  final TFLiteLLMService _tfliteService = TFLiteLLMService();
   final SQLiteDatabase _db = SQLiteDatabase();
   
   // Cache for user preference profiles
@@ -26,7 +26,7 @@ class EnhancedLLMService {
   
   /// Initialize the enhanced LLM service
   Future<void> init() async {
-    await _llamaService.initializeAuto();
+    await _tfliteService.initialize();
     await _db.init();
     
     // Start background profile updates every 5 minutes
@@ -83,13 +83,12 @@ class EnhancedLLMService {
       
       // Fallback to basic reasoning
       debugPrint('🔄 [ENHANCED] Falling back to basic LlamaService reasoning...');
-      final basicReasoning = await _llamaService.generateExplanation(
-        userQuery: userQuery,
-        mediaTitle: mediaTitle,
+              final basicReasoning = await _tfliteService.generateReasoningExplanation(
+          userQuery: userQuery,
+          mediaTitle: mediaTitle,
         mediaType: mediaType,
         artist: artist,
         themes: themes,
-        description: description,
         similarity: similarity,
       );
       
@@ -327,7 +326,7 @@ class EnhancedLLMService {
       
       // Generate with TinyLlama
       debugPrint('🧠 [LLM] Calling TinyLlama generateReasoningExplanation...');
-      final reasoning = await _llamaService.generateReasoningExplanation(
+      final reasoning = await _tfliteService.generateReasoningExplanation(
         userQuery: userQuery,
         mediaTitle: mediaTitle,
         mediaType: mediaType,

@@ -7,7 +7,7 @@ import 'package:provider/provider.dart';
 import 'package:window_size/window_size.dart' as window_package;
 import 'package:path_provider/path_provider.dart';
 import 'package:ffi/ffi.dart';
-import 'package:llama_cpp_dart/llama_cpp_dart.dart';
+// Removed llama_cpp_dart - using TensorFlow Lite instead
 import 'package:flutter/services.dart';
 import 'dart:ui';
 
@@ -23,7 +23,7 @@ import 'components/common/media_grid.dart';
 import 'components/music/spotify_service.dart';
 import 'components/music/player/spotify_player_view.dart';
 import 'components/music/player/spotify_web_player.dart';
-import 'services/llama_service.dart';
+import 'services/tflite_llm_service.dart';
 import 'services/wikidata_service.dart';
 import 'services/wikipedia_service.dart';
 import 'services/recommendation_service.dart';
@@ -103,22 +103,22 @@ Future<void> main() async {
     // Continue anyway, the app will handle missing FFI gracefully
   }
 
-  // --- Initialize LlamaService directly with native Dart implementation ---
-  final llamaService = LlamaService();
-  bool llamaInitialized = false;
+  // --- Initialize TensorFlow Lite LLM Service ---
+  final tfliteService = TFLiteLLMService();
+  bool llmInitialized = false;
 
   try {
-    // Initialize LlamaService (auto-detects model path)
-    debugPrint('🔄 Starting LlamaService initialization...');
-    llamaInitialized = await llamaService.initializeAuto();
+    // Initialize TensorFlow Lite LLM (looks for model in Documents/models/)
+    debugPrint('🔄 Starting TensorFlow Lite LLM initialization...');
+    llmInitialized = await tfliteService.initialize();
     
-    if (llamaInitialized) {
-      debugPrint('✅ LlamaService initialized successfully');
+    if (llmInitialized) {
+      debugPrint('✅ TensorFlow Lite LLM initialized successfully');
     } else {
-      debugPrint('❌ LlamaService initialization failed - continuing with limited functionality');
+      debugPrint('❌ TensorFlow Lite LLM initialization failed - continuing with limited functionality');
     }
   } catch (e) {
-    debugPrint('💥 Error initializing LlamaService: $e');
+    debugPrint('💥 Error initializing TensorFlow Lite LLM: $e');
     debugPrint('📍 Stack trace: ${StackTrace.current}');
     // Continue anyway, the app will handle missing LLM gracefully
   }
@@ -147,8 +147,8 @@ Future<void> main() async {
   runApp(
     MultiProvider(
       providers: [
-        // Provide LlamaService, RecommendationService, etc.
-        Provider.value(value: llamaService),
+        // Provide TensorFlow Lite LLM Service, RecommendationService, etc.
+        Provider.value(value: tfliteService),
         ChangeNotifierProvider.value(value: recommendationService),
         // If SpotifyService needs to be a provider:
         Provider.value(value: SpotifyService()),
@@ -162,8 +162,8 @@ Future<void> main() async {
   try {
     await recommendationService.init();
 
-    // Prefill recommendation queues if LlamaService is available
-    if (llamaInitialized) {
+    // Prefill recommendation queues if TensorFlow Lite LLM is available
+    if (llmInitialized) {
       await recommendationService.prefillQueues();
       debugPrint('RecommendationService initialized with queues prefilled');
     } else {
