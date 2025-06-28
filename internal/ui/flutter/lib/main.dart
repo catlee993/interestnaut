@@ -281,6 +281,7 @@ class _InterestnautAppState extends State<InterestnautApp> {
               onClearSearch: _clearSearch,
               currentMedia: _currentMediaType,
               onMediaChange: _handleMediaChange,
+              searchQuery: _searchQuery,
             ),
           ),
           // Global Spotify Player Bar - positioned at bottom, shows when music is playing

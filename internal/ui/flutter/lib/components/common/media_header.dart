@@ -12,6 +12,7 @@ class MediaHeader extends StatefulWidget {
   final VoidCallback? onClearSearch;
   final String currentMedia;
   final void Function(String)? onMediaChange;
+  final String searchQuery;
 
   const MediaHeader({
     Key? key,
@@ -20,6 +21,7 @@ class MediaHeader extends StatefulWidget {
     this.onClearSearch,
     this.currentMedia = 'music',
     this.onMediaChange,
+    this.searchQuery = '',
   }) : super(key: key);
 
   @override
@@ -411,7 +413,7 @@ class _MediaHeaderState extends State<MediaHeader> {
                                   : 'Search games...',
                   onSearch: widget.onSearch,
                   onClear: widget.onClearSearch,
-                  initialValue: '',  // Add this parameter to match the updated SearchBar API
+                  initialValue: widget.searchQuery,  // Use the current search query from parent
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 14,
