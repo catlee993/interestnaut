@@ -908,6 +908,44 @@ class _WikidataSearchSection extends StatelessWidget {
     required this.onClose,
   }) : super(key: key);
 
+  String _getSearchResultsText(int count, String mediaType) {
+    if (count == 0) return 'No results';
+    
+    // Convert plural mediaType to singular for count = 1
+    String singularType = _getSingularMediaType(mediaType);
+    String pluralType = _getPluralMediaType(mediaType);
+    
+    if (count == 1) {
+      return 'Found 1 $singularType';
+    }
+    return 'Found $count $pluralType';
+  }
+  
+  String _getSingularMediaType(String mediaType) {
+    switch (mediaType.toLowerCase()) {
+      case 'books': return 'book';
+      case 'movies': return 'movie';
+      case 'games': return 'game';
+      case 'tv': return 'show';
+      case 'music': return 'track';
+      default: return mediaType;
+    }
+  }
+  
+  String _getPluralMediaType(String mediaType) {
+    switch (mediaType.toLowerCase()) {
+      case 'book': return 'books';
+      case 'movie': return 'movies';
+      case 'game': return 'games';
+      case 'tv': return 'shows';
+      case 'music': return 'tracks';
+      default: 
+        // If already plural, return as-is
+        if (mediaType.endsWith('s')) return mediaType;
+        return '${mediaType}s';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (isLoading) {
@@ -945,12 +983,44 @@ class _WikidataSearchSection extends StatelessWidget {
     }
 
     if (searchResults.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.all(24.0),
-        child: Center(
-          child: Text(
-            'No results found',
-            style: TextStyle(color: Colors.white70),
+      return Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: SizedBox(
+          height: 120, // Constrain to minimum height like one result row
+          child: Stack(
+            children: [
+              // Centered "No results" text
+              Center(
+                child: Transform.scale(
+                  scaleX: 1.15, // Same horizontal stretch as stylized headers
+                  child: const Text(
+                    'No results',
+                    style: TextStyle(
+                      fontFamily: 'Inter',
+                      color: Colors.white70,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w300,
+                      letterSpacing: 1.2,
+                    ),
+                  ),
+                ),
+              ),
+              // X button positioned in top right
+              Positioned(
+                top: 0,
+                right: 0,
+                child: GestureDetector(
+                  onTap: onClose, // This should clear the search and close overlay
+                  child: Container(
+                    width: 24,
+                    height: 24,
+                    child: CustomPaint(
+                      painter: _SearchXButtonPainter(),
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       );
@@ -967,20 +1037,30 @@ class _WikidataSearchSection extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Padding(
-                  padding: const EdgeInsets.only(left: 16.0, bottom: 16.0),
-                  child: Text(
-                    'Search Results: ${searchResults.length} ${mediaType}s',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
+                  padding: const EdgeInsets.only(left: 16.0, bottom: 8.0),
+                  child: Transform.scale(
+                    scaleX: 1.15, // Same horizontal stretch as stylized headers
+                    child: Text(
+                      _getSearchResultsText(searchResults.length, mediaType),
+                      style: const TextStyle(
+                        fontFamily: 'Inter',
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w300,
+                        letterSpacing: 1.2,
+                      ),
                     ),
                   ),
                 ),
-                IconButton(
-                  icon: const Icon(Icons.close, color: Colors.white),
-                  onPressed: onClose,
-                  tooltip: 'Close search',
+                GestureDetector(
+                  onTap: onClose,
+                  child: Container(
+                    width: 24,
+                    height: 24,
+                    child: CustomPaint(
+                      painter: _SearchXButtonPainter(),
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -1272,4 +1352,49 @@ class _WikidataCardState extends State<_WikidataCard> {
       ),
     );
   }
+}
+
+/// Custom painter for the search X button - matches watchlist X styling
+class _SearchXButtonPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    // Purple outline paint (thicker)
+    final outlinePaint = Paint()
+      ..color = const Color(0xFFA855F7)
+      ..strokeWidth = 4.0
+      ..strokeCap = StrokeCap.round;
+
+    // White X paint (thinner, on top)
+    final xPaint = Paint()
+      ..color = Colors.white.withOpacity(0.8)
+      ..strokeWidth = 2.0
+      ..strokeCap = StrokeCap.round;
+
+    // Draw purple outline first (behind)
+    canvas.drawLine(
+      Offset(size.width * 0.25, size.height * 0.25),
+      Offset(size.width * 0.75, size.height * 0.75),
+      outlinePaint,
+    );
+    canvas.drawLine(
+      Offset(size.width * 0.75, size.height * 0.25),
+      Offset(size.width * 0.25, size.height * 0.75),
+      outlinePaint,
+    );
+
+    // Draw white X on top
+    canvas.drawLine(
+      Offset(size.width * 0.25, size.height * 0.25),
+      Offset(size.width * 0.75, size.height * 0.75),
+      xPaint,
+    );
+    canvas.drawLine(
+      Offset(size.width * 0.75, size.height * 0.25),
+      Offset(size.width * 0.25, size.height * 0.75),
+      xPaint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(CustomPainter oldDelegate) => false;
 }

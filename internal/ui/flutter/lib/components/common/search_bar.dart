@@ -160,26 +160,7 @@ class _SearchBarState extends State<SearchBar> {
               ),
             ),
           ),
-          if (_controller.text.isNotEmpty)
-            Positioned(
-              right: 8,
-              top: 10,
-              child: IconButton(
-                icon: const Icon(Icons.clear, color: Color.fromRGBO(123, 104, 238, 0.7), size: 16),
-                onPressed: _handleClear,
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(
-                  minWidth: 20,
-                  minHeight: 20,
-                ),
-                splashRadius: 16,
-                tooltip: 'Clear',
-                style: IconButton.styleFrom(
-                  hoverColor: const Color.fromRGBO(123, 104, 238, 0.1),
-                  highlightColor: Colors.transparent,
-                ),
-              ),
-            ),
+
         ],
       ),
     );
