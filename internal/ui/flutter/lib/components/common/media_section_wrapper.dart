@@ -215,77 +215,14 @@ class MediaSectionWrapper extends StatelessWidget {
                     ),
                   const SizedBox(height: 16),
                   
-                  // Flexible content area for description and reasoning
+                  // Flexible content area for description and reasoning with dynamic height allocation
                   Expanded(
                     child: LayoutBuilder(
                       builder: (context, constraints) {
-                        return Column(
-                          children: [
-                            // Description text - flexible height
-                            if (suggestion.description?.isNotEmpty == true)
-                              Flexible(
-                                child: Padding(
-                                  padding: const EdgeInsets.only(bottom: 8),
-                                  child: SingleChildScrollView(
-                                    child: Text(
-                                      suggestion.description!,
-                                      style: AppTheme.mediaDescriptionStyle,
-                                      textAlign: TextAlign.center,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            
-                            const SizedBox(height: 16),
-                            
-                            // Bot reasoning - flexible height
-                            if (suggestion.botReasoning?.isNotEmpty == true)
-                              Flexible(
-                                child: Container(
-                                  width: double.infinity,
-                                  margin: const EdgeInsets.only(bottom: 24),
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Row(
-                                        mainAxisAlignment: MainAxisAlignment.center,
-                                        children: [
-                                          Icon(
-                                            FontAwesomeIcons.robot,
-                                            size: 16,
-                                            color: const Color(0xFF8C86E2).withOpacity(0.7),
-                                          ),
-                                          const SizedBox(width: 8),
-                                          Text(
-                                            'Reasoning',
-                                            style: TextStyle(
-                                              color: const Color(0xFF8C86E2).withOpacity(0.7),
-                                              fontWeight: FontWeight.w500,
-                                              fontSize: 14,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 8),
-                                      Container(
-                                        height: 1,
-                                        color: const Color(0xFF7B68EE).withOpacity(0.2),
-                                      ),
-                                      const SizedBox(height: 12),
-                                      Flexible(
-                                        child: SingleChildScrollView(
-                                          child: Text(
-                                            suggestion.botReasoning!,
-                                            style: AppTheme.botReasoningStyle,
-                                            textAlign: TextAlign.center,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                          ],
+                        return _buildDynamicContentLayout(
+                          constraints: constraints,
+                          description: suggestion.description,
+                          reasoning: suggestion.botReasoning,
                         );
                       },
                     ),
@@ -356,6 +293,286 @@ class MediaSectionWrapper extends StatelessWidget {
       default:
         return artist;
     }
+  }
+
+  Widget _buildDynamicContentLayout({
+    required BoxConstraints constraints,
+    String? description,
+    String? reasoning,
+  }) {
+    // Calculate optimal heights based on content
+    final hasDescription = description?.isNotEmpty == true;
+    final hasReasoning = reasoning?.isNotEmpty == true;
+    
+    if (!hasDescription && !hasReasoning) {
+      return const SizedBox.shrink();
+    }
+    
+    if (!hasDescription && hasReasoning) {
+      // Only reasoning - use most of the space
+      return Column(
+        children: [
+          Expanded(child: _buildRichTextReasoning(reasoning!)),
+        ],
+      );
+    }
+    
+    if (hasDescription && !hasReasoning) {
+      // Only description - use all space
+      return Column(
+        children: [
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: SingleChildScrollView(
+                child: Text(
+                  description!,
+                  style: AppTheme.mediaDescriptionStyle,
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+    
+    // Both present - measure description and allocate remaining space to reasoning
+    return LayoutBuilder(
+      builder: (context, innerConstraints) {
+        // Measure how much space the description actually needs
+        final textPainter = TextPainter(
+          text: TextSpan(
+            text: description!,
+            style: AppTheme.mediaDescriptionStyle,
+          ),
+          textDirection: TextDirection.ltr,
+          maxLines: null,
+        );
+        textPainter.layout(maxWidth: innerConstraints.maxWidth);
+        
+                         final descriptionNaturalHeight = textPainter.size.height;
+        final availableHeight = innerConstraints.maxHeight;
+        final spacing = 16.0;
+        final minimumReasoningHeight = 100.0;
+        
+        // Account for ALL spacing overhead in the layout
+        // Description padding (8px) + middle spacing (16px) + reasoning header+divider+spacing (~31px) + reasoning bottom margin (12px)
+        final totalLayoutOverhead = 8.0 + 16.0 + 31.0 + 12.0; // ~67px
+        final usableHeight = availableHeight - totalLayoutOverhead;
+        
+        // Calculate how much space to give each section
+        double descriptionHeight;
+        double reasoningHeight;
+        
+        // Default split: 60% description, 40% reasoning (based on usable height)
+        final descriptionPreferredSpace = usableHeight * 0.6;
+        final reasoningPreferredSpace = usableHeight * 0.4;
+        
+        if (descriptionNaturalHeight <= descriptionPreferredSpace) {
+          // Description fits in preferred space or less - give it what it needs
+          descriptionHeight = descriptionNaturalHeight + 8.0; // Include its padding
+          reasoningHeight = availableHeight - descriptionHeight - spacing;
+        } else {
+          // Description needs more than 60% - give description 60%, reasoning 40%
+          descriptionHeight = descriptionPreferredSpace + 8.0; // Include its padding
+          reasoningHeight = reasoningPreferredSpace + spacing; // Include remaining overhead
+        }
+        
+        return Column(
+          children: [
+            // Description with calculated height - account for its own padding
+            Container(
+              height: descriptionHeight,
+              padding: const EdgeInsets.only(bottom: 8),
+              child: SingleChildScrollView(
+                child: Text(
+                  description!,
+                  style: AppTheme.mediaDescriptionStyle,
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ),
+            
+            SizedBox(height: spacing),
+            
+            // Reasoning with remaining height
+            SizedBox(
+              height: reasoningHeight,
+              child: _buildRichTextReasoning(reasoning!),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildRichTextReasoning(String reasoning) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Header
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                FontAwesomeIcons.robot,
+                size: 16,
+                color: const Color(0xFF8C86E2).withOpacity(0.7),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'Reasoning',
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  color: const Color(0xFF8C86E2).withOpacity(0.7),
+                  fontWeight: FontWeight.w300,
+                  fontSize: 14,
+                  letterSpacing: 0.5,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Container(
+            height: 1,
+            color: const Color(0xFF7B68EE).withOpacity(0.2),
+          ),
+          const SizedBox(height: 6),
+          
+          // Rich text content in columnar layout
+          Expanded(
+            child: SingleChildScrollView(
+              child: Padding(
+                padding: const EdgeInsets.only(left: 24, right: 24), // Balanced padding for columns
+                child: _buildColumnarReasoningContent(reasoning, mediaType),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildColumnarReasoningContent(String reasoning, String mediaType) {
+    // Parse the structured reasoning text into two sections
+    final lines = reasoning.split('\n');
+    final leftColumnWidgets = <Widget>[];
+    final rightColumnWidgets = <Widget>[];
+    
+    List<Widget> currentColumn = leftColumnWidgets;
+    bool isFirstSection = true;
+    
+    for (int i = 0; i < lines.length; i++) {
+      final line = lines[i].trim();
+      if (line.isEmpty) continue;
+      
+      if (line.startsWith('**') && line.endsWith('**')) {
+        // Header line - switch to right column if this is the second header
+        String headerText;
+        
+        if (isFirstSection) {
+          // First header - use dynamic media type
+          headerText = '${AppTheme.getMediaDisplayName(mediaType)} Themes';
+          currentColumn = leftColumnWidgets;
+        } else {
+          // Second header - use dynamic media type for related items
+          headerText = 'Related ${AppTheme.getMediaPluralDisplayName(mediaType)}';
+          currentColumn = rightColumnWidgets;
+        }
+        isFirstSection = false;
+        
+        currentColumn.add(
+          Container(
+            width: double.infinity,
+            margin: const EdgeInsets.only(bottom: 6, top: 6),
+            child: Text(
+              headerText,
+              style: const TextStyle(
+                fontFamily: 'Inter',
+                fontWeight: FontWeight.w300,
+                fontSize: 15.0,
+                color: Color(0xFF8C86E2),
+                letterSpacing: 0.5,
+              ).copyWith(
+                color: const Color(0xFF8C86E2).withOpacity(0.9),
+              ),
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        );
+      } else if (line.startsWith('━')) {
+        // Skip ASCII underlines - we use proper underlines now
+        continue;
+      } else if (line.startsWith('• ')) {
+        // Remove bullet and center the text
+        final bulletText = line.substring(2);
+        currentColumn.add(
+          Container(
+            width: double.infinity,
+            margin: const EdgeInsets.only(bottom: 2),
+            child: Text(
+              bulletText,
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontWeight: FontWeight.w300,
+                fontSize: 13,
+                color: Colors.white.withOpacity(0.85),
+                letterSpacing: 0.3,
+                height: 1.3,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ),
+        );
+      } else {
+        // Regular text line
+        currentColumn.add(
+          Container(
+            width: double.infinity,
+            margin: const EdgeInsets.only(bottom: 2),
+            child: Text(
+              line,
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontWeight: FontWeight.w300,
+                fontSize: 13,
+                color: Colors.white.withOpacity(0.85),
+                letterSpacing: 0.3,
+                height: 1.3,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ),
+        );
+      }
+    }
+    
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Left column - Matched Themes
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.center, // Center everything
+            children: leftColumnWidgets,
+          ),
+        ),
+        const SizedBox(width: 20), // Space between columns
+        // Right column - User Preferences
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.center, // Center everything
+            children: rightColumnWidgets,
+          ),
+        ),
+      ],
+    );
   }
 
   // Helper method to build watchlist section (matches TV section exactly)

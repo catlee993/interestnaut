@@ -922,6 +922,129 @@ class VectorDatabase {
     }
   }
 
+  /// 🎯 Get title and artist info for a specific media ID
+  Future<Map<String, String>?> _getTitleInfoForMediaId(Database db, String mediaId) async {
+    try {
+      final stmt = db.prepare('SELECT title, artist FROM media_vectors WHERE media_id = ?');
+      final result = stmt.select([mediaId]);
+      stmt.dispose();
+      
+      if (result.isEmpty) {
+        return null;
+      }
+      
+      return {
+        'title': result.first['title'] as String? ?? 'Unknown Title',
+        'artist': result.first['artist'] as String? ?? '',
+      };
+    } catch (e) {
+      debugPrint('⚠️ Error getting title info for $mediaId: $e');
+      return null;
+    }
+  }
+
+  /// 🎯 Get theme analysis for reasoning generation
+  /// Returns the themes selected by the algorithm and which titles contributed to those themes
+  Future<Map<String, dynamic>> getThemeAnalysisForReasoning({
+    required String mediaType,
+    required List<String> likedItemIds,
+    required List<String> dislikedItemIds,
+    List<String> favoriteItemIds = const [],
+  }) async {
+    try {
+      await _ensureInitialized();
+      
+      if (!_shards.containsKey(mediaType)) {
+        return {'selectedThemes': <String>[], 'themeTitles': <String, List<Map<String, String>>>{}};
+      }
+
+      final db = _shards[mediaType]!;
+      final themeFrequency = <String, double>{};
+      final themeToTitles = <String, List<Map<String, String>>>{};
+      
+      // Get themes from favorites (supreme weight = 3.0)
+      for (final mediaId in favoriteItemIds) {
+        final themes = await _getThemesForMediaId(db, mediaId);
+        final titleInfo = await _getTitleInfoForMediaId(db, mediaId);
+        if (titleInfo != null) {
+          for (final theme in themes) {
+            themeFrequency[theme] = (themeFrequency[theme] ?? 0.0) + 3.0;
+            themeToTitles[theme] ??= [];
+            if (!themeToTitles[theme]!.any((info) => info['mediaId'] == mediaId)) {
+              themeToTitles[theme]!.add({
+                'mediaId': mediaId,
+                'title': titleInfo['title']!,
+                'artist': titleInfo['artist'] ?? '',
+                'type': 'favorite'
+              });
+            }
+          }
+        }
+      }
+      
+      // Get themes from likes (great weight = 2.0)
+      for (final mediaId in likedItemIds) {
+        final themes = await _getThemesForMediaId(db, mediaId);
+        final titleInfo = await _getTitleInfoForMediaId(db, mediaId);
+        if (titleInfo != null) {
+          for (final theme in themes) {
+            themeFrequency[theme] = (themeFrequency[theme] ?? 0.0) + 2.0;
+            themeToTitles[theme] ??= [];
+            if (!themeToTitles[theme]!.any((info) => info['mediaId'] == mediaId)) {
+              themeToTitles[theme]!.add({
+                'mediaId': mediaId,
+                'title': titleInfo['title']!,
+                'artist': titleInfo['artist'] ?? '',
+                'type': 'liked'
+              });
+            }
+          }
+        }
+      }
+      
+      if (themeFrequency.isEmpty) {
+        return {'selectedThemes': <String>[], 'themeTitles': <String, List<Map<String, String>>>{}};
+      }
+      
+      // Select 2-3 positive themes (same logic as main algorithm)
+      final sortedThemes = themeFrequency.entries.toList()
+        ..sort((a, b) => b.value.compareTo(a.value));
+      
+      final selectedPositiveThemes = <String>[];
+      final random = Random();
+      
+      // Always take top 2 themes
+      if (sortedThemes.isNotEmpty) {
+        selectedPositiveThemes.add(sortedThemes[0].key);
+      }
+      if (sortedThemes.length > 1) {
+        selectedPositiveThemes.add(sortedThemes[1].key);
+      }
+      
+      // Occasionally add a 3rd theme for variety (30% chance)
+      if (sortedThemes.length > 2 && random.nextDouble() < 0.3) {
+        selectedPositiveThemes.add(sortedThemes[2].key);
+      }
+      
+      // Build the result with selected themes and their contributing titles
+      final selectedThemeTitles = <String, List<Map<String, String>>>{};
+      for (final theme in selectedPositiveThemes) {
+        selectedThemeTitles[theme] = themeToTitles[theme] ?? [];
+      }
+      
+      debugPrint('[THEME-ANALYSIS] Selected themes: ${selectedPositiveThemes.join(', ')}');
+      
+      return {
+        'selectedThemes': selectedPositiveThemes,
+        'themeTitles': selectedThemeTitles,
+      };
+      
+    } catch (e) {
+      debugPrint('⚠️ Error in theme analysis: $e');
+      return {'selectedThemes': <String>[], 'themeTitles': <String, List<Map<String, String>>>{}};
+    }
+  }
+
   /// 🎯 Calculate theme-based match score (0.0 to 1.0) - optimized for 2-3 themes
   double _calculateThemeMatchScore(
     List<String> itemThemes,
@@ -1100,20 +1223,45 @@ class VectorDatabase {
       // Step 1: Extract and count themes from positive signals (favorites + likes)
       final themeFrequency = <String, double>{};
       final negativeThemes = <String>{};
+      final themeToTitles = <String, List<Map<String, String>>>{}; // Track which titles contribute to each theme
       
       // Get themes from favorites (supreme weight = 3.0)
       for (final mediaId in favoriteItemIds) {
         final themes = await _getThemesForMediaId(db, mediaId);
-        for (final theme in themes) {
-          themeFrequency[theme] = (themeFrequency[theme] ?? 0.0) + 3.0;
+        final titleInfo = await _getTitleInfoForMediaId(db, mediaId);
+        if (titleInfo != null) {
+          for (final theme in themes) {
+            themeFrequency[theme] = (themeFrequency[theme] ?? 0.0) + 3.0;
+            themeToTitles[theme] ??= [];
+            if (!themeToTitles[theme]!.any((info) => info['mediaId'] == mediaId)) {
+              themeToTitles[theme]!.add({
+                'mediaId': mediaId,
+                'title': titleInfo['title']!,
+                'artist': titleInfo['artist'] ?? '',
+                'type': 'favorite'
+              });
+            }
+          }
         }
       }
       
       // Get themes from likes (great weight = 2.0)
       for (final mediaId in likedItemIds) {
         final themes = await _getThemesForMediaId(db, mediaId);
-        for (final theme in themes) {
-          themeFrequency[theme] = (themeFrequency[theme] ?? 0.0) + 2.0;
+        final titleInfo = await _getTitleInfoForMediaId(db, mediaId);
+        if (titleInfo != null) {
+          for (final theme in themes) {
+            themeFrequency[theme] = (themeFrequency[theme] ?? 0.0) + 2.0;
+            themeToTitles[theme] ??= [];
+            if (!themeToTitles[theme]!.any((info) => info['mediaId'] == mediaId)) {
+              themeToTitles[theme]!.add({
+                'mediaId': mediaId,
+                'title': titleInfo['title']!,
+                'artist': titleInfo['artist'] ?? '',
+                'type': 'liked'
+              });
+            }
+          }
         }
       }
       
@@ -1154,6 +1302,12 @@ class VectorDatabase {
       
       debugPrint('[THEME-MATCHING] Selected Positive Themes (${selectedPositiveThemes.length}): ${selectedPositiveThemes.join(', ')}');
       debugPrint('[THEME-MATCHING] Selected Negative Themes (${selectedNegativeThemes.length}): ${selectedNegativeThemes.join(', ')}');
+      
+      // Store theme mapping data for reasoning generation
+      final selectedThemeTitles = <String, List<Map<String, String>>>{};
+      for (final theme in selectedPositiveThemes) {
+        selectedThemeTitles[theme] = themeToTitles[theme] ?? [];
+      }
       
       // Log user constraints if any
       if (userConstraints.isNotEmpty) {

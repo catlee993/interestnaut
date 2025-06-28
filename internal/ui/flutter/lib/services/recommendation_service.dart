@@ -14,7 +14,7 @@ import 'package:sqlite3/sqlite3.dart';
 import 'package:vector_math/vector_math.dart' as vm;
 import 'sqlite_db.dart';
 import '../db/vector_db.dart';
-import 'tflite_llm_service.dart';
+
 import 'model_constants.dart';
 import '../models.dart';
 import 'package:interestnaut/services/wikipedia_service.dart';
@@ -742,7 +742,6 @@ class RecommendationService extends ChangeNotifier {
   RecommendationService._internal();
   
   final SQLiteDatabase _db = SQLiteDatabase();
-  final TFLiteLLMService _tfliteService = TFLiteLLMService();
   final SpotifyService _spotifyService = SpotifyService();
   final RecommendationEventService _eventService = RecommendationEventService();
   final LLMPerformanceMonitor _performanceMonitor = LLMPerformanceMonitor(); 
@@ -1107,25 +1106,8 @@ class RecommendationService extends ChangeNotifier {
     }
 
     // Quick synchronous checks only (avoid async operations here)
-    debugPrint('🔍 Checking TFLite service initialization: ${_tfliteService.isInitialized}');
-    if (!_tfliteService.isInitialized) {
-      debugPrint('❌ TFLite service not initialized, attempting to initialize...');
-      
-      // Wait for re-initialization to complete
-      try {
-        debugPrint('🔄 Attempting to re-initialize TFLite service...');
-        final success = await _tfliteService.initialize();
-        debugPrint('🔄 Re-initialization result: $success');
-        
-        if (!success) {
-          debugPrint('❌ TFLite service initialization failed');
-          return null;
-        }
-      } catch (e) {
-        debugPrint('💥 Re-initialization failed: $e');
-        return null;
-      }
-    }
+    debugPrint('🔍 Checking database availability for $mediaType');
+    // LLM no longer required - using structured theme matching instead
 
     _queueBeingFilled[mediaType] = true;
 
@@ -1196,10 +1178,8 @@ class RecommendationService extends ChangeNotifier {
       final hasVectorDB = await isMediaTypeAvailable(mediaType);
       debugPrint('🔍 [ASYNC-FULL] Vector DB available: $hasVectorDB');
       
-      // LLM is optional for explanations - don't block on it!
-      debugPrint('🔍 [ASYNC-FULL] Checking LLM availability (optional for explanations)...');
-      final hasLLM = await _tfliteService.isModelAvailable();
-      debugPrint('🔍 [ASYNC-FULL] LLM available: $hasLLM (not required - will use simple explanations if needed)');
+      // No longer using LLM - using structured theme matching instead
+      debugPrint('🎯 [ASYNC-FULL] Using structured theme matching for reasoning (no LLM required)');
       
       if (!hasVectorDB) {
         debugPrint('❌ [ASYNC-FULL] Cannot generate $mediaType suggestion: Vector database not available');
@@ -1574,11 +1554,11 @@ class RecommendationService extends ChangeNotifier {
         String finalReasoning = result['botReasoning'] as String? ?? '';
         
         if (finalReasoning == 'PLACEHOLDER_FOR_ONNX_GENERATION_ON_MAIN_THREAD_OK' || finalReasoning.isEmpty) {
-          debugPrint('🧠 [MAIN-LLM] Generating iOS-optimized reasoning on main thread...');
+          debugPrint('🎯 [THEME-MATCHING] Generating structured theme summary...');
           
           try {
-            // Use lightweight, iOS-optimized LLM reasoning
-            finalReasoning = await _generateMainThreadReasoning(
+            // Use structured theme matching instead of LLM
+            finalReasoning = _generateMainThreadReasoning(
               mediaType: mediaType,
               title: result['title'] as String,
               artist: result['artist'] as String?,
@@ -1587,9 +1567,9 @@ class RecommendationService extends ChangeNotifier {
               userQuery: userQuery,
               userProfileData: userProfileData,
             );
-            debugPrint('✅ [MAIN-LLM] iOS-optimized reasoning generated: ${finalReasoning.length} chars');
+            debugPrint('✅ [THEME-MATCHING] Structured theme summary generated: ${finalReasoning.length} chars');
           } catch (e) {
-            debugPrint('⚠️ [MAIN-LLM] Error generating reasoning, using fallback: $e');
+            debugPrint('⚠️ [THEME-MATCHING] Error generating theme summary, using fallback: $e');
             finalReasoning = _generateFallbackReasoning(
               mediaType: mediaType,
               title: result['title'] as String,
@@ -1654,8 +1634,8 @@ class RecommendationService extends ChangeNotifier {
     return '${mediaType}_${counter.toString().padLeft(6, '0')}_${cleanArtist}${cleanTitle}';
   }
 
-  /// Generate lightweight LLM reasoning optimized for iOS performance
-  Future<String> _generateMainThreadReasoning({
+  /// Generate structured theme matching summary using actual algorithmic data
+  String _generateMainThreadReasoning({
     required String mediaType,
     required String title,
     String? artist,
@@ -1663,84 +1643,127 @@ class RecommendationService extends ChangeNotifier {
     String? description,
     required String userQuery,
     Map<String, dynamic>? userProfileData,
-  }) async {
-    debugPrint('🧠 [MAIN-LLM] Starting iOS-optimized reasoning generation...');
+  }) {
+    debugPrint('🎯 [ALGORITHMIC-REASONING] Generating reasoning with actual algorithm data...');
     
-    // Check if TFLite service is available and initialized
-    if (!_tfliteService.isInitialized) {
-      debugPrint('🧠 [MAIN-LLM] TFLite not initialized, attempting quick init...');
-      final initSuccess = await _tfliteService.initialize();
-      if (!initSuccess) {
-        debugPrint('⚠️ [MAIN-LLM] TFLite init failed, using contextual fallback');
-        return _generateFallbackReasoning(
-          mediaType: mediaType,
-          title: title,
-          artist: artist,
-          themes: themes,
-        );
-      }
-    }
-
-    // Check if model is actually available
-    final modelAvailable = await _tfliteService.isModelAvailable();
-    if (!modelAvailable) {
-      debugPrint('⚠️ [MAIN-LLM] Model not available, using contextual fallback');
-      return _generateFallbackReasoning(
-        mediaType: mediaType,
-        title: title,
-        artist: artist,
-        themes: themes,
-      );
-    }
-
     try {
-      debugPrint('🧠 [MAIN-LLM] Calling TFLite for lightweight reasoning...');
+      final buffer = StringBuffer();
       
-      // Extract user preferences for context
-      String userContext = '';
-      if (userProfileData != null) {
-        final favoriteItems = userProfileData['favorite_items'] as List<dynamic>? ?? [];
-        if (favoriteItems.isNotEmpty && favoriteItems.first is Map<String, dynamic>) {
-          final firstFav = favoriteItems.first as Map<String, dynamic>;
-          final favThemes = firstFav['themes'] as String?;
-          if (favThemes != null && favThemes.isNotEmpty) {
-            final topThemes = favThemes.split(',').take(2).map((t) => t.trim()).join(', ');
-            userContext = 'User likes: $topThemes';
+      // Get the actual theme analysis data from the algorithm
+      final behavioralData = _extractBehavioralDataFromProfile(userProfileData ?? {});
+      
+      // Use a simple synchronous approach for now - we'll make it async later if needed
+      // For now, use the fallback approach but with better structure
+      final mediaDisplayName = _getMediaTypeLabel(mediaType).toLowerCase();
+      
+      // Parse media themes for the left column
+      final mediaThemes = themes != null && themes.isNotEmpty 
+          ? themes.split(',').map((t) => t.trim()).where((t) => t.isNotEmpty).toList()
+          : <String>[];
+      
+      // Build structured summary with algorithmic transparency
+      final capitalizedMediaType = mediaDisplayName[0].toUpperCase() + mediaDisplayName.substring(1);
+      buffer.writeln('**$capitalizedMediaType Themes**');
+      buffer.writeln('━━━━━━━━━━━━━━━');
+      if (mediaThemes.isNotEmpty) {
+        for (final theme in mediaThemes.take(3)) {
+          buffer.writeln('• $theme');
+        }
+      } else {
+        buffer.writeln('• No themes available');
+      }
+      
+      buffer.writeln('');
+      buffer.writeln('**Related ${capitalizedMediaType}s**');
+      buffer.writeln('━━━━━━━━━━━━━━━━━');
+      
+      // Show contributing titles from behavioral data - only ones that contributed to the matched themes
+      final contributingTitles = <String>[];
+      
+      // Get the themes of the recommended item to find relevant contributing titles
+      final recommendedThemes = mediaThemes.map((t) => t.toLowerCase()).toSet();
+      
+      // Get titles from favorites first (highest weight)
+      final favoriteItems = userProfileData?['favorite_items'] as List<dynamic>? ?? [];
+      for (final item in favoriteItems) {
+        if (item is Map<String, dynamic>) {
+          final itemTitle = item['title'] as String? ?? '';
+          final itemThemes = item['themes'] as String? ?? '';
+          
+          if (itemTitle.isNotEmpty && itemThemes.isNotEmpty) {
+            // Check if this item has any of the recommended themes
+            final userItemThemes = itemThemes.split(',').map((t) => t.trim().toLowerCase()).toSet();
+            final hasMatchingTheme = recommendedThemes.any((theme) => userItemThemes.contains(theme));
+            
+            if (hasMatchingTheme) {
+              contributingTitles.add(itemTitle); // Just title, no author
+            }
           }
         }
       }
-
-             // iOS-optimized: Very short, focused reasoning call
-       final reasoning = await _tfliteService.generateReasoningExplanation(
-         userQuery: userQuery,
-         mediaTitle: title,
-         mediaType: mediaType,
-         artist: artist,
-         themes: themes,
-         userProfile: userContext.isNotEmpty ? userContext : null,
-         similarity: 0.8, // Good match score from theme matching
-       );
-
-      if (reasoning.isNotEmpty && reasoning.length > 10 && !reasoning.contains('unk') && !reasoning.contains('<unk>')) {
-        debugPrint('✅ [MAIN-LLM] TFLite reasoning successful: ${reasoning.length} chars');
-        return reasoning;
-      } else {
-        debugPrint('⚠️ [MAIN-LLM] TFLite returned broken/short response: "$reasoning", using fallback');
-        return _generateFallbackReasoning(
-          mediaType: mediaType,
-          title: title,
-          artist: artist,
-          themes: themes,
-        );
+      
+      // Add liked items if we need more (and they have matching themes)
+      if (contributingTitles.length < 3) {
+        final likedItems = userProfileData?['liked_items'] as List<dynamic>? ?? [];
+        for (final item in likedItems) {
+          if (item is Map<String, dynamic> && contributingTitles.length < 3) {
+            final itemTitle = item['title'] as String? ?? '';
+            final itemThemes = item['themes'] as String? ?? '';
+            
+            if (itemTitle.isNotEmpty && itemThemes.isNotEmpty && !contributingTitles.contains(itemTitle)) {
+              // Check if this item has any of the recommended themes
+              final userItemThemes = itemThemes.split(',').map((t) => t.trim().toLowerCase()).toSet();
+              final hasMatchingTheme = recommendedThemes.any((theme) => userItemThemes.contains(theme));
+              
+              if (hasMatchingTheme) {
+                contributingTitles.add(itemTitle); // Just title, no author
+              }
+            }
+          }
+        }
       }
+      
+      if (contributingTitles.isNotEmpty) {
+        for (final title in contributingTitles.take(3)) {
+          buffer.writeln('• $title');
+        }
+      } else {
+        buffer.writeln('• Learning your preferences...');
+      }
+      
+      final result = buffer.toString().trim();
+      debugPrint('✅ [ALGORITHMIC-REASONING] Generated reasoning: ${result.length} chars');
+      return result;
+      
     } catch (e) {
-      debugPrint('❌ [MAIN-LLM] TFLite error: $e');
-      return _generateFallbackReasoning(
-        mediaType: mediaType,
-        title: title,
-        artist: artist,
-        themes: themes,
-      );
+      debugPrint('⚠️ [ALGORITHMIC-REASONING] Error generating reasoning: $e');
+      
+      // Fallback to simple reasoning
+      final buffer = StringBuffer();
+      final mediaDisplayName = _getMediaTypeLabel(mediaType).toLowerCase();
+      final capitalizedMediaType = mediaDisplayName[0].toUpperCase() + mediaDisplayName.substring(1);
+      
+      buffer.writeln('**$capitalizedMediaType Themes**');
+      buffer.writeln('━━━━━━━━━━━━━━━');
+      
+      final mediaThemes = themes != null && themes.isNotEmpty 
+          ? themes.split(',').map((t) => t.trim()).where((t) => t.isNotEmpty).take(3).toList()
+          : <String>[];
+      
+      if (mediaThemes.isNotEmpty) {
+        for (final theme in mediaThemes) {
+          buffer.writeln('• $theme');
+        }
+      } else {
+        buffer.writeln('• No themes available');
+      }
+      
+      buffer.writeln('');
+      buffer.writeln('**Related ${capitalizedMediaType}s**');
+      buffer.writeln('━━━━━━━━━━━━━━━━━');
+      buffer.writeln('• Learning your preferences...');
+      
+      return buffer.toString().trim();
     }
   }
 
@@ -2608,11 +2631,8 @@ class RecommendationService extends ChangeNotifier {
       BackgroundIsolateBinaryMessenger.ensureInitialized(rootIsolateToken);
       debugPrint('🧠 [ISOLATE-LLM] ✅ Background messenger initialized with token');
       
-      // Initialize TFLite service in isolate
-      debugPrint('🧠 [ISOLATE-LLM] Initializing TFLite service in isolate...');
-      final tfliteService = TFLiteLLMService();
-      await tfliteService.initialize();
-      debugPrint('🧠 [ISOLATE-LLM] ✅ TFLite service initialized in isolate');
+      // No longer using TFLite service - using structured theme matching instead
+      debugPrint('🎯 [THEME-MATCHING] Using structured theme matching (no LLM required)');
       
       // Extract user profile
       final preferredThemes = (userProfileData['preferredThemes'] as List<dynamic>?)?.cast<String>() ?? [];
@@ -2663,8 +2683,8 @@ class RecommendationService extends ChangeNotifier {
     }
   }
 
-  /// Generate enhanced behavioral reasoning with LLM
-  static Future<String> _generateEnhancedBehavioralReasoningPure({
+  /// Generate structured theme matching summary (replaces LLM reasoning)
+  static String _generateEnhancedBehavioralReasoningPure({
     required String userQuery,
     required String mediaTitle,
     required String mediaType,
@@ -2674,67 +2694,62 @@ class RecommendationService extends ChangeNotifier {
     required double similarity,
     required Map<String, dynamic> userProfileData,
     RootIsolateToken? rootIsolateToken,
-  }) async {
-    try {
-      debugPrint('[ISOLATE-LLM] Attempting ONNX reasoning generation...');
-      
-      // Extract behavioral context for user profile
-      final behavioralContext = _extractBehavioralContextForLLM(userProfileData);
-      
-      // Try to use ONNX LLM service for reasoning
-      final llmService = TFLiteLLMService();
-      
-      // Initialize background messenger for isolate ONNX access
-      if (rootIsolateToken != null) {
-        debugPrint('[ISOLATE-LLM] Initializing background messenger for ONNX...');
-        try {
-          BackgroundIsolateBinaryMessenger.ensureInitialized(rootIsolateToken);
-          debugPrint('[ISOLATE-LLM] Background messenger initialized successfully');
-        } catch (e) {
-          debugPrint('[ISOLATE-LLM] Background messenger init failed: $e');
+  }) {
+    debugPrint('🎯 [THEME-MATCHING] Generating structured theme summary...');
+    
+    final buffer = StringBuffer();
+    
+    // Extract user preferences
+    final userThemes = <String>{};
+    final favoriteItems = userProfileData['favorite_items'] as List<dynamic>? ?? [];
+    for (final item in favoriteItems) {
+      if (item is Map<String, dynamic>) {
+        final itemThemes = item['themes'] as String?;
+        if (itemThemes != null && itemThemes.isNotEmpty) {
+          userThemes.addAll(itemThemes.split(',').map((t) => t.trim().toLowerCase()));
         }
       }
-      
-      // Initialize the ONNX service first
-      debugPrint('[ISOLATE-LLM] Initializing ONNX service...');
-      final initSuccess = await llmService.initialize();
-      
-      if (initSuccess && await llmService.isModelAvailable()) {
-        debugPrint('[ISOLATE-LLM] ONNX model available, generating reasoning...');
-        final reasoning = await llmService.generateReasoningExplanation(
-          userQuery: userQuery,
-          mediaTitle: mediaTitle,
-          mediaType: mediaType,
-          artist: artist,
-          themes: themes,
-          userProfile: behavioralContext['userConstraints'],
-          similarity: similarity,
-        );
-        
-        if (reasoning.isNotEmpty) {
-          debugPrint('[ISOLATE-LLM] ONNX reasoning generated successfully');
-          return reasoning;
-        } else {
-          debugPrint('[ISOLATE-LLM] ONNX returned empty response, using fallback');
-        }
-      } else {
-        debugPrint('[ISOLATE-LLM] ONNX model not available, using fallback');
-      }
-    } catch (e) {
-      debugPrint('[ISOLATE-LLM] Error generating ONNX reasoning: $e');
     }
     
-    // Fallback to contextual explanation
-    debugPrint('[ISOLATE-LLM] Using fallback contextual explanation');
-    return _generateContextualExplanationPure(
-      userQuery: userQuery,
-      mediaTitle: mediaTitle,
-      mediaType: mediaType,
-      artist: artist,
-      themes: themes,
-      description: description,
-      similarity: similarity,
-    );
+    // Parse media themes
+    final mediaThemes = themes != null && themes.isNotEmpty 
+        ? themes.split(',').map((t) => t.trim()).where((t) => t.isNotEmpty).toList()
+        : <String>[];
+    
+    // Find matching themes
+    final matchingThemes = mediaThemes
+        .where((theme) => userThemes.contains(theme.toLowerCase()))
+        .toList();
+    
+    // Build structured summary with bold headers and underlines
+    buffer.writeln('**Matched Themes**');
+    buffer.writeln('━━━━━━━━━━━━━━━');
+    if (matchingThemes.isNotEmpty) {
+      for (final theme in matchingThemes.take(3)) {
+        buffer.writeln('• $theme');
+      }
+    } else if (mediaThemes.isNotEmpty) {
+      for (final theme in mediaThemes.take(3)) {
+        buffer.writeln('• $theme');
+      }
+    } else {
+      buffer.writeln('• No themes available');
+    }
+    
+    buffer.writeln('');
+    buffer.writeln('**User Preferences**');
+    buffer.writeln('━━━━━━━━━━━━━━━━━');
+    if (userThemes.isNotEmpty) {
+      for (final theme in userThemes.take(3)) {
+        buffer.writeln('• $theme');
+      }
+    } else {
+      buffer.writeln('• Learning your preferences...');
+    }
+    
+    final result = buffer.toString().trim();
+    debugPrint('✅ [THEME-MATCHING] Generated structured summary: ${result.length} chars');
+    return result;
   }
 
   /// Generate optimized search query using simple fallback (TFLite not ready for isolates)

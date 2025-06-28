@@ -74,7 +74,7 @@ class MediaCard extends StatelessWidget {
                   : _buildFallbackImage(mediaIcon, item.title),
             ),
             
-            // Gradient overlay for text readability
+            // Gradient overlay - darker contrast starting at title level
             Positioned.fill(
               child: Container(
                 decoration: BoxDecoration(
@@ -82,13 +82,12 @@ class MediaCard extends StatelessWidget {
                     begin: Alignment.bottomCenter,
                     end: Alignment.topCenter,
                     colors: [
-                      Colors.black.withOpacity(0.9),  // More opaque at bottom
-                      Colors.black.withOpacity(0.6),
-                      Colors.black.withOpacity(0.4),
-                      Colors.black.withOpacity(0.2),
-                      Colors.transparent,             // Transparent at top
+                      Colors.black.withOpacity(0.95), // Very dark at bottom for controls
+                      Colors.black.withOpacity(0.9),  // Darker contrast for title
+                      Colors.black.withOpacity(0.75), // Strong contrast at title top
+                      Colors.transparent,             // Transparent above text area
                     ],
-                    stops: const [0.0, 0.3, 0.6, 0.8, 1.0],
+                    stops: const [0.0, 0.08, 0.15, 0.20],
                   ),
                 ),
               ),
@@ -100,11 +99,11 @@ class MediaCard extends StatelessWidget {
               left: 0,
               right: 0,
               child: Padding(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 0),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Title with optional tooltip for overview
+                    // Title with optional tooltip for overview - positioned above controls
                     Tooltip(
                       message: item.overview ?? '',
                       child: Transform.scale(
@@ -121,67 +120,82 @@ class MediaCard extends StatelessWidget {
                       ),
                     ),
                     
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 2), // ← Controls title-to-author/controls gap
                     
-                    // Author for books/audiobooks, Release date for others
-                    if ((item.mediaType == 'book' || item.mediaType == 'audiobook') && item.author != null)
-                      Text(
-                        item.author!,
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: AppTheme.textSecondary,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      )
-                    else if (!(item.mediaType == 'book' || item.mediaType == 'audiobook') && item.releaseDate != null)
-                      Text(
-                        item.releaseDate!,
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: AppTheme.textSecondary,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    
-                    const SizedBox(height: 12),
-                    
-                    // Bottom row with rating/genre and controls
+                    // Author/year+rating and controls row - maintains ellipsis behavior
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // Rating pill or genre tag
-                        _buildRatingOrGenreTag(),
-                        
-                        // Controls based on view mode
-                        if (view == 'default')
-                          Row(
+                        // Left side: Author/year and rating with flexible width for overflow
+                        Flexible(
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
                             children: [
-                              // Show watchlist control if available
-                              if (onAddToWatchlist != null || onRemoveFromWatchlist != null)
-                                _WatchlistControls(
-                                  isInWatchlist: isInWatchlist,
-                                  onAddToWatchlist: isInWatchlist && onRemoveFromWatchlist != null
-                                      ? () => onRemoveFromWatchlist!(item.id)
-                                      : onAddToWatchlist != null
-                                          ? () => onAddToWatchlist!(item.id)
-                                          : null,
+                              // Author for books/audiobooks, Release date for others
+                              if ((item.mediaType == 'book' || item.mediaType == 'audiobook') && item.author != null)
+                                Flexible(
+                                  child: Text(
+                                    item.author!,
+                                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                      color: AppTheme.textSecondary,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                )
+                              else if (!(item.mediaType == 'book' || item.mediaType == 'audiobook') && item.releaseDate != null)
+                                Flexible(
+                                  child: Text(
+                                    item.releaseDate!,
+                                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                      color: AppTheme.textSecondary,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
                                 ),
                               
-                              // Library/save control
-                              _LibraryControls(
-                                isInLibrary: isSaved,
-                                onToggleLibrary: () => onSave(item.id),
-                              ),
+                              const SizedBox(width: 8),
+                              
+                              // Rating pill or genre tag
+                              _buildRatingOrGenreTag(),
                             ],
-                          )
-                        else
-                          // Feedback controls for watchlist/saved view
-                          _FeedbackControls(
-                            onLike: onLike != null ? () => onLike!(item.id) : null,
-                            onDislike: onDislike != null ? () => onDislike!(item.id) : null,
-                            onAddToFavorites: () => onSave(item.id),
-                            isSaved: isSaved,
                           ),
+                        ),
+                        
+                        // Controls - pushed down slightly
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: view == 'default'
+                          ? Row(
+                              children: [
+                                // Show watchlist control if available
+                                if (onAddToWatchlist != null || onRemoveFromWatchlist != null)
+                                  _WatchlistControls(
+                                    isInWatchlist: isInWatchlist,
+                                    onAddToWatchlist: isInWatchlist && onRemoveFromWatchlist != null
+                                        ? () => onRemoveFromWatchlist!(item.id)
+                                        : onAddToWatchlist != null
+                                            ? () => onAddToWatchlist!(item.id)
+                                            : null,
+                                  ),
+                                
+                                // Library/save control
+                                _LibraryControls(
+                                  isInLibrary: isSaved,
+                                  onToggleLibrary: () => onSave(item.id),
+                                ),
+                              ],
+                            )
+                          : // Feedback controls for watchlist/saved view
+                            _FeedbackControls(
+                              onLike: onLike != null ? () => onLike!(item.id) : null,
+                              onDislike: onDislike != null ? () => onDislike!(item.id) : null,
+                              onAddToFavorites: () => onSave(item.id),
+                              isSaved: isSaved,
+                            ),
+                        ),
                       ],
                     ),
                   ],

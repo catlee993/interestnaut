@@ -45,6 +45,51 @@ class MediaLibraryCard extends StatelessWidget {
     return AppTheme.getMediaListActionName(mediaType);
   }
 
+  /// Extract year from media suggestion data
+  String? _getMediaYear(MediaSuggestion suggestion) {
+    // Try to extract year from description if it contains release/publication info
+    if (suggestion.description?.isNotEmpty == true) {
+      // Look for patterns like "released in 2023", "published in 1984", "(2019)", etc.
+      final yearPatterns = [
+        RegExp(r'released in (\d{4})'),
+        RegExp(r'published in (\d{4})'),
+        RegExp(r'\((\d{4})\)'),
+        RegExp(r'(\d{4})'), // Fallback to any 4-digit number
+      ];
+      
+      for (final pattern in yearPatterns) {
+        final match = pattern.firstMatch(suggestion.description!);
+        if (match != null) {
+          final year = int.tryParse(match.group(1)!);
+          // Reasonable year range for media
+          if (year != null && year >= 1900 && year <= DateTime.now().year + 2) {
+            return year.toString();
+          }
+        }
+      }
+    }
+    
+    return null;
+  }
+
+  /// Build combined artist and year text
+  String _buildArtistYearText(MediaSuggestion suggestion) {
+    final artist = suggestion.artist?.isNotEmpty == true 
+        ? TextUtils.formatArtistNames(suggestion.artist) 
+        : null;
+    final year = _getMediaYear(suggestion);
+    
+    if (artist != null && year != null) {
+      return '$artist ($year)';
+    } else if (artist != null) {
+      return artist;
+    } else if (year != null) {
+      return year;
+    } else {
+      return 'Unknown';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -90,7 +135,7 @@ class MediaLibraryCard extends StatelessWidget {
                   ),
             ),
             
-            // Gradient overlay
+            // Gradient overlay - darker contrast starting at title level
             Positioned.fill(
               child: Container(
                 decoration: const BoxDecoration(
@@ -99,12 +144,12 @@ class MediaLibraryCard extends StatelessWidget {
                     end: Alignment.bottomCenter,
                     colors: [
                       Colors.transparent,
-                      Color(0x40000000), // rgba(0,0,0,0.25) at 70%
-                      Color(0x66000000), // rgba(0,0,0,0.4) at 85%
-                      Color(0x99000000), // rgba(0,0,0,0.6) at 95%
-                      Colors.black,      // rgba(0,0,0,1) at 100%
+                      Colors.transparent,
+                      Color(0x80000000), // rgba(0,0,0,0.5) darker contrast at title top
+                      Color(0xB0000000), // rgba(0,0,0,0.69) strong contrast for title
+                      Color(0xE6000000), // rgba(0,0,0,0.9) very dark at bottom
                     ],
-                    stops: [0.0, 0.70, 0.85, 0.95, 1.0],
+                    stops: [0.0, 0.80, 0.85, 0.92, 1.0],
                   ),
                 ),
               ),
@@ -127,125 +172,57 @@ class MediaLibraryCard extends StatelessWidget {
                 ),
               ),
             
-            // Content overlay at bottom
+            // Controls - positioned independently at current location
             Positioned(
-              bottom: 0,
-              left: 0,
-              right: 0,
+              bottom: 15,
+              right: 16,
               child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // Title
-                    Text(
-                      suggestion.title ?? 'Unknown',
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.white,
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 4),
-                    
-                    // Year info
-                    if (suggestion.createdAt != null)
-                      Text(
-                        suggestion.createdAt!.year.toString(),
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.white.withOpacity(0.8),
-                        ),
-                      ),
-                    
-                    const SizedBox(height: 8),
-                    
-                    // Action buttons row
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        // Left side - metadata
-                        if (suggestion.artist?.isNotEmpty == true)
-                          Flexible(
-                            child: Text(
-                              TextUtils.formatArtistNames(suggestion.artist),
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.white.withOpacity(0.8),
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        
-                        // Right side - action buttons
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (!isWatchlist) ...[
-                              // Add to watchlist button - blue with checkmark if in watchlist, white if not
-                              if (onAddToWatchlist != null || onRemoveFromWatchlist != null)
-                                IconButton(
-                                  onPressed: () => isInWatchlist 
-                                    ? onRemoveFromWatchlist?.call()
-                                    : onAddToWatchlist?.call(),
-                                  icon: Icon(
-                                    isInWatchlist ? Icons.bookmark_added : Icons.bookmark_add,
-                                    color: isInWatchlist ? Colors.blue : Colors.white,
-                                    size: 20,
-                                  ),
-                                  padding: EdgeInsets.zero,
-                                  constraints: const BoxConstraints(
-                                    minWidth: 32,
-                                    minHeight: 32,
-                                  ),
-                                ),
-                            ] else ...[
-                              // Like button for watchlist items
-                              if (onLike != null)
-                                IconButton(
-                                  onPressed: onLike,
-                                  icon: const Icon(
-                                    Icons.thumb_up,
-                                    color: Colors.white70,
-                                    size: 20,
-                                  ),
-                                  padding: EdgeInsets.zero,
-                                  constraints: const BoxConstraints(
-                                    minWidth: 32,
-                                    minHeight: 32,
-                                  ),
-                                ),
-                              
-                              // Dislike button for watchlist items
-                              if (onDislike != null)
-                                IconButton(
-                                  onPressed: onDislike,
-                                  icon: const Icon(
-                                    Icons.thumb_down,
-                                    color: Colors.white70,
-                                    size: 20,
-                                  ),
-                                  padding: EdgeInsets.zero,
-                                  constraints: const BoxConstraints(
-                                    minWidth: 32,
-                                    minHeight: 32,
-                                  ),
-                                ),
-                            ],
-                            
-                            // Purple heart to unfavorite/remove from library or favorite watchlist item
-                            if (onFavorite != null || onUnfavorite != null)
+                padding: const EdgeInsets.only(top: 4),
+                child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (!isWatchlist) ...[
+                            // Add to watchlist button - blue with checkmark if in watchlist, white if not
+                            if (onAddToWatchlist != null || onRemoveFromWatchlist != null)
                               IconButton(
-                                onPressed: () => isWatchlist 
-                                  ? onFavorite?.call()
-                                  : onUnfavorite?.call(),
+                                onPressed: () => isInWatchlist 
+                                  ? onRemoveFromWatchlist?.call()
+                                  : onAddToWatchlist?.call(),
+                                icon: Icon(
+                                  isInWatchlist ? Icons.bookmark_added : Icons.bookmark_add,
+                                  color: isInWatchlist ? Colors.blue : Colors.white,
+                                  size: 20,
+                                ),
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(
+                                  minWidth: 32,
+                                  minHeight: 32,
+                                ),
+                              ),
+                          ] else ...[
+                            // Like button for watchlist items
+                            if (onLike != null)
+                              IconButton(
+                                onPressed: onLike,
                                 icon: const Icon(
-                                  Icons.favorite,
-                                  color: Color(0xFF7B68EE), // Primary purple color
+                                  Icons.thumb_up,
+                                  color: Colors.white70,
+                                  size: 20,
+                                ),
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(
+                                  minWidth: 32,
+                                  minHeight: 32,
+                                ),
+                              ),
+                            
+                            // Dislike button for watchlist items
+                            if (onDislike != null)
+                              IconButton(
+                                onPressed: onDislike,
+                                icon: const Icon(
+                                  Icons.thumb_down,
+                                  color: Colors.white70,
                                   size: 20,
                                 ),
                                 padding: EdgeInsets.zero,
@@ -255,13 +232,62 @@ class MediaLibraryCard extends StatelessWidget {
                                 ),
                               ),
                           ],
-                        ),
-                      ],
-                    ),
-                  ],
+                          
+                          // Purple heart to unfavorite/remove from library or favorite watchlist item
+                          if (onFavorite != null || onUnfavorite != null)
+                            IconButton(
+                              onPressed: () => isWatchlist 
+                                ? onFavorite?.call()
+                                : onUnfavorite?.call(),
+                              icon: const Icon(
+                                Icons.favorite,
+                                color: Color(0xFF7B68EE), // Primary purple color
+                                size: 20,
+                              ),
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(
+                                minWidth: 32,
+                                minHeight: 32,
+                              ),
+                            ),
+                        ],
+                      ),
                 ),
               ),
+            
+            // Title - positioned just above controls with full width
+            Positioned(
+              bottom: 45, // Brought title up another 5px from 40
+              left: 16,
+              right: 16, // Title gets full width
+              child: Text(
+                suggestion.title ?? 'Unknown',
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
+            
+            // Author/year - positioned at control level with ellipsis protection
+            if (suggestion.artist?.isNotEmpty == true || _getMediaYear(suggestion) != null)
+              Positioned(
+                bottom: 26, // Brought author up another 3px from 23
+                left: 16,
+                right: 90, // Leave space for controls to prevent overlap
+                child: Text(
+                  _buildArtistYearText(suggestion),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.white.withOpacity(0.8),
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
           ],
         ),
       ),
