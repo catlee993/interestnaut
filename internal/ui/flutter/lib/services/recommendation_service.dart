@@ -1570,6 +1570,35 @@ class RecommendationService extends ChangeNotifier {
         
         debugPrint('✅ [BACKGROUND] Generated suggestion in pure isolate: ${result['title']}');
         
+        // 🧠 MAIN THREAD LLM REASONING - iOS optimized
+        String finalReasoning = result['botReasoning'] as String? ?? '';
+        
+        if (finalReasoning == 'PLACEHOLDER_FOR_ONNX_GENERATION_ON_MAIN_THREAD_OK' || finalReasoning.isEmpty) {
+          debugPrint('🧠 [MAIN-LLM] Generating iOS-optimized reasoning on main thread...');
+          
+          try {
+            // Use lightweight, iOS-optimized LLM reasoning
+            finalReasoning = await _generateMainThreadReasoning(
+              mediaType: mediaType,
+              title: result['title'] as String,
+              artist: result['artist'] as String?,
+              themes: result['themes'] as String?,
+              description: result['description'] as String?,
+              userQuery: userQuery,
+              userProfileData: userProfileData,
+            );
+            debugPrint('✅ [MAIN-LLM] iOS-optimized reasoning generated: ${finalReasoning.length} chars');
+          } catch (e) {
+            debugPrint('⚠️ [MAIN-LLM] Error generating reasoning, using fallback: $e');
+            finalReasoning = _generateFallbackReasoning(
+              mediaType: mediaType,
+              title: result['title'] as String,
+              artist: result['artist'] as String?,
+              themes: result['themes'] as String?,
+            );
+          }
+        }
+        
         // Create and save suggestion on main thread
         final suggestion = MediaSuggestion(
           query: 'User requested $mediaType suggestion',
@@ -1582,7 +1611,7 @@ class RecommendationService extends ChangeNotifier {
           wikiUrl: result['wikiUrl'],
           wikidataId: result['wikidataId'],
           themes: result['themes'],
-          botReasoning: result['botReasoning'],
+          botReasoning: finalReasoning,
           mediaId: result['mediaId'] ?? _generateMediaId(mediaType, result['title'], result['artist']),
           status: SuggestionStatus.pending,
         );
@@ -1623,6 +1652,127 @@ class RecommendationService extends ChangeNotifier {
     
     // Format: mediaType_counter_ArtistTitle
     return '${mediaType}_${counter.toString().padLeft(6, '0')}_${cleanArtist}${cleanTitle}';
+  }
+
+  /// Generate lightweight LLM reasoning optimized for iOS performance
+  Future<String> _generateMainThreadReasoning({
+    required String mediaType,
+    required String title,
+    String? artist,
+    String? themes,
+    String? description,
+    required String userQuery,
+    Map<String, dynamic>? userProfileData,
+  }) async {
+    debugPrint('🧠 [MAIN-LLM] Starting iOS-optimized reasoning generation...');
+    
+    // Check if TFLite service is available and initialized
+    if (!_tfliteService.isInitialized) {
+      debugPrint('🧠 [MAIN-LLM] TFLite not initialized, attempting quick init...');
+      final initSuccess = await _tfliteService.initialize();
+      if (!initSuccess) {
+        debugPrint('⚠️ [MAIN-LLM] TFLite init failed, using contextual fallback');
+        return _generateFallbackReasoning(
+          mediaType: mediaType,
+          title: title,
+          artist: artist,
+          themes: themes,
+        );
+      }
+    }
+
+    // Check if model is actually available
+    final modelAvailable = await _tfliteService.isModelAvailable();
+    if (!modelAvailable) {
+      debugPrint('⚠️ [MAIN-LLM] Model not available, using contextual fallback');
+      return _generateFallbackReasoning(
+        mediaType: mediaType,
+        title: title,
+        artist: artist,
+        themes: themes,
+      );
+    }
+
+    try {
+      debugPrint('🧠 [MAIN-LLM] Calling TFLite for lightweight reasoning...');
+      
+      // Extract user preferences for context
+      String userContext = '';
+      if (userProfileData != null) {
+        final favoriteItems = userProfileData['favorite_items'] as List<dynamic>? ?? [];
+        if (favoriteItems.isNotEmpty && favoriteItems.first is Map<String, dynamic>) {
+          final firstFav = favoriteItems.first as Map<String, dynamic>;
+          final favThemes = firstFav['themes'] as String?;
+          if (favThemes != null && favThemes.isNotEmpty) {
+            final topThemes = favThemes.split(',').take(2).map((t) => t.trim()).join(', ');
+            userContext = 'User likes: $topThemes';
+          }
+        }
+      }
+
+             // iOS-optimized: Very short, focused reasoning call
+       final reasoning = await _tfliteService.generateReasoningExplanation(
+         userQuery: userQuery,
+         mediaTitle: title,
+         mediaType: mediaType,
+         artist: artist,
+         themes: themes,
+         userProfile: userContext.isNotEmpty ? userContext : null,
+         similarity: 0.8, // Good match score from theme matching
+       );
+
+      if (reasoning.isNotEmpty && reasoning.length > 10 && !reasoning.contains('unk') && !reasoning.contains('<unk>')) {
+        debugPrint('✅ [MAIN-LLM] TFLite reasoning successful: ${reasoning.length} chars');
+        return reasoning;
+      } else {
+        debugPrint('⚠️ [MAIN-LLM] TFLite returned broken/short response: "$reasoning", using fallback');
+        return _generateFallbackReasoning(
+          mediaType: mediaType,
+          title: title,
+          artist: artist,
+          themes: themes,
+        );
+      }
+    } catch (e) {
+      debugPrint('❌ [MAIN-LLM] TFLite error: $e');
+      return _generateFallbackReasoning(
+        mediaType: mediaType,
+        title: title,
+        artist: artist,
+        themes: themes,
+      );
+    }
+  }
+
+  /// Generate fast fallback reasoning without LLM (always works)
+  String _generateFallbackReasoning({
+    required String mediaType,
+    required String title,
+    String? artist,
+    String? themes,
+  }) {
+    debugPrint('🧠 [FALLBACK] Generating contextual reasoning without LLM...');
+    
+    final mediaLabel = _getMediaTypeLabel(mediaType);
+    final artistPart = artist != null && artist.isNotEmpty ? ' by $artist' : '';
+    
+    // Parse themes for intelligent reasoning
+    if (themes != null && themes.isNotEmpty) {
+      final themeList = themes.split(',').map((t) => t.trim()).where((t) => t.isNotEmpty).take(3).toList();
+      
+      if (themeList.isNotEmpty) {
+        final themeText = themeList.length == 1 
+            ? themeList.first
+            : themeList.length == 2
+                ? '${themeList[0]} and ${themeList[1]}'
+                : '${themeList[0]}, ${themeList[1]}, and ${themeList[2]}';
+                
+        return 'I selected "$title"$artistPart because it explores $themeText, which matches your interests. This $mediaLabel offers a compelling experience that should resonate with your preferences.';
+      }
+    }
+    
+    // Simple fallback without themes
+    return 'I recommended "$title"$artistPart as it appears to be a high-quality $mediaLabel that fits your request. This selection should provide an engaging and worthwhile experience.';
   }
 
   /// Extract behavioral data from user profile for matching
@@ -2068,9 +2218,13 @@ class RecommendationService extends ChangeNotifier {
             );
             debugPrint('🔍 [THEME-MATCHING] Real behavioral matching completed successfully');
           } catch (e, stackTrace) {
-            debugPrint('❌ [THEME-MATCHING] EXCEPTION in real behavioral matching: $e');
-            debugPrint('❌ [THEME-MATCHING] Stack trace: $stackTrace');
-            realBehavioralResults = [];
+            debugPrint('❌ [THEME-MATCHING] CRITICAL EXCEPTION in real behavioral matching: $e');
+            debugPrint('❌ [THEME-MATCHING] Full stack trace: $stackTrace');
+            debugPrint('❌ [THEME-MATCHING] This is the root cause of isolate failure!');
+            
+            // Since theme matching works but conversion fails, return null to fail fast
+            debugPrint('❌ [THEME-MATCHING] Theme matching works but conversion fails - isolate will return null');
+            return null;
           }
           
           debugPrint('🔍 [RESULT-DEBUG] realBehavioralResults returned ${realBehavioralResults.length} results');
@@ -2180,101 +2334,12 @@ class RecommendationService extends ChangeNotifier {
       final mediaResult = searchResults.first;
       debugPrint('✅ [PURE-ISOLATE] Selected media: ${mediaResult.title}');
       
-      // Step 3: Generate LLM response using ONNX in isolate
-      debugPrint('🔄 [PURE-ISOLATE] Generating ONNX LLM response...');
+      // Step 3: Return placeholder for main thread LLM reasoning (iOS optimized)
+      debugPrint('🔄 [PURE-ISOLATE] Returning media for main thread iOS-optimized LLM reasoning...');
+      debugPrint('🔄 [PURE-ISOLATE] Selected: ${mediaResult.title} by ${mediaResult.artist}');
       
-      String response;
-      try {
-        // 🚀 PROPER ONNX: Use flutter_onnxruntime for isolate-safe inference
-        debugPrint('🔧 [ISOLATE-ONNX] Using flutter_onnxruntime for proper ONNX inference...');
-        
-        try {
-          // Import the proper ONNX runtime
-          // Note: This requires adding flutter_onnxruntime: ^1.4.3 to pubspec.yaml
-          debugPrint('🔄 [ISOLATE-ONNX] Creating ONNX Runtime session...');
-          
-          // For now, use enhanced template until flutter_onnxruntime is added
-          // TODO: Replace with actual ONNX inference once package is added
-          debugPrint('⚠️ [ISOLATE-ONNX] flutter_onnxruntime not yet integrated, using intelligent template');
-          
-          // Create behavioral context for intelligent reasoning
-          String behavioralContext = '';
-          final contextParts = <String>[];
-          
-          if (userProfileData != null) {
-            final favoriteItems = userProfileData['favorite_items'] as List<dynamic>? ?? [];
-            if (favoriteItems.isNotEmpty) {
-              final favoriteTitles = favoriteItems
-                  .map((item) => item['title'] as String? ?? '')
-                  .where((t) => t.isNotEmpty)
-                  .take(3)
-                  .join(', ');
-              if (favoriteTitles.isNotEmpty) {
-                contextParts.add('your favorites like $favoriteTitles');
-              }
-            }
-            
-            // Extract themes from favorites for smarter reasoning
-            final favoriteThemes = <String>{};
-            for (final item in favoriteItems) {
-              if (item is Map<String, dynamic>) {
-                final themes = item['themes'] as String? ?? '';
-                if (themes.isNotEmpty) {
-                  favoriteThemes.addAll(
-                    themes.split(',').map((t) => t.trim()).where((t) => t.isNotEmpty)
-                  );
-                }
-              }
-            }
-            
-            if (favoriteThemes.isNotEmpty) {
-              final topThemes = favoriteThemes.take(3).join(', ');
-              contextParts.add('your interest in $topThemes themes');
-            }
-          }
-          
-          if (contextParts.isNotEmpty) {
-            behavioralContext = contextParts.join(' and ');
-          }
-          
-          debugPrint('🧠 [ISOLATE-ONNX] Generated behavioral context: $behavioralContext');
-          
-          // Generate intelligent explanation using behavioral data
-          response = _generateIntelligentReasoningWithBehavior(
-            mediaTitle: mediaResult.title ?? 'Unknown',
-            artist: mediaResult.artist,
-            themes: mediaResult.themes,
-            behavioralContext: behavioralContext,
-            mediaType: mediaType,
-          );
-          
-          debugPrint('✅ [ISOLATE-ONNX] Intelligent reasoning generated: ${response.substring(0, min(50, response.length))}...');
-          
-        } catch (e) {
-          debugPrint('❌ [ISOLATE-ONNX] Error in ONNX reasoning: $e');
-          response = _generateContextualExplanationPure(
-            userQuery: 'Suggest a great $mediaType',
-            mediaTitle: mediaResult.title ?? 'Unknown',
-            mediaType: mediaType,
-            artist: mediaResult.artist,
-            themes: mediaResult.themes,
-            description: mediaResult.description,
-            similarity: 1.0,
-          );
-        }
-      } catch (e, stackTrace) {
-        debugPrint('❌ [PURE-ISOLATE] Error in ONNX reasoning: $e');
-        debugPrint('❌ [PURE-ISOLATE] Stack trace: $stackTrace');
-        response = _generateContextualExplanationPure(
-          userQuery: 'Suggest a great $mediaType',
-          mediaTitle: mediaResult.title ?? 'Unknown',
-          mediaType: mediaType,
-          artist: mediaResult.artist,
-          themes: mediaResult.themes,
-          description: mediaResult.description,
-          similarity: 1.0,
-        );
-      }
+      // Return placeholder - MAIN THREAD will handle iOS-optimized LLM reasoning
+      String response = 'PLACEHOLDER_FOR_ONNX_GENERATION_ON_MAIN_THREAD_OK';
       
       debugPrint('✅ [PURE-ISOLATE] Generated complete suggestion: ${mediaResult.title}');
       
@@ -2295,7 +2360,8 @@ class RecommendationService extends ChangeNotifier {
       debugPrint('🔍 [FINAL-ISOLATE-RETURN] Returning from isolate:');
       debugPrint('🔍 [FINAL-ISOLATE-RETURN]   - Title: "${resultMap['title']}"');
       debugPrint('🔍 [FINAL-ISOLATE-RETURN]   - Artist: "${resultMap['artist']}"');
-      debugPrint('🔍 [FINAL-ISOLATE-RETURN]   - Reasoning: "${(resultMap['botReasoning'] as String?)?.substring(0, 50)}..."');
+      final reasoning = resultMap['botReasoning'] as String?;
+      debugPrint('🔍 [FINAL-ISOLATE-RETURN]   - Reasoning: "${reasoning ?? 'null'}"');
       
       return resultMap;
     } catch (e) {
