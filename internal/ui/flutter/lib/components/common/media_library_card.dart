@@ -145,9 +145,9 @@ class MediaLibraryCard extends StatelessWidget {
                     colors: [
                       Colors.transparent,
                       Colors.transparent,
-                      Color(0x80000000), // rgba(0,0,0,0.5) darker contrast at title top
-                      Color(0xB0000000), // rgba(0,0,0,0.69) strong contrast for title
-                      Color(0xE6000000), // rgba(0,0,0,0.9) very dark at bottom
+                      Color(0x99000000), // rgba(0,0,0,0.6) 20% darker contrast at title top
+                      Color(0xD4000000), // rgba(0,0,0,0.83) 20% stronger contrast for title
+                      Color(0xFF000000), // rgba(0,0,0,1.0) fully dark at bottom
                     ],
                     stops: [0.0, 0.80, 0.85, 0.92, 1.0],
                   ),
@@ -264,8 +264,9 @@ class MediaLibraryCard extends StatelessWidget {
                 suggestion.title ?? 'Unknown',
                 style: const TextStyle(
                   fontSize: 16,
-                  fontWeight: FontWeight.w600,
+                  fontWeight: FontWeight.w300, // Thinner like suggestion title
                   color: Colors.white,
+                  letterSpacing: 1.2, // Wide letter spacing like suggestions
                 ),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
@@ -277,12 +278,14 @@ class MediaLibraryCard extends StatelessWidget {
               Positioned(
                 bottom: 26, // Brought author up another 3px from 23
                 left: 16,
-                right: 90, // Leave space for controls to prevent overlap
+                right: isWatchlist ? 110 : 90, // More space for watchlist controls, normal space for favorites
                 child: Text(
                   _buildArtistYearText(suggestion),
                   style: TextStyle(
                     fontSize: 12,
+                    fontWeight: FontWeight.w200, // Thinner like suggestion author
                     color: Colors.white.withOpacity(0.8),
+                    letterSpacing: 0.9, // Wide letter spacing like suggestions
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
