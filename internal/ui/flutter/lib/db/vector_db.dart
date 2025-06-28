@@ -35,7 +35,8 @@ class VectorDatabase {
   Set<String> _enabledMediaTypes = {};
 
   /// Initialize vector database (downloads enabled media types only)
-  Future<void> init() async {
+  /// 🎯 OPTIMIZED: Can now specify which media types to initialize for performance
+  Future<void> init({List<String>? specificMediaTypes}) async {
     if (_initialized) return;
 
     try {
@@ -44,29 +45,50 @@ class VectorDatabase {
       
       final dbDir = await _getVectorDatabaseDir();
       
-      // Only download and initialize enabled media types
-      for (final mediaType in _enabledMediaTypes) {
+      // 🎯 OPTIMIZATION: Only initialize specific media types if provided
+      final typesToInitialize = specificMediaTypes ?? _enabledMediaTypes.toList();
+      
+      // REAL DATABASE INITIALIZATION LOGGING - NO MOCKING
+      debugPrint('🔍 [REAL-VECTOR-DB] Initializing vector databases...');
+      debugPrint('🔍 [REAL-VECTOR-DB]   - Enabled media types: ${_enabledMediaTypes.join(', ')}');
+      debugPrint('🔍 [REAL-VECTOR-DB]   - Initializing: ${typesToInitialize.join(', ')}');
+      
+      // Only download and initialize requested media types
+      for (final mediaType in typesToInitialize) {
         if (!shardFiles.containsKey(mediaType)) continue;
         
         final filename = shardFiles[mediaType]!;
         final localPath = pathLib.join(dbDir.path, filename);
         
+        debugPrint('🔍 [REAL-VECTOR-DB] Processing $mediaType:');
+        debugPrint('🔍 [REAL-VECTOR-DB]   - File: $filename');
+        debugPrint('🔍 [REAL-VECTOR-DB]   - Path: $localPath');
+        debugPrint('🔍 [REAL-VECTOR-DB]   - Exists: ${await File(localPath).exists()}');
+        
         if (!await File(localPath).exists()) {
-          debugPrint('Downloading vector database for $mediaType...');
+          debugPrint('🔍 [REAL-VECTOR-DB]   - Downloading vector database for $mediaType...');
           await _downloadShard(mediaType, filename, localPath);
         }
         
         // Open the shard database
         _shards[mediaType] = sqlite3.open(localPath);
         
-        // sqlite-vec extension not needed - using TensorFlow Lite for vector operations
-        debugPrint('✅ Vector database initialized for $mediaType (using TFLite backend)');
+        // Get actual database stats
+        final db = _shards[mediaType]!;
+        final stmt = db.prepare('SELECT COUNT(*) as count FROM media_vectors');
+        final result = stmt.select([]);
+        final count = result.isNotEmpty ? result.first['count'] as int : 0;
+        stmt.dispose();
+        
+        debugPrint('🔍 [REAL-VECTOR-DB]   - Database opened successfully');
+        debugPrint('🔍 [REAL-VECTOR-DB]   - Media items in database: $count');
+        debugPrint('✅ [REAL-VECTOR-DB] Vector database initialized for $mediaType with $count items');
       }
       
       _initialized = true;
-      debugPrint('Vector database initialized with ${_shards.length} shards: ${_shards.keys.join(', ')}');
+      debugPrint('✅ [REAL-VECTOR-DB] Vector database fully initialized with ${_shards.length} shards: ${_shards.keys.join(', ')}');
     } catch (e) {
-      debugPrint('Error initializing vector database: $e');
+      debugPrint('❌ [REAL-VECTOR-DB] Error initializing vector database: $e');
       rethrow;
     }
   }
@@ -150,8 +172,15 @@ class VectorDatabase {
     final appDir = await getApplicationSupportDirectory();
     final vectorDir = Directory(pathLib.join(appDir.path, 'vectors'));
     
+    // REAL PATH LOGGING - NO MOCKING
+    debugPrint('🔍 [REAL-VECTOR-DB] Vector database paths:');
+    debugPrint('🔍 [REAL-VECTOR-DB]   - App support dir: ${appDir.path}');
+    debugPrint('🔍 [REAL-VECTOR-DB]   - Vector dir: ${vectorDir.path}');
+    debugPrint('🔍 [REAL-VECTOR-DB]   - Vector dir exists: ${await vectorDir.exists()}');
+    
     if (!await vectorDir.exists()) {
       await vectorDir.create(recursive: true);
+      debugPrint('🔍 [REAL-VECTOR-DB]   - Created vector directory');
     }
     
     return vectorDir;
@@ -419,6 +448,7 @@ class VectorDatabase {
   Future<List<MediaSearchResult>> getRandomMedia({
     required String mediaType,
     int limit = 10,
+    List<String> excludeIds = const [],
   }) async {
     await _ensureInitialized();
     
@@ -429,7 +459,7 @@ class VectorDatabase {
     try {
       final db = _shards[mediaType]!;
       final hasAlbum = mediaType == 'music';      
-      final query = '''
+      String query = '''
         SELECT 
           media_id,
           title,
@@ -441,12 +471,22 @@ class VectorDatabase {
           wikidata_id,
           image_url
         FROM media_vectors 
-        ORDER BY RANDOM()
-        LIMIT ?
       ''';
       
+      List<dynamic> params = [];
+      
+      // Add WHERE clause if we have IDs to exclude
+      if (excludeIds.isNotEmpty) {
+        final placeholders = excludeIds.map((_) => '?').join(',');
+        query += ' WHERE media_id NOT IN ($placeholders)';
+        params.addAll(excludeIds);
+      }
+      
+      query += ' ORDER BY RANDOM() LIMIT ?';
+      params.add(limit);
+      
       final stmt = db.prepare(query);
-      final result = stmt.select([limit]);
+      final result = stmt.select(params);
       
       final results = result.map((row) => MediaSearchResult(
         mediaId: row['media_id'] as String,
@@ -463,6 +503,20 @@ class VectorDatabase {
       )).toList();
       
       stmt.dispose();
+      
+      // REAL DATABASE LOGGING - NO MOCKING
+      debugPrint('🔍 [REAL-VECTOR-DB] getRandomMedia for $mediaType:');
+      debugPrint('🔍 [REAL-VECTOR-DB]   - Query executed successfully');
+      debugPrint('🔍 [REAL-VECTOR-DB]   - Excluded IDs: ${excludeIds.length}');
+      debugPrint('🔍 [REAL-VECTOR-DB]   - Results found: ${results.length}');
+      if (results.isNotEmpty) {
+        final first = results.first;
+        debugPrint('🔍 [REAL-VECTOR-DB]   - First result: "${first.title}" by "${first.artist}"');
+        debugPrint('🔍 [REAL-VECTOR-DB]   - Media ID: ${first.mediaId}');
+        debugPrint('🔍 [REAL-VECTOR-DB]   - Cover URL: ${first.coverArtUrl?.isNotEmpty == true ? "✅ HAS IMAGE" : "❌ NO IMAGE"}');
+        debugPrint('🔍 [REAL-VECTOR-DB]   - Themes: ${first.themes}');
+      }
+      
       return results;
     } catch (e) {
       debugPrint('Error getting random media: $e');
@@ -840,6 +894,65 @@ class VectorDatabase {
     return dotProduct / (sqrt(normA) * sqrt(normB));
   }
 
+  /// 🎯 Get themes for a specific media ID
+  Future<List<String>> _getThemesForMediaId(Database db, String mediaId) async {
+    try {
+      final stmt = db.prepare('SELECT themes FROM media_vectors WHERE media_id = ?');
+      final result = stmt.select([mediaId]);
+      stmt.dispose();
+      
+      if (result.isEmpty) {
+        return [];
+      }
+      
+      final themesString = result.first['themes'] as String? ?? '';
+      if (themesString.trim().isEmpty) {
+        return [];
+      }
+      
+      // Split themes by comma and clean them up
+      return themesString
+          .split(',')
+          .map((theme) => theme.trim().toLowerCase())
+          .where((theme) => theme.isNotEmpty)
+          .toList();
+    } catch (e) {
+      debugPrint('⚠️ Error getting themes for $mediaId: $e');
+      return [];
+    }
+  }
+
+  /// 🎯 Calculate theme-based match score (0.0 to 1.0) - optimized for 2-3 themes
+  double _calculateThemeMatchScore(
+    List<String> itemThemes,
+    List<String> positiveThemes,
+    List<String> negativeThemes,
+  ) {
+    if (itemThemes.isEmpty || positiveThemes.isEmpty) {
+      return 0.0;
+    }
+    
+    // Check for negative theme overlap (immediate rejection)
+    final negativeOverlap = itemThemes.where((theme) => negativeThemes.contains(theme)).length;
+    if (negativeOverlap > 0) {
+      return 0.0; // Any negative theme overlap = reject (simple and effective)
+    }
+    
+    // Calculate positive theme overlap
+    final positiveOverlap = itemThemes.where((theme) => positiveThemes.contains(theme)).length;
+    
+    if (positiveOverlap == 0) {
+      return 0.0; // No positive overlap
+    }
+    
+    // Score based on overlap ratio
+    // With 2 themes: 1 match = 0.5, 2 matches = 1.0
+    // With 3 themes: 1 match = 0.33, 2 matches = 0.67, 3 matches = 1.0
+    final positiveScore = positiveOverlap / positiveThemes.length;
+    
+    return positiveScore.clamp(0.0, 1.0);
+  }
+
   /// 🎯 Optimized version for large datasets (processes in batches)
   Future<List<MediaSearchResult>> searchBySimilarityOptimized({
     required String referenceMediaId,
@@ -847,7 +960,7 @@ class VectorDatabase {
     int limit = 20,
     double minSimilarity = 0.6,
     List<String> excludeIds = const [],
-    int batchSize = 1000,
+    int batchSize = 100,                       // Smaller batches for mobile isolates
   }) async {
     await _ensureInitialized();
     
@@ -951,17 +1064,18 @@ class VectorDatabase {
   }
 
   /// 🎯 Multi-criteria behavioral matching - THE main recommendation method
-  /// Finds items that match user's behavioral patterns using multiple signals
+  /// Finds items that match user's behavioral patterns using theme-frequency matching
   Future<List<MediaSearchResult>> searchByBehavioralMatch({
     required String mediaType,
-    required List<String> likedItemIds,        // Max 3 liked items
-    required List<String> dislikedItemIds,     // Max 3 disliked items
-    List<String> favoriteItemIds = const [],   // Multiple favorite items
-    List<String> watchlistItemIds = const [],  // Watchlist items
-    List<String> skippedItemIds = const [],    // Max 2-3 skipped items
+    required List<String> likedItemIds,        // Liked items (great weight)
+    required List<String> dislikedItemIds,     // Disliked items (avoid themes)
+    List<String> favoriteItemIds = const [],   // Favorite items (supreme weight)
+    List<String> watchlistItemIds = const [],  // Watchlist items (ignored for now)
+    List<String> skippedItemIds = const [],    // Skipped items (ignored - too noisy)
     List<String> excludeIds = const [],        // Already recommended items
+    List<String> userConstraints = const [],   // User-defined constraints
     int limit = 1,                             // Usually just need 1 suggestion
-    int batchSize = 1000,
+    int batchSize = 100,                       // Smaller batches for mobile isolates
   }) async {
     await _ensureInitialized();
     
@@ -970,78 +1084,165 @@ class VectorDatabase {
     }
 
     try {
+      debugPrint('[BEHAVIORAL-START] Beginning searchByBehavioralMatch for $mediaType with limit=$limit');
       final db = _shards[mediaType]!;
       
-      // Step 1: Get all behavioral embeddings
-      final behavioralEmbeddings = await _getBehavioralEmbeddings(
-        db, likedItemIds, dislikedItemIds, favoriteItemIds, watchlistItemIds, skippedItemIds
-      );
+      // 🔍 LOG THE BEHAVIORAL INPUT DATA
+      debugPrint('[THEME-BEHAVIORAL] === THEME-FREQUENCY MATCHING INPUT ===');
+      debugPrint('[THEME-BEHAVIORAL] Media Type: $mediaType');
+      debugPrint('[THEME-BEHAVIORAL] Liked IDs (${likedItemIds.length}): ${likedItemIds.map((id) => '"$id"').join(', ')}');
+      debugPrint('[THEME-BEHAVIORAL] Disliked IDs (${dislikedItemIds.length}): ${dislikedItemIds.map((id) => '"$id"').join(', ')}');
+      debugPrint('[THEME-BEHAVIORAL] Favorite IDs (${favoriteItemIds.length}): ${favoriteItemIds.map((id) => '"$id"').join(', ')}');
+      debugPrint('[THEME-BEHAVIORAL] === END BEHAVIORAL INPUT ===');
       
-      if (behavioralEmbeddings['liked'].isEmpty && 
-          behavioralEmbeddings['favorites'].isEmpty && 
-          behavioralEmbeddings['watchlist'].isEmpty) {
-        debugPrint('⚠️ No positive behavioral signals found, falling back to random');
+      // Step 1: Extract and count themes from positive signals (favorites + likes)
+      final themeFrequency = <String, double>{};
+      final negativeThemes = <String>{};
+      
+      // Get themes from favorites (supreme weight = 3.0)
+      for (final mediaId in favoriteItemIds) {
+        final themes = await _getThemesForMediaId(db, mediaId);
+        for (final theme in themes) {
+          themeFrequency[theme] = (themeFrequency[theme] ?? 0.0) + 3.0;
+        }
+      }
+      
+      // Get themes from likes (great weight = 2.0)
+      for (final mediaId in likedItemIds) {
+        final themes = await _getThemesForMediaId(db, mediaId);
+        for (final theme in themes) {
+          themeFrequency[theme] = (themeFrequency[theme] ?? 0.0) + 2.0;
+        }
+      }
+      
+      // Get negative themes from dislikes (to avoid)
+      for (final mediaId in dislikedItemIds) {
+        final themes = await _getThemesForMediaId(db, mediaId);
+        negativeThemes.addAll(themes);
+      }
+      
+      if (themeFrequency.isEmpty) {
+        debugPrint('⚠️ No positive themes found, falling back to random');
+        debugPrint('⚠️ [BEHAVIORAL-END] Returning empty list - no themes');
         return [];
       }
       
-      debugPrint('🎯 [VECTOR-DB] Behavioral signals: ${behavioralEmbeddings['liked'].length} liked, '
-          '${behavioralEmbeddings['disliked'].length} disliked, '
-          '${behavioralEmbeddings['favorites'].length} favorites, '
-          '${behavioralEmbeddings['watchlist'].length} watchlist, '
-          '${behavioralEmbeddings['skipped'].length} skipped');
+      // Step 2: Select 2-3 positive themes (focused approach)
+      final sortedThemes = themeFrequency.entries.toList()
+        ..sort((a, b) => b.value.compareTo(a.value));
       
-      // Step 2: Get total count and prepare for batch processing
+      final selectedPositiveThemes = <String>[];
+      final random = Random();
+      
+      // Always take top 2 themes
+      if (sortedThemes.isNotEmpty) {
+        selectedPositiveThemes.add(sortedThemes[0].key);
+      }
+      if (sortedThemes.length > 1) {
+        selectedPositiveThemes.add(sortedThemes[1].key);
+      }
+      
+      // Occasionally add a 3rd theme for variety (30% chance)
+      if (sortedThemes.length > 2 && random.nextDouble() < 0.3) {
+        selectedPositiveThemes.add(sortedThemes[2].key);
+      }
+      
+      // Step 3: Select 1 negative theme to avoid (keep it simple)
+      final selectedNegativeThemes = negativeThemes.take(1).toList();
+      
+      debugPrint('[THEME-MATCHING] Selected Positive Themes (${selectedPositiveThemes.length}): ${selectedPositiveThemes.join(', ')}');
+      debugPrint('[THEME-MATCHING] Selected Negative Themes (${selectedNegativeThemes.length}): ${selectedNegativeThemes.join(', ')}');
+      
+      // Log user constraints if any
+      if (userConstraints.isNotEmpty) {
+        debugPrint('[USER-CONSTRAINTS] Active constraints:');
+        for (final constraint in userConstraints) {
+          debugPrint('   - $constraint');
+        }
+      } else {
+        debugPrint('[USER-CONSTRAINTS] No active constraints');
+      }
+      
+      // Step 4: Get total count and prepare for batch processing  
       final countStmt = db.prepare('SELECT COUNT(*) as count FROM media_vectors');
       final countResult = countStmt.select([]);
       countStmt.dispose();
       
       final totalCount = countResult.first['count'] as int;
-      debugPrint('🔍 Searching through $totalCount items in batches...');
+      debugPrint('[THEME-SCAN] Processing $totalCount items in batches of $batchSize...');
       
       final candidates = <Map<String, dynamic>>[];
       final hasAlbum = mediaType == 'music';
+      int itemsProcessed = 0;
+      int itemsMatched = 0;
       
-      // Step 3: Process in batches to find matches
+      // Step 5: Process in batches to find theme matches
       for (int offset = 0; offset < totalCount; offset += batchSize) {
+        debugPrint('[BATCH-START] Processing batch at offset $offset');
         final batchStmt = db.prepare('''
           SELECT 
             media_id, title, artist, ${hasAlbum ? 'album,' : ''} description, themes, 
-            wiki_url, wikidata_id, image_url, embedding_blob
+            wiki_url, wikidata_id, image_url
           FROM media_vectors 
           LIMIT ? OFFSET ?
         ''');
         
         final batchResults = batchStmt.select([batchSize, offset]);
         batchStmt.dispose();
+        debugPrint('[BATCH-FETCHED] Got ${batchResults.length} rows from database');
         
         for (final row in batchResults) {
-          final mediaId = row['media_id'] as String;
-          
-          // Skip excluded items
-          if (excludeIds.contains(mediaId) || 
-              likedItemIds.contains(mediaId) || 
-              dislikedItemIds.contains(mediaId) ||
-              favoriteItemIds.contains(mediaId) ||
-              watchlistItemIds.contains(mediaId) ||
-              skippedItemIds.contains(mediaId)) {
-            continue;
-          }
-          
           try {
-            final itemBlob = row['embedding_blob'] as Uint8List;
-            final itemEmbedding = _blobToFloatList(itemBlob);
+            final mediaId = row['media_id'] as String;
+            itemsProcessed++;
             
-            // Step 4: Apply multi-criteria matching
-            final matchResult = _evaluateBehavioralMatch(
-              itemEmbedding, 
-              behavioralEmbeddings,
-              mediaTitle: row['title'] as String,
-            );
+            // Skip excluded items
+            if (excludeIds.contains(mediaId) || 
+                likedItemIds.contains(mediaId) || 
+                dislikedItemIds.contains(mediaId) ||
+                favoriteItemIds.contains(mediaId) ||
+                watchlistItemIds.contains(mediaId) ||
+                skippedItemIds.contains(mediaId)) {
+              final title = row['title'] as String? ?? 'Unknown Title';
+              debugPrint('[ROW-SKIPPED] Skipped excluded item: "$title" (ID: $mediaId)');
+              continue;
+            }
+          
+          // Step 6: Apply theme-based matching (much simpler!)
+          debugPrint('[THEMES-PARSE] Parsing themes from row data for $mediaId...');
+          final themesString = row['themes'] as String? ?? '';
+          final itemThemes = themesString.trim().isEmpty ? <String>[] : 
+            themesString.split(',').map((theme) => theme.trim().toLowerCase()).where((theme) => theme.isNotEmpty).toList();
+          debugPrint('[THEMES-PARSE] Got themes: ${itemThemes.take(3).join(', ')}${itemThemes.length > 3 ? '...' : ''}');
+          
+          debugPrint('[SCORE-DEBUG] About to calculate match score...');
+          final matchScore = _calculateThemeMatchScore(
+            itemThemes, 
+            selectedPositiveThemes, 
+            selectedNegativeThemes
+          );
+          debugPrint('[SCORE-DEBUG] Calculated score: $matchScore');
+          
+                     // 🎯 DIVERSIFIED THRESHOLDS: Accept different tiers for variety
+          // Perfect matches (1.0): 2/2 or 3/3 themes match
+          // Good matches (0.67-0.99): 2/3 themes match  
+          // Decent matches (0.33-0.66): 1/3 or 1/2 themes match
+          // Lower tier (0.25-0.32): Near misses for diversity
+          if (matchScore >= 0.25) {
+            itemsMatched++;
             
-            if (matchResult['isMatch']) {
+            final title = row['title'] as String? ?? 'Unknown Title';
+            debugPrint('[THEME-MATCH] 📈 "$title" scored ${matchScore.toStringAsFixed(3)} - ACCEPTED');
+            debugPrint('[THEME-DETAILS]   - Media ID: $mediaId');
+            debugPrint('[THEME-DETAILS]   - Item themes: ${itemThemes.join(', ')}');
+            debugPrint('[THEME-OVERLAP]   - Positive overlap: ${itemThemes.where((t) => selectedPositiveThemes.contains(t)).toList()}');
+            debugPrint('[THEME-AVOID]     - Negative overlap: ${itemThemes.where((t) => selectedNegativeThemes.contains(t)).toList()}');
+            
+            debugPrint('[CANDIDATE-ADD] About to add candidate to list (current count: ${candidates.length})');
+            try {
               candidates.add({
                 'mediaId': mediaId,
-                'title': row['title'] as String,
+                'title': title,
                 'artist': row['artist'] as String?,
                 'album': hasAlbum ? row['album'] as String? : null,
                 'description': row['description'] as String?,
@@ -1049,46 +1250,142 @@ class VectorDatabase {
                 'wikiUrl': row['wiki_url'] as String?,
                 'wikidataId': row['wikidata_id'] as String?,
                 'coverArtUrl': row['image_url'] as String?,
-                'matchScore': matchResult['score'],
-                'matchDetails': matchResult['details'],
+                'matchScore': matchScore,
+                'itemThemes': itemThemes,
               });
+              debugPrint('[CANDIDATE-ADD] ✅ Successfully added candidate! New count: ${candidates.length}');
+            } catch (e) {
+              debugPrint('[CANDIDATE-ADD] ❌ ERROR adding candidate: $e');
             }
+          } else if (matchScore > 0.1) {
+            // Log close misses for debugging
+            debugPrint('[THEME-MISSED] 📉 "${row['title']}" scored ${matchScore.toStringAsFixed(3)} - REJECTED');
+            debugPrint('[MISS-THEMES]   - Item themes: ${itemThemes.take(3).join(', ')}${itemThemes.length > 3 ? '...' : ''}');
+          } else {
+            // ✅ CRITICAL FIX: Handle scores <= 0.1 (including 0.0) to prevent infinite loops
+            debugPrint('[THEME-ZERO] 📊 "${row['title']}" scored ${matchScore.toStringAsFixed(3)} - NO MATCH');
+          }
+          
+          debugPrint('[ROW-COMPLETE] Finished processing row ${itemsProcessed}: $mediaId');
           } catch (e) {
-            continue; // Skip problematic embeddings
+            debugPrint('[ROW-ERROR] Error processing row $itemsProcessed: $e');
+            continue; // Skip problematic rows
           }
         }
         
-        // Early exit if we have enough good candidates
-        if (candidates.length >= limit * 3) {
-          debugPrint('📊 Found ${candidates.length} candidates, stopping early');
-          break;
-        }
+        debugPrint('[BATCH-COMPLETE] Finished processing batch at offset $offset, found ${candidates.length} total candidates');
         
-        debugPrint('📊 Processed batch ${offset ~/ batchSize + 1}/${(totalCount / batchSize).ceil()}, found ${candidates.length} candidates');
+        // Yield control to prevent isolate blocking
+        await Future.delayed(Duration.zero);
+        
+        // 🚀 ENHANCED EARLY EXIT: Allow much more exploration for variety
+        debugPrint('[EARLY-CHECK] Checking early exit: ${candidates.length} candidates found');
+        
+        // Count candidates by score tiers for balanced results
+        final perfectMatches = candidates.where((c) => (c['matchScore'] as double) >= 1.0).length;
+        final goodMatches = candidates.where((c) => (c['matchScore'] as double) >= 0.67).length;
+        final decentMatches = candidates.where((c) => (c['matchScore'] as double) >= 0.33).length;
+        
+        debugPrint('[TIER-CHECK] Perfect: $perfectMatches, Good: $goodMatches, Decent: $decentMatches, Total: ${candidates.length}');
+        
+        // 🎯 CRITICAL FIX: When we only need 1 result, ensure we scan enough to find valid candidates
+        // that aren't in the exclusion list
+        if (limit == 1) {
+          // For single suggestions, we need at least a few good candidates to choose from
+          // but since we're finding results, continue scanning to ensure we have enough variety
+          if (candidates.length >= 10 && itemsProcessed >= 2000) {
+            debugPrint('[EARLY-EXIT] Found ${candidates.length} candidates after processing $itemsProcessed items - sufficient for single suggestion');
+            break;
+          } else if (candidates.length >= 5 && itemsProcessed >= 5000) {
+            debugPrint('[EARLY-EXIT] Found ${candidates.length} candidates after extensive search - using best available');
+            break;
+          }
+        } else {
+          // For multiple suggestions, need more diversity
+          final hasExcellentDiversity = perfectMatches >= 2 && goodMatches >= 5 && decentMatches >= 12;
+          final hasExploredEnough = itemsProcessed >= 1000; // Minimum exploration
+          
+          if (hasExcellentDiversity && hasExploredEnough) {
+            debugPrint('[EARLY-EXIT] Excellent diversity achieved: ${candidates.length} candidates after processing $itemsProcessed/$totalCount items');
+            debugPrint('[EARLY-EXIT] Perfect: $perfectMatches, Good: $goodMatches, Decent: $decentMatches');
+            break;
+          } else if (candidates.length >= 50 && itemsProcessed >= 5000) {
+            // Secondary exit: reasonable collection after significant exploration
+            debugPrint('[EARLY-EXIT] Reasonable collection: ${candidates.length} candidates after $itemsProcessed items');
+            break;
+          }
+        }
+        debugPrint('[EARLY-CHECK] Continuing scan...');
+        
+        // Log progress every few batches
+        if ((offset ~/ batchSize + 1) % 5 == 0) {
+          debugPrint('[SCAN-PROGRESS] Batch ${offset ~/ batchSize + 1}/${(totalCount / batchSize).ceil()}: processed $itemsProcessed items, found $itemsMatched matches');
+        }
       }
       
-      // Step 5: Sort by match score and return top results
-      candidates.sort((a, b) => (b['matchScore'] as double).compareTo(a['matchScore'] as double));
+      // Step 7: Sort by match score and return top results
+      debugPrint('[PRE-SORT] About to sort ${candidates.length} candidates...');
+      try {
+        candidates.sort((a, b) => (b['matchScore'] as double).compareTo(a['matchScore'] as double));
+        debugPrint('[POST-SORT] Successfully sorted candidates');
+      } catch (e) {
+        debugPrint('❌ [SORT-ERROR] Failed to sort candidates: $e');
+        return [];
+      }
+      
       final topResults = candidates.take(limit);
+      debugPrint('[TOP-RESULTS] Selected ${topResults.length} from ${candidates.length} candidates');
       
-      debugPrint('✅ Found ${topResults.length} behavioral matches from ${candidates.length} candidates');
+      debugPrint('[THEME-SUMMARY] Processed $itemsProcessed/$totalCount items, found ${candidates.length} candidates');
+      debugPrint('[THEME-EFFICIENCY] Theme-based matching is much faster than embedding similarity!');
       
-      return topResults.map((item) => MediaSearchResult(
-        mediaId: item['mediaId'] as String,
-        title: item['title'] as String,
-        artist: item['artist'] as String?,
-        album: item['album'] as String?,
-        description: item['description'] as String?,
-        themes: item['themes'] as String?,
-        wikiUrl: item['wikiUrl'] as String?,
-        wikidataId: item['wikidataId'] as String?,
-        coverArtUrl: item['coverArtUrl'] as String?,
-        similarity: item['matchScore'] as double,
-        mediaType: mediaType,
-      )).toList();
+      if (topResults.isNotEmpty) {
+        final winner = topResults.first;
+        debugPrint('[FINAL-MATCH] Selected: "${winner['title'] ?? 'NULL'}" (Score: ${winner['matchScore']})');
+        debugPrint('[FINAL-MATCH] Selected media_id: ${winner['mediaId']}');
+        debugPrint('[MATCH-THEMES] Item themes: ${(winner['itemThemes'] as List<String>).join(', ')}');
+        debugPrint('[MATCH-REASONING] Selected positive themes: ${selectedPositiveThemes.join(', ')}');
+        
+        // 🔍 CRITICAL DEBUG: Verify this item wasn't supposed to be excluded
+        final selectedMediaId = winner['mediaId'] as String;
+        if (excludeIds.contains(selectedMediaId)) {
+          debugPrint('🚨 [EXCLUSION-ERROR] CRITICAL BUG: Selected item "$selectedMediaId" was in exclusion list!');
+          debugPrint('🚨 [EXCLUSION-ERROR] This indicates a serious bug in the exclusion logic');
+        } else {
+          debugPrint('✅ [EXCLUSION-CHECK] Selected item "$selectedMediaId" correctly not in exclusion list');
+        }
+      } else {
+        debugPrint('[NO-MATCHES] No behavioral matches found despite scanning ${candidates.length} candidates');
+      }
       
-    } catch (e) {
+      try {
+        debugPrint('[RESULT-MAPPING] Converting ${topResults.length} candidates to MediaSearchResult objects...');
+        final results = topResults.map((item) => MediaSearchResult(
+          mediaId: item['mediaId'] as String,
+          title: (item['title'] as String?) ?? 'Unknown Title',
+          artist: item['artist'] as String?,
+          album: item['album'] as String?,
+          description: item['description'] as String?,
+          themes: item['themes'] as String?,
+          wikiUrl: item['wikiUrl'] as String?,
+          wikidataId: item['wikidataId'] as String?,
+          coverArtUrl: item['coverArtUrl'] as String?,
+          similarity: item['matchScore'] as double,
+          mediaType: mediaType,
+        )).toList();
+        debugPrint('[RESULT-MAPPING] Successfully converted ${results.length} results');
+        debugPrint('[BEHAVIORAL-END] Returning ${results.length} results from searchByBehavioralMatch');
+        return results;
+      } catch (e) {
+        debugPrint('❌ [RESULT-MAPPING] Error converting results: $e');
+        debugPrint('❌ [BEHAVIORAL-END] Returning empty list due to mapping error');
+        return [];
+      }
+      
+    } catch (e, stackTrace) {
       debugPrint('❌ Error in behavioral matching: $e');
+      debugPrint('❌ Stack trace: $stackTrace');
+      debugPrint('❌ [BEHAVIORAL-END] Returning empty list due to exception');
       return [];
     }
   }
@@ -1102,6 +1399,15 @@ class VectorDatabase {
     List<String> watchlistItemIds,
     List<String> skippedItemIds,
   ) async {
+    // 🔍 LOG EXACTLY WHAT WE'RE HASHING FOR
+    debugPrint('[ISOLATE-THEMES] === BEHAVIORAL EMBEDDING LOOKUP ===');
+    debugPrint('[ISOLATE-THEMES] About to look up embeddings for:');
+    debugPrint('[ISOLATE-THEMES]   - Liked IDs: ${likedItemIds.map((id) => '"$id"').join(', ')}');
+    debugPrint('[ISOLATE-THEMES]   - Disliked IDs: ${dislikedItemIds.map((id) => '"$id"').join(', ')}');
+    debugPrint('[ISOLATE-THEMES]   - Favorite IDs: ${favoriteItemIds.map((id) => '"$id"').join(', ')}');
+    debugPrint('[ISOLATE-THEMES]   - Watchlist IDs: ${watchlistItemIds.map((id) => '"$id"').join(', ')}');
+    debugPrint('[ISOLATE-THEMES]   - Skipped IDs: ${skippedItemIds.map((id) => '"$id"').join(', ')}');
+    debugPrint('[ISOLATE-THEMES] === END BEHAVIORAL EMBEDDING LOOKUP ===');
     final result = {
       'liked': <List<double>>[],
       'disliked': <List<double>>[],
@@ -1171,11 +1477,152 @@ class VectorDatabase {
     }
   }
 
+  /// Get themes for all behavioral signals to log what's driving matching
+  Future<Map<String, dynamic>> _getBehavioralThemes(
+    Database db,
+    List<String> likedItemIds,
+    List<String> dislikedItemIds,
+    List<String> favoriteItemIds,
+    List<String> watchlistItemIds,
+    List<String> skippedItemIds,
+  ) async {
+    final result = {
+      'liked': <Map<String, String>>[],
+      'disliked': <Map<String, String>>[],
+      'favorites': <Map<String, String>>[],
+      'watchlist': <Map<String, String>>[],
+      'skipped': <Map<String, String>>[],
+    };
+    
+    // Get liked themes
+    for (final id in likedItemIds) {
+      final themeData = await _getThemeDataById(db, id);
+      if (themeData != null) {
+        (result['liked'] as List<Map<String, String>>).add(themeData);
+      }
+    }
+    
+    // Get disliked themes
+    for (final id in dislikedItemIds) {
+      final themeData = await _getThemeDataById(db, id);
+      if (themeData != null) {
+        (result['disliked'] as List<Map<String, String>>).add(themeData);
+      }
+    }
+    
+    // Get favorite themes
+    for (final id in favoriteItemIds) {
+      final themeData = await _getThemeDataById(db, id);
+      if (themeData != null) {
+        (result['favorites'] as List<Map<String, String>>).add(themeData);
+      }
+    }
+    
+    // Get watchlist themes
+    for (final id in watchlistItemIds) {
+      final themeData = await _getThemeDataById(db, id);
+      if (themeData != null) {
+        (result['watchlist'] as List<Map<String, String>>).add(themeData);
+      }
+    }
+    
+    // Get skipped themes
+    for (final id in skippedItemIds) {
+      final themeData = await _getThemeDataById(db, id);
+      if (themeData != null) {
+        (result['skipped'] as List<Map<String, String>>).add(themeData);
+      }
+    }
+    
+    return result;
+  }
+
+  /// Get theme data by media ID for logging
+  Future<Map<String, String>?> _getThemeDataById(Database db, String mediaId) async {
+    try {
+      final stmt = db.prepare('SELECT title, artist, themes FROM media_vectors WHERE media_id = ?');
+      final result = stmt.select([mediaId]);
+      stmt.dispose();
+      
+      if (result.isNotEmpty) {
+        final row = result.first;
+        return {
+          'title': row['title'] as String,
+          'artist': (row['artist'] as String?) ?? '',
+          'themes': (row['themes'] as String?) ?? '',
+        };
+      }
+      return null;
+    } catch (e) {
+      debugPrint('⚠️ Error getting theme data for $mediaId: $e');
+      return null;
+    }
+  }
+
+  /// Log behavioral themes that are driving the matching
+  void _logBehavioralThemes(Map<String, dynamic> behavioralThemes) {
+    final likedThemes = behavioralThemes['liked'] as List<Map<String, String>>;
+    final favoriteThemes = behavioralThemes['favorites'] as List<Map<String, String>>;
+    final watchlistThemes = behavioralThemes['watchlist'] as List<Map<String, String>>;
+    final dislikedThemes = behavioralThemes['disliked'] as List<Map<String, String>>;
+    final skippedThemes = behavioralThemes['skipped'] as List<Map<String, String>>;
+    
+    debugPrint('[THEME-ANALYSIS] === BEHAVIORAL MATCHING DRIVERS ===');
+    
+    // Log favorite themes (strongest signal)
+    if (favoriteThemes.isNotEmpty) {
+      debugPrint('[FAVORITES] Seeking content similar to:');
+      for (final item in favoriteThemes) {
+        final themes = item['themes']?.split(',').map((t) => t.trim()).where((t) => t.isNotEmpty).join(', ') ?? 'No themes';
+        debugPrint('   - "${item['title']}" by ${item['artist']} -> Themes: $themes');
+      }
+    }
+    
+    // Log liked themes
+    if (likedThemes.isNotEmpty) {
+      debugPrint('[LIKED] Also considering:');
+      for (final item in likedThemes) {
+        final themes = item['themes']?.split(',').map((t) => t.trim()).where((t) => t.isNotEmpty).join(', ') ?? 'No themes';
+        debugPrint('   - "${item['title']}" by ${item['artist']} -> Themes: $themes');
+      }
+    }
+    
+    // Log watchlist themes
+    if (watchlistThemes.isNotEmpty) {
+      debugPrint('[WATCHLIST] Interested in:');
+      for (final item in watchlistThemes) {
+        final themes = item['themes']?.split(',').map((t) => t.trim()).where((t) => t.isNotEmpty).join(', ') ?? 'No themes';
+        debugPrint('   - "${item['title']}" by ${item['artist']} -> Themes: $themes');
+      }
+    }
+    
+    // Log what to avoid
+    if (dislikedThemes.isNotEmpty) {
+      debugPrint('[AVOIDING] Disliked themes:');
+      for (final item in dislikedThemes) {
+        final themes = item['themes']?.split(',').map((t) => t.trim()).where((t) => t.isNotEmpty).join(', ') ?? 'No themes';
+        debugPrint('   - "${item['title']}" by ${item['artist']} -> Avoid: $themes');
+      }
+    }
+    
+    if (skippedThemes.isNotEmpty) {
+      debugPrint('[SKIPPED] Previously not interested:');
+      for (final item in skippedThemes) {
+        final themes = item['themes']?.split(',').map((t) => t.trim()).where((t) => t.isNotEmpty).join(', ') ?? 'No themes';
+        debugPrint('   - "${item['title']}" by ${item['artist']} -> Skipped: $themes');
+      }
+    }
+    
+    debugPrint('[THEME-ANALYSIS] === END BEHAVIORAL DRIVERS ===');
+  }
+
   /// Evaluate if an item matches behavioral criteria
   Map<String, dynamic> _evaluateBehavioralMatch(
     List<double> itemEmbedding,
     Map<String, dynamic> behavioralEmbeddings, {
     String? mediaTitle,
+    String? mediaArtist,
+    String? mediaThemes,
   }) {
     final likedEmbeddings = behavioralEmbeddings['liked'] as List<List<double>>;
     final dislikedEmbeddings = behavioralEmbeddings['disliked'] as List<List<double>>;
@@ -1230,56 +1677,87 @@ class VectorDatabase {
       }
     }
     
-    // Apply your criteria:
-    // 1. Must be 0.7+ similar to liked items OR 0.5+ similar to favorites OR 0.4+ similar to watchlist
-    final hasPositiveMatch = maxLikedSimilarity >= 0.7 || maxFavoriteSimilarity >= 0.5 || maxWatchlistSimilarity >= 0.4;
+    // 🎯 IMPROVED CRITERIA: Use behavioral data even with only negative signals
+    // 1. Positive match criteria
+    final hasPositiveMatch = maxLikedSimilarity >= 0.75 || 
+                             maxFavoriteSimilarity >= 0.6 || 
+                             maxWatchlistSimilarity >= 0.5;
     
-    // 2. Must be 0.3 or less similar to disliked items
-    final passesDislikedFilter = maxDislikedSimilarity <= 0.3;
+    // 2. Negative filter criteria
+    final passesDislikedFilter = maxDislikedSimilarity <= 0.25;
+    final isLikelySkipped = maxSkippedSimilarity >= 0.75;
     
-    // 3. Deprioritize if 0.85+ similar to skipped items
-    final isLikelySkipped = maxSkippedSimilarity >= 0.85;
+    // 3. Check if we have any positive signals at all
+    final hasAnyPositiveSignals = likedEmbeddings.isNotEmpty || 
+                                 favoriteEmbeddings.isNotEmpty || 
+                                 watchlistEmbeddings.isNotEmpty;
     
-    final isMatch = hasPositiveMatch && passesDislikedFilter && !isLikelySkipped;
+    // 4. Final matching logic: 
+    // - If we have positive signals: use normal criteria
+    // - If only negative signals: just avoid bad stuff (find anything that passes filters)
+    final isMatch = hasAnyPositiveSignals 
+        ? (hasPositiveMatch && passesDislikedFilter && !isLikelySkipped)  // Normal criteria
+        : (passesDislikedFilter && !isLikelySkipped);  // Only negative signals - just avoid bad stuff
     
     // Calculate overall match score (higher = better)
     double score = 0.0;
-    if (hasPositiveMatch) {
-      score += max(max(maxLikedSimilarity * 0.7, maxFavoriteSimilarity * 0.5), maxWatchlistSimilarity * 0.4);
-    }
-    if (passesDislikedFilter) {
-      score += 0.2; // Bonus for passing dislike filter
-    }
-    if (isLikelySkipped) {
-      score -= 0.3; // Penalty for being like skipped items
+    
+    if (hasAnyPositiveSignals) {
+      // Normal scoring with positive signals
+      if (hasPositiveMatch) {
+        score += max(max(maxLikedSimilarity * 0.7, maxFavoriteSimilarity * 0.5), maxWatchlistSimilarity * 0.4);
+      }
+      if (passesDislikedFilter) {
+        score += 0.2; // Bonus for passing dislike filter
+      }
+      if (isLikelySkipped) {
+        score -= 0.3; // Penalty for being like skipped items
+      }
+    } else {
+      // Only negative signals - score based on how well it avoids bad stuff
+      score = 0.5; // Base score for passing negative filters
+      score -= maxDislikedSimilarity * 0.5; // Penalty for similarity to disliked
+      score -= maxSkippedSimilarity * 0.3; // Penalty for similarity to skipped
+      if (passesDislikedFilter) {
+        score += 0.3; // Higher bonus for avoiding disliked content
+      }
+      if (!isLikelySkipped) {
+        score += 0.2; // Bonus for not being like skipped content
+      }
     }
     
     // Log detailed similarity analysis for matches
     if (isMatch && mediaTitle != null) {
-      debugPrint('✅ [VECTOR-MATCH] "$mediaTitle" - Score: ${score.toStringAsFixed(3)} | '
+      final candidateThemes = mediaThemes?.split(',').map((t) => t.trim()).where((t) => t.isNotEmpty).join(', ') ?? 'No themes';
+      final artistInfo = mediaArtist?.isNotEmpty == true ? ' by $mediaArtist' : '';
+      
+      debugPrint('[VECTOR-MATCH] "$mediaTitle"$artistInfo - Score: ${score.toStringAsFixed(3)} | '
           'Liked: ${maxLikedSimilarity.toStringAsFixed(3)}, '
           'Favorites: ${maxFavoriteSimilarity.toStringAsFixed(3)}, '
           'Watchlist: ${maxWatchlistSimilarity.toStringAsFixed(3)}, '
           'Disliked: ${maxDislikedSimilarity.toStringAsFixed(3)}, '
           'Skipped: ${maxSkippedSimilarity.toStringAsFixed(3)}');
+      debugPrint('[MATCHED-THEMES] "$mediaTitle" themes: $candidateThemes');
     } else if (mediaTitle != null && (maxFavoriteSimilarity > 0.3 || maxLikedSimilarity > 0.5)) {
       // Log near-misses for debugging
-      debugPrint('⚠️ [VECTOR-NEAR] "$mediaTitle" - Score: ${score.toStringAsFixed(3)} | '
+      final candidateThemes = mediaThemes?.split(',').map((t) => t.trim()).where((t) => t.isNotEmpty).join(', ') ?? 'No themes';
+      final artistInfo = mediaArtist?.isNotEmpty == true ? ' by $mediaArtist' : '';
+      
+      debugPrint('[VECTOR-NEAR] "$mediaTitle"$artistInfo - Score: ${score.toStringAsFixed(3)} | '
           'Liked: ${maxLikedSimilarity.toStringAsFixed(3)}, '
           'Favorites: ${maxFavoriteSimilarity.toStringAsFixed(3)}, '
           'Reason: ${!hasPositiveMatch ? "Low similarity" : !passesDislikedFilter ? "Too similar to disliked" : "Too similar to skipped"}');
+      debugPrint('[NEAR-THEMES] "$mediaTitle" themes: $candidateThemes');
     }
     
     return {
       'isMatch': isMatch,
-      'score': score,
-      'details': {
-        'maxLikedSimilarity': maxLikedSimilarity,
-        'maxFavoriteSimilarity': maxFavoriteSimilarity,
-        'maxWatchlistSimilarity': maxWatchlistSimilarity,
-        'maxDislikedSimilarity': maxDislikedSimilarity,
-        'maxSkippedSimilarity': maxSkippedSimilarity,
-      }
+      'matchScore': score,  // Using matchScore key as expected by calling code
+      'maxLikedSimilarity': maxLikedSimilarity,
+      'maxFavoriteSimilarity': maxFavoriteSimilarity,
+      'maxWatchlistSimilarity': maxWatchlistSimilarity,
+      'maxDislikedSimilarity': maxDislikedSimilarity,
+      'maxSkippedSimilarity': maxSkippedSimilarity,
     };
   }
 }

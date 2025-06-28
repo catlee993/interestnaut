@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../models.dart';
 import '../tracks/track_card.dart';
+import '../../../theme.dart';
 
 class LibrarySection extends StatelessWidget {
   final List<Track> savedTracks;
@@ -116,8 +117,20 @@ class LibrarySection extends StatelessWidget {
                     style: OutlinedButton.styleFrom(
                       foregroundColor: const Color(0xFFA855F7),
                       side: const BorderSide(color: Color(0xFFA855F7)),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8), // More compact
                     ),
-                    child: const Text('Previous'),
+                    child: Transform.scale(
+                      scaleX: 0.9, // Slightly compressed horizontally
+                      scaleY: 1.05, // Slightly taller than normal
+                      child: Text(
+                        'Previous',
+                        style: TextStyle(
+                          fontSize: 12, // Reduced font size for compact buttons
+                          fontWeight: FontWeight.w200,
+                          letterSpacing: 2.0,
+                        ),
+                      ),
+                    ),
                   ),
                 ),
                 const SizedBox(width: 16),
@@ -133,8 +146,20 @@ class LibrarySection extends StatelessWidget {
                     style: OutlinedButton.styleFrom(
                       foregroundColor: const Color(0xFFA855F7),
                       side: const BorderSide(color: Color(0xFFA855F7)),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8), // More compact
                     ),
-                    child: const Text('Next'),
+                    child: Transform.scale(
+                      scaleX: 0.9, // Slightly compressed horizontally
+                      scaleY: 1.05, // Slightly taller than normal
+                      child: Text(
+                        'Next',
+                        style: TextStyle(
+                          fontSize: 12, // Reduced font size for compact buttons
+                          fontWeight: FontWeight.w200,
+                          letterSpacing: 2.0,
+                        ),
+                      ),
+                    ),
                   ),
                 ),
               ],

@@ -75,7 +75,8 @@ CREATE TABLE IF NOT EXISTS recommendations (
   created_at TEXT NOT NULL,
   updated_at TEXT,
   FOREIGN KEY (media_item_id) REFERENCES media_items (id),
-  FOREIGN KEY (status_id) REFERENCES recommendation_status (id)
+  FOREIGN KEY (status_id) REFERENCES recommendation_status (id),
+  UNIQUE(media_item_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_recommendations_media_item ON recommendations(media_item_id);
@@ -553,9 +554,12 @@ SELECT
 FROM watchlist w
 JOIN media_items mi ON w.media_item_id = mi.id
 JOIN media_types mt ON mi.media_type_id = mt.id
-LEFT JOIN recommendations r ON mi.id = r.media_item_id
+LEFT JOIN recommendations r ON mi.id = r.media_item_id AND r.id = (
+  SELECT MAX(r2.id) FROM recommendations r2 WHERE r2.media_item_id = mi.id
+)
 LEFT JOIN recommendation_status rs ON r.status_id = rs.id
 WHERE mt.name = ?
+GROUP BY mi.id
 ORDER BY w.created_at DESC;
 ''';
 

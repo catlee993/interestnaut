@@ -611,11 +611,50 @@ class SQLiteDatabase {
     try {
       final now = DateTime.now().toIso8601String();
       final statusStr = status.toString().split('.').last;
+      
+      debugPrint('🔧 [STATUS-UPDATE] Updating suggestion $suggestionId to status "$statusStr"');
+      
+      // Debug: Check if the status exists in recommendation_status table
+      final statusCheckStmt = _db!.prepare('SELECT id FROM recommendation_status WHERE name = ?');
+      final statusCheckResult = statusCheckStmt.select([statusStr]);
+      if (statusCheckResult.isEmpty) {
+        debugPrint('❌ [STATUS-UPDATE] Status "$statusStr" not found in recommendation_status table!');
+        statusCheckStmt.dispose();
+        return false;
+      }
+      final statusId = statusCheckResult.first['id'] as int;
+      debugPrint('✅ [STATUS-UPDATE] Status "$statusStr" found with ID: $statusId');
+      statusCheckStmt.dispose();
+      
+      // Debug: Check if the suggestion exists
+      final suggestionCheckStmt = _db!.prepare('SELECT id FROM recommendations WHERE id = ?');
+      final suggestionCheckResult = suggestionCheckStmt.select([suggestionId]);
+      if (suggestionCheckResult.isEmpty) {
+        debugPrint('❌ [STATUS-UPDATE] Suggestion $suggestionId not found in recommendations table!');
+        suggestionCheckStmt.dispose();
+        return false;
+      }
+      debugPrint('✅ [STATUS-UPDATE] Suggestion $suggestionId exists in database');
+      suggestionCheckStmt.dispose();
 
       final stmt = _db!.prepare(updateMediaSuggestionStatusQuery);
       stmt.execute([statusStr, now, suggestionId]);
       stmt.dispose();
+      
+      // Check if any rows were actually updated
+      final changesStmt = _db!.prepare('SELECT changes()');
+      final changesResult = changesStmt.select([]);
+      final changes = changesResult.isNotEmpty ? changesResult.first['changes()'] as int : 0;
+      changesStmt.dispose();
+      
+      debugPrint('🔧 [STATUS-UPDATE] Rows affected: $changes');
 
+      if (changes == 0) {
+        debugPrint('⚠️ [STATUS-UPDATE] No rows updated! SuggestionId $suggestionId might not exist or status "$statusStr" not found');
+        return false;
+      }
+      
+      debugPrint('✅ [STATUS-UPDATE] Successfully updated suggestion $suggestionId to "$statusStr"');
       return true;
     } catch (e) {
       debugPrint('Error updating media suggestion status: $e');
@@ -938,12 +977,21 @@ class SQLiteDatabase {
 
   /// Map database row to MediaSuggestion
   MediaSuggestion _mapRowToMediaSuggestion(Row row) {
+    final statusFromDb = row['status'] as String?;
+    final suggestionId = row['id'] as int;
+    final title = row['title'] as String?;
+    
+    // Debug status mapping for problematic suggestions
+    if (title?.contains('Beelzebub') == true) {
+      debugPrint('🔍 [ROW-MAP] Beelzebub mapping: ID=$suggestionId, StatusFromDB="$statusFromDb"');
+    }
+    
     return MediaSuggestion(
-      id: row['id'] as int,
+      id: suggestionId,
       mediaItemId: row['media_item_id'] as int?,
       query: (row['query'] as String?) ?? 'Unknown',
       mediaType: (row['media_type'] as String?) ?? 'unknown',
-      title: row['title'] as String?,
+      title: title,
       artist: row['primary_creator'] as String?,
       coverArtUrl: row['cover_art_url'] as String?,
       description: row['description'] as String?,
@@ -953,7 +1001,7 @@ class SQLiteDatabase {
       themes: row['themes'] as String?,
       mediaId: row['vector_media_id'] as String?,
       status: SuggestionStatus.values.firstWhere(
-        (s) => s.toString().split('.').last == ((row['status'] as String?) ?? 'pending'),
+        (s) => s.toString().split('.').last == (statusFromDb ?? 'pending'),
         orElse: () => SuggestionStatus.pending,
       ),
       createdAt: DateTime.parse((row['created_at'] as String?) ?? DateTime.now().toIso8601String()),

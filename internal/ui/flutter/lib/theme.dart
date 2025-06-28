@@ -360,6 +360,29 @@ class AppTheme {
         color: textPrimary,
       );
 
+  // Generalized suggestion button theme (matches pagination buttons)
+  static ButtonStyle get suggestionButtonStyle => OutlinedButton.styleFrom(
+    foregroundColor: accentColor, // Use accentColor (0xFFA855F7) like pagination
+    side: const BorderSide(color: accentColor, width: 1),
+    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12), // Reduced from 24 to 16
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(buttonBorderRadius),
+    ),
+    textStyle: libraryHeaderStyle.copyWith(
+      fontSize: 14, // Smaller than normal library header
+      letterSpacing: 2.0, // Keep wide letter spacing but slightly reduced
+      fontWeight: FontWeight.w300,
+    ),
+  );
+
+  // Suggestion button text style (smaller version of library header)
+  static TextStyle get suggestionButtonTextStyle => libraryHeaderStyle.copyWith(
+    fontSize: 12, // Reduced from 14 to 12 for more compact buttons
+    letterSpacing: 2.0,
+    fontWeight: FontWeight.w200, // Ultra-thin like section headers
+    color: accentColor,
+  );
+
   /// Returns the main ThemeData for the app
   static ThemeData get theme {
     return ThemeData(

@@ -166,6 +166,8 @@ abstract class BaseMediaSectionController extends ChangeNotifier {
   
   /// Load suggestion from database
   Future<void> loadDbSuggestion() async {
+    debugPrint('🔄 [${mediaType.toUpperCase()}] Button clicked - starting loadDbSuggestion()');
+    
     _isLoadingDbSuggestion = true;
     _dbSuggestionError = null;
     _hasLikedCurrentSuggestion = false;
@@ -175,10 +177,20 @@ abstract class BaseMediaSectionController extends ChangeNotifier {
     await Future.delayed(const Duration(milliseconds: 50));
     
     try {
+      debugPrint('🔄 [${mediaType.toUpperCase()}] Checking database status...');
       final databaseStatus = await _recommendationService.getMediaTypeStatus(mediaType);
-      final isDatabaseAvailable = databaseStatus == 'available';
+      debugPrint('🔄 [${mediaType.toUpperCase()}] Database status: $databaseStatus');
+      
+      // Handle both Map and String responses from getMediaTypeStatus
+      bool isDatabaseAvailable;
+      if (databaseStatus is Map<String, dynamic>) {
+        isDatabaseAvailable = databaseStatus['available'] == true;
+      } else {
+        isDatabaseAvailable = databaseStatus == 'available';
+      }
       
       if (!isDatabaseAvailable) {
+        debugPrint('❌ [${mediaType.toUpperCase()}] Database not available, status: $databaseStatus');
         _currentDbSuggestion = null;
         _dbSuggestionError = null;
         _isLoadingDbSuggestion = false;
@@ -186,17 +198,22 @@ abstract class BaseMediaSectionController extends ChangeNotifier {
         return;
       }
       
+      debugPrint('✅ [${mediaType.toUpperCase()}] Database available, checking for pending suggestions...');
       final suggestions = await _db.getPendingSuggestionsNotInWatchlist(mediaType);
+      debugPrint('🔄 [${mediaType.toUpperCase()}] Found ${suggestions.length} pending suggestions');
       
       if (suggestions.isNotEmpty) {
+        debugPrint('✅ [${mediaType.toUpperCase()}] Using existing suggestion: ${suggestions.first.title}');
         _currentDbSuggestion = suggestions.first;
         _isLoadingDbSuggestion = false;
         await _updateCurrentSuggestionState();
         notifyListeners();
       } else {
+        debugPrint('🔄 [${mediaType.toUpperCase()}] No pending suggestions, generating new one...');
         final loadingSuggestion = await _recommendationService.generateSuggestionOnDemand(mediaType);
         
         if (loadingSuggestion != null) {
+          debugPrint('✅ [${mediaType.toUpperCase()}] Started suggestion generation');
           _currentDbSuggestion = null;
           _isLoadingDbSuggestion = true;
           _dbSuggestionError = null;
@@ -204,6 +221,7 @@ abstract class BaseMediaSectionController extends ChangeNotifier {
           _hasFavoritedCurrentSuggestion = false;
           notifyListeners();
         } else {
+          debugPrint('❌ [${mediaType.toUpperCase()}] Failed to start suggestion generation');
           _currentDbSuggestion = null;
           _dbSuggestionError = 'Unable to generate ${mediaType} suggestions. Make sure TinyLlama model is installed.';
           _isLoadingDbSuggestion = false;
@@ -213,6 +231,7 @@ abstract class BaseMediaSectionController extends ChangeNotifier {
         }
       }
     } catch (e) {
+      debugPrint('❌ [${mediaType.toUpperCase()}] Error in loadDbSuggestion: $e');
       _dbSuggestionError = 'Error loading suggestions: $e';
       _isLoadingDbSuggestion = false;
       notifyListeners();
@@ -267,6 +286,9 @@ abstract class BaseMediaSectionController extends ChangeNotifier {
           _currentDbSuggestion!.id,
           SuggestionStatus.liked,
         );
+        
+        // CRITICAL: Reload suggestion from database to get fresh status
+        await _reloadSuggestionFromDatabase(_currentDbSuggestion!.id);
         
         // Update state from database
         await _updateCurrentSuggestionState();
@@ -360,19 +382,47 @@ abstract class BaseMediaSectionController extends ChangeNotifier {
       // Only mark as skipped if no action has been taken 
       // (not liked, favorited, watchlisted, or already disliked/unliked)
       final currentStatus = _currentDbSuggestion!.status;
+      final suggestionId = _currentDbSuggestion!.id;
+      final suggestionTitle = _currentDbSuggestion!.title;
+      
+      debugPrint('🔍 SKIP DEBUG: Suggestion ID: $suggestionId, Title: "$suggestionTitle"');
+      debugPrint('🔍 SKIP DEBUG: Current status: $currentStatus');
+      debugPrint('🔍 SKIP DEBUG: Favorited: $_hasFavoritedCurrentSuggestion, Liked: $_hasLikedCurrentSuggestion, Watchlisted: $_isInWatchlistCurrentSuggestion');
+      
       if (!_hasFavoritedCurrentSuggestion && 
           !_hasLikedCurrentSuggestion && 
           !_isInWatchlistCurrentSuggestion &&
           currentStatus != SuggestionStatus.disliked) {
-        await _recommendationService.updateSuggestionStatus(
-          _currentDbSuggestion!.id,
+        debugPrint('🔄 Marking suggestion $suggestionId ("$suggestionTitle") as skipped...');
+        final updateResult = await _recommendationService.updateSuggestionStatus(
+          suggestionId,
           SuggestionStatus.skipped,
         );
+        debugPrint('🔄 Status update result: $updateResult');
+        
+        // Verify the update actually worked by re-querying the suggestion
+        debugPrint('🔍 Verifying status update...');
+        final updatedSuggestion = await _db.getRecommendationById(suggestionId);
+        if (updatedSuggestion != null) {
+          debugPrint('✅ Verified updated status: ${updatedSuggestion.status} for suggestion $suggestionId');
+        } else {
+          debugPrint('❌ Could not verify status update - suggestion not found');
+        }
+        
+        // Wait a moment to ensure database transaction is committed
+        await Future.delayed(const Duration(milliseconds: 100));
+      } else {
+        debugPrint('⚠️ NOT marking as skipped because suggestion has actions: Favorited: $_hasFavoritedCurrentSuggestion, Liked: $_hasLikedCurrentSuggestion, Watchlisted: $_isInWatchlistCurrentSuggestion, Status: $currentStatus');
       }
       
       onSuggestionSkipped(_currentDbSuggestion!);
       
+      // Move to next suggestion BEFORE starting background generation to avoid race condition
       _moveToNextSuggestion();
+      
+      // Start background generation AFTER the status update and move to next
+      // This prevents the race condition where background generation gets the same suggestion
+      debugPrint('🔄 Starting background generation after skip...');
       _recommendationService.generateSuggestionOnDemand(mediaType);
     } catch (e) {
       debugPrint('Error skipping DB suggestion: $e');
@@ -441,6 +491,15 @@ abstract class BaseMediaSectionController extends ChangeNotifier {
     
     try {
       await _db.addToWatchlist(_currentDbSuggestion!.mediaItemId!);
+      
+      // Update suggestion status to watchlist
+      await _recommendationService.updateSuggestionStatus(
+        _currentDbSuggestion!.id,
+        SuggestionStatus.watchlist,
+      );
+      
+      // CRITICAL: Reload suggestion from database to get fresh status
+      await _reloadSuggestionFromDatabase(_currentDbSuggestion!.id);
       
       // Update state from database
       await _updateCurrentSuggestionState();

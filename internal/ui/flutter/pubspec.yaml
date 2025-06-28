@@ -59,8 +59,8 @@ dependencies:
   sqlite3: ^2.4.0
   sqlite3_flutter_libs: ^0.5.33
   
-  # TensorFlow Lite for fast vector similarity calculations
-  tflite_flutter: ^0.11.0
+  # ONNX Runtime for modern ML model inference
+  flutter_onnxruntime: ^1.4.3
   
   # New dependencies for cross-platform auth and WebView
   flutter_secure_storage: ^9.0.0

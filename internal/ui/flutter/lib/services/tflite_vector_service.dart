@@ -1,7 +1,6 @@
 import 'dart:typed_data';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
-import 'package:tflite_flutter/tflite_flutter.dart';
 
 /// High-performance vector similarity service using TensorFlow Lite
 /// Replaces sqlite-vec with optimized Dart + TensorFlow Lite operations

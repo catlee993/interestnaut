@@ -94,7 +94,7 @@ class MediaSectionWrapper extends StatelessWidget {
             children: [
               Text(
                 'Failed to get a suggestion',
-                style: const TextStyle(
+                style: AppTheme.mediaDescriptionStyle.copyWith(
                   color: Colors.white54,
                   fontSize: 16,
                 ),
@@ -103,23 +103,35 @@ class MediaSectionWrapper extends StatelessWidget {
               const SizedBox(height: 16),
               OutlinedButton(
                 onPressed: controller.loadDbSuggestion,
-                child: const Text('Try Again'),
+                style: AppTheme.suggestionButtonStyle,
+                child: Transform.scale(
+                  scaleX: 0.9, // Slightly compressed horizontally
+                  scaleY: 1.05, // Slightly taller than normal
+                  child: Text(
+                    'Try Again',
+                    style: AppTheme.suggestionButtonTextStyle,
+                  ),
+                ),
               ),
             ],
           ),
         ),
       );
     } else if (controller.currentDbSuggestion == null) {
-      return const Center(
+      return Center(
         child: Padding(
-          padding: EdgeInsets.symmetric(vertical: 24),
+          padding: const EdgeInsets.symmetric(vertical: 24),
+          child: OutlinedButton(
+            onPressed: controller.loadDbSuggestion,
+            style: AppTheme.suggestionButtonStyle,
+            child: Transform.scale(
+              scaleX: 0.9, // Slightly compressed horizontally
+              scaleY: 1.05, // Slightly taller than normal
           child: Text(
-            'No suggestions available',
-            style: TextStyle(
-              color: Colors.white54,
-              fontSize: 16,
+                'Get a Suggestion',
+                style: AppTheme.suggestionButtonTextStyle,
             ),
-            textAlign: TextAlign.center,
+            ),
           ),
         ),
       );
