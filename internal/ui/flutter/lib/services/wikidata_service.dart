@@ -100,7 +100,7 @@ class WikidataService {
         
         results.add(WikidataSearchResult(
           id: result.pageId,
-          title: result.title,
+                        title: result.title ?? 'Unknown',
           artist: artist,
           description: content?.extract ?? result.description,
           imageUrl: imageUrl,

@@ -1620,6 +1620,13 @@ class RecommendationService extends ChangeNotifier {
     });
   }
 
+  /// Get safe title with intelligent fallback
+  static String _getSafeTitle(String? title, String? artist) {
+    return title?.isNotEmpty == true ? title! : 
+           artist?.isNotEmpty == true ? artist! : 
+           'Unknown';
+  }
+
   /// Generate media_id for linking to vector database
   static String _generateMediaId(String mediaType, String? title, String? artist) {
     // Clean up title and artist for use in media_id
@@ -2168,7 +2175,7 @@ class RecommendationService extends ChangeNotifier {
             if (behavioralResults.isNotEmpty) {
               // Convert MediaSearchResult to MediaResult
                           searchResults = behavioralResults.map((result) => MediaResult(
-              title: result.title,
+              title: _getSafeTitle(result.title, result.artist),
               artist: result.artist,
               album: result.album,
               coverArtUrl: result.coverArtUrl,
@@ -2181,7 +2188,7 @@ class RecommendationService extends ChangeNotifier {
             } else {
               // Convert MediaSearchResult to MediaResult
               searchResults = randomResults.map((result) => MediaResult(
-                title: result.title,
+                title: _getSafeTitle(result.title, result.artist),
                 artist: result.artist,
                 album: result.album,
                 coverArtUrl: result.coverArtUrl,
@@ -2196,7 +2203,7 @@ class RecommendationService extends ChangeNotifier {
             final randomResults = await vectorDb.getRandomMedia(mediaType: mediaType, limit: 1, excludeIds: behavioralData['excludeIds'] as List<String>);
             // Convert MediaSearchResult to MediaResult
             searchResults = randomResults.map((result) => MediaResult(
-              title: result.title,
+              title: _getSafeTitle(result.title, result.artist),
               artist: result.artist,
               album: result.album,
               coverArtUrl: result.coverArtUrl,
@@ -2269,7 +2276,7 @@ class RecommendationService extends ChangeNotifier {
             debugPrint('🔍 [CONVERSION-DEBUG]   - MediaId: "${result.mediaId}"');
             
             searchResults = [MediaResult(
-              title: result.title,
+              title: _getSafeTitle(result.title, result.artist),
               artist: result.artist,
               album: result.album,
               coverArtUrl: result.coverArtUrl,
@@ -2293,7 +2300,7 @@ class RecommendationService extends ChangeNotifier {
             final randomResults = await vectorDb.getRandomMedia(mediaType: mediaType, limit: 1, excludeIds: excludeList);
             if (randomResults.isNotEmpty) {
               searchResults = randomResults.map((result) => MediaResult(
-                title: result.title,
+                title: _getSafeTitle(result.title, result.artist),
                 artist: result.artist,
                 album: result.album,
                 coverArtUrl: result.coverArtUrl,
@@ -2318,7 +2325,7 @@ class RecommendationService extends ChangeNotifier {
         final randomResults = await vectorDb.getRandomMedia(mediaType: mediaType, limit: 1, excludeIds: []);
         // Convert MediaSearchResult to MediaResult
         searchResults = randomResults.map((result) => MediaResult(
-          title: result.title,
+          title: _getSafeTitle(result.title, result.artist),
           artist: result.artist,
           album: result.album,
           coverArtUrl: result.coverArtUrl,
@@ -2336,7 +2343,7 @@ class RecommendationService extends ChangeNotifier {
         final randomResults = await vectorDb.getRandomMedia(mediaType: mediaType, limit: 1, excludeIds: []);
         // Convert MediaSearchResult to MediaResult
         searchResults = randomResults.map((result) => MediaResult(
-          title: result.title,
+          title: _getSafeTitle(result.title, result.artist),
           artist: result.artist,
           album: result.album,
           coverArtUrl: result.coverArtUrl,

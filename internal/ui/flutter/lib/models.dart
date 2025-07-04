@@ -249,3 +249,55 @@ class MediaSuggestionItem {
     this.voteCount,
   });
 }
+
+/// Utility class to handle smart title/artist resolution
+class MediaDisplayHelper {
+  /// Intelligently determine what to show as title and subtitle
+  /// If title is null/empty but artist exists, use artist as title
+  /// If both exist, use normally
+  /// If both are null/empty, use fallback
+  static MediaDisplayInfo resolveDisplayInfo({
+    String? title,
+    String? artist,
+    String fallbackTitle = 'Unknown Title',
+  }) {
+    final cleanTitle = title?.trim();
+    final cleanArtist = artist?.trim();
+    
+    // Case 1: Title exists, use it as primary
+    if (cleanTitle != null && cleanTitle.isNotEmpty) {
+      return MediaDisplayInfo(
+        displayTitle: cleanTitle,
+        displaySubtitle: cleanArtist, // Can be null, that's fine
+      );
+    }
+    
+    // Case 2: No title but artist exists, use artist as title
+    if (cleanArtist != null && cleanArtist.isNotEmpty) {
+      return MediaDisplayInfo(
+        displayTitle: cleanArtist,
+        displaySubtitle: null, // No subtitle in this case
+      );
+    }
+    
+    // Case 3: Both are null/empty, use fallback
+    return MediaDisplayInfo(
+      displayTitle: fallbackTitle,
+      displaySubtitle: null,
+    );
+  }
+}
+
+/// Container for resolved display information
+class MediaDisplayInfo {
+  final String displayTitle;
+  final String? displaySubtitle;
+  
+  MediaDisplayInfo({
+    required this.displayTitle,
+    this.displaySubtitle,
+  });
+  
+  /// Whether this has a subtitle to display
+  bool get hasSubtitle => displaySubtitle != null && displaySubtitle!.isNotEmpty;
+}

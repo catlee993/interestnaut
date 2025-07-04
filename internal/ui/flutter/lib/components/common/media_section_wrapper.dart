@@ -410,60 +410,19 @@ class MediaSectionWrapper extends StatelessWidget {
   Widget _buildRichTextReasoning(String reasoning) {
     return Container(
       width: double.infinity,
-      margin: const EdgeInsets.only(bottom: 12),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Header
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                FontAwesomeIcons.robot,
-                size: 16,
-                color: const Color(0xFF8C86E2).withOpacity(0.7),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                'Reasoning',
-                style: TextStyle(
-                  fontFamily: 'Inter',
-                  color: const Color(0xFF8C86E2).withOpacity(0.7),
-                  fontWeight: FontWeight.w300,
-                  fontSize: 14,
-                  letterSpacing: 0.5,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Container(
-            height: 1,
-            color: const Color(0xFF7B68EE).withOpacity(0.2),
-          ),
-          const SizedBox(height: 6),
-          
-          // Rich text content in columnar layout
-          Expanded(
-            child: SingleChildScrollView(
-              child: Padding(
-                padding: const EdgeInsets.only(left: 24, right: 24), // Balanced padding for columns
-                child: _buildColumnarReasoningContent(reasoning, mediaType),
-              ),
-            ),
-          ),
-        ],
+      child: SingleChildScrollView(
+        child: _buildIndependentReasoningSections(reasoning, mediaType),
       ),
     );
   }
 
-  Widget _buildColumnarReasoningContent(String reasoning, String mediaType) {
-    // Parse the structured reasoning text into two sections
+  Widget _buildIndependentReasoningSections(String reasoning, String mediaType) {
+    // Parse the structured reasoning text into two clean sections
     final lines = reasoning.split('\n');
-    final leftColumnWidgets = <Widget>[];
-    final rightColumnWidgets = <Widget>[];
+    final detectedThemes = <String>[];
+    final matchSources = <String>[];
     
-    List<Widget> currentColumn = leftColumnWidgets;
+    List<String> currentSection = detectedThemes;
     bool isFirstSection = true;
     
     for (int i = 0; i < lines.length; i++) {
@@ -471,24 +430,162 @@ class MediaSectionWrapper extends StatelessWidget {
       if (line.isEmpty) continue;
       
       if (line.startsWith('**') && line.endsWith('**')) {
-        // Header line - switch to right column if this is the second header
+        // Switch to second section on second header
+        if (!isFirstSection) {
+          currentSection = matchSources;
+        }
+        isFirstSection = false;
+        continue;
+      } else if (line.startsWith('━')) {
+        // Skip ASCII underlines
+        continue;
+      } else if (line.startsWith('• ')) {
+        // Remove bullet and add to section
+        currentSection.add(line.substring(2));
+      } else if (line.isNotEmpty) {
+        // Regular text line
+        currentSection.add(line);
+      }
+    }
+    
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Detected Themes Section
+        if (detectedThemes.isNotEmpty) ...[
+          _buildCleanSection(
+            title: 'Detected Themes',
+            items: detectedThemes,
+            rightAlign: false,
+          ),
+          const SizedBox(height: 16),
+        ],
+        
+        // Match Sources Section  
+        if (matchSources.isNotEmpty) ...[
+          _buildCleanSection(
+            title: 'Match Sources',
+            items: matchSources,
+            rightAlign: false, // Keep consistent alignment
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildCleanSection({
+    required String title,
+    required List<String> items,
+    required bool rightAlign,
+  }) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 8),
+      child: Column(
+        crossAxisAlignment: rightAlign ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        children: [
+          // Section title
+          Text(
+            title,
+            style: TextStyle(
+              fontFamily: 'Inter',
+              fontWeight: FontWeight.w400,
+              fontSize: 14,
+              color: const Color(0xFF8C86E2).withOpacity(0.9),
+              letterSpacing: 0.5,
+            ),
+          ),
+          const SizedBox(height: 6),
+          
+          // Smart layout: dots for short items, wrapping for long ones
+          _buildSmartItemLayout(items, rightAlign),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSmartItemLayout(List<String> items, bool rightAlign) {
+    // Check if all items are reasonably short for dot layout
+    final allShort = items.every((item) => item.length <= 25);
+    
+    if (allShort && items.length <= 4) {
+      // Use dot-separated layout for short items
+      return Text(
+        items.join(' • '),
+        style: TextStyle(
+          fontFamily: 'Inter',
+          fontWeight: FontWeight.w300,
+          fontSize: 13,
+          color: Colors.white.withOpacity(0.85),
+          letterSpacing: 0.3,
+          height: 1.4,
+        ),
+        textAlign: rightAlign ? TextAlign.right : TextAlign.left,
+      );
+    } else {
+      // Use wrapping layout for longer items
+      return Wrap(
+        alignment: rightAlign ? WrapAlignment.end : WrapAlignment.start,
+        spacing: 12.0, // Horizontal spacing between items
+        runSpacing: 4.0, // Vertical spacing between lines
+        children: items.map((item) => Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: Colors.white.withOpacity(0.2),
+              width: 0.5,
+            ),
+          ),
+          child: Text(
+            item,
+            style: TextStyle(
+              fontFamily: 'Inter',
+              fontWeight: FontWeight.w300,
+              fontSize: 12,
+              color: Colors.white.withOpacity(0.9),
+              letterSpacing: 0.2,
+            ),
+          ),
+        )).toList(),
+      );
+    }
+  }
+
+  Widget _buildColumnarReasoningContent(String reasoning, String mediaType) {
+    // Parse the structured reasoning text into two sections
+    final lines = reasoning.split('\n');
+    final firstSectionWidgets = <Widget>[];
+    final secondSectionWidgets = <Widget>[];
+    
+    List<Widget> currentSection = firstSectionWidgets;
+    bool isFirstSection = true;
+    
+    for (int i = 0; i < lines.length; i++) {
+      final line = lines[i].trim();
+      if (line.isEmpty) continue;
+      
+      if (line.startsWith('**') && line.endsWith('**')) {
+        // Header line - switch to second section if this is the second header
         String headerText;
         
         if (isFirstSection) {
-          // First header - use dynamic media type
-          headerText = '${AppTheme.getMediaDisplayName(mediaType)} Themes';
-          currentColumn = leftColumnWidgets;
+          headerText = 'Detected Themes';
+          currentSection = firstSectionWidgets;
         } else {
-          // Second header - use dynamic media type for related items
-          headerText = 'Related ${AppTheme.getMediaPluralDisplayName(mediaType)}';
-          currentColumn = rightColumnWidgets;
+          headerText = 'Match Sources';
+          currentSection = secondSectionWidgets;
         }
         isFirstSection = false;
         
-        currentColumn.add(
+        currentSection.add(
           Container(
             width: double.infinity,
-            margin: const EdgeInsets.only(bottom: 6, top: 6),
+            margin: EdgeInsets.only(
+              bottom: 8, 
+              top: currentSection == secondSectionWidgets ? 16 : 0
+            ),
             child: Text(
               headerText,
               style: const TextStyle(
@@ -512,10 +609,10 @@ class MediaSectionWrapper extends StatelessWidget {
       } else if (line.startsWith('• ')) {
         // Remove bullet and center the text
         final bulletText = line.substring(2);
-        currentColumn.add(
+        currentSection.add(
           Container(
             width: double.infinity,
-            margin: const EdgeInsets.only(bottom: 2),
+            margin: const EdgeInsets.only(bottom: 3),
             child: Text(
               bulletText,
               style: TextStyle(
@@ -532,10 +629,10 @@ class MediaSectionWrapper extends StatelessWidget {
         );
       } else {
         // Regular text line
-        currentColumn.add(
+        currentSection.add(
           Container(
             width: double.infinity,
-            margin: const EdgeInsets.only(bottom: 2),
+            margin: const EdgeInsets.only(bottom: 3),
             child: Text(
               line,
               style: TextStyle(
@@ -553,24 +650,13 @@ class MediaSectionWrapper extends StatelessWidget {
       }
     }
     
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        // Left column - Matched Themes
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.center, // Center everything
-            children: leftColumnWidgets,
-          ),
-        ),
-        const SizedBox(width: 20), // Space between columns
-        // Right column - User Preferences
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.center, // Center everything
-            children: rightColumnWidgets,
-          ),
-        ),
+        // First section - Detected Themes
+        ...firstSectionWidgets,
+        // Second section - Match Sources  
+        ...secondSectionWidgets,
       ],
     );
   }

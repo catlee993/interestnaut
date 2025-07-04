@@ -525,7 +525,8 @@ class _UnifiedSearchHandlerState extends State<_UnifiedSearchHandler> {
             // Convert MediaSearchResult to WikidataSearchResult for UI compatibility
             final convertedResults = results.map((result) => WikidataSearchResult(
               id: result.mediaId,
-              title: result.title,
+              title: (result.title?.isNotEmpty == true) ? result.title! : 
+                     (result.artist?.isNotEmpty == true) ? result.artist! : 'Unknown',
               artist: result.artist,
               description: result.description,
               imageUrl: result.coverArtUrl,

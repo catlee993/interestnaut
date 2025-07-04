@@ -9,6 +9,7 @@ import 'package:sqlite3/sqlite3.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/tflite_vector_service.dart';
+import '../models.dart';
 
 /// VectorDatabase
 /// Read-only vector search database for media recommendations
@@ -424,7 +425,7 @@ class VectorDatabase {
       final row = result.first;
       final mediaResult = MediaSearchResult(
         mediaId: row['media_id'] as String,
-        title: row['title'] as String,
+        title: row['title'] as String?,  // Allow null titles
         artist: row['artist'] as String?,
         album: hasAlbum ? row['album'] as String? : null,
         description: row['description'] as String?,
@@ -490,7 +491,7 @@ class VectorDatabase {
       
       final results = result.map((row) => MediaSearchResult(
         mediaId: row['media_id'] as String,
-        title: row['title'] as String,
+        title: row['title'] as String?,  // Allow null titles
         artist: row['artist'] as String?,
         album: hasAlbum ? row['album'] as String? : null,
         description: row['description'] as String?,
@@ -585,7 +586,7 @@ class VectorDatabase {
         
         return MediaSearchResult(
           mediaId: row['media_id'] as String,
-          title: row['title'] as String,
+          title: row['title'] as String?,  // Allow null titles
           artist: row['artist'] as String?,
           album: mediaType == 'music' ? row['album'] as String? : null,
           description: row['description'] as String?,
@@ -819,7 +820,7 @@ class VectorDatabase {
           if (similarity >= minSimilarity) {
             similarities.add({
               'mediaId': row['media_id'] as String,
-              'title': row['title'] as String,
+              'title': row['title'] as String?,  // Allow null titles
               'artist': row['artist'] as String?,
               'album': hasAlbum ? row['album'] as String? : null,
               'description': row['description'] as String?,
@@ -844,7 +845,7 @@ class VectorDatabase {
       
       return topResults.map((item) => MediaSearchResult(
         mediaId: item['mediaId'] as String,
-        title: item['title'] as String,
+        title: item['title'] as String?,  // Allow null titles
         artist: item['artist'] as String?,
         album: item['album'] as String?,
         description: item['description'] as String?,
@@ -1168,7 +1169,7 @@ class VectorDatabase {
       
       return topResults.map((item) => MediaSearchResult(
         mediaId: item['mediaId'] as String,
-        title: item['title'] as String,
+        title: item['title'] as String?,  // Allow null titles
         artist: item['artist'] as String?,
         album: item['album'] as String?,
         description: item['description'] as String?,
@@ -2019,7 +2020,7 @@ class VectorDatabase {
 /// Media search result model
 class MediaSearchResult {
   final String mediaId;
-  final String title;
+  final String? title;  // Now nullable to handle data quality issues
   final String? artist;
   final String? album;
   final String? description;
@@ -2032,7 +2033,7 @@ class MediaSearchResult {
 
   MediaSearchResult({
     required this.mediaId,
-    required this.title,
+    this.title,  // Now nullable
     this.artist,
     this.album,
     this.description,
@@ -2043,6 +2044,13 @@ class MediaSearchResult {
     required this.similarity,
     required this.mediaType,
   });
+
+  /// Get smart display information that handles null titles gracefully
+  MediaDisplayInfo get displayInfo => MediaDisplayHelper.resolveDisplayInfo(
+    title: title,
+    artist: artist,
+    fallbackTitle: 'Unknown ${mediaType.replaceAll('_', ' ')}',
+  );
 
   Map<String, dynamic> toJson() => {
     'mediaId': mediaId,
