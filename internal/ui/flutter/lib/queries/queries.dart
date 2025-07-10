@@ -44,7 +44,7 @@ const String createMediaItemsTableQuery = '''
 CREATE TABLE IF NOT EXISTS media_items (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   media_type_id INTEGER NOT NULL,
-  vector_media_id TEXT,
+  vector_media_id TEXT NOT NULL,
   title TEXT NOT NULL,
   primary_creator TEXT,
   cover_art_url TEXT,

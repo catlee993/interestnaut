@@ -287,6 +287,14 @@ class _MediaHistoryScreenState extends State<MediaHistoryScreen> {
 
   Future<void> _handleItemAction(MediaSuggestion item, String action) async {
     try {
+      // Determine if this action will move the item to a different category
+      final willMoveItem = _willActionMoveItem(item, action);
+      String? moveToCategory;
+      
+      if (willMoveItem) {
+        moveToCategory = _getTargetCategory(action, item);
+      }
+
       // Get or create media item
       int mediaItemId = await _db.createOrGetMediaItem(
         title: item.title ?? 'Unknown',
@@ -304,16 +312,19 @@ class _MediaHistoryScreenState extends State<MediaHistoryScreen> {
           final isFavorited = _isItemInCategory(item, 'favorited');
           if (isFavorited) {
             await _db.removeFromFavorites(mediaItemId);
+            // When removing favorite, revert to original state (likely skipped)
+            await _updateRecommendationStatus(mediaItemId, 'skipped');
           } else {
             await _db.addToFavorites(mediaItemId);
-            // Favorite clears dislike
+            // Favorite clears dislike and skip by setting to liked
             await _updateRecommendationStatus(mediaItemId, 'liked');
           }
           break;
         case 'liked':
           final isLiked = _isItemInCategory(item, 'liked');
           if (isLiked) {
-            await _updateRecommendationStatus(mediaItemId, 'pending');
+            // When unliking, check if item should revert to skipped
+            await _updateRecommendationStatus(mediaItemId, await _getRevertStatus(mediaItemId, 'liked'));
           } else {
             await _updateRecommendationStatus(mediaItemId, 'liked');
             // Like clears favorite
@@ -324,16 +335,19 @@ class _MediaHistoryScreenState extends State<MediaHistoryScreen> {
           final isWatchlisted = _isItemInCategory(item, 'watchlisted');
           if (isWatchlisted) {
             await _db.removeFromWatchlist(mediaItemId);
+            // When removing from watchlist, revert to original state if no other actions
+            await _updateRecommendationStatus(mediaItemId, await _getRevertStatus(mediaItemId, 'watchlisted'));
           } else {
             await _db.addToWatchlist(mediaItemId);
-            // Watchlist clears dislike
+            // Watchlist clears dislike and skip but keeps item accessible
             await _updateRecommendationStatus(mediaItemId, 'pending');
           }
           break;
         case 'disliked':
           final isDisliked = _isItemInCategory(item, 'disliked');
           if (isDisliked) {
-            await _updateRecommendationStatus(mediaItemId, 'pending');
+            // When removing dislike, revert to skipped (most items were originally skipped)
+            await _updateRecommendationStatus(mediaItemId, 'skipped');
           } else {
             await _updateRecommendationStatus(mediaItemId, 'disliked');
             // Dislike clears all other states
@@ -347,36 +361,213 @@ class _MediaHistoryScreenState extends State<MediaHistoryScreen> {
             await _updateRecommendationStatus(mediaItemId, 'pending');
           } else {
             await _updateRecommendationStatus(mediaItemId, 'skipped');
+            // Skip clears favorites and watchlist 
+            await _db.removeFromFavorites(mediaItemId);
+            await _db.removeFromWatchlist(mediaItemId);
           }
           break;
       }
 
       // Refresh all data to update the UI
       await _loadData();
+
+      // Show toast if item moved to different category
+      if (willMoveItem && moveToCategory != null && mounted) {
+        _showMoveToast(item.title ?? 'Item', moveToCategory);
+      }
     } catch (e) {
       debugPrint('Error handling item action: $e');
     }
   }
 
+  bool _willActionMoveItem(MediaSuggestion item, String action) {
+    // Check if the action will move the item away from current selected category
+    final isCurrentlyInSelectedCategory = _isItemInCategory(item, _selectedCategory);
+    
+    if (!isCurrentlyInSelectedCategory) {
+      return false; // Item is not in current view anyway
+    }
+
+    // Determine if action will remove item from current category
+    switch (action) {
+      case 'favorited':
+        final isFavorited = _isItemInCategory(item, 'favorited');
+        // Will move if: adding to favorited OR removing from favorited and currently viewing favorited
+        if (!isFavorited) {
+          return _selectedCategory != 'favorited'; // Adding to favorited when not viewing favorited
+        } else {
+          return _selectedCategory == 'favorited'; // Removing from favorited when viewing favorited
+        }
+      case 'liked':
+        final isLiked = _isItemInCategory(item, 'liked');
+        if (!isLiked) {
+          return _selectedCategory != 'liked'; // Adding to liked when not viewing liked
+        } else {
+          return _selectedCategory == 'liked'; // Removing from liked when viewing liked
+        }
+      case 'watchlisted':
+        final isWatchlisted = _isItemInCategory(item, 'watchlisted');
+        if (!isWatchlisted) {
+          return _selectedCategory != 'watchlisted'; // Adding to watchlist when not viewing watchlist
+        } else {
+          return _selectedCategory == 'watchlisted'; // Removing from watchlist when viewing watchlist
+        }
+      case 'disliked':
+        final isDisliked = _isItemInCategory(item, 'disliked');
+        if (!isDisliked) {
+          return _selectedCategory != 'disliked'; // Adding to disliked when not viewing disliked
+        } else {
+          return _selectedCategory == 'disliked'; // Removing from disliked when viewing disliked
+        }
+      case 'skipped':
+        final isSkipped = _isItemInCategory(item, 'skipped');
+        if (!isSkipped) {
+          return _selectedCategory != 'skipped'; // Adding to skipped when not viewing skipped
+        } else {
+          return _selectedCategory == 'skipped'; // Removing from skipped when viewing skipped
+        }
+      default:
+        return false;
+    }
+  }
+
+  String? _getTargetCategory(String action, MediaSuggestion item) {
+    // Show where the item is moving TO when it's being added to a new category
+    switch (action) {
+      case 'favorited': 
+        return !_isItemInCategory(item, 'favorited') ? 'Favorited' : null;
+      case 'liked': 
+        return !_isItemInCategory(item, 'liked') ? 'Liked' : null;
+      case 'watchlisted': 
+        return !_isItemInCategory(item, 'watchlisted') ? AppTheme.getMediaListName(_currentMediaType) : null;
+      case 'disliked': 
+        return !_isItemInCategory(item, 'disliked') ? 'Disliked' : null;
+      case 'skipped': 
+        return !_isItemInCategory(item, 'skipped') ? 'Skipped' : null;
+      default: return null;
+    }
+  }
+
+  void _showMoveToast(String itemTitle, String targetCategory) {
+    if (!mounted) return;
+    
+    // Show toast WITHOUT closing drawer - use root navigator to appear above drawer
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          '"${itemTitle.length > 30 ? '${itemTitle.substring(0, 30)}...' : itemTitle}" moved to $targetCategory',
+          style: const TextStyle(
+            color: AppTheme.textPrimary,
+            fontSize: 13,
+            fontWeight: FontWeight.w400,
+          ),
+        ),
+        backgroundColor: Colors.grey[800],
+        duration: const Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.only(top: 60, left: 16, right: 16, bottom: 16),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+        ),
+      ),
+    );
+  }
+
+  /// Determine what status to revert to when removing a reaction
+  /// Returns 'skipped' if item has no other active states, 'pending' otherwise
+  Future<String> _getRevertStatus(int mediaItemId, String removingAction) async {
+    try {
+      // Check current states after the action we're removing
+      final isFavorited = await _db.isInFavorites(mediaItemId);
+      final isInWatchlist = await _db.isInWatchlist(mediaItemId);
+      
+      // If removing liked and item is still favorited or in watchlist, keep as pending
+      if (removingAction == 'liked' && (isFavorited || isInWatchlist)) {
+        return 'pending';
+      }
+      
+      // If removing watchlisted and item is still favorited or liked, keep as pending  
+      if (removingAction == 'watchlisted') {
+        final isCurrentlyLiked = _isItemInCategory(
+          _getCurrentItems().firstWhere((item) => item.mediaItemId == mediaItemId, 
+            orElse: () => _getCurrentItems().first), 'liked'
+        );
+        if (isFavorited || isCurrentlyLiked) {
+          return 'pending';
+        }
+      }
+      
+      // If no other active states, revert to skipped (original state for most items)
+      return 'skipped';
+    } catch (e) {
+      debugPrint('Error determining revert status: $e');
+      // Default to skipped if we can't determine states
+      return 'skipped';
+    }
+  }
+
   Future<void> _updateRecommendationStatus(int mediaItemId, String status) async {
     try {
-      // Create a MediaSuggestion to save/update the recommendation
-      final suggestion = MediaSuggestion(
-        id: 0, // Will be set by database if new
-        mediaItemId: mediaItemId,
-        query: 'User action',
-        mediaType: _currentMediaType,
-        status: SuggestionStatus.values.firstWhere(
-          (s) => s.toString().split('.').last == status,
-          orElse: () => SuggestionStatus.pending,
+      debugPrint('🔄 Updating recommendation status for media item $mediaItemId to $status');
+      
+      // First, find the existing recommendation record for this media item
+      final allSuggestions = await _db.getAllMediaSuggestions(_currentMediaType);
+      final existingRecommendation = allSuggestions.firstWhere(
+        (suggestion) => suggestion.mediaItemId == mediaItemId,
+        orElse: () => MediaSuggestion(
+          id: 0,
+          query: 'User action',
+          mediaType: _currentMediaType,
+          mediaId: 'temp_user_action_${DateTime.now().millisecondsSinceEpoch}',
+          status: SuggestionStatus.pending,
         ),
-        createdAt: DateTime.now(),
-        updatedAt: DateTime.now(),
       );
 
-      await _db.saveMediaSuggestion(suggestion);
+      if (existingRecommendation.id > 0) {
+        // Update existing recommendation
+        debugPrint('📝 Found existing recommendation (ID: ${existingRecommendation.id}), updating status to $status');
+        
+        final newStatus = SuggestionStatus.values.firstWhere(
+          (s) => s.toString().split('.').last == status,
+          orElse: () => SuggestionStatus.pending,
+        );
+        
+        final success = await _db.updateMediaSuggestionStatus(existingRecommendation.id, newStatus);
+        if (success) {
+          debugPrint('✅ Successfully updated recommendation status to $status for media item $mediaItemId');
+        } else {
+          debugPrint('❌ Failed to update recommendation status for media item $mediaItemId');
+        }
+      } else {
+        // Create new recommendation if none exists
+        debugPrint('💡 No existing recommendation found, creating new one with status $status');
+        
+        final suggestion = MediaSuggestion(
+          mediaItemId: mediaItemId,
+          query: 'User action',
+          mediaType: _currentMediaType,
+          mediaId: 'user_action_${_currentMediaType}_${DateTime.now().millisecondsSinceEpoch}',
+          status: SuggestionStatus.values.firstWhere(
+            (s) => s.toString().split('.').last == status,
+            orElse: () => SuggestionStatus.pending,
+          ),
+          createdAt: DateTime.now(),
+          updatedAt: DateTime.now(),
+        );
+
+        try {
+          await _db.saveMediaSuggestion(suggestion);
+          debugPrint('✅ Successfully created new recommendation with status $status for media item $mediaItemId');
+        } catch (constraintError) {
+          if (constraintError.toString().contains('UNIQUE constraint failed')) {
+            debugPrint('⚠️ Recommendation already exists for media item $mediaItemId, this is expected');
+          } else {
+            rethrow;
+          }
+        }
+      }
     } catch (e) {
-      debugPrint('Error updating recommendation status: $e');
+      debugPrint('❌ Error updating recommendation status: $e');
     }
   }
 

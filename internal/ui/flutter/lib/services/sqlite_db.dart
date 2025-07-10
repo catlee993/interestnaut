@@ -53,6 +53,8 @@ class SQLiteDatabase {
     }
   }
 
+
+
   /// Create all tables
   Future<void> _createTables() async {
     try {
@@ -97,7 +99,7 @@ class SQLiteDatabase {
   /// Create or get existing media item
   Future<int> createOrGetMediaItem({
     required String mediaType,
-    String? vectorMediaId,
+    required String vectorMediaId,
     required String title,
     String? primaryCreator,
     String? coverArtUrl,
@@ -109,6 +111,7 @@ class SQLiteDatabase {
     await _ensureInitialized();
 
     try {
+
       final mediaTypeId = await getMediaTypeId(mediaType);
       if (mediaTypeId == null) {
         throw Exception('Invalid media type: $mediaType');
@@ -374,7 +377,7 @@ class SQLiteDatabase {
       // Create or get the media item
       final mediaItemId = await createOrGetMediaItem(
         mediaType: mediaType,
-        vectorMediaId: vectorMediaId,
+        vectorMediaId: vectorMediaId ?? 'user_added_${title.replaceAll(' ', '_').toLowerCase()}_${DateTime.now().millisecondsSinceEpoch}',
         title: title,
         primaryCreator: primaryCreator,
         coverArtUrl: coverArtUrl,
@@ -410,7 +413,7 @@ class SQLiteDatabase {
       // Create or get the media item
       final mediaItemId = await createOrGetMediaItem(
         mediaType: mediaType,
-        vectorMediaId: vectorMediaId,
+        vectorMediaId: vectorMediaId ?? 'user_added_${title.replaceAll(' ', '_').toLowerCase()}_${DateTime.now().millisecondsSinceEpoch}',
         title: title,
         primaryCreator: primaryCreator,
         coverArtUrl: coverArtUrl,
@@ -453,7 +456,7 @@ class SQLiteDatabase {
         // First, create or get the media item
         final mediaItemId = await createOrGetMediaItem(
           mediaType: suggestion.mediaType,
-          vectorMediaId: suggestion.mediaId,
+          vectorMediaId: suggestion.mediaId, // Already required and non-null
           title: suggestion.title ?? '',
           primaryCreator: suggestion.artist,
           coverArtUrl: suggestion.coverArtUrl,
@@ -1121,7 +1124,7 @@ class SQLiteDatabase {
       wikidataId: row['wikidata_id'] as String?,
       botReasoning: row['bot_reasoning'] as String?,
       themes: row['themes'] as String?,
-      mediaId: row['vector_media_id'] as String?,
+      mediaId: (row['vector_media_id'] as String?) ?? 'db_legacy_${suggestionId}_${DateTime.now().millisecondsSinceEpoch}',
       status: SuggestionStatus.values.firstWhere(
         (s) => s.toString().split('.').last == (statusFromDb ?? 'pending'),
         orElse: () => SuggestionStatus.pending,

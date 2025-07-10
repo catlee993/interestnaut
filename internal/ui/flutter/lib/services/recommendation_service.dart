@@ -570,7 +570,7 @@ class MediaSuggestion {
   final String? wikidataId;
   final String? botReasoning; 
   final String? themes;
-  final String? mediaId;  // Links to vector database media_id
+  final String mediaId;  // Links to vector database media_id - REQUIRED
   SuggestionStatus status;
   final DateTime createdAt;
   final DateTime? updatedAt;
@@ -589,7 +589,7 @@ class MediaSuggestion {
     this.wikidataId,
     this.botReasoning,
     this.themes,
-    this.mediaId,
+    required this.mediaId,
     this.status = SuggestionStatus.pending,
     DateTime? createdAt,
     this.updatedAt,
@@ -610,7 +610,8 @@ class MediaSuggestion {
       wikidataId: json['wikidata_id'] as String?,
       botReasoning: json['bot_reasoning'] as String?,
       themes: json['themes'] as String?,
-      mediaId: json['media_id'] as String?,
+      mediaId: json['media_id'] as String? ?? 
+          MediaSuggestion._generateMediaId(json['media_type'] as String, json['title'] as String?, json['artist'] as String?),
       status: SuggestionStatus.values.firstWhere(
         (e) => e.toString().split('.').last == json['status'],
         orElse: () => SuggestionStatus.pending,
@@ -717,6 +718,20 @@ class MediaSuggestion {
 
   bool isValid() {
     return title != null && title!.isNotEmpty;
+  }
+
+  /// Generate media_id for linking to vector database
+  static String _generateMediaId(String mediaType, String? title, String? artist) {
+    // Clean up title and artist for use in media_id
+    String cleanTitle = (title ?? 'Unknown').replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
+    String cleanArtist = (artist ?? 'Unknown').replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
+    
+    // Generate a simple counter-based ID (in production, should be more sophisticated)
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final counter = timestamp % 1000000; // Last 6 digits
+    
+    // Format: mediaType_counter_ArtistTitle
+    return '${mediaType}_${counter.toString().padLeft(6, '0')}_${cleanArtist}${cleanTitle}';
   }
 }
 
@@ -828,7 +843,7 @@ class RecommendationService extends ChangeNotifier {
             coverArtUrl: track.posterPath,
             description: 'From your Spotify Discover Weekly playlist',
             botReasoning: 'This song was recommended by Spotify in your Discover Weekly playlist.',
-            mediaId: _generateMediaId('music', track.title, track.overview),
+            mediaId: MediaSuggestion._generateMediaId('music', track.title, track.overview),
           );
           
           await _db.saveMediaSuggestion(suggestion);
@@ -905,7 +920,7 @@ class RecommendationService extends ChangeNotifier {
         title: title,
         artist: artist,
         botReasoning: reasoning,
-        mediaId: _generateMediaId(mediaType, title, artist),
+        mediaId: MediaSuggestion._generateMediaId(mediaType, title, artist),
         status: SuggestionStatus.pending,
       );
       
@@ -976,7 +991,7 @@ class RecommendationService extends ChangeNotifier {
           wikiUrl: mediaInfo.sourceUrl,
           wikidataId: suggestion.wikidataId,
           botReasoning: suggestion.botReasoning,
-          mediaId: suggestion.mediaId ?? _generateMediaId(suggestion.mediaType, suggestion.title, suggestion.artist),
+          mediaId: suggestion.mediaId, // Already required and non-null
           status: suggestion.status,
           createdAt: suggestion.createdAt,
           updatedAt: DateTime.now(),
@@ -1017,7 +1032,7 @@ class RecommendationService extends ChangeNotifier {
         wikidataId: suggestion.wikidataId,
         themes: suggestion.themes,
         botReasoning: suggestion.botReasoning,
-        mediaId: suggestion.mediaId ?? _generateMediaId(suggestion.mediaType, suggestion.title, suggestion.artist),
+        mediaId: suggestion.mediaId, // Already required and non-null
         status: suggestion.status,
         createdAt: suggestion.createdAt,
         updatedAt: suggestion.updatedAt,
@@ -1122,7 +1137,7 @@ class RecommendationService extends ChangeNotifier {
       title: 'Loading...',
       artist: 'Generating suggestion',
       botReasoning: 'Finding the perfect $mediaType for you...',
-      mediaId: _generateMediaId(mediaType, 'Loading', 'Generating suggestion'),
+      mediaId: MediaSuggestion._generateMediaId(mediaType, 'Loading', 'Generating suggestion'),
       status: SuggestionStatus.pending,
     );
 
@@ -1592,7 +1607,7 @@ class RecommendationService extends ChangeNotifier {
           wikidataId: result['wikidataId'],
           themes: result['themes'],
           botReasoning: finalReasoning,
-          mediaId: result['mediaId'] ?? _generateMediaId(mediaType, result['title'], result['artist']),
+          mediaId: result['mediaId'] ?? MediaSuggestion._generateMediaId(mediaType, result['title'], result['artist']),
           status: SuggestionStatus.pending,
         );
         
@@ -1627,19 +1642,7 @@ class RecommendationService extends ChangeNotifier {
            'Unknown';
   }
 
-  /// Generate media_id for linking to vector database
-  static String _generateMediaId(String mediaType, String? title, String? artist) {
-    // Clean up title and artist for use in media_id
-    String cleanTitle = (title ?? 'Unknown').replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
-    String cleanArtist = (artist ?? 'Unknown').replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
-    
-    // Generate a simple counter-based ID (in production, should be more sophisticated)
-    final timestamp = DateTime.now().millisecondsSinceEpoch;
-    final counter = timestamp % 1000000; // Last 6 digits
-    
-    // Format: mediaType_counter_ArtistTitle
-    return '${mediaType}_${counter.toString().padLeft(6, '0')}_${cleanArtist}${cleanTitle}';
-  }
+
 
   /// Generate structured theme matching summary using actual algorithmic data
   String _generateMainThreadReasoning({
