@@ -204,7 +204,7 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
       alignment: Alignment.bottomCenter,
       child: Container(
         width: MediaQuery.of(context).size.width * 0.95,
-        height: MediaQuery.of(context).size.height * 0.55,
+        height: MediaQuery.of(context).size.height * 0.65, // Increased from 0.55 to 0.65 (10% more height)
         margin: const EdgeInsets.all(AppTheme.spacingMD),
         decoration: BoxDecoration(
           color: AppTheme.surfaceColor,
@@ -236,74 +236,158 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
               ),
             ),
             
-            // Media display area component
-            MediaDisplayArea(
-              coverArtUrl: widget.coverArtUrl,
-              description: widget.description,
-              mediaType: widget.mediaType,
+            // Media display area component - flexible to fit available space
+            Expanded(
+              flex: 3, // Takes most of the available space
+              child: Container(
+                margin: const EdgeInsets.symmetric(horizontal: AppTheme.spacingMD),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1A1A1A), // Much darker gray background
+                  border: Border.all(
+                    color: Colors.white.withOpacity(0.2),
+                    width: 1,
+                  ),
+                  borderRadius: BorderRadius.circular(AppTheme.borderRadius),
+                ),
+                child: Container(
+                  padding: const EdgeInsets.all(AppTheme.spacingSM),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      // Static image - 1/3 of width
+                      Container(
+                        width: MediaQuery.of(context).size.width * 0.95 * 0.33 * 0.8,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: Colors.transparent,
+                            borderRadius: BorderRadius.circular(AppTheme.borderRadius),
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(AppTheme.borderRadius),
+                            child: widget.coverArtUrl != null && widget.coverArtUrl!.isNotEmpty
+                                ? Image.network(
+                                    widget.coverArtUrl!,
+                                    fit: BoxFit.contain,
+                                    width: double.infinity,
+                                    height: double.infinity,
+                                    errorBuilder: (context, error, stackTrace) =>
+                                        _buildPlaceholderIcon(),
+                                  )
+                                : _buildPlaceholderIcon(),
+                          ),
+                        ),
+                      ),
+                      
+                      const SizedBox(width: AppTheme.spacingMD),
+                      
+                      // Scrollable summary area - 2/3 of width
+                      Expanded(
+                        child: SingleChildScrollView(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if (widget.description != null && widget.description!.isNotEmpty) ...[
+                                Text(
+                                  widget.description!,
+                                  style: AppTheme.bodyStyle.copyWith(
+                                    fontSize: 13,
+                                    height: 1.4,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ),
             
-            // Developer/themes section - exact same structure as title
-            Container(
-              padding: const EdgeInsets.all(AppTheme.spacingMD),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Artist/Creator
-                        if (widget.artist != null && widget.artist!.isNotEmpty) ...[
-                          RichText(
-                            text: TextSpan(
-                              children: [
-                                TextSpan(
-                                  text: '${_getCreatorLabel().toUpperCase()}: ',
-                                  style: AppTheme.bodyStyle.copyWith(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
-                                    color: AppTheme.textSecondary,
+            // Developer/themes section - flexible for remaining space
+            Expanded(
+              flex: 1, // Takes less space than media display
+              child: Container(
+                padding: const EdgeInsets.all(AppTheme.spacingMD),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          // Calculate expected height for artist + themes + spacing
+                          final hasArtist = widget.artist != null && widget.artist!.isNotEmpty;
+                          final hasThemes = widget.themes != null && widget.themes!.isNotEmpty;
+                          
+                          // Use available height efficiently
+                          final availableHeight = constraints.maxHeight - 24; // Account for padding
+                          final shouldUseScrolling = availableHeight > 0; // Always prepare for scrolling if needed
+                          
+                          final contentWidget = Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min, // Important: only take needed space
+                            children: [
+                              // Artist/Creator
+                              if (hasArtist) ...[
+                                RichText(
+                                  text: TextSpan(
+                                    children: [
+                                      TextSpan(
+                                        text: '${_getCreatorLabel().toUpperCase()}: ',
+                                        style: AppTheme.bodyStyle.copyWith(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                          color: AppTheme.textSecondary,
+                                        ),
+                                      ),
+                                      TextSpan(
+                                        text: widget.artist!,
+                                        style: AppTheme.bodyStyle.copyWith(
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
-                                TextSpan(
-                                  text: widget.artist!,
-                                  style: AppTheme.bodyStyle.copyWith(
-                                    fontSize: 12,
+                                const SizedBox(height: AppTheme.spacingXS),
+                              ],
+                              
+                              // Themes with proper text wrapping
+                              if (hasThemes) ...[
+                                RichText(
+                                  text: TextSpan(
+                                    children: [
+                                      TextSpan(
+                                        text: 'THEMES: ',
+                                        style: AppTheme.bodyStyle.copyWith(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                          color: AppTheme.textSecondary,
+                                        ),
+                                      ),
+                                      TextSpan(
+                                        text: widget.themes!,
+                                        style: AppTheme.bodyStyle.copyWith(
+                                          fontSize: 12,
+                                          height: 1.4, // Better line spacing for readability
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
                               ],
-                            ),
-                          ),
-                          const SizedBox(height: AppTheme.spacingXS),
-                        ],
-                        
-                        // Themes
-                        if (widget.themes != null && widget.themes!.isNotEmpty) ...[
-                          RichText(
-                            text: TextSpan(
-                              children: [
-                                TextSpan(
-                                  text: 'THEMES: ',
-                                  style: AppTheme.bodyStyle.copyWith(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
-                                    color: AppTheme.textSecondary,
-                                  ),
-                                ),
-                                TextSpan(
-                                  text: widget.themes!,
-                                  style: AppTheme.bodyStyle.copyWith(
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ],
+                            ],
+                          );
+                          
+                          // Return with scrolling if content exceeds available space
+                          return SingleChildScrollView(
+                            child: contentWidget,
+                          );
+                        },
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
             
@@ -316,10 +400,7 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
               ),
             ),
             
-            // Spacer to push controls to bottom
-            const Spacer(),
-            
-            // Centralized action icons at bottom
+            // Centralized action icons at bottom - fixed height
             Container(
               padding: const EdgeInsets.all(AppTheme.spacingMD),
               child: Row(

@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import '../../../theme.dart';
 import '../../../models.dart';
 import '../../common/icons.dart';
+import '../../common/media_detail_drawer.dart';
+import '../../../services/sqlite_db.dart';
+import '../../../db/vector_db.dart';
 
 class SearchResultCard extends StatefulWidget {
   final dynamic track; // SimpleTrack or full Track
@@ -129,32 +132,35 @@ class _SearchResultCardState extends State<SearchResultCard> {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            // Album artwork - sized to fit available space
-            Container(
-              margin: const EdgeInsets.only(top: 6.0),
-              width: finalArtworkSize,
-              height: finalArtworkSize,
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(4),
-                child: info['albumArtUrl'] != null && info['albumArtUrl'].isNotEmpty
-                    ? Image.network(
-                        info['albumArtUrl'],
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) {
-                          return Container(
-                            color: AppTheme.cardBackgroundColor,
-                            child: const Center(
-                              child: Icon(Icons.music_note, size: 48, color: Colors.white54),
-                            ),
-                          );
-                        },
-                      )
-                    : Container(
-                        color: AppTheme.cardBackgroundColor,
-                        child: const Center(
-                          child: Icon(Icons.music_note, size: 48, color: Colors.white54),
+            // Album artwork - sized to fit available space with click handler
+            GestureDetector(
+              onTap: () => _openMediaDetailDrawer(context, info),
+              child: Container(
+                margin: const EdgeInsets.only(top: 6.0),
+                width: finalArtworkSize,
+                height: finalArtworkSize,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: info['albumArtUrl'] != null && info['albumArtUrl'].isNotEmpty
+                      ? Image.network(
+                          info['albumArtUrl'],
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) {
+                            return Container(
+                              color: AppTheme.cardBackgroundColor,
+                              child: const Center(
+                                child: Icon(Icons.music_note, size: 48, color: Colors.white54),
+                              ),
+                            );
+                          },
+                        )
+                      : Container(
+                          color: AppTheme.cardBackgroundColor,
+                          child: const Center(
+                            child: Icon(Icons.music_note, size: 48, color: Colors.white54),
+                          ),
                         ),
-                      ),
+                ),
               ),
             ),
             
@@ -296,5 +302,157 @@ class _SearchResultCardState extends State<SearchResultCard> {
         );
       },
     );
+  }
+
+  /// Opens the media detail drawer when album artwork is clicked
+  Future<void> _openMediaDetailDrawer(BuildContext context, Map<String, dynamic> info) async {
+    try {
+      // Convert track info to MediaSearchResult for consistency
+      final mediaSearchResult = MediaSearchResult(
+        mediaId: info['uri'] ?? 'spotify_track_${DateTime.now().millisecondsSinceEpoch}',
+        title: info['name'] ?? 'Unknown Track',
+        artist: info['artist'] ?? 'Unknown Artist',
+        album: info['album'],
+        description: null, // Music tracks typically don't have descriptions
+        coverArtUrl: info['albumArtUrl'],
+        themes: null, // Music tracks typically don't have themes
+        wikiUrl: null,
+        wikidataId: null,
+        similarity: 1.0, // Default similarity for search results
+        mediaType: 'music',
+      );
+
+      // Get comprehensive status from database
+      final db = SQLiteDatabase();
+      final statusResult = await db.getMediaItemStatusByProperties(
+        title: info['name'] ?? 'Unknown Track',
+        mediaType: 'music',
+        primaryCreator: info['artist'] ?? 'Unknown Artist',
+      );
+
+      if (mounted) {
+        showModalBottomSheet(
+          context: context,
+          isScrollControlled: true,
+          backgroundColor: Colors.transparent,
+          enableDrag: true,
+          isDismissible: true,
+          barrierColor: Colors.black54,
+          builder: (context) => GestureDetector(
+            onTap: () => Navigator.of(context).pop(),
+            child: Container(
+              color: Colors.transparent,
+              child: GestureDetector(
+                onTap: () {}, // Prevent tap-through
+                child: MediaDetailDrawer(
+                  title: info['name'] ?? 'Unknown Track',
+                  artist: info['artist'] ?? 'Unknown Artist',
+                  description: info['album'] != null ? 'Album: ${info['album']}' : null,
+                  themes: null, // Music tracks typically don't have themes
+                  coverArtUrl: info['albumArtUrl'],
+                  mediaType: 'music',
+                  hasLiked: statusResult['hasLiked'] as bool? ?? false,
+                  hasDisliked: statusResult['hasDisliked'] as bool? ?? false,
+                  hasFavorited: statusResult['hasFavorited'] as bool? ?? false,
+                  isInWatchlist: statusResult['isInWatchlist'] as bool? ?? false,
+                  hasSkipped: statusResult['hasSkipped'] as bool? ?? false,
+                  onAction: (action) => _handleDrawerAction(
+                    context,
+                    action,
+                    mediaSearchResult,
+                    statusResult['mediaItemId'] as int?,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('❌ Error opening music detail drawer: $e');
+      // Show error dialog
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: Text('Error'),
+            content: Text('Failed to load track details: $e'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: Text('OK'),
+              ),
+            ],
+          ),
+        );
+      }
+    }
+  }
+
+  /// Handle actions from the media detail drawer
+  Future<void> _handleDrawerAction(
+    BuildContext context,
+    String action,
+    MediaSearchResult item,
+    int? existingMediaItemId,
+  ) async {
+    try {
+      final db = SQLiteDatabase();
+      
+      // Create or get the media item if it doesn't exist
+      int mediaItemId;
+      if (existingMediaItemId != null) {
+        mediaItemId = existingMediaItemId;
+      } else {
+        mediaItemId = await db.createOrGetMediaItem(
+          mediaType: 'music',
+          vectorMediaId: item.mediaId,
+          title: item.title ?? 'Unknown Track',
+          primaryCreator: item.artist ?? 'Unknown Artist',
+          coverArtUrl: item.coverArtUrl,
+          description: item.description,
+          wikiUrl: item.wikiUrl,
+          wikidataId: item.wikidataId,
+          themes: item.themes,
+        );
+        debugPrint('🔍 [MUSIC-SEARCH-DRAWER] Created new media item with ID: $mediaItemId');
+      }
+
+      switch (action) {
+        case 'like':
+          // Add to favorites and handle other logic as needed
+          await db.addToFavorites(mediaItemId);
+          break;
+          
+        case 'dislike':
+          // Handle dislike action
+          // Implementation depends on your requirements
+          break;
+          
+        case 'favorite':
+          // Add to favorites table
+          await db.addToFavorites(mediaItemId);
+          break;
+          
+        case 'watchlist':
+          // Add to watchlist table (playlist for music)
+          await db.addToWatchlist(mediaItemId);
+          break;
+          
+        case 'skip':
+          // Handle skip action
+          // Implementation depends on your requirements
+          break;
+
+        case 'clear_all':
+          // Handle clearing all reactions
+          // Implementation depends on your requirements
+          break;
+      }
+      
+      debugPrint('✅ [MUSIC-SEARCH-DRAWER] Handled action: $action for ${item.title}');
+    } catch (e) {
+      debugPrint('❌ [MUSIC-SEARCH-DRAWER] Error handling drawer action: $e');
+    }
   }
 } 

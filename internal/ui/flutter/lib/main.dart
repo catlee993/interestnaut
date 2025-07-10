@@ -20,6 +20,7 @@ import 'components/books/book_section.dart';
 import 'components/tv/tv_show_section.dart';
 import 'components/common/media_header.dart';
 import 'components/common/media_grid.dart';
+import 'components/common/media_detail_drawer.dart';
 import 'components/music/spotify_service.dart';
 import 'components/music/player/spotify_player_view.dart';
 import 'components/music/player/spotify_web_player.dart';
@@ -1204,35 +1205,38 @@ class _WikidataCardState extends State<_WikidataCard> {
             return Column(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                // Media artwork - size calculated to fit properly
+                // Media artwork - size calculated to fit properly with click handler
                 Expanded(
                   child: Container(
                     margin: const EdgeInsets.only(top: 6.0),
                     child: Center(
-                      child: SizedBox(
-                        width: artworkSize,
-                        height: artworkSize,
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(4), // 4px for large devices per Spotify guidelines
-                          child: widget.result.imageUrl != null && widget.result.imageUrl!.isNotEmpty
-                              ? Image.network(
-                                  widget.result.imageUrl!,
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (context, error, stackTrace) {
-                                    return Container(
-                                      color: AppTheme.cardBackgroundColor,
-                                      child: Center(
-                                        child: Icon(_getMediaIcon(), size: 48, color: Colors.white54),
-                                      ),
-                                    );
-                                  },
-                                )
-                              : Container(
-                                  color: AppTheme.cardBackgroundColor,
-                                  child: Center(
-                                    child: Icon(_getMediaIcon(), size: 48, color: Colors.white54),
+                      child: GestureDetector(
+                        onTap: () => _openMediaDetailDrawer(context),
+                        child: SizedBox(
+                          width: artworkSize,
+                          height: artworkSize,
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(4), // 4px for large devices per Spotify guidelines
+                            child: widget.result.imageUrl != null && widget.result.imageUrl!.isNotEmpty
+                                ? Image.network(
+                                    widget.result.imageUrl!,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (context, error, stackTrace) {
+                                      return Container(
+                                        color: AppTheme.cardBackgroundColor,
+                                        child: Center(
+                                          child: Icon(_getMediaIcon(), size: 48, color: Colors.white54),
+                                        ),
+                                      );
+                                    },
+                                  )
+                                : Container(
+                                    color: AppTheme.cardBackgroundColor,
+                                    child: Center(
+                                      child: Icon(_getMediaIcon(), size: 48, color: Colors.white54),
+                                    ),
                                   ),
-                                ),
+                          ),
                         ),
                       ),
                     ),
@@ -1353,6 +1357,157 @@ class _WikidataCardState extends State<_WikidataCard> {
         ),
       ),
     );
+  }
+
+  /// Opens the media detail drawer when cover art is clicked
+  Future<void> _openMediaDetailDrawer(BuildContext context) async {
+    try {
+      // Convert WikidataSearchResult to MediaSearchResult for consistency
+      final mediaSearchResult = MediaSearchResult(
+        mediaId: widget.result.id,
+        title: widget.result.title,
+        artist: widget.result.artist,
+        description: widget.result.description,
+        coverArtUrl: widget.result.imageUrl,
+        themes: widget.result.additionalData?['themes'] as String?,
+        wikiUrl: widget.result.additionalData?['wikiUrl'] as String?,
+        wikidataId: widget.result.id, // Use ID as wikidata ID
+        similarity: 1.0, // Default similarity for search results
+        mediaType: widget.mediaType,
+      );
+
+      // Get comprehensive status from database
+      final db = SQLiteDatabase();
+      final statusResult = await db.getMediaItemStatusByProperties(
+        title: widget.result.title,
+        mediaType: widget.mediaType,
+        primaryCreator: widget.result.artist ?? '',
+      );
+
+      if (mounted) {
+        showModalBottomSheet(
+          context: context,
+          isScrollControlled: true,
+          backgroundColor: Colors.transparent,
+          enableDrag: true,
+          isDismissible: true,
+          barrierColor: Colors.black54,
+          builder: (context) => GestureDetector(
+            onTap: () => Navigator.of(context).pop(),
+            child: Container(
+              color: Colors.transparent,
+              child: GestureDetector(
+                onTap: () {}, // Prevent tap-through
+                child: MediaDetailDrawer(
+                  title: widget.result.title,
+                  artist: widget.result.artist,
+                  description: widget.result.description,
+                  themes: widget.result.additionalData?['themes'] as String?,
+                  coverArtUrl: widget.result.imageUrl,
+                  mediaType: widget.mediaType,
+                  hasLiked: statusResult['hasLiked'] as bool? ?? false,
+                  hasDisliked: statusResult['hasDisliked'] as bool? ?? false,
+                  hasFavorited: statusResult['hasFavorited'] as bool? ?? false,
+                  isInWatchlist: statusResult['isInWatchlist'] as bool? ?? false,
+                  hasSkipped: statusResult['hasSkipped'] as bool? ?? false,
+                  onAction: (action) => _handleDrawerAction(
+                    context,
+                    action,
+                    mediaSearchResult,
+                    statusResult['mediaItemId'] as int?,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('❌ Error opening media detail drawer: $e');
+      // Show error dialog
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: Text('Error'),
+            content: Text('Failed to load item details: $e'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: Text('OK'),
+              ),
+            ],
+          ),
+        );
+      }
+    }
+  }
+
+  /// Handle actions from the media detail drawer
+  Future<void> _handleDrawerAction(
+    BuildContext context,
+    String action,
+    MediaSearchResult item,
+    int? existingMediaItemId,
+  ) async {
+    try {
+      final db = SQLiteDatabase();
+      
+      // Create or get the media item if it doesn't exist
+      int mediaItemId;
+      if (existingMediaItemId != null) {
+        mediaItemId = existingMediaItemId;
+      } else {
+        mediaItemId = await db.createOrGetMediaItem(
+          mediaType: widget.mediaType,
+          vectorMediaId: item.mediaId,
+          title: item.title ?? 'Unknown',
+          primaryCreator: item.artist ?? '',
+          coverArtUrl: item.coverArtUrl,
+          description: item.description,
+          wikiUrl: item.wikiUrl,
+          wikidataId: item.wikidataId,
+          themes: item.themes,
+        );
+        debugPrint('🔍 [SEARCH-DRAWER] Created new media item with ID: $mediaItemId');
+      }
+
+      switch (action) {
+        case 'like':
+          // Add to favorites and handle other logic as needed
+          await db.addToFavorites(mediaItemId);
+          break;
+          
+        case 'dislike':
+          // Handle dislike action
+          // Implementation depends on your requirements
+          break;
+          
+        case 'favorite':
+          // Add to favorites table
+          await db.addToFavorites(mediaItemId);
+          break;
+          
+        case 'watchlist':
+          // Add to watchlist table
+          await db.addToWatchlist(mediaItemId);
+          break;
+          
+        case 'skip':
+          // Handle skip action
+          // Implementation depends on your requirements
+          break;
+
+        case 'clear_all':
+          // Handle clearing all reactions
+          // Implementation depends on your requirements
+          break;
+      }
+      
+      debugPrint('✅ [SEARCH-DRAWER] Handled action: $action for ${item.title}');
+    } catch (e) {
+      debugPrint('❌ [SEARCH-DRAWER] Error handling drawer action: $e');
+    }
   }
 }
 
