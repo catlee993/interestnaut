@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'dart:ui';
 import 'search_bar.dart' as custom;
 import 'settings_drawer.dart';
+import 'media_history_screen.dart';  // Add import for MediaHistoryScreen
+import '../../theme.dart';  // Add import for AppTheme
 import '../music/spotify_service.dart';
 import '../music/spotify_connect_button.dart';
 import '../music/spotify_user_control.dart';
@@ -376,6 +378,30 @@ class _MediaHeaderState extends State<MediaHeader> {
                             // Add spacing between controls and settings
                             if (activeMedia == 'music' || widget.additionalControl != null)
                               const SizedBox(width: 12),
+                            // Media History button - shows current media type icon
+                            IconButton(
+                              icon: Icon(
+                                AppTheme.getMediaIcon(activeMedia), 
+                                color: const Color(0xFF7b68ee), 
+                                size: 20
+                              ),
+                              onPressed: () {
+                                Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (context) => MediaHistoryScreen(
+                                      initialMediaType: activeMedia,
+                                    ),
+                                  ),
+                                );
+                              },
+                              padding: const EdgeInsets.all(2),
+                              splashRadius: 18,
+                              tooltip: 'View ${AppTheme.getMediaDisplayName(activeMedia)} History',
+                              style: IconButton.styleFrom(
+                                hoverColor: const Color.fromRGBO(123, 104, 238, 0.1),
+                              ),
+                            ),
+                            const SizedBox(width: 8), // Spacing between history and settings
                             // Settings button - always anchored to the right
                             IconButton(
                               icon: const Icon(Icons.settings, color: Color(0xFF7b68ee), size: 20),

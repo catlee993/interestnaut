@@ -27,6 +27,13 @@ class AppTheme {
   static const Color purpleRed = Color(0xFFC23B85); // For errors/warnings - legacy compatibility
   static const Color purpleBlue = Color(0xFF6A5ACD); // For specific UI elements - legacy compatibility
   
+  // === ACTION BUTTON COLORS ===
+  // Standardized colors for user interaction buttons across the app
+  static const Color likeColor = successColor; // Green for like actions
+  static const Color dislikeColor = errorColor; // Red for dislike actions
+  static const Color favoriteColor = primaryColor; // Purple for favorite actions
+  static const Color watchlistColor = infoColor; // Blue for watchlist/playlist actions
+  
   // === MEDIA TYPE CONFIGURATION ===
   // Centralized configuration for all media types - single source of truth
   

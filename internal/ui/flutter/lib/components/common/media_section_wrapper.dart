@@ -461,19 +461,17 @@ class MediaSectionWrapper extends StatelessWidget {
         _showMediaDrawer(
           context,
           MediaDetailDrawer(
-            title: item.title,
+            title: item.title ?? 'Unknown Title',
             artist: item.artist,
             description: item.description,
             themes: item.themes,
             coverArtUrl: item.coverArtUrl,
             mediaType: mediaType,
-            mediaId: item.mediaId,
             hasLiked: statusResult['hasLiked'] as bool? ?? false,
-            hasFavorited: statusResult['hasFavorited'] as bool? ?? false,
             hasDisliked: statusResult['hasDisliked'] as bool? ?? false,
+            hasFavorited: statusResult['hasFavorited'] as bool? ?? false,
             isInWatchlist: statusResult['isInWatchlist'] as bool? ?? false,
             hasSkipped: statusResult['hasSkipped'] as bool? ?? false,
-            onClose: () => Navigator.of(context).pop(),
             onAction: (action) => _handleDrawerAction(
               context, 
               action, 

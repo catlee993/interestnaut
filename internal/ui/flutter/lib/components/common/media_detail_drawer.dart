@@ -1,42 +1,127 @@
 import 'package:flutter/material.dart';
-import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import '../../theme.dart';
-import '../../models.dart';
-import '../../db/vector_db.dart';
+import '../../services/sqlite_db.dart';
 
+/// Reusable media display area component with side-by-side layout
+class MediaDisplayArea extends StatelessWidget {
+  final String? coverArtUrl;
+  final String? description;
+  final String mediaType;
+
+  const MediaDisplayArea({
+    Key? key,
+    this.coverArtUrl,
+    this.description,
+    required this.mediaType,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: AppTheme.spacingMD),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1A1A1A), // Much darker gray background
+        border: Border.all(
+          color: Colors.white.withOpacity(0.2),
+          width: 1,
+        ),
+        borderRadius: BorderRadius.circular(AppTheme.borderRadius),
+      ),
+      child: Container(
+        height: MediaQuery.of(context).size.height * 0.3,
+        padding: const EdgeInsets.all(AppTheme.spacingSM),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            // Static image - 1/3 of width
+            Container(
+              width: MediaQuery.of(context).size.width * 0.95 * 0.33 * 0.8,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.transparent,
+                  borderRadius: BorderRadius.circular(AppTheme.borderRadius),
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(AppTheme.borderRadius),
+                  child: coverArtUrl != null && coverArtUrl!.isNotEmpty
+                      ? Image.network(
+                          coverArtUrl!,
+                          fit: BoxFit.contain,
+                          width: double.infinity,
+                          height: double.infinity,
+                          errorBuilder: (context, error, stackTrace) =>
+                              _buildPlaceholderIcon(),
+                        )
+                      : _buildPlaceholderIcon(),
+                ),
+              ),
+            ),
+            
+            const SizedBox(width: AppTheme.spacingMD),
+            
+            // Scrollable summary area - 2/3 of width
+            Expanded(
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (description != null && description!.isNotEmpty) ...[
+                      Text(
+                        description!,
+                        style: AppTheme.bodyStyle.copyWith(
+                          fontSize: 13,
+                          height: 1.4,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPlaceholderIcon() {
+    return Icon(
+      AppTheme.getMediaIcon(mediaType),
+      size: 60,
+      color: AppTheme.textSecondary,
+    );
+  }
+}
+
+/// Compact media detail drawer with side-by-side image and summary layout
 class MediaDetailDrawer extends StatefulWidget {
-  final String? mediaId;
-  final String? title;
+  final String title;
   final String? artist;
   final String? description;
-  final String? themes;
   final String? coverArtUrl;
+  final String? themes;
   final String mediaType;
-  final VoidCallback? onClose;
-  final Function(String action)? onAction;
-  // Reaction states
-  final bool? hasLiked;
-  final bool? hasFavorited;
-  final bool? hasDisliked;
-  final bool? isInWatchlist;
-  final bool? hasSkipped;
+  final bool hasLiked;
+  final bool hasDisliked;
+  final bool hasFavorited;
+  final bool isInWatchlist;
+  final bool hasSkipped;
+  final Function(String) onAction;
 
   const MediaDetailDrawer({
     Key? key,
-    this.mediaId,
-    this.title,
+    required this.title,
     this.artist,
     this.description,
-    this.themes,
     this.coverArtUrl,
+    this.themes,
     required this.mediaType,
-    this.onClose,
-    this.onAction,
-    this.hasLiked,
-    this.hasFavorited,
-    this.hasDisliked,
-    this.isInWatchlist,
-    this.hasSkipped,
+    required this.hasLiked,
+    required this.hasDisliked,
+    required this.hasFavorited,
+    required this.isInWatchlist,
+    required this.hasSkipped,
+    required this.onAction,
   }) : super(key: key);
 
   @override
@@ -44,71 +129,218 @@ class MediaDetailDrawer extends StatefulWidget {
 }
 
 class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
-  bool? _currentLiked;
-  bool? _currentFavorited;
-  bool? _currentDisliked;
-  bool? _currentWatchlisted;
-  bool? _currentSkipped;
+  final SQLiteDatabase _db = SQLiteDatabase();
+  
+  late bool _currentLiked;
+  late bool _currentDisliked;
+  late bool _currentFavorited;
+  late bool _currentWatchlisted;
 
   @override
   void initState() {
     super.initState();
     _currentLiked = widget.hasLiked;
-    _currentFavorited = widget.hasFavorited;
     _currentDisliked = widget.hasDisliked;
+    _currentFavorited = widget.hasFavorited;
     _currentWatchlisted = widget.isInWatchlist;
-    _currentSkipped = widget.hasSkipped;
-  }
-
-  String _getStatusText() {
-    if (_currentFavorited == true) return 'Favorited';
-    if (_currentLiked == true) return 'Liked';
-    if (_currentWatchlisted == true) return 'In Playlist';
-    if (_currentDisliked == true) return 'Disliked';
-    if (_currentSkipped == true) return 'Skipped';
-    return '';
-  }
-
-  Color _getStatusColor() {
-    if (_currentFavorited == true) return AppTheme.accentColor;
-    if (_currentLiked == true) return AppTheme.successColor;
-    if (_currentWatchlisted == true) return AppTheme.primaryColor;
-    if (_currentDisliked == true) return AppTheme.errorColor;
-    if (_currentSkipped == true) return AppTheme.textSecondary;
-    return Colors.transparent;
   }
 
   void _handleAction(String action) {
     setState(() {
-      // Reset all states first
-      _currentLiked = false;
-      _currentFavorited = false;
-      _currentDisliked = false;
-      _currentWatchlisted = false;
-      _currentSkipped = false;
-
-      // Set the new state
       switch (action) {
         case 'like':
-          _currentLiked = true;
-          break;
-        case 'favorite':
-          _currentFavorited = true;
+          _currentLiked = !_currentLiked;
+          if (_currentLiked) _currentDisliked = false;
           break;
         case 'dislike':
-          _currentDisliked = true;
+          _currentDisliked = !_currentDisliked;
+          if (_currentDisliked) {
+            _currentLiked = false;
+            _currentFavorited = false;
+            _currentWatchlisted = false;
+          }
+          break;
+        case 'favorite':
+          _currentFavorited = !_currentFavorited;
           break;
         case 'watchlist':
-          _currentWatchlisted = true;
-          break;
-        case 'skip':
-          _currentSkipped = true;
+          _currentWatchlisted = !_currentWatchlisted;
           break;
       }
     });
+    
+    widget.onAction(action);
+  }
 
-    // Call the external action handler
-    widget.onAction?.call(action);
+  @override
+  Widget build(BuildContext context) {
+    // Debug: Print current state to understand heart color issue
+    print('MediaDetailDrawer Debug: favorited=$_currentFavorited, watchlisted=$_currentWatchlisted, title=${widget.title}');
+    
+    return Align(
+      alignment: Alignment.bottomCenter,
+      child: Container(
+        width: MediaQuery.of(context).size.width * 0.95,
+        height: MediaQuery.of(context).size.height * 0.55,
+        margin: const EdgeInsets.all(AppTheme.spacingMD),
+        decoration: BoxDecoration(
+          color: AppTheme.surfaceColor,
+          borderRadius: BorderRadius.circular(AppTheme.cardBorderRadius),
+          border: Border.all(
+            color: AppTheme.primaryColor.withOpacity(0.3),
+            width: 1,
+          ),
+        ),
+        child: Column(
+          children: [
+            // Title and status at top
+            Container(
+              padding: const EdgeInsets.all(AppTheme.spacingMD),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      widget.title,
+                      style: AppTheme.mediaTitleStyle.copyWith(fontSize: 18),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: AppTheme.spacingSM),
+                  // Status text in interestnaut style
+                  _buildStatusText(),
+                ],
+              ),
+            ),
+            
+            // Media display area component
+            MediaDisplayArea(
+              coverArtUrl: widget.coverArtUrl,
+              description: widget.description,
+              mediaType: widget.mediaType,
+            ),
+            
+            // Developer/themes section - exact same structure as title
+            Container(
+              padding: const EdgeInsets.all(AppTheme.spacingMD),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Artist/Creator
+                        if (widget.artist != null && widget.artist!.isNotEmpty) ...[
+                          RichText(
+                            text: TextSpan(
+                              children: [
+                                TextSpan(
+                                  text: '${_getCreatorLabel().toUpperCase()}: ',
+                                  style: AppTheme.bodyStyle.copyWith(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                    color: AppTheme.textSecondary,
+                                  ),
+                                ),
+                                TextSpan(
+                                  text: widget.artist!,
+                                  style: AppTheme.bodyStyle.copyWith(
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: AppTheme.spacingXS),
+                        ],
+                        
+                        // Themes
+                        if (widget.themes != null && widget.themes!.isNotEmpty) ...[
+                          RichText(
+                            text: TextSpan(
+                              children: [
+                                TextSpan(
+                                  text: 'THEMES: ',
+                                  style: AppTheme.bodyStyle.copyWith(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                    color: AppTheme.textSecondary,
+                                  ),
+                                ),
+                                TextSpan(
+                                  text: widget.themes!,
+                                  style: AppTheme.bodyStyle.copyWith(
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            
+            // Divider line matching display area border
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: AppTheme.spacingMD),
+              height: 1,
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.2),
+              ),
+            ),
+            
+            // Spacer to push controls to bottom
+            const Spacer(),
+            
+            // Simple action icons at bottom - no square wrappers
+            Container(
+              padding: const EdgeInsets.all(AppTheme.spacingMD),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  _buildSimpleActionIcon(
+                    icon: Icons.thumb_up,
+                    isActive: _currentLiked,
+                    activeColor: AppTheme.likeColor,
+                    onPressed: () => _handleAction('like'),
+                  ),
+                  _buildSimpleActionIcon(
+                    icon: Icons.thumb_down,
+                    isActive: _currentDisliked,
+                    activeColor: AppTheme.dislikeColor,
+                    onPressed: () => _handleAction('dislike'),
+                  ),
+                  _buildSimpleActionIcon(
+                    icon: Icons.favorite,
+                    isActive: _currentFavorited, // Only active when favorited, not just watchlisted
+                    activeColor: AppTheme.favoriteColor,
+                    onPressed: () => _handleAction('favorite'),
+                  ),
+                  _buildSimpleActionIcon(
+                    icon: _currentWatchlisted ? Icons.bookmark_added : Icons.bookmark_add,
+                    isActive: _currentWatchlisted,
+                    activeColor: AppTheme.watchlistColor,
+                    onPressed: () => _handleAction('watchlist'),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPlaceholderIcon() {
+    return Icon(
+      AppTheme.getMediaIcon(widget.mediaType),
+      size: 60,
+      color: AppTheme.textSecondary,
+    );
   }
 
   String _getCreatorLabel() {
@@ -128,322 +360,59 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final statusText = _getStatusText();
-    final statusColor = _getStatusColor();
-
-    return Align(
-      alignment: Alignment.bottomCenter,
-      child: Container(
-        width: MediaQuery.of(context).size.width * 0.95, // Wider drawer
-        height: MediaQuery.of(context).size.height * 0.70,
-        decoration: BoxDecoration(
-          color: AppTheme.backgroundColor,
-          borderRadius: const BorderRadius.only(
-            topLeft: Radius.circular(AppTheme.cardBorderRadius),
-            topRight: Radius.circular(AppTheme.cardBorderRadius),
-          ),
-          border: Border.all(
-            color: AppTheme.textSecondary.withOpacity(0.2),
-            width: 1,
-          ),
+  Widget _buildStatusText() {
+    if (_currentFavorited) {
+      return Text(
+        'FAVORITED',
+        style: AppTheme.bodyStyle.copyWith(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: AppTheme.favoriteColor,
         ),
-        child: Column(
-          children: [
-            // Header with title, status, and close button
-            Container(
-              padding: const EdgeInsets.all(AppTheme.spacingMD),
-              decoration: BoxDecoration(
-                border: Border(
-                  bottom: BorderSide(
-                    color: AppTheme.textSecondary.withOpacity(0.2),
-                    width: 1,
-                  ),
-                ),
-              ),
-              child: Row(
-                children: [
-                  // Title and status
-                  Expanded(
-                    child: Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            widget.title ?? 'Unknown Title',
-                            style: AppTheme.headingStyle.copyWith(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        if (statusText.isNotEmpty) ...[
-                          const SizedBox(width: AppTheme.spacingMD),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: AppTheme.spacingXS,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: statusColor,
-                              borderRadius: BorderRadius.circular(AppTheme.borderRadius),
-                            ),
-                            child: Text(
-                              statusText,
-                              style: AppTheme.bodyStyle.copyWith(
-                                color: Colors.white,
-                                fontSize: 10,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                  // Close button
-                  IconButton(
-                    onPressed: widget.onClose,
-                    icon: const FaIcon(
-                      FontAwesomeIcons.xmark,
-                      size: 18,
-                    ),
-                    color: AppTheme.textSecondary,
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                  ),
-                ],
-              ),
-            ),
-
-            // Main content area
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.all(AppTheme.spacingMD),
-                child: Column(
-                  children: [
-                    // Content row with image and details
-                    Expanded(
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // Left side - Cover art
-                          Container(
-                            width: 140,
-                            height: 140,
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(AppTheme.cardBorderRadius),
-                              color: AppTheme.surfaceColor,
-                            ),
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(AppTheme.cardBorderRadius),
-                              child: widget.coverArtUrl != null
-                                  ? Image.network(
-                                      widget.coverArtUrl!,
-                                      fit: BoxFit.cover,
-                                      width: 140,
-                                      height: 140,
-                                      errorBuilder: (context, error, stackTrace) {
-                                        return Container(
-                                          width: 140,
-                                          height: 140,
-                                          color: AppTheme.surfaceColor,
-                                          child: const Icon(
-                                            Icons.image_not_supported,
-                                            color: AppTheme.textSecondary,
-                                            size: 40,
-                                          ),
-                                        );
-                                      },
-                                    )
-                                  : Container(
-                                      width: 140,
-                                      height: 140,
-                                      color: AppTheme.surfaceColor,
-                                      child: const Icon(
-                                        Icons.image_not_supported,
-                                        color: AppTheme.textSecondary,
-                                        size: 40,
-                                      ),
-                                    ),
-                            ),
-                          ),
-                          
-                          const SizedBox(width: AppTheme.spacingMD),
-                          
-                          // Right side - Content only (no actions)
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                if (widget.description != null && widget.description!.isNotEmpty) ...[
-                                  Expanded(
-                                    child: SingleChildScrollView(
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            widget.description!,
-                                            style: AppTheme.bodyStyle.copyWith(
-                                              fontSize: 13,
-                                              height: 1.4,
-                                            ),
-                                          ),
-                                          
-                                          const SizedBox(height: AppTheme.spacingMD),
-                                          
-                                          // Developer/Creator info - in scrollable area
-                                          if (widget.artist != null && widget.artist!.isNotEmpty) ...[
-                                            RichText(
-                                              text: TextSpan(
-                                                children: [
-                                                  TextSpan(
-                                                    text: '${_getCreatorLabel().toUpperCase()}: ',
-                                                    style: AppTheme.bodyStyle.copyWith(
-                                                      fontSize: 12,
-                                                      fontWeight: FontWeight.w600,
-                                                      color: AppTheme.textSecondary,
-                                                    ),
-                                                  ),
-                                                  TextSpan(
-                                                    text: widget.artist!,
-                                                    style: AppTheme.bodyStyle.copyWith(
-                                                      fontSize: 12,
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                            const SizedBox(height: AppTheme.spacingSM),
-                                          ],
-                                          
-                                          // Themes - in scrollable area
-                                          if (widget.themes != null && widget.themes!.isNotEmpty) ...[
-                                            RichText(
-                                              text: TextSpan(
-                                                children: [
-                                                  TextSpan(
-                                                    text: 'THEMES: ',
-                                                    style: AppTheme.bodyStyle.copyWith(
-                                                      fontSize: 12,
-                                                      fontWeight: FontWeight.w600,
-                                                      color: AppTheme.textSecondary,
-                                                    ),
-                                                  ),
-                                                  TextSpan(
-                                                    text: widget.themes!,
-                                                    style: AppTheme.bodyStyle.copyWith(
-                                                      fontSize: 12,
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                          ],
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                ] else ...[
-                                  Text(
-                                    'No description available.',
-                                    style: AppTheme.bodyStyle.copyWith(
-                                      fontSize: 13,
-                                      color: AppTheme.textSecondary,
-                                      fontStyle: FontStyle.italic,
-                                    ),
-                                  ),
-                                ],
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    
-                    const SizedBox(height: AppTheme.spacingSM), // Much smaller gap
-                    
-                    // Action buttons - positioned right below content
-                    Row(
-                      children: [
-                        _buildSuggestionStyleButton(
-                          icon: Icons.thumb_up_outlined, // Sleek outlined icon
-                          label: 'Like',
-                          isActive: _currentLiked == true,
-                          activeColor: const Color(0xFF4CAF50),
-                          onPressed: () => _handleAction('like'),
-                        ),
-                        const SizedBox(width: AppTheme.spacingXS),
-                        _buildSuggestionStyleButton(
-                          icon: Icons.thumb_down_outlined, // Sleek outlined icon
-                          label: 'Dislike',
-                          isActive: _currentDisliked == true,
-                          activeColor: const Color(0xFFF44336),
-                          onPressed: () => _handleAction('dislike'),
-                        ),
-                        const SizedBox(width: AppTheme.spacingXS),
-                        _buildSuggestionStyleButton(
-                          icon: Icons.favorite_outline, // Sleek outlined heart
-                          label: 'Favorite',
-                          isActive: _currentFavorited == true,
-                          activeColor: const Color(0xFFE91E63),
-                          onPressed: () => _handleAction('favorite'),
-                        ),
-                        const SizedBox(width: AppTheme.spacingXS),
-                        _buildSuggestionStyleButton(
-                          icon: Icons.bookmark_outline, // Sleek outlined bookmark
-                          label: 'Playlist',
-                          isActive: _currentWatchlisted == true,
-                          activeColor: const Color(0xFF2196F3),
-                          onPressed: () => _handleAction('watchlist'),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
+      );
+    } else if (_currentLiked) {
+      return Text(
+        'LIKED',
+        style: AppTheme.bodyStyle.copyWith(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: AppTheme.likeColor,
         ),
-      ),
-    );
+      );
+    } else if (_currentWatchlisted) {
+      return Text(
+        'WATCHLISTED',
+        style: AppTheme.bodyStyle.copyWith(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: AppTheme.watchlistColor,
+        ),
+      );
+    } else if (_currentDisliked) {
+      return Text(
+        'DISLIKED',
+        style: AppTheme.bodyStyle.copyWith(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: AppTheme.dislikeColor,
+        ),
+      );
+    }
+    return const SizedBox.shrink();
   }
 
-  /// Build suggestion-style button that matches the main UI
-  Widget _buildSuggestionStyleButton({
+  Widget _buildSimpleActionIcon({
     required IconData icon,
-    required String label,
     required bool isActive,
     required Color activeColor,
     required VoidCallback onPressed,
   }) {
-    return Expanded(
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onPressed,
-          borderRadius: BorderRadius.circular(AppTheme.cardBorderRadius),
-          child: Container(
-            height: 50,
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: isActive 
-                  ? activeColor  // Full color when active
-                  : AppTheme.surfaceColor,  // Muted background when inactive
-              borderRadius: BorderRadius.circular(AppTheme.cardBorderRadius),
-            ),
-            child: Center(
-              child: Icon(
-                icon,
-                size: 18,
-                color: isActive 
-                    ? Colors.white  // White icon when active
-                    : AppTheme.textSecondary,  // Muted when inactive
-              ),
-            ),
-          ),
-        ),
+    return GestureDetector(
+      onTap: onPressed,
+      child: Icon(
+        icon,
+        color: isActive ? activeColor : Colors.white60,
+        size: 28,
       ),
     );
   }
