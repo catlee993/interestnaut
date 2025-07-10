@@ -1,13 +1,17 @@
 import 'package:flutter/material.dart';
+import 'media_detail_drawer.dart';
+import '../../db/vector_db.dart';
+import '../../services/sqlite_db.dart'; // Fixed import path
+import '../../services/recommendation_service.dart'; // For MediaSuggestion and SuggestionStatus
 import 'suggestion_action_buttons.dart';
 import 'loading_suggestion.dart';
 import 'base_media_section_controller.dart';
 import 'media_library_grid.dart'; // For CardFormat enum
 import 'scroll_content_wrapper.dart'; // For MediaSectionLayout
 import '../../theme.dart';
-import '../../services/recommendation_service.dart';
 import '../../utils/text_utils.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import '../../models.dart';
 
 class MediaSectionWrapper extends StatelessWidget {
   final BaseMediaSectionController controller;
@@ -221,6 +225,7 @@ class MediaSectionWrapper extends StatelessWidget {
                       builder: (context, constraints) {
                         return _buildDynamicContentLayout(
                           constraints: constraints,
+                          context: context,
                           description: suggestion.description,
                           reasoning: suggestion.botReasoning,
                         );
@@ -297,6 +302,7 @@ class MediaSectionWrapper extends StatelessWidget {
 
   Widget _buildDynamicContentLayout({
     required BoxConstraints constraints,
+    required BuildContext context,
     String? description,
     String? reasoning,
   }) {
@@ -312,7 +318,7 @@ class MediaSectionWrapper extends StatelessWidget {
       // Only reasoning - use most of the space
       return Column(
         children: [
-          Expanded(child: _buildRichTextReasoning(reasoning!)),
+          Expanded(child: _buildRichTextReasoning(reasoning!, context)),
         ],
       );
     }
@@ -399,7 +405,7 @@ class MediaSectionWrapper extends StatelessWidget {
             // Reasoning with remaining height
             SizedBox(
               height: reasoningHeight,
-              child: _buildRichTextReasoning(reasoning!),
+              child: _buildRichTextReasoning(reasoning!, context),
             ),
           ],
         );
@@ -407,16 +413,268 @@ class MediaSectionWrapper extends StatelessWidget {
     );
   }
 
-  Widget _buildRichTextReasoning(String reasoning) {
+  Widget _buildRichTextReasoning(String reasoning, BuildContext context) {
     return Container(
       width: double.infinity,
       child: SingleChildScrollView(
-        child: _buildIndependentReasoningSections(reasoning, mediaType),
+        child: _buildIndependentReasoningSections(reasoning, mediaType, context),
       ),
     );
   }
 
-  Widget _buildIndependentReasoningSections(String reasoning, String mediaType) {
+  void _showMediaDrawer(BuildContext context, MediaDetailDrawer drawer) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      enableDrag: true,
+      isDismissible: true,
+      builder: (context) => drawer,
+    );
+  }
+
+  Future<void> _showItemDrawer(BuildContext context, String itemName) async {
+    try {
+      // Look up the actual item from the database
+      final vectorDb = VectorDatabase();
+      await vectorDb.init();
+      
+      final results = await vectorDb.searchByText(
+        query: itemName,
+        mediaType: mediaType,
+        limit: 1,
+      );
+      
+      if (results.isNotEmpty) {
+        final item = results.first;
+        
+        // Get comprehensive status from all tables (recommendations, favorites, watchlist)
+        final db = SQLiteDatabase();
+        final statusResult = await db.getMediaItemStatusByProperties(
+          title: item.title ?? 'Unknown Title', // Handle nullable title
+          mediaType: mediaType,
+          primaryCreator: item.artist ?? '', // Handle nullable artist
+        );
+        
+        debugPrint('🔍 [DRAWER] Status for "${item.title}": $statusResult');
+        
+        _showMediaDrawer(
+          context,
+          MediaDetailDrawer(
+            title: item.title,
+            artist: item.artist,
+            description: item.description,
+            themes: item.themes,
+            coverArtUrl: item.coverArtUrl,
+            mediaType: mediaType,
+            mediaId: item.mediaId,
+            hasLiked: statusResult['hasLiked'] as bool? ?? false,
+            hasFavorited: statusResult['hasFavorited'] as bool? ?? false,
+            hasDisliked: statusResult['hasDisliked'] as bool? ?? false,
+            isInWatchlist: statusResult['isInWatchlist'] as bool? ?? false,
+            hasSkipped: statusResult['hasSkipped'] as bool? ?? false,
+            onClose: () => Navigator.of(context).pop(),
+            onAction: (action) => _handleDrawerAction(
+              context, 
+              action, 
+              item, 
+              statusResult['mediaItemId'] as int?,
+            ),
+          ),
+        );
+      } else {
+        // Fallback - show simple dialog
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: Text('Item Details'),
+            content: Text('No details found for "$itemName"'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: Text('OK'),
+              ),
+            ],
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('❌ [DRAWER] Error showing item drawer: $e');
+      // Show error dialog
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text('Error'),
+          content: Text('Failed to load item details: $e'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text('OK'),
+            ),
+          ],
+        ),
+      );
+    }
+  }
+
+  /// Handle actions from the media detail drawer
+  Future<void> _handleDrawerAction(
+    BuildContext context,
+    String action,
+    MediaSearchResult item,
+    int? existingMediaItemId,
+  ) async {
+    try {
+      final db = SQLiteDatabase();
+      
+      // Create or get the media item if it doesn't exist
+      int mediaItemId;
+      if (existingMediaItemId != null) {
+        mediaItemId = existingMediaItemId;
+      } else {
+        mediaItemId = await db.createOrGetMediaItem(
+          mediaType: mediaType,
+          vectorMediaId: item.mediaId,
+          title: item.title ?? 'Unknown Title', // Handle nullable title
+          primaryCreator: item.artist ?? '', // Handle nullable artist
+          coverArtUrl: item.coverArtUrl,
+          description: item.description,
+          wikiUrl: item.wikiUrl,
+          wikidataId: item.wikidataId,
+          themes: item.themes,
+        );
+        debugPrint('🔍 [DRAWER-ACTION] Created new media item with ID: $mediaItemId');
+      }
+
+      switch (action) {
+        case 'like':
+          // Create or update recommendation to liked status
+          await _createOrUpdateRecommendation(db, mediaItemId, item, 'liked');
+          _showSnackBar(context, 'Added "${item.title}" to liked items');
+          break;
+          
+        case 'dislike':
+          // Create or update recommendation to disliked status
+          await _createOrUpdateRecommendation(db, mediaItemId, item, 'disliked');
+          _showSnackBar(context, 'Marked "${item.title}" as disliked');
+          break;
+          
+        case 'favorite':
+          // Add to favorites table (separate from recommendations)
+          await db.addToFavorites(mediaItemId);
+          _showSnackBar(context, 'Added "${item.title}" to favorites');
+          break;
+          
+        case 'watchlist':
+          // Add to watchlist table (separate from recommendations)
+          await db.addToWatchlist(mediaItemId);
+          final queueName = _getQueueName();
+          _showSnackBar(context, 'Added "${item.title}" to $queueName');
+          break;
+          
+        case 'skip':
+          // Create or update recommendation to skipped status
+          await _createOrUpdateRecommendation(db, mediaItemId, item, 'skipped');
+          _showSnackBar(context, 'Skipped "${item.title}"');
+          break;
+      }
+
+      // Close the drawer after action
+      Navigator.of(context).pop();
+      
+      // Note: Controller refresh methods are not available in BaseMediaSectionController
+      // The UI will update naturally when the user navigates back to the main views
+      
+    } catch (e) {
+      debugPrint('❌ [DRAWER-ACTION] Error handling action $action: $e');
+      _showSnackBar(context, 'Error: $e', isError: true);
+    }
+  }
+
+  /// Create or update recommendation status for an item
+  Future<void> _createOrUpdateRecommendation(
+    SQLiteDatabase db,
+    int mediaItemId,
+    MediaSearchResult item,
+    String status,
+  ) async {
+    try {
+      // Check if a recommendation already exists for this media item
+      final existingRecommendations = await db.getAllMediaSuggestions(mediaType);
+      final existingRec = existingRecommendations.where((rec) => 
+        rec.mediaItemId == mediaItemId ||
+        (rec.title == item.title && rec.artist == item.artist)
+      ).firstOrNull;
+
+      if (existingRec != null) {
+        // Update existing recommendation status
+        final suggestionStatus = SuggestionStatus.values.firstWhere(
+          (s) => s.toString().split('.').last == status,
+          orElse: () => SuggestionStatus.pending,
+        );
+        
+        await db.updateMediaSuggestionStatus(existingRec.id, suggestionStatus);
+        debugPrint('🔄 [DRAWER-ACTION] Updated existing recommendation ${existingRec.id} to $status');
+      } else {
+        // Create new recommendation with the specified status
+        final mediaSuggestion = MediaSuggestion(
+          mediaItemId: mediaItemId,
+          query: 'User action from detail view: ${item.title ?? 'Unknown'}',
+          mediaType: mediaType,
+          title: item.title ?? 'Unknown Title', // Handle nullable title
+          artist: item.artist,
+          coverArtUrl: item.coverArtUrl,
+          description: item.description,
+          wikiUrl: item.wikiUrl,
+          wikidataId: item.wikidataId,
+          themes: item.themes,
+          mediaId: item.mediaId,
+          botReasoning: 'User selected this item from the detail view.',
+          status: SuggestionStatus.values.firstWhere(
+            (s) => s.toString().split('.').last == status,
+            orElse: () => SuggestionStatus.pending,
+          ),
+        );
+        
+        await db.saveMediaSuggestion(mediaSuggestion);
+        debugPrint('✅ [DRAWER-ACTION] Created new recommendation with status $status');
+      }
+    } catch (e) {
+      debugPrint('❌ [DRAWER-ACTION] Error creating/updating recommendation: $e');
+      rethrow;
+    }
+  }
+
+  /// Get the appropriate queue name for this media type
+  String _getQueueName() {
+    switch (mediaType) {
+      case 'movie':
+        return 'Watchlist';
+      case 'tv_show':
+        return 'Watchlist';
+      case 'book':
+        return 'Reading List';
+      case 'music':
+        return 'Playlist';
+      case 'video_game':
+        return 'Game Library';
+      default:
+        return 'Watchlist';
+    }
+  }
+
+  /// Show a snackbar message
+  void _showSnackBar(BuildContext context, String message, {bool isError = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: isError ? AppTheme.errorColor : AppTheme.successColor,
+        duration: Duration(seconds: isError ? 4 : 2),
+      ),
+    );
+  }
+
+  Widget _buildIndependentReasoningSections(String reasoning, String mediaType, BuildContext context) {
     // Parse the structured reasoning text into two clean sections
     final lines = reasoning.split('\n');
     final detectedThemes = <String>[];
@@ -457,6 +715,7 @@ class MediaSectionWrapper extends StatelessWidget {
             title: 'Detected Themes',
             items: detectedThemes,
             rightAlign: false,
+            onChipTap: (item) => _showItemDrawer(context, item),
           ),
           const SizedBox(height: 16),
         ],
@@ -467,6 +726,7 @@ class MediaSectionWrapper extends StatelessWidget {
             title: 'Match Sources',
             items: matchSources,
             rightAlign: false, // Keep consistent alignment
+            onChipTap: (item) => _showItemDrawer(context, item),
           ),
         ],
       ],
@@ -477,6 +737,7 @@ class MediaSectionWrapper extends StatelessWidget {
     required String title,
     required List<String> items,
     required bool rightAlign,
+    Function(String)? onChipTap,
   }) {
     return Container(
       width: double.infinity,
@@ -487,69 +748,100 @@ class MediaSectionWrapper extends StatelessWidget {
           // Section title
           Text(
             title,
-            style: TextStyle(
-              fontFamily: 'Inter',
-              fontWeight: FontWeight.w400,
-              fontSize: 14,
-              color: const Color(0xFF8C86E2).withOpacity(0.9),
-              letterSpacing: 0.5,
+            style: AppTheme.headerSelectorStyle.copyWith(
+              fontSize: 13,
+              color: AppTheme.primaryColor,
+              letterSpacing: 1.0,
             ),
           ),
           const SizedBox(height: 6),
           
           // Smart layout: dots for short items, wrapping for long ones
-          _buildSmartItemLayout(items, rightAlign),
+          _buildSmartItemLayout(items, rightAlign, onChipTap),
         ],
       ),
     );
   }
 
-  Widget _buildSmartItemLayout(List<String> items, bool rightAlign) {
-    // Check if all items are reasonably short for dot layout
-    final allShort = items.every((item) => item.length <= 25);
-    
-    if (allShort && items.length <= 4) {
-      // Use dot-separated layout for short items
-      return Text(
-        items.join(' • '),
-        style: TextStyle(
-          fontFamily: 'Inter',
-          fontWeight: FontWeight.w300,
-          fontSize: 13,
-          color: Colors.white.withOpacity(0.85),
-          letterSpacing: 0.3,
-          height: 1.4,
-        ),
-        textAlign: rightAlign ? TextAlign.right : TextAlign.left,
-      );
-    } else {
-      // Use wrapping layout for longer items
+  Widget _buildSmartItemLayout(List<String> items, bool rightAlign, Function(String)? onChipTap) {
+    // Always use clickable chips when onChipTap is provided (for drawer functionality)
+    if (onChipTap != null) {
       return Wrap(
         alignment: rightAlign ? WrapAlignment.end : WrapAlignment.start,
         spacing: 12.0, // Horizontal spacing between items
         runSpacing: 4.0, // Vertical spacing between lines
-        children: items.map((item) => Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: Colors.white.withOpacity(0.2),
-              width: 0.5,
+        children: items.map((item) => GestureDetector(
+          onTap: () => onChipTap(item),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: const Color(0xFF8C86E2).withOpacity(0.4),
+                width: 0.5,
+              ),
             ),
-          ),
-          child: Text(
-            item,
-            style: TextStyle(
-              fontFamily: 'Inter',
-              fontWeight: FontWeight.w300,
-              fontSize: 12,
-              color: Colors.white.withOpacity(0.9),
-              letterSpacing: 0.2,
+            child: Text(
+              item,
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontWeight: FontWeight.w300,
+                fontSize: 12,
+                color: Colors.white.withOpacity(0.9),
+                letterSpacing: 0.2,
+              ),
             ),
           ),
         )).toList(),
       );
+    } else {
+      // Check if all items are reasonably short for dot layout (fallback for non-clickable items)
+      final allShort = items.every((item) => item.length <= 25);
+      
+      if (allShort && items.length <= 4) {
+        // Use dot-separated layout for short items - not clickable
+        return Text(
+          items.join(' • '),
+          style: TextStyle(
+            fontFamily: 'Inter',
+            fontWeight: FontWeight.w300,
+            fontSize: 13,
+            color: Colors.white.withOpacity(0.85),
+            letterSpacing: 0.3,
+            height: 1.4,
+          ),
+          textAlign: rightAlign ? TextAlign.right : TextAlign.left,
+        );
+      } else {
+        // Use wrapping layout for longer items - not clickable
+        return Wrap(
+          alignment: rightAlign ? WrapAlignment.end : WrapAlignment.start,
+          spacing: 12.0,
+          runSpacing: 4.0,
+          children: items.map((item) => Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: Colors.white.withOpacity(0.2),
+                width: 0.5,
+              ),
+            ),
+            child: Text(
+              item,
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontWeight: FontWeight.w300,
+                fontSize: 12,
+                color: Colors.white.withOpacity(0.9),
+                letterSpacing: 0.2,
+              ),
+            ),
+          )).toList(),
+        );
+      }
     }
   }
 

@@ -817,6 +817,128 @@ class SQLiteDatabase {
     }
   }
 
+  /// Get comprehensive media item status by properties (title, artist, media type)
+  /// This checks ALL tables - favorites, watchlist, recommendations - regardless of how the item was added
+  Future<Map<String, dynamic>> getMediaItemStatusByProperties({
+    required String title,
+    required String mediaType,
+    String? primaryCreator,
+  }) async {
+    await _ensureInitialized();
+
+    try {
+      debugPrint('🔍 [STATUS-LOOKUP] Looking up status for: "$title" by "$primaryCreator" ($mediaType)');
+      
+      // First, try to find the media item
+      final findMediaQuery = '''
+      SELECT mi.id, mi.title, mi.primary_creator, mi.cover_art_url, mi.description, 
+             mi.wiki_url, mi.wikidata_id, mi.themes, mi.vector_media_id,
+             CASE WHEN f.media_item_id IS NOT NULL THEN 1 ELSE 0 END as is_favorited,
+             CASE WHEN w.media_item_id IS NOT NULL THEN 1 ELSE 0 END as is_in_watchlist
+      FROM media_items mi
+      JOIN media_types mt ON mi.media_type_id = mt.id
+      LEFT JOIN favorites f ON mi.id = f.media_item_id
+      LEFT JOIN watchlist w ON mi.id = w.media_item_id
+      WHERE mt.name = ? 
+        AND LOWER(mi.title) = LOWER(?)
+        AND (? IS NULL OR LOWER(COALESCE(mi.primary_creator, '')) = LOWER(?))
+      LIMIT 1
+      ''';
+
+      final stmt = _db!.prepare(findMediaQuery);
+      final result = stmt.select([mediaType, title, primaryCreator, primaryCreator ?? '']);
+      stmt.dispose();
+
+      if (result.isEmpty) {
+        debugPrint('🔍 [STATUS-LOOKUP] Media item not found in database');
+        return {
+          'found': false,
+          'hasLiked': false,
+          'hasFavorited': false,
+          'hasDisliked': false,
+          'isInWatchlist': false,
+          'hasSkipped': false,
+          'mediaItemId': null,
+        };
+      }
+
+      final row = result.first;
+      final mediaItemId = row['id'] as int;
+      final isFavorited = (row['is_favorited'] as int) == 1;
+      final isInWatchlist = (row['is_in_watchlist'] as int) == 1;
+
+      debugPrint('🔍 [STATUS-LOOKUP] Found media item ID: $mediaItemId, Favorited: $isFavorited, Watchlist: $isInWatchlist');
+
+      // Now check for any recommendations for this media item
+      const recommendationQuery = '''
+      SELECT r.id, rs.name as status
+      FROM recommendations r
+      JOIN recommendation_status rs ON r.status_id = rs.id
+      WHERE r.media_item_id = ?
+      ORDER BY r.created_at DESC
+      LIMIT 1
+      ''';
+
+      final recStmt = _db!.prepare(recommendationQuery);
+      final recResult = recStmt.select([mediaItemId]);
+      recStmt.dispose();
+
+      bool hasLiked = false;
+      bool hasDisliked = false;
+      bool hasSkipped = false;
+
+      if (recResult.isNotEmpty) {
+        final recStatus = recResult.first['status'] as String;
+        debugPrint('🔍 [STATUS-LOOKUP] Found recommendation with status: $recStatus');
+        
+        switch (recStatus) {
+          case 'liked':
+            hasLiked = !isFavorited; // Only show liked if not favorited (favorite takes priority)
+            break;
+          case 'disliked':
+            hasDisliked = true;
+            break;
+          case 'skipped':
+            hasSkipped = true;
+            break;
+        }
+      }
+
+      final statusResult = {
+        'found': true,
+        'hasLiked': hasLiked,
+        'hasFavorited': isFavorited,
+        'hasDisliked': hasDisliked,
+        'isInWatchlist': isInWatchlist,
+        'hasSkipped': hasSkipped,
+        'mediaItemId': mediaItemId,
+        'title': row['title'] as String?,
+        'primaryCreator': row['primary_creator'] as String?,
+        'coverArtUrl': row['cover_art_url'] as String?,
+        'description': row['description'] as String?,
+        'wikiUrl': row['wiki_url'] as String?,
+        'wikidataId': row['wikidata_id'] as String?,
+        'themes': row['themes'] as String?,
+        'vectorMediaId': row['vector_media_id'] as String?,
+      };
+
+      debugPrint('🔍 [STATUS-LOOKUP] Final status: Liked=$hasLiked, Favorited=$isFavorited, Disliked=$hasDisliked, Watchlist=$isInWatchlist, Skipped=$hasSkipped');
+      
+      return statusResult;
+    } catch (e) {
+      debugPrint('❌ [STATUS-LOOKUP] Error getting media item status: $e');
+      return {
+        'found': false,
+        'hasLiked': false,
+        'hasFavorited': false,
+        'hasDisliked': false,
+        'isInWatchlist': false,
+        'hasSkipped': false,
+        'mediaItemId': null,
+      };
+    }
+  }
+
   /// Debug inspect recommendations table
   Future<void> debugInspectRecommendationsTable() async {
     await _ensureInitialized();
