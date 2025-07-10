@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../models.dart';
 import '../../theme.dart';
+import 'media_action_icons.dart';
 
 class MediaCard extends StatelessWidget {
   final MediaItem item;
@@ -359,8 +360,8 @@ class _LibraryControls extends StatelessWidget {
       ),
       child: IconButton(
         icon: Icon(
-          isInLibrary ? Icons.favorite : Icons.favorite_border,
-          color: isInLibrary ? AppTheme.primaryColor : AppTheme.textPrimary,
+          MediaActionIcons.getFavoriteIcon(isInLibrary),
+          color: MediaActionIcons.getFavoriteColor(isInLibrary),
           size: 22,
         ),
         padding: const EdgeInsets.all(8),
@@ -387,13 +388,13 @@ class _WatchlistControls extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        color: isInWatchlist ? AppTheme.spotifyGreen.withOpacity(0.2) : Colors.transparent,
+        color: isInWatchlist ? AppTheme.watchlistColor.withOpacity(0.2) : Colors.transparent,
         borderRadius: BorderRadius.circular(16),
       ),
       child: IconButton(
         icon: Icon(
-          isInWatchlist ? Icons.playlist_add_check : Icons.playlist_add,
-          color: isInWatchlist ? AppTheme.spotifyGreen : AppTheme.textPrimary,
+          MediaActionIcons.getWatchlistIcon(isInWatchlist),
+          color: MediaActionIcons.getWatchlistColor(isInWatchlist),
           size: 22,
         ),
         padding: const EdgeInsets.all(8),
@@ -432,9 +433,9 @@ class _FeedbackControls extends StatelessWidget {
               borderRadius: BorderRadius.circular(16),
             ),
             child: IconButton(
-              icon: const Icon(
-                Icons.thumb_up,
-                color: AppTheme.textPrimary,
+              icon: Icon(
+                MediaActionIcons.getLikeIcon(false), // Assume not liked for now
+                color: AppTheme.textPrimary, // Keep original color for now
                 size: 20,
               ),
               padding: const EdgeInsets.all(8),
@@ -451,9 +452,9 @@ class _FeedbackControls extends StatelessWidget {
               borderRadius: BorderRadius.circular(16),
             ),
             child: IconButton(
-              icon: const Icon(
-                Icons.thumb_down,
-                color: AppTheme.textPrimary,
+              icon: Icon(
+                MediaActionIcons.getDislikeIcon(),
+                color: AppTheme.textPrimary, // Keep original color for now
                 size: 20,
               ),
               padding: const EdgeInsets.all(8),
@@ -465,13 +466,13 @@ class _FeedbackControls extends StatelessWidget {
         if (onAddToFavorites != null)
           Container(
             decoration: BoxDecoration(
-              color: isSaved ? AppTheme.primaryColor.withOpacity(0.2) : Colors.white.withOpacity(0.1),
+              color: isSaved ? AppTheme.favoriteColor.withOpacity(0.2) : Colors.white.withOpacity(0.1),
               borderRadius: BorderRadius.circular(16),
             ),
             child: IconButton(
               icon: Icon(
-                isSaved ? Icons.favorite : Icons.favorite_border,
-                color: isSaved ? AppTheme.primaryColor : AppTheme.textPrimary,
+                MediaActionIcons.getFavoriteIcon(isSaved),
+                color: MediaActionIcons.getFavoriteColor(isSaved),
                 size: 20,
               ),
               padding: const EdgeInsets.all(8),

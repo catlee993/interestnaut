@@ -620,10 +620,23 @@ class VectorDatabase {
   /// Prepare query for FTS5 search
   String _prepareFTSQuery(String query) {
     // Clean the query and handle special characters
-    final cleanQuery = query.trim().toLowerCase();
+    String cleanQuery = query.trim().toLowerCase();
     
-    // Always use prefix matching for flexible search
-    return '$cleanQuery*';
+    // Escape FTS5 special characters by quoting the entire query
+    // FTS5 special characters: ( ) " * : ^ + - 
+    if (cleanQuery.contains(RegExp(r'[()"\*:^+\-]'))) {
+      // Quote the entire query to treat it as a literal phrase
+      cleanQuery = '"${cleanQuery.replaceAll('"', '""')}"';
+      return cleanQuery; // Don't add * to quoted phrases
+    }
+    
+    // Split into words and add prefix matching to each word
+    final words = cleanQuery.split(RegExp(r'\s+'))
+        .where((word) => word.isNotEmpty)
+        .map((word) => '$word*')
+        .join(' ');
+    
+    return words.isNotEmpty ? words : '$cleanQuery*';
   }
 
   /// Fallback text search using LIKE for databases without FTS5

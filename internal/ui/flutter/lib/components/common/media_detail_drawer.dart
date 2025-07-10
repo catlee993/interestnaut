@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../theme.dart';
 import '../../services/sqlite_db.dart';
+import 'media_action_icons.dart';
 
 /// Reusable media display area component with side-by-side layout
 class MediaDisplayArea extends StatelessWidget {
@@ -150,11 +151,16 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
       switch (action) {
         case 'like':
           _currentLiked = !_currentLiked;
-          if (_currentLiked) _currentDisliked = false;
+          if (_currentLiked) {
+            // Like clears favorite and dislike
+            _currentFavorited = false;
+            _currentDisliked = false;
+          }
           break;
         case 'dislike':
           _currentDisliked = !_currentDisliked;
           if (_currentDisliked) {
+            // Dislike clears all other states
             _currentLiked = false;
             _currentFavorited = false;
             _currentWatchlisted = false;
@@ -162,10 +168,27 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
           break;
         case 'favorite':
           _currentFavorited = !_currentFavorited;
+          if (_currentFavorited) {
+            // Favorite clears like and dislike
+            _currentLiked = false;
+            _currentDisliked = false;
+          }
           break;
         case 'watchlist':
           _currentWatchlisted = !_currentWatchlisted;
+          if (_currentWatchlisted) {
+            // Any positive action clears dislike
+            _currentDisliked = false;
+          }
           break;
+      }
+      
+      // If no positive states remain, default to skipped
+      if (!_currentLiked && !_currentFavorited && !_currentWatchlisted && !_currentDisliked) {
+        // No reactions left - trigger clear_all action to set to skipped
+        Future.delayed(Duration.zero, () {
+          widget.onAction('clear_all');
+        });
       }
     });
     
@@ -296,35 +319,35 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
             // Spacer to push controls to bottom
             const Spacer(),
             
-            // Simple action icons at bottom - no square wrappers
+            // Centralized action icons at bottom
             Container(
               padding: const EdgeInsets.all(AppTheme.spacingMD),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
-                  _buildSimpleActionIcon(
-                    icon: Icons.thumb_up,
+                  MediaActionButton(
+                    type: MediaActionType.like,
                     isActive: _currentLiked,
-                    activeColor: AppTheme.likeColor,
                     onPressed: () => _handleAction('like'),
+                    iconSize: 28,
                   ),
-                  _buildSimpleActionIcon(
-                    icon: Icons.thumb_down,
+                  MediaActionButton(
+                    type: MediaActionType.dislike,
                     isActive: _currentDisliked,
-                    activeColor: AppTheme.dislikeColor,
                     onPressed: () => _handleAction('dislike'),
+                    iconSize: 28,
                   ),
-                  _buildSimpleActionIcon(
-                    icon: Icons.favorite,
-                    isActive: _currentFavorited, // Only active when favorited, not just watchlisted
-                    activeColor: AppTheme.favoriteColor,
+                  MediaActionButton(
+                    type: MediaActionType.favorite,
+                    isActive: _currentFavorited,
                     onPressed: () => _handleAction('favorite'),
+                    iconSize: 28,
                   ),
-                  _buildSimpleActionIcon(
-                    icon: _currentWatchlisted ? Icons.bookmark_added : Icons.bookmark_add,
+                  MediaActionButton(
+                    type: MediaActionType.watchlist,
                     isActive: _currentWatchlisted,
-                    activeColor: AppTheme.watchlistColor,
                     onPressed: () => _handleAction('watchlist'),
+                    iconSize: 28,
                   ),
                 ],
               ),
@@ -401,19 +424,5 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
     return const SizedBox.shrink();
   }
 
-  Widget _buildSimpleActionIcon({
-    required IconData icon,
-    required bool isActive,
-    required Color activeColor,
-    required VoidCallback onPressed,
-  }) {
-    return GestureDetector(
-      onTap: onPressed,
-      child: Icon(
-        icon,
-        color: isActive ? activeColor : Colors.white60,
-        size: 28,
-      ),
-    );
-  }
+
 } 

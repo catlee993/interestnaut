@@ -4,6 +4,7 @@ import '../../services/recommendation_service.dart';
 import '../../utils/text_utils.dart';
 import 'media_library_grid.dart'; // Import for CardFormat enum
 import '../../theme.dart';
+import 'media_action_icons.dart';
 
 /// A reusable card component for displaying media items in library/watchlist sections
 /// Based on the music section's beautiful styling with gradient overlay and action buttons
@@ -20,6 +21,8 @@ class MediaLibraryCard extends StatelessWidget {
   final VoidCallback? onFavorite;
   final VoidCallback? onUnfavorite;
   final bool isInWatchlist;
+  final bool isFavorited; // Add favorite status parameter
+  final VoidCallback? onTap; // Add tap callback for opening drawer
 
   const MediaLibraryCard({
     Key? key,
@@ -35,6 +38,8 @@ class MediaLibraryCard extends StatelessWidget {
     this.onFavorite,
     this.onUnfavorite,
     this.isInWatchlist = false,
+    this.isFavorited = false, // Default to not favorited
+    this.onTap, // Add tap callback
   }) : super(key: key);
 
   IconData _getMediaIcon() {
@@ -92,17 +97,19 @@ class MediaLibraryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: const Color(0xFF7B68EE).withOpacity(0.3),
-          width: 2,
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: const Color(0xFF7B68EE).withOpacity(0.3),
+            width: 2,
+          ),
         ),
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(12),
-        child: Stack(
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: Stack(
           children: [
             // Full image background
             Positioned.fill(
@@ -145,11 +152,11 @@ class MediaLibraryCard extends StatelessWidget {
                     colors: [
                       Colors.transparent,
                       Colors.transparent,
-                      Color(0x99000000), // rgba(0,0,0,0.6) 20% darker contrast at title top
-                      Color(0xD4000000), // rgba(0,0,0,0.83) 20% stronger contrast for title
+                      Color(0x66000000), // rgba(0,0,0,0.4) start fade earlier
+                      Color(0xCC000000), // rgba(0,0,0,0.8) stronger contrast for title area
                       Color(0xFF000000), // rgba(0,0,0,1.0) fully dark at bottom
                     ],
-                    stops: [0.0, 0.80, 0.85, 0.92, 1.0],
+                    stops: [0.0, 0.70, 0.80, 0.90, 1.0], // Start fade earlier at 70%
                   ),
                 ),
               ),
@@ -182,15 +189,15 @@ class MediaLibraryCard extends StatelessWidget {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           if (!isWatchlist) ...[
-                            // Add to watchlist button - blue with checkmark if in watchlist, white if not
+                            // Add to watchlist button - using centralized icon logic
                             if (onAddToWatchlist != null || onRemoveFromWatchlist != null)
                               IconButton(
                                 onPressed: () => isInWatchlist 
                                   ? onRemoveFromWatchlist?.call()
                                   : onAddToWatchlist?.call(),
                                 icon: Icon(
-                                  isInWatchlist ? Icons.bookmark_added : Icons.bookmark_add,
-                                  color: isInWatchlist ? Colors.blue : Colors.white,
+                                  MediaActionIcons.getWatchlistIcon(isInWatchlist),
+                                  color: MediaActionIcons.getWatchlistColor(isInWatchlist),
                                   size: 20,
                                 ),
                                 padding: EdgeInsets.zero,
@@ -200,13 +207,13 @@ class MediaLibraryCard extends StatelessWidget {
                                 ),
                               ),
                           ] else ...[
-                            // Like button for watchlist items
+                            // Like button for watchlist items - using centralized logic
                             if (onLike != null)
                               IconButton(
                                 onPressed: onLike,
-                                icon: const Icon(
-                                  Icons.thumb_up,
-                                  color: Colors.white70,
+                                icon: Icon(
+                                  MediaActionIcons.getLikeIcon(false), // Assume not liked for now
+                                  color: Colors.white70, // Keep current color for now
                                   size: 20,
                                 ),
                                 padding: EdgeInsets.zero,
@@ -216,13 +223,13 @@ class MediaLibraryCard extends StatelessWidget {
                                 ),
                               ),
                             
-                            // Dislike button for watchlist items
+                            // Dislike button for watchlist items - using centralized logic
                             if (onDislike != null)
                               IconButton(
                                 onPressed: onDislike,
-                                icon: const Icon(
-                                  Icons.thumb_down,
-                                  color: Colors.white70,
+                                icon: Icon(
+                                  MediaActionIcons.getDislikeIcon(),
+                                  color: Colors.white70, // Keep current color for now
                                   size: 20,
                                 ),
                                 padding: EdgeInsets.zero,
@@ -233,15 +240,15 @@ class MediaLibraryCard extends StatelessWidget {
                               ),
                           ],
                           
-                          // Purple heart to unfavorite/remove from library or favorite watchlist item
+                          // Favorite heart - using centralized icon logic
                           if (onFavorite != null || onUnfavorite != null)
                             IconButton(
                               onPressed: () => isWatchlist 
                                 ? onFavorite?.call()
                                 : onUnfavorite?.call(),
-                              icon: const Icon(
-                                Icons.favorite,
-                                color: Color(0xFF7B68EE), // Primary purple color
+                              icon: Icon(
+                                MediaActionIcons.getFavoriteIcon(isFavorited),
+                                color: MediaActionIcons.getFavoriteColor(isFavorited),
                                 size: 20,
                               ),
                               padding: EdgeInsets.zero,
@@ -294,6 +301,7 @@ class MediaLibraryCard extends StatelessWidget {
           ],
         ),
       ),
+    ),
     );
   }
 }

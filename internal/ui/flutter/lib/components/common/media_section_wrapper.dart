@@ -3,6 +3,7 @@ import 'media_detail_drawer.dart';
 import '../../db/vector_db.dart';
 import '../../services/sqlite_db.dart'; // Fixed import path
 import '../../services/recommendation_service.dart'; // For MediaSuggestion and SuggestionStatus
+import '../../utils/media_title_handler.dart';
 import 'suggestion_action_buttons.dart';
 import 'loading_suggestion.dart';
 import 'base_media_section_controller.dart';
@@ -61,13 +62,13 @@ class MediaSectionWrapper extends StatelessWidget {
                   // Watchlist section with proper spacing - only show if not empty or loading
                   if (controller.dbWatchlistSuggestions.isNotEmpty || controller.isLoadingDbWatchlist)
                     SectionSpacing(
-                      child: _buildWatchlistSection(),
+                      child: _buildWatchlistSection(context),
                     ),
                   
                   // Library section with proper spacing - only show if not empty or loading
                   if (controller.dbLikedSuggestions.isNotEmpty || controller.isLoadingDbLibrary)
                     SectionSpacing(
-                      child: _buildLibrarySection(),
+                      child: _buildLibrarySection(context),
                     ),
                   
                   // Additional sections (like Spotify) at the bottom
@@ -423,16 +424,136 @@ class MediaSectionWrapper extends StatelessWidget {
   }
 
   void _showMediaDrawer(BuildContext context, MediaDetailDrawer drawer) {
+    // Close any existing modals before opening new one (ensures single instance)
+    if (Navigator.canPop(context)) {
+      Navigator.popUntil(context, (route) => route.isFirst || !route.isActive);
+    }
+    
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       enableDrag: true,
       isDismissible: true,
-      builder: (context) => drawer,
+      barrierColor: Colors.black54, // Make the barrier more visible for better UX
+      builder: (context) => GestureDetector(
+        onTap: () => Navigator.of(context).pop(), // Ensure click outside closes drawer
+        child: Container(
+          color: Colors.transparent,
+          child: GestureDetector(
+            onTap: () {}, // Prevent event bubbling when tapping the drawer itself
+            child: drawer,
+          ),
+        ),
+      ),
     );
   }
 
+  /// Show item drawer with direct MediaSearchResult (most reliable)
+  Future<void> _showItemDrawerDirect(BuildContext context, MediaSearchResult item) async {
+    try {
+      // Get comprehensive status from all tables (recommendations, favorites, watchlist)
+      final db = SQLiteDatabase();
+      final bestTitle = _getBestDisplayName(item);
+      final statusResult = await db.getMediaItemStatusByProperties(
+        title: bestTitle, 
+        mediaType: mediaType,
+        primaryCreator: item.artist ?? '', // Handle nullable artist
+      );
+      
+      debugPrint('🔍 [DRAWER-DIRECT] Status for "$bestTitle": $statusResult');
+      
+      _showMediaDrawer(
+        context,
+        MediaDetailDrawer(
+          title: bestTitle,
+          artist: item.artist,
+          description: item.description,
+          themes: item.themes,
+          coverArtUrl: item.coverArtUrl,
+          mediaType: mediaType,
+          hasLiked: statusResult['hasLiked'] as bool? ?? false,
+          hasDisliked: statusResult['hasDisliked'] as bool? ?? false,
+          hasFavorited: statusResult['hasFavorited'] as bool? ?? false,
+          isInWatchlist: statusResult['isInWatchlist'] as bool? ?? false,
+          hasSkipped: statusResult['hasSkipped'] as bool? ?? false,
+          onAction: (action) => _handleDrawerAction(
+            context, 
+            action, 
+            item, 
+            statusResult['mediaItemId'] as int?,
+          ),
+        ),
+      );
+    } catch (e) {
+      debugPrint('❌ [DRAWER-DIRECT] Error showing item drawer: $e');
+      _showErrorDialog(context, 'Failed to load item details: $e');
+    }
+  }
+
+  /// Show item drawer by media ID (more reliable than text search)
+  Future<void> _showItemDrawerById(BuildContext context, String mediaId) async {
+    try {
+      final vectorDb = VectorDatabase();
+      await vectorDb.init();
+      
+      final item = await vectorDb.getMediaById(mediaId: mediaId, mediaType: mediaType);
+      
+      if (item != null) {
+        await _showItemDrawerDirect(context, item);
+      } else {
+        debugPrint('❌ [DRAWER-ID] No item found with media_id: $mediaId');
+        _showErrorDialog(context, 'Media item not found');
+      }
+    } catch (e) {
+      debugPrint('❌ [DRAWER-ID] Error showing item drawer by ID: $e');
+      _showErrorDialog(context, 'Failed to load item details: $e');
+    }
+  }
+
+  /// Show error dialog helper
+  void _showErrorDialog(BuildContext context, String message) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Error'),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Show media library item drawer (for tapped cards)
+  Future<void> _showMediaLibraryItemDrawer(BuildContext context, MediaSuggestion suggestion) async {
+    try {
+      // Convert MediaSuggestion to MediaSearchResult format for consistency
+      final item = MediaSearchResult(
+        title: suggestion.title ?? 'Unknown',
+        artist: suggestion.artist,
+        album: suggestion.album,
+        description: suggestion.description,
+        themes: suggestion.themes,
+        coverArtUrl: suggestion.coverArtUrl,
+        wikiUrl: suggestion.wikiUrl,
+        wikidataId: suggestion.wikidataId,
+        mediaId: suggestion.mediaId ?? '',
+        similarity: 1.0, // Default similarity for library items
+        mediaType: mediaType,
+      );
+      
+      await _showItemDrawerDirect(context, item);
+    } catch (e) {
+      debugPrint('❌ [LIBRARY-DRAWER] Error showing library item drawer: $e');
+      _showErrorDialog(context, 'Failed to load item details: $e');
+    }
+  }
+
+  /// Legacy method: Show item drawer by name (fallback for old code)
   Future<void> _showItemDrawer(BuildContext context, String itemName) async {
     try {
       // Look up the actual item from the database
@@ -447,39 +568,8 @@ class MediaSectionWrapper extends StatelessWidget {
       
       if (results.isNotEmpty) {
         final item = results.first;
-        
-        // Get comprehensive status from all tables (recommendations, favorites, watchlist)
-        final db = SQLiteDatabase();
-        final statusResult = await db.getMediaItemStatusByProperties(
-          title: item.title ?? 'Unknown Title', // Handle nullable title
-          mediaType: mediaType,
-          primaryCreator: item.artist ?? '', // Handle nullable artist
-        );
-        
-        debugPrint('🔍 [DRAWER] Status for "${item.title}": $statusResult');
-        
-        _showMediaDrawer(
-          context,
-          MediaDetailDrawer(
-            title: item.title ?? 'Unknown Title',
-            artist: item.artist,
-            description: item.description,
-            themes: item.themes,
-            coverArtUrl: item.coverArtUrl,
-            mediaType: mediaType,
-            hasLiked: statusResult['hasLiked'] as bool? ?? false,
-            hasDisliked: statusResult['hasDisliked'] as bool? ?? false,
-            hasFavorited: statusResult['hasFavorited'] as bool? ?? false,
-            isInWatchlist: statusResult['isInWatchlist'] as bool? ?? false,
-            hasSkipped: statusResult['hasSkipped'] as bool? ?? false,
-            onAction: (action) => _handleDrawerAction(
-              context, 
-              action, 
-              item, 
-              statusResult['mediaItemId'] as int?,
-            ),
-          ),
-        );
+        // Use the dedicated method - no duplicate drawer creation
+        await _showItemDrawerDirect(context, item);
       } else {
         // Fallback - show simple dialog
         showDialog(
@@ -533,7 +623,7 @@ class MediaSectionWrapper extends StatelessWidget {
         mediaItemId = await db.createOrGetMediaItem(
           mediaType: mediaType,
           vectorMediaId: item.mediaId,
-          title: item.title ?? 'Unknown Title', // Handle nullable title
+          title: _getBestDisplayName(item),
           primaryCreator: item.artist ?? '', // Handle nullable artist
           coverArtUrl: item.coverArtUrl,
           description: item.description,
@@ -548,44 +638,45 @@ class MediaSectionWrapper extends StatelessWidget {
         case 'like':
           // Create or update recommendation to liked status
           await _createOrUpdateRecommendation(db, mediaItemId, item, 'liked');
-          _showSnackBar(context, 'Added "${item.title}" to liked items');
           break;
           
         case 'dislike':
           // Create or update recommendation to disliked status
           await _createOrUpdateRecommendation(db, mediaItemId, item, 'disliked');
-          _showSnackBar(context, 'Marked "${item.title}" as disliked');
           break;
           
         case 'favorite':
           // Add to favorites table (separate from recommendations)
           await db.addToFavorites(mediaItemId);
-          _showSnackBar(context, 'Added "${item.title}" to favorites');
           break;
           
         case 'watchlist':
           // Add to watchlist table (separate from recommendations)
           await db.addToWatchlist(mediaItemId);
-          final queueName = _getQueueName();
-          _showSnackBar(context, 'Added "${item.title}" to $queueName');
           break;
           
         case 'skip':
           // Create or update recommendation to skipped status
           await _createOrUpdateRecommendation(db, mediaItemId, item, 'skipped');
-          _showSnackBar(context, 'Skipped "${item.title}"');
+          break;
+
+        case 'clear_all':
+          // Handle the case when no positive reactions remain - set to skipped
+          await _createOrUpdateRecommendation(db, mediaItemId, item, 'skipped');
+          // Remove from all positive tables
+          await db.removeFromFavorites(mediaItemId);
+          await db.removeFromWatchlist(mediaItemId);
           break;
       }
 
-      // Close the drawer after action
-      Navigator.of(context).pop();
+      // Keep drawer open - no auto-closing behavior
       
-      // Note: Controller refresh methods are not available in BaseMediaSectionController
-      // The UI will update naturally when the user navigates back to the main views
+      // Refresh appropriate lists when states change
+      await _refreshListsAfterAction(action);
       
     } catch (e) {
       debugPrint('❌ [DRAWER-ACTION] Error handling action $action: $e');
-      _showSnackBar(context, 'Error: $e', isError: true);
+      // No toast notification - just log the error
     }
   }
 
@@ -615,11 +706,12 @@ class MediaSectionWrapper extends StatelessWidget {
         debugPrint('🔄 [DRAWER-ACTION] Updated existing recommendation ${existingRec.id} to $status');
       } else {
         // Create new recommendation with the specified status
+        final bestTitle = _getBestDisplayName(item);
         final mediaSuggestion = MediaSuggestion(
           mediaItemId: mediaItemId,
-          query: 'User action from detail view: ${item.title ?? 'Unknown'}',
+          query: 'User action from detail view: $bestTitle',
           mediaType: mediaType,
-          title: item.title ?? 'Unknown Title', // Handle nullable title
+          title: bestTitle,
           artist: item.artist,
           coverArtUrl: item.coverArtUrl,
           description: item.description,
@@ -641,6 +733,16 @@ class MediaSectionWrapper extends StatelessWidget {
       debugPrint('❌ [DRAWER-ACTION] Error creating/updating recommendation: $e');
       rethrow;
     }
+  }
+
+  /// Get the best display name for a media item, with fallbacks for missing titles
+  String _getBestDisplayName(MediaSearchResult item) {
+    return MediaTitleHandler.getBestTitle(
+      item.title,
+      item.artist,
+      item.album,
+      mediaType,
+    );
   }
 
   /// Get the appropriate queue name for this media type
@@ -713,7 +815,7 @@ class MediaSectionWrapper extends StatelessWidget {
             title: 'Detected Themes',
             items: detectedThemes,
             rightAlign: false,
-            onChipTap: (item) => _showItemDrawer(context, item),
+            onChipTap: null, // Remove linking behavior for themes
           ),
           const SizedBox(height: 16),
         ],
@@ -724,7 +826,7 @@ class MediaSectionWrapper extends StatelessWidget {
             title: 'Match Sources',
             items: matchSources,
             rightAlign: false, // Keep consistent alignment
-            onChipTap: (item) => _showItemDrawer(context, item),
+            onChipTap: (item) => _showItemDrawer(context, item), // Keep linking for match sources
           ),
         ],
       ],
@@ -750,6 +852,7 @@ class MediaSectionWrapper extends StatelessWidget {
               fontSize: 13,
               color: AppTheme.primaryColor,
               letterSpacing: 1.0,
+              fontWeight: FontWeight.w500, // Make purple headers bolder
             ),
           ),
           const SizedBox(height: 6),
@@ -952,7 +1055,7 @@ class MediaSectionWrapper extends StatelessWidget {
   }
 
   // Helper method to build watchlist section (matches TV section exactly)
-  Widget _buildWatchlistSection() {
+  Widget _buildWatchlistSection(BuildContext context) {
     return Column(
       children: [
         const SizedBox(height: 32.0), // Add spacing before the title
@@ -978,14 +1081,14 @@ class MediaSectionWrapper extends StatelessWidget {
                     ),
                   ),
                 )
-              : _buildWatchlistGrid(),
+              : _buildWatchlistGrid(context),
         ),
       ],
     );
   }
 
   // Helper method to build library section (matches TV section exactly)
-  Widget _buildLibrarySection() {
+  Widget _buildLibrarySection(BuildContext context) {
     return Column(
       children: [
         const SizedBox(height: 32.0), // Add spacing before the title
@@ -1017,7 +1120,7 @@ class MediaSectionWrapper extends StatelessWidget {
     );
   }
 
-  Widget _buildWatchlistGrid() {
+  Widget _buildWatchlistGrid(BuildContext context) {
     // Always use the media type default format for grids (square for music, poster for others)
     final gridCardFormat = MediaLibraryGrid.getCardFormatForMediaType(mediaType);
     return MediaLibraryGrid(
@@ -1028,7 +1131,9 @@ class MediaSectionWrapper extends StatelessWidget {
       onLike: _likeWatchlistItem,
       onDislike: _dislikeWatchlistItem,
       onFavorite: _favoriteWatchlistItem,
+      favoriteItems: controller.dbLikedSuggestions, // Pass favorites so hearts show correctly
       cardFormat: gridCardFormat,
+      onTap: (suggestion) => _showMediaLibraryItemDrawer(context, suggestion), // Add tap callback for drawer
     );
   }
 
@@ -1042,6 +1147,7 @@ class MediaSectionWrapper extends StatelessWidget {
       onAddToWatchlist: _addLibraryItemToWatchlist,
       onUnfavorite: _removeFromLibrary,
       watchlistItems: controller.dbWatchlistSuggestions,
+      favoriteItems: controller.dbLikedSuggestions, // All library items are favorites
       cardFormat: gridCardFormat,
     );
   }
@@ -1069,5 +1175,25 @@ class MediaSectionWrapper extends StatelessWidget {
   
   Future<void> _removeFromLibrary(MediaSuggestion suggestion) async {
     await controller.removeFromFavorites(suggestion.mediaItemId!);
+  }
+
+  /// Refresh appropriate lists after drawer actions
+  Future<void> _refreshListsAfterAction(String action) async {
+    switch (action) {
+      case 'favorite':
+        // Refresh library (favorites) when item is favorited
+        controller.loadDbLibrary();
+        break;
+      case 'watchlist':
+        // Refresh watchlist when item is added/removed from watchlist
+        controller.loadDbWatchlist();
+        break;
+      case 'like':
+      case 'dislike':
+        // These actions might affect both lists depending on previous state
+        controller.loadDbLibrary();
+        controller.loadDbWatchlist();
+        break;
+    }
   }
 } 

@@ -5,6 +5,7 @@ import '../../services/recommendation_service.dart'; // Import for MediaSuggesti
 import '../../models.dart';
 import 'media_detail_drawer.dart';
 import 'media_section_wrapper.dart';
+import 'media_action_icons.dart';
 
 /// Screen for reviewing all user's past media interactions
 /// Provides access to liked, disliked, favorited, and watchlisted items
@@ -215,23 +216,11 @@ class _MediaHistoryScreenState extends State<MediaHistoryScreen>
   }
 
   Color _getCategoryColor(String category) {
-    switch (category) {
-      case 'liked': return AppTheme.likeColor;
-      case 'disliked': return AppTheme.dislikeColor;
-      case 'favorited': return AppTheme.favoriteColor;
-      case 'watchlisted': return AppTheme.watchlistColor;
-      default: return AppTheme.textSecondary;
-    }
+    return MediaActionIcons.getActionColor(category);
   }
 
   IconData _getCategoryIcon(String category) {
-    switch (category) {
-      case 'liked': return Icons.thumb_up;
-      case 'disliked': return Icons.thumb_down;
-      case 'favorited': return Icons.favorite;
-      case 'watchlisted': return Icons.bookmark;
-      default: return Icons.circle;
-    }
+    return MediaActionIcons.getActionIcon(category);
   }
 
   String _getCategoryLabel(String category) {
@@ -348,81 +337,169 @@ class _MediaHistoryScreenState extends State<MediaHistoryScreen>
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppTheme.backgroundColor,
-      appBar: AppBar(
-        backgroundColor: AppTheme.backgroundColor,
-        elevation: 0,
-        title: AppTheme.wideLibraryHeaderMedium('YOUR HISTORY'),
-        centerTitle: true,
-        foregroundColor: AppTheme.textPrimary,
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.85, // Use most of screen but not full
+      margin: const EdgeInsets.only(top: 20), // Leave some space at top
+      decoration: const BoxDecoration(
+        color: AppTheme.surfaceColor,
+        borderRadius: BorderRadius.only(
+          topLeft: Radius.circular(20),
+          topRight: Radius.circular(20),
+        ),
       ),
-      body: Column(
+      child: Column(
         children: [
-          // Media type tabs
+          // Compact header with handle and title
           Container(
-            margin: const EdgeInsets.symmetric(horizontal: AppTheme.spacingMD),
-            decoration: BoxDecoration(
-              color: AppTheme.surfaceColor,
-              borderRadius: BorderRadius.circular(AppTheme.cardBorderRadius),
-            ),
-            child: TabBar(
-              controller: _mediaTypeController,
-              isScrollable: true,
-              indicator: BoxDecoration(
-                color: AppTheme.primaryColor.withOpacity(0.2),
-                borderRadius: BorderRadius.circular(AppTheme.cardBorderRadius),
-              ),
-              indicatorPadding: const EdgeInsets.all(4),
-              labelColor: AppTheme.primaryColor,
-              unselectedLabelColor: AppTheme.textSecondary,
-              labelStyle: AppTheme.headerSelectorStyle.copyWith(fontSize: 12),
-              onTap: (_) => _onMediaTypeChanged(),
-              tabs: _mediaTypes.map((type) => Tab(
-                text: AppTheme.getMediaHeaderDisplayName(type),
-              )).toList(),
-            ),
-          ),
-          
-          const SizedBox(height: AppTheme.spacingMD),
-          
-          // Category tabs (Liked, Disliked, Favorited, Watchlisted)
-          Container(
-            margin: const EdgeInsets.symmetric(horizontal: AppTheme.spacingMD),
-            decoration: BoxDecoration(
-              color: AppTheme.surfaceColor,
-              borderRadius: BorderRadius.circular(AppTheme.cardBorderRadius),
-            ),
-            child: TabBar(
-              controller: _tabController,
-              indicator: BoxDecoration(
-                color: AppTheme.accentColor.withOpacity(0.2),
-                borderRadius: BorderRadius.circular(AppTheme.cardBorderRadius),
-              ),
-              indicatorPadding: const EdgeInsets.all(4),
-              labelColor: AppTheme.accentColor,
-              unselectedLabelColor: AppTheme.textSecondary,
-              labelStyle: AppTheme.headerSelectorStyle.copyWith(fontSize: 12),
-              tabs: const [
-                Tab(text: 'LIKED'),
-                Tab(text: 'DISLIKED'),
-                Tab(text: 'FAVORITED'),
-                Tab(text: 'WATCHLISTED'),
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+            child: Column(
+              children: [
+                // Drag handle
+                Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.3),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                // Title with media icon
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      AppTheme.getMediaIcon(_currentMediaType),
+                      color: AppTheme.primaryColor,
+                      size: 18,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      '${AppTheme.getMediaDisplayName(_currentMediaType)} History',
+                      style: AppTheme.headerSelectorStyle.copyWith(
+                        fontSize: 16,
+                        letterSpacing: 1.2,
+                        color: AppTheme.textPrimary,
+                      ),
+                    ),
+                  ],
+                ),
               ],
             ),
           ),
           
-          const SizedBox(height: AppTheme.spacingMD),
+          // Compact media type selector - horizontal chips
+          Container(
+            height: 40,
+            margin: const EdgeInsets.symmetric(horizontal: 16),
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              itemCount: _mediaTypes.length,
+              itemBuilder: (context, index) {
+                final type = _mediaTypes[index];
+                final isSelected = type == _currentMediaType;
+                return GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      _currentMediaType = type;
+                      _mediaTypeController.index = index;
+                    });
+                  },
+                  child: Container(
+                    margin: const EdgeInsets.only(right: 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: isSelected 
+                          ? AppTheme.primaryColor.withOpacity(0.2)
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: isSelected 
+                            ? AppTheme.primaryColor.withOpacity(0.5)
+                            : Colors.white.withOpacity(0.2),
+                        width: 1,
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          AppTheme.getMediaIcon(type),
+                          size: 14,
+                          color: isSelected 
+                              ? AppTheme.primaryColor
+                              : AppTheme.textSecondary,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          AppTheme.getMediaHeaderDisplayName(type),
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w400,
+                            color: isSelected 
+                                ? AppTheme.primaryColor
+                                : AppTheme.textSecondary,
+                            letterSpacing: 0.8,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
           
-          // Content
+          const SizedBox(height: 12),
+          
+          // Compact category tabs - cleaner design
+          Container(
+            height: 36,
+            margin: const EdgeInsets.symmetric(horizontal: 16),
+            decoration: BoxDecoration(
+              color: AppTheme.backgroundColor.withOpacity(0.5),
+              borderRadius: BorderRadius.circular(18),
+            ),
+            child: TabBar(
+              controller: _tabController,
+              indicator: BoxDecoration(
+                color: AppTheme.accentColor.withOpacity(0.8),
+                borderRadius: BorderRadius.circular(18),
+              ),
+              indicatorSize: TabBarIndicatorSize.tab,
+              labelColor: Colors.white,
+              unselectedLabelColor: AppTheme.textSecondary,
+              labelStyle: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+                letterSpacing: 0.8,
+              ),
+              unselectedLabelStyle: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w400,
+                letterSpacing: 0.8,
+              ),
+              labelPadding: EdgeInsets.zero,
+              tabs: [
+                _buildCompactTab(Icons.thumb_up, 'LIKED'),
+                _buildCompactTab(Icons.thumb_down, 'DISLIKED'),
+                _buildCompactTab(Icons.favorite, 'FAVORITED'),
+                _buildCompactTab(Icons.bookmark, AppTheme.getMediaListName(_currentMediaType).toUpperCase()),
+              ],
+            ),
+          ),
+          
+          const SizedBox(height: 16),
+          
+          // Content area - more compact
           Expanded(
             child: TabBarView(
               controller: _tabController,
               children: [
-                _buildTabContent('liked'),
-                _buildTabContent('disliked'),
-                _buildTabContent('favorited'),
-                _buildTabContent('watchlisted'),
+                _buildCompactTabContent('liked'),
+                _buildCompactTabContent('disliked'),
+                _buildCompactTabContent('favorited'),
+                _buildCompactTabContent('watchlisted'),
               ],
             ),
           ),
@@ -430,4 +507,162 @@ class _MediaHistoryScreenState extends State<MediaHistoryScreen>
       ),
     );
   }
-} 
+
+  Widget _buildCompactTab(IconData icon, String label) {
+    return Tab(
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, size: 12),
+          const SizedBox(width: 4),
+          Flexible(
+            child: Text(
+              label,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCompactTabContent(String category) {
+    if (_isLoading) {
+      return const Center(
+        child: CircularProgressIndicator(),
+      );
+    }
+
+    List<MediaSuggestion> items;
+    switch (category) {
+      case 'liked':
+        items = _likedItems[_currentMediaType] ?? [];
+        break;
+      case 'disliked':
+        items = _dislikedItems[_currentMediaType] ?? [];
+        break;
+      case 'favorited':
+        items = _favoritedItems[_currentMediaType] ?? [];
+        break;
+      case 'watchlisted':
+        items = _watchlistedItems[_currentMediaType] ?? [];
+        break;
+      default:
+        items = [];
+    }
+
+    if (items.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              _getCategoryIcon(category),
+              size: 48,
+              color: AppTheme.textSecondary.withOpacity(0.6),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'No ${_getCategoryLabel(category).toLowerCase()} ${AppTheme.getMediaPluralDisplayName(_currentMediaType).toLowerCase()} yet',
+              style: AppTheme.bodyStyle.copyWith(
+                color: AppTheme.textSecondary,
+                fontSize: 14,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      itemCount: items.length,
+      itemBuilder: (context, index) => _buildCompactMediaCard(items[index], category),
+    );
+  }
+
+  Widget _buildCompactMediaCard(MediaSuggestion item, String category) {
+    return GestureDetector(
+      onTap: () => _showMediaDrawer(item, category),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: AppTheme.backgroundColor.withOpacity(0.7),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: _getCategoryColor(category).withOpacity(0.3),
+            width: 1,
+          ),
+        ),
+        child: Row(
+          children: [
+            // Compact cover art
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: AppTheme.surfaceColor,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: item.coverArtUrl != null && item.coverArtUrl!.isNotEmpty
+                  ? ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Image.network(
+                        item.coverArtUrl!,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) =>
+                            _buildCompactPlaceholderIcon(),
+                      ),
+                    )
+                  : _buildCompactPlaceholderIcon(),
+            ),
+            const SizedBox(width: 12),
+            
+            // Content - more compact
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    item.title ?? 'Unknown',
+                    style: AppTheme.mediaTitleStyle.copyWith(fontSize: 14),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  if (item.artist != null && item.artist!.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      item.artist!,
+                      style: AppTheme.mediaArtistStyle.copyWith(fontSize: 12),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            
+            // Compact status indicator
+            Icon(
+              _getCategoryIcon(category),
+              size: 18,
+              color: _getCategoryColor(category),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCompactPlaceholderIcon() {
+    return Center(
+      child: Icon(
+        AppTheme.getMediaIcon(_currentMediaType),
+        size: 20,
+        color: AppTheme.textSecondary.withOpacity(0.5),
+      ),
+    );
+  }
+}

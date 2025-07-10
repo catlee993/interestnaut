@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'consistent_layout_wrapper.dart';
 import '../../theme.dart';
+import 'media_action_icons.dart';
 
 /// Generic action buttons for media suggestions
 /// Provides consistent styling and behavior across all media types
@@ -127,7 +128,7 @@ class SuggestionActionButtons extends StatelessWidget {
             },
             icon: Icon(
               // Show as liked only if liked AND not favorited (favorite takes priority)
-              (hasLikedCurrentSuggestion && !hasFavoritedCurrentSuggestion) ? Icons.thumb_up : Icons.thumb_up_outlined,
+              MediaActionIcons.getLikeIcon(hasLikedCurrentSuggestion && !hasFavoritedCurrentSuggestion),
               size: 16
             ),
             label: Text(
@@ -137,7 +138,7 @@ class SuggestionActionButtons extends StatelessWidget {
             style: _getButtonStyle(
               // Show as active only if liked AND not favorited (favorite takes priority)
               isActive: hasLikedCurrentSuggestion && !hasFavoritedCurrentSuggestion,
-              activeColor: Colors.green,
+              activeColor: AppTheme.likeColor,
               isDisabled: isProcessing || hasFavoritedCurrentSuggestion,
             ),
           ),
@@ -151,7 +152,7 @@ class SuggestionActionButtons extends StatelessWidget {
               debugPrint('🔘 Dislike button pressed - isProcessing: $isProcessing');
               onDislike?.call();
             },
-            icon: const Icon(Icons.thumb_down, size: 16),
+            icon: Icon(MediaActionIcons.getDislikeIcon(), size: 16),
             label: const Text('Dislike', style: TextStyle(fontSize: 13)),
             style: _getButtonStyle(
               isActive: false,
@@ -175,7 +176,7 @@ class SuggestionActionButtons extends StatelessWidget {
               }
             },
             icon: Icon(
-              hasFavoritedCurrentSuggestion ? Icons.favorite : Icons.favorite_border,
+              MediaActionIcons.getFavoriteIcon(hasFavoritedCurrentSuggestion),
               size: 16
             ),
             label: Text(
@@ -184,7 +185,7 @@ class SuggestionActionButtons extends StatelessWidget {
             ),
             style: _getButtonStyle(
               isActive: hasFavoritedCurrentSuggestion,
-              activeColor: const Color(0xFF7B68EE),
+              activeColor: AppTheme.favoriteColor,
               isDisabled: isProcessing,
               isFavoriteButton: true,
             ),
@@ -201,7 +202,7 @@ class SuggestionActionButtons extends StatelessWidget {
             },
             icon: Icon(
               // Show as added whenever in watchlist (regardless of other states)
-              isInWatchlist ? Icons.bookmark_added : Icons.bookmark_add,
+              MediaActionIcons.getWatchlistIcon(isInWatchlist),
               size: 16
             ),
             label: Text(
@@ -211,7 +212,7 @@ class SuggestionActionButtons extends StatelessWidget {
             style: _getButtonStyle(
               // Show as active whenever in watchlist (regardless of other states)
               isActive: isInWatchlist,
-              activeColor: Colors.blue,
+              activeColor: AppTheme.watchlistColor,
               isDisabled: isProcessing,
             ),
           ),

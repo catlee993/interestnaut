@@ -386,10 +386,23 @@ class _MediaHeaderState extends State<MediaHeader> {
                                 size: 20
                               ),
                               onPressed: () {
-                                Navigator.of(context).push(
-                                  MaterialPageRoute(
-                                    builder: (context) => MediaHistoryScreen(
-                                      initialMediaType: activeMedia,
+                                showModalBottomSheet(
+                                  context: context,
+                                  isScrollControlled: true,
+                                  backgroundColor: Colors.transparent,
+                                  enableDrag: true,
+                                  isDismissible: true,
+                                  barrierColor: Colors.black54,
+                                  builder: (context) => GestureDetector(
+                                    onTap: () => Navigator.of(context).pop(),
+                                    child: Container(
+                                      color: Colors.transparent,
+                                      child: GestureDetector(
+                                        onTap: () {}, // Prevent tap-through
+                                        child: MediaHistoryScreen(
+                                          initialMediaType: activeMedia,
+                                        ),
+                                      ),
                                     ),
                                   ),
                                 );

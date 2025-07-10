@@ -23,7 +23,9 @@ class MediaLibraryGrid extends StatelessWidget {
   final Function(MediaSuggestion)? onFavorite;
   final Function(MediaSuggestion)? onUnfavorite;
   final List<MediaSuggestion> watchlistItems;
+  final List<MediaSuggestion> favoriteItems; // Add favorite items list
   final CardFormat? cardFormat; // Optional override for card format
+  final Function(MediaSuggestion)? onTap; // Add tap callback for drawer
 
   const MediaLibraryGrid({
     Key? key,
@@ -38,7 +40,9 @@ class MediaLibraryGrid extends StatelessWidget {
     this.onFavorite,
     this.onUnfavorite,
     this.watchlistItems = const [],
+    this.favoriteItems = const [], // Default to empty list
     this.cardFormat, // Allow manual override
+    this.onTap, // Add tap callback
   }) : super(key: key);
 
   @override
@@ -55,13 +59,15 @@ class MediaLibraryGrid extends StatelessWidget {
       itemCount: suggestions.length,
       itemBuilder: (context, index) {
       final suggestion = suggestions[index];
-      final isInWatchlist = watchlistItems.any((item) => item.id == suggestion.id);
+      final isInWatchlist = watchlistItems.any((item) => item.mediaItemId == suggestion.mediaItemId);
+      final isFavorited = favoriteItems.any((item) => item.mediaItemId == suggestion.mediaItemId);
       
       return MediaLibraryCard(
         suggestion: suggestion,
         isWatchlist: isWatchlist,
         mediaType: mediaType,
         isInWatchlist: isInWatchlist,
+        isFavorited: isFavorited, // Pass favorite status
         cardFormat: cardFormat ?? _getCardFormat(), // Use override or auto-detect
         onRemove: onRemove != null ? () => onRemove!(suggestion) : null,
         onLike: onLike != null ? () => onLike!(suggestion) : null,
@@ -70,6 +76,7 @@ class MediaLibraryGrid extends StatelessWidget {
         onRemoveFromWatchlist: onRemoveFromWatchlist != null ? () => onRemoveFromWatchlist!(suggestion) : null,
         onFavorite: onFavorite != null ? () => onFavorite!(suggestion) : null,
         onUnfavorite: onUnfavorite != null ? () => onUnfavorite!(suggestion) : null,
+        onTap: onTap != null ? () => onTap!(suggestion) : null, // Pass tap callback
       );
     },
     );

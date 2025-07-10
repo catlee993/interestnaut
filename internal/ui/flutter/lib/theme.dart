@@ -117,6 +117,40 @@ class AppTheme {
       estimatedDbSize: '238 MB',
       headerDisplayName: 'SHOWS',
     ),
+    // Header plural form aliases
+    'movies': MediaTypeConfig(
+      displayName: 'Movie',
+      pluralDisplayName: 'Movies',
+      icon: Icons.movie,
+      fallbackIcon: Icons.movie,
+      listName: 'Watchlist',
+      listActionName: 'watchlist',
+      searchPlaceholder: 'Search movies...',
+      estimatedDbSize: '440 MB',
+      headerDisplayName: 'MOVIES',
+    ),
+    'books': MediaTypeConfig(
+      displayName: 'Book',
+      pluralDisplayName: 'Books',
+      icon: Icons.book,
+      fallbackIcon: Icons.menu_book,
+      listName: 'Reading List',
+      listActionName: 'reading list',
+      searchPlaceholder: 'Search books...',
+      estimatedDbSize: '191 MB',
+      headerDisplayName: 'BOOKS',
+    ),
+    'games': MediaTypeConfig(
+      displayName: 'Game',
+      pluralDisplayName: 'Games',
+      icon: Icons.videogame_asset,
+      fallbackIcon: Icons.sports_esports,
+      listName: 'Playlist',
+      listActionName: 'playlist',
+      searchPlaceholder: 'Search games...',
+      estimatedDbSize: '84 MB',
+      headerDisplayName: 'GAMES',
+    ),
   };
 
   // Helper methods to access media type configuration
