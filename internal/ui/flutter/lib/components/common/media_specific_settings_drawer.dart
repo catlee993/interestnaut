@@ -108,13 +108,12 @@ class _MediaSpecificSettingsDrawerState extends State<MediaSpecificSettingsDrawe
                             Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
-                                  _mediaDisplayName.toUpperCase(),
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.w600,
-                                    letterSpacing: 3.0,
+                                Transform(
+                                  transform: Matrix4.identity()..scale(1.15, 1.0),
+                                  alignment: Alignment.centerLeft,
+                                  child: Text(
+                                    _mediaDisplayName.toUpperCase(),
+                                    style: AppTheme.settingsMediaHeaderStyle,
                                   ),
                                 ),
                                 Text(

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../db/vector_db.dart';
 import '../../theme.dart';
+import '../../enums/media_type.dart';
 
 /// MediaTypeSettings
 /// Allows users to enable/disable different media types
@@ -110,30 +111,42 @@ class _MediaTypeSettingsState extends State<MediaTypeSettings> {
   }
 
   String _getMediaTypeDisplayName(String mediaType) {
-    switch (mediaType) {
-      case 'video_game':
-        return 'Video Games';
-      case 'tv_show':
-        return 'TV Shows';
-      default:
-        return mediaType[0].toUpperCase() + mediaType.substring(1);
+    try {
+      final mediaTypeEnum = MediaType.fromDatabaseName(mediaType);
+      return mediaTypeEnum.pluralDisplayName;
+    } catch (e) {
+      // Fallback to original logic for unknown types
+      switch (mediaType) {
+        case 'video_game':
+          return 'Video Games';
+        case 'tv_show':
+          return 'TV Shows';
+        default:
+          return mediaType[0].toUpperCase() + mediaType.substring(1);
+      }
     }
   }
 
   IconData _getMediaTypeIcon(String mediaType) {
-    switch (mediaType) {
-      case 'music':
-        return Icons.music_note;
-      case 'movie':
-        return Icons.movie;
-      case 'tv_show':
-        return Icons.tv;
-      case 'book':
-        return Icons.book;
-      case 'video_game':
-        return Icons.videogame_asset;
-      default:
-        return Icons.category;
+    try {
+      final mediaTypeEnum = MediaType.fromDatabaseName(mediaType);
+      return mediaTypeEnum.icon;
+    } catch (e) {
+      // Fallback to original logic for unknown types
+      switch (mediaType) {
+        case 'music':
+          return Icons.music_note;
+        case 'movie':
+          return Icons.movie;
+        case 'tv_show':
+          return Icons.tv;
+        case 'book':
+          return Icons.book;
+        case 'video_game':
+          return Icons.videogame_asset;
+        default:
+          return Icons.category;
+      }
     }
   }
 

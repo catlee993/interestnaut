@@ -240,14 +240,20 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
                         artist: widget.artist,
                         fallbackTitle: 'Unknown Media',
                       );
-                      return Text(
-                        displayInfo.displayTitle,
-                        style: AppTheme.mediaTitleStyle.copyWith(
-                          fontSize: 18,
-                          letterSpacing: 2.5,
+                      return Transform(
+                        transform: Matrix4.identity()..scale(1.15, 1.0),
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          displayInfo.displayTitle.toUpperCase(),
+                          style: AppTheme.suggestionHeaderSmall.copyWith(
+                            fontSize: 18,
+                            letterSpacing: 2.5,
+                            fontWeight: FontWeight.w200,
+                            color: Colors.white,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
                         ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
                       );
                     }(),
                   ),

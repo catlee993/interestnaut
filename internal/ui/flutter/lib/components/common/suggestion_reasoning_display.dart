@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../theme.dart';
 import '../../services/sqlite_db.dart';
+import '../../enums/media_type.dart';
 
 /// Handles the display of suggestion reasoning sections including themes, match sources, and custom matching
 class SuggestionReasoningDisplay extends StatefulWidget {
@@ -24,11 +25,65 @@ class SuggestionReasoningDisplay extends StatefulWidget {
 class _SuggestionReasoningDisplayState extends State<SuggestionReasoningDisplay> {
   Map<String, List<String>>? _customMatchingConstraints;
   bool _isLoadingConstraints = false;
+  double _similarityThreshold = 0.5; // Default value
+  bool _isLoadingSettings = false;
 
   @override
   void initState() {
     super.initState();
     _loadCustomMatchingConstraints();
+    _loadMediaSettings();
+  }
+
+  /// Convert header media type to database media type using enum
+  String _getDbMediaType() {
+    try {
+      final mediaType = MediaType.fromHeaderName(widget.mediaType);
+      return mediaType.databaseName;
+    } catch (e) {
+      debugPrint('❌ [MEDIA-TYPE] Unknown media type: ${widget.mediaType}');
+      return widget.mediaType; // Fallback to original string
+    }
+  }
+
+  /// Get match style label based on similarity threshold
+  String _getMatchStyleLabel(double threshold) {
+    if (threshold <= 0.1) return 'Free Spirit';
+    if (threshold <= 0.3) return 'Eclectic';
+    if (threshold <= 0.5) return 'Average';
+    if (threshold <= 0.7) return 'Picky';
+    return 'Niche';
+  }
+
+  /// Load media settings to get similarity threshold
+  Future<void> _loadMediaSettings() async {
+    setState(() {
+      _isLoadingSettings = true;
+    });
+
+    try {
+      final dbMediaType = _getDbMediaType();
+      debugPrint('🔍 [SETTINGS] Loading media settings for ${widget.mediaType} -> $dbMediaType');
+      final db = SQLiteDatabase();
+      await db.init();
+      final mediaSettings = await db.getMediaSettings(dbMediaType);
+      
+      if (mounted) {
+        setState(() {
+          _similarityThreshold = mediaSettings?['similarity_matching'] ?? 0.5;
+          _isLoadingSettings = false;
+        });
+        debugPrint('✅ [SETTINGS] Loaded similarity threshold: $_similarityThreshold');
+      }
+    } catch (e) {
+      debugPrint('❌ [SETTINGS] Error loading media settings: $e');
+      if (mounted) {
+        setState(() {
+          _similarityThreshold = 0.5; // Default fallback
+          _isLoadingSettings = false;
+        });
+      }
+    }
   }
 
   Future<void> _loadCustomMatchingConstraints() async {
@@ -37,10 +92,11 @@ class _SuggestionReasoningDisplayState extends State<SuggestionReasoningDisplay>
     });
 
     try {
-      debugPrint('🔍 [CUSTOM-MATCHING] Fetching constraints for ${widget.mediaType}');
+      final dbMediaType = _getDbMediaType();
+      debugPrint('🔍 [CUSTOM-MATCHING] Fetching constraints for ${widget.mediaType} -> $dbMediaType');
       final db = SQLiteDatabase();
       await db.init();
-      final result = await db.getMediaMatchingConstraints(widget.mediaType);
+      final result = await db.getMediaMatchingConstraints(dbMediaType);
       debugPrint('🔍 [CUSTOM-MATCHING] Got result: $result');
       
       if (mounted) {
@@ -156,8 +212,8 @@ class _SuggestionReasoningDisplayState extends State<SuggestionReasoningDisplay>
           const SizedBox(height: 12),
         ],
         
-        // Custom Matching Section
-        _buildCustomMatchingSection(context),
+        // Match Details Section (always shown)
+        _buildMatchDetailsSection(context),
       ],
     );
   }
@@ -168,13 +224,12 @@ class _SuggestionReasoningDisplayState extends State<SuggestionReasoningDisplay>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Detected Themes',
-            style: AppTheme.headerSelectorStyle.copyWith(
-              fontSize: 13,
-              color: AppTheme.primaryColor,
-              letterSpacing: 1.5,
-              fontWeight: FontWeight.w100,
+          Transform(
+            transform: Matrix4.identity()..scale(1.15, 1.0),
+            alignment: Alignment.centerLeft,
+            child: Text(
+              'DETECTED THEMES',
+              style: AppTheme.reasoningHeaderStyle,
             ),
           ),
           const SizedBox(height: 6),
@@ -200,13 +255,12 @@ class _SuggestionReasoningDisplayState extends State<SuggestionReasoningDisplay>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Match Sources',
-            style: AppTheme.headerSelectorStyle.copyWith(
-              fontSize: 13,
-              color: AppTheme.primaryColor,
-              letterSpacing: 1.5,
-              fontWeight: FontWeight.w100,
+          Transform(
+            transform: Matrix4.identity()..scale(1.15, 1.0),
+            alignment: Alignment.centerLeft,
+            child: Text(
+              'MATCH SOURCES',
+              style: AppTheme.reasoningHeaderStyle,
             ),
           ),
           const SizedBox(height: 6),
@@ -257,12 +311,62 @@ class _SuggestionReasoningDisplayState extends State<SuggestionReasoningDisplay>
     );
   }
 
-  Widget _buildCustomMatchingSection(BuildContext context) {
-    // Don't show anything while loading or if no data loaded yet
-    if (_isLoadingConstraints || _customMatchingConstraints == null) {
-      return const SizedBox.shrink();
-    }
+  Widget _buildMatchDetailsSection(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Transform(
+            transform: Matrix4.identity()..scale(1.15, 1.0),
+            alignment: Alignment.centerLeft,
+            child: Text(
+              'MATCH DETAILS',
+              style: AppTheme.reasoningHeaderStyle,
+            ),
+          ),
+          const SizedBox(height: 6),
+          
+          // Match Style Chip (always shown)
+          _buildMatchStyleChip(),
+          
+          // Custom Matching (only shown if constraints exist)
+          if (_customMatchingConstraints != null && !_isLoadingConstraints) ...[
+            const SizedBox(height: 8),
+            _buildCustomMatchingContent(),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMatchStyleChip() {
+    final matchStyle = _getMatchStyleLabel(_similarityThreshold);
     
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: AppTheme.primaryColor.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: AppTheme.primaryColor.withOpacity(0.4),
+          width: 1,
+        ),
+      ),
+      child: Text(
+        matchStyle,
+        style: TextStyle(
+          fontFamily: 'Inter',
+          fontWeight: FontWeight.w400,
+          fontSize: 12,
+          color: AppTheme.primaryColor.withOpacity(0.9),
+          letterSpacing: 0.5,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCustomMatchingContent() {
     final constraints = _customMatchingConstraints!;
     debugPrint('🔍 [CUSTOM-MATCHING] Using cached constraints: $constraints');
     
@@ -273,31 +377,11 @@ class _SuggestionReasoningDisplayState extends State<SuggestionReasoningDisplay>
     debugPrint('🔍 [CUSTOM-MATCHING] Parsed constraints - Include: $includeItems, Exclude: $excludeItems');
     
     if (includeItems.isEmpty && excludeItems.isEmpty) {
-      debugPrint('🔍 [CUSTOM-MATCHING] No constraints found - hiding section');
+      debugPrint('🔍 [CUSTOM-MATCHING] No constraints found - hiding custom matching content');
       return const SizedBox.shrink();
     }
     
-    return Container(
-      width: double.infinity,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Custom Matching',
-            style: AppTheme.headerSelectorStyle.copyWith(
-              fontSize: 13,
-              color: AppTheme.primaryColor,
-              letterSpacing: 1.5,
-              fontWeight: FontWeight.w100,
-            ),
-          ),
-          const SizedBox(height: 6),
-          
-          // Two-line format with proper wrapping
-          _buildTwoLineCustomMatchingText(includeItems, excludeItems),
-        ],
-      ),
-    );
+    return _buildTwoLineCustomMatchingText(includeItems, excludeItems);
   }
 
   /// Build two-line custom matching text with proper wrapping and indentation

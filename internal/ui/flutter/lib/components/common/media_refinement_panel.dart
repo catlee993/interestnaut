@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../theme.dart';
 import '../../services/sqlite_db.dart';
+import '../../enums/media_type.dart';
 
 /// Panel for refining media recommendations with advanced controls
 class MediaRefinementPanel extends StatefulWidget {
@@ -48,31 +49,47 @@ class _MediaRefinementPanelState extends State<MediaRefinementPanel> {
     super.dispose();
   }
 
+  /// Convert header media type to database media type using enum
+  String _getDbMediaType() {
+    try {
+      final mediaType = MediaType.fromHeaderName(widget.mediaType);
+      return mediaType.databaseName;
+    } catch (e) {
+      debugPrint('❌ [MEDIA-TYPE] Unknown media type: ${widget.mediaType}');
+      return widget.mediaType; // Fallback to original string
+    }
+  }
+
   /// Load existing settings from database
   Future<void> _loadSettings() async {
     try {
       await _db.init();
       
+      final dbMediaType = _getDbMediaType();
+      debugPrint('🔧 [SETTINGS-LOAD] Loading settings for ${widget.mediaType} -> $dbMediaType');
+      
       // Load media settings
-      final mediaSettings = await _db.getMediaSettings(widget.mediaType);
+      final mediaSettings = await _db.getMediaSettings(dbMediaType);
       if (mediaSettings != null) {
         setState(() {
           _similarityThreshold = mediaSettings['similarity_matching'] ?? 0.5;
           _themeCount = mediaSettings['themes_matching'] ?? 3;
         });
+        debugPrint('✅ [SETTINGS-LOAD] Loaded media settings: similarity=${_similarityThreshold}, themes=${_themeCount}');
       }
       
       // Load matching constraints
-      final matchingConstraints = await _db.getMediaMatchingConstraints(widget.mediaType);
+      final matchingConstraints = await _db.getMediaMatchingConstraints(dbMediaType);
       setState(() {
         _positiveConstraints.clear();
         _negativeConstraints.clear();
         _positiveConstraints.addAll(matchingConstraints['positive'] ?? []);
         _negativeConstraints.addAll(matchingConstraints['negative'] ?? []);
       });
+      debugPrint('✅ [SETTINGS-LOAD] Loaded matching constraints: +${_positiveConstraints.length}, -${_negativeConstraints.length}');
       
       // Load priority titles
-      final priorityTitles = await _db.getMediaPriorityTitles(widget.mediaType);
+      final priorityTitles = await _db.getMediaPriorityTitles(dbMediaType);
       setState(() {
         _priorityTitles.clear();
         _avoidTitles.clear();
@@ -98,8 +115,12 @@ class _MediaRefinementPanelState extends State<MediaRefinementPanel> {
   /// Save settings to database
   Future<void> _saveSettings() async {
     try {
+      final dbMediaType = _getDbMediaType();
+      debugPrint('🔧 [SETTINGS-SAVE] Saving settings for ${widget.mediaType} -> $dbMediaType');
+      
       // Save media settings
-      await _db.saveMediaSettings(widget.mediaType, _similarityThreshold, _themeCount);
+      await _db.saveMediaSettings(dbMediaType, _similarityThreshold, _themeCount);
+      debugPrint('✅ [SETTINGS-SAVE] Saved media settings: similarity=${_similarityThreshold}, themes=${_themeCount}');
       
       // Save matching constraints - need to clear existing ones first
       await _clearAndSaveMatchingConstraints();
@@ -107,39 +128,44 @@ class _MediaRefinementPanelState extends State<MediaRefinementPanel> {
       // Save priority titles - need to clear existing ones first
       await _clearAndSavePriorityTitles();
       
-      debugPrint('Settings saved successfully for ${widget.mediaType}');
+      debugPrint('✅ [SETTINGS-SAVE] Settings saved successfully for ${widget.mediaType}');
     } catch (e) {
-      debugPrint('Error saving settings: $e');
+      debugPrint('❌ [SETTINGS-SAVE] Error saving settings: $e');
     }
   }
 
   /// Clear existing matching constraints and save new ones
   Future<void> _clearAndSaveMatchingConstraints() async {
     try {
+      final dbMediaType = _getDbMediaType();
+      debugPrint('🔧 [CONSTRAINTS-SAVE] Saving constraints for ${widget.mediaType} -> $dbMediaType');
+      
       // Get existing constraints to clear them
-      final existingConstraints = await _db.getMediaMatchingConstraints(widget.mediaType);
+      final existingConstraints = await _db.getMediaMatchingConstraints(dbMediaType);
       
       // Clear existing positive constraints
       for (final constraint in existingConstraints['positive'] ?? []) {
-        await _db.deleteMediaMatchingConstraint(widget.mediaType, constraint);
+        await _db.deleteMediaMatchingConstraint(dbMediaType, constraint);
       }
       
       // Clear existing negative constraints
       for (final constraint in existingConstraints['negative'] ?? []) {
-        await _db.deleteMediaMatchingConstraint(widget.mediaType, constraint);
+        await _db.deleteMediaMatchingConstraint(dbMediaType, constraint);
       }
       
       // Add new positive constraints
       for (final constraint in _positiveConstraints) {
-        await _db.addMediaMatchingConstraint(widget.mediaType, constraint, true);
+        await _db.addMediaMatchingConstraint(dbMediaType, constraint, true);
       }
       
       // Add new negative constraints
       for (final constraint in _negativeConstraints) {
-        await _db.addMediaMatchingConstraint(widget.mediaType, constraint, false);
+        await _db.addMediaMatchingConstraint(dbMediaType, constraint, false);
       }
+      
+      debugPrint('✅ [CONSTRAINTS-SAVE] Saved +${_positiveConstraints.length} positive, -${_negativeConstraints.length} negative constraints');
     } catch (e) {
-      debugPrint('Error saving matching constraints: $e');
+      debugPrint('❌ [CONSTRAINTS-SAVE] Error saving matching constraints: $e');
     }
   }
 
@@ -881,14 +907,13 @@ class _TitleSelectionModalState extends State<TitleSelectionModal> {
     try {
       await _db.init();
       
-      // Convert header media type to database media type
+      // Convert header media type to database media type using enum
       String dbMediaType = widget.mediaType;
-      switch (widget.mediaType) {
-        case 'movies': dbMediaType = 'movie'; break;
-        case 'tv': dbMediaType = 'tv_show'; break;
-        case 'games': dbMediaType = 'video_game'; break;
-        case 'books': dbMediaType = 'book'; break;
-        case 'music': dbMediaType = 'music'; break;
+      try {
+        final mediaType = MediaType.fromHeaderName(widget.mediaType);
+        dbMediaType = mediaType.databaseName;
+      } catch (e) {
+        debugPrint('❌ [MEDIA-TYPE] Unknown media type in TitleSelectionModal: ${widget.mediaType}');
       }
       
       // Load real data from database - combine favorited and liked items

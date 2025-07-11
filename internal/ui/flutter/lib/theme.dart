@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'media_type_config.dart';
+import 'enums/media_type.dart';
 
 /// Interestnaut app theme - all values are easily editable here
 class AppTheme {
@@ -170,6 +171,21 @@ class AppTheme {
   static MediaTypeConfig getMediaConfig(String mediaType) {
     return mediaTypes[mediaType] ?? const MediaTypeConfig.unknown();
   }
+
+  // Helper method to get config using the new enum
+  static MediaTypeConfig getMediaConfigFromEnum(MediaType mediaType) {
+    return MediaTypeConfig(
+      displayName: mediaType.displayName,
+      pluralDisplayName: mediaType.pluralDisplayName,
+      icon: mediaType.icon,
+      fallbackIcon: mediaType.fallbackIcon,
+      listName: mediaType.listName,
+      listActionName: mediaType.listActionName,
+      searchPlaceholder: mediaType.searchPlaceholder,
+      estimatedDbSize: mediaType.estimatedDbSize,
+      headerDisplayName: mediaType.headerDisplayName,
+    );
+  }
   
   static String getMediaDisplayName(String mediaType) {
     return getMediaConfig(mediaType).displayName;
@@ -339,6 +355,24 @@ class AppTheme {
     color: textTertiary,
     letterSpacing: 0.8, // More exaggerated wide letter spacing
     height: 1.6,
+  );
+
+  // Settings drawer media header style - matches SUGGESTED header with horizontal transform
+  static const TextStyle settingsMediaHeaderStyle = TextStyle(
+    fontFamily: fontFamily,
+    fontWeight: FontWeight.w200,
+    fontSize: 20,
+    letterSpacing: 3.0,
+    color: textPrimary,
+  );
+
+  // Reasoning section headers style - bolder and closer letter spacing
+  static const TextStyle reasoningHeaderStyle = TextStyle(
+    fontFamily: fontFamily,
+    fontWeight: FontWeight.w600, // Thicker lines
+    fontSize: 13,
+    letterSpacing: 1.2, // Closer together than 2.0
+    color: primaryColor,
   );
 
 

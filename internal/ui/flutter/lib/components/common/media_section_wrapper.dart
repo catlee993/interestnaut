@@ -912,7 +912,7 @@ class MediaSectionWrapper extends StatelessWidget {
                     ),
                   ),
                 )
-              : _buildLibraryGrid(),
+              : _buildLibraryGrid(context),
         ),
       ],
     );
@@ -935,7 +935,7 @@ class MediaSectionWrapper extends StatelessWidget {
     );
   }
 
-  Widget _buildLibraryGrid() {
+  Widget _buildLibraryGrid(BuildContext context) {
     // Always use the media type default format for grids (square for music, poster for others)
     final gridCardFormat = MediaLibraryGrid.getCardFormatForMediaType(mediaType);
     return MediaLibraryGrid(
@@ -947,6 +947,7 @@ class MediaSectionWrapper extends StatelessWidget {
       watchlistItems: controller.dbWatchlistSuggestions,
       favoriteItems: controller.dbLikedSuggestions, // All library items are favorites
       cardFormat: gridCardFormat,
+      onTap: (suggestion) => _showMediaLibraryItemDrawer(context, suggestion), // Add tap callback for drawer
     );
   }
   
