@@ -703,6 +703,254 @@ class VectorDatabase {
     return results;
   }
 
+  /// 🎯 NEW: Search based on user-defined constraints (Include/Exclude)
+  /// This is the missing constraint-based search that should be used when users have explicit preferences
+  /// 🎯 OPTIMIZED: Uses paginated search with proper memory management to cover entire database
+  Future<List<MediaSearchResult>> searchByConstraints({
+    required String mediaType,
+    required List<String> includeConstraints,  // Must match ALL of these
+    required List<String> excludeConstraints,  // Must NOT match ANY of these
+    required List<String> excludeIds,          // Already suggested items
+    int limit = 1,
+    double similarityThreshold = 0.5,          // From user settings (0.0-1.0)
+    int batchSize = 1000,                      // Process in batches to manage memory
+    int maxBatches = 400,                      // Maximum batches to process (400k items max)
+    bool Function()? isCancelled,              // Function to check if operation is cancelled
+  }) async {
+    await _ensureInitialized();
+    
+    if (!_shards.containsKey(mediaType)) {
+      throw Exception('Media type $mediaType not available');
+    }
+
+    if (includeConstraints.isEmpty) {
+      debugPrint('[CONSTRAINT-SEARCH] No include constraints provided, falling back to behavioral matching');
+      return [];
+    }
+
+    try {
+      debugPrint('[CONSTRAINT-SEARCH] Starting paginated constraint-based search for $mediaType');
+      debugPrint('[CONSTRAINT-SEARCH] Include constraints: ${includeConstraints.join(', ')}');
+      debugPrint('[CONSTRAINT-SEARCH] Exclude constraints: ${excludeConstraints.join(', ')}');
+      debugPrint('[CONSTRAINT-SEARCH] Similarity threshold: $similarityThreshold');
+      
+      final db = _shards[mediaType]!;
+      final hasAlbum = mediaType == 'music';
+      
+      // Get total count for pagination
+      final countStmt = db.prepare('SELECT COUNT(*) as count FROM media_vectors');
+      final countResult = countStmt.select([]);
+      countStmt.dispose();
+      final totalCount = countResult.first['count'] as int;
+      
+      debugPrint('[CONSTRAINT-SEARCH] Total items: $totalCount, will process in batches of $batchSize');
+      
+      // Generate random offset to ensure we don't always start from the same place
+      final random = Random();
+      int startOffset = random.nextInt(max(1, totalCount ~/ 4)); // Random start within first 25%
+      
+      final candidates = <Map<String, dynamic>>[];
+      int itemsProcessed = 0;
+      int batchesProcessed = 0;
+      
+      // Process in randomized batches to cover different parts of the database
+      while (batchesProcessed < maxBatches && candidates.length < (limit * 3)) {
+        final currentOffset = (startOffset + (batchesProcessed * batchSize)) % totalCount;
+        
+        debugPrint('[CONSTRAINT-BATCH] Processing batch ${batchesProcessed + 1}/$maxBatches, offset: $currentOffset');
+        
+        // Check for cancellation
+        if (isCancelled != null && isCancelled()) {
+          debugPrint('[CONSTRAINT-CANCELLED] Search cancelled by user');
+          return [];
+        }
+        
+        // Build SQL WHERE clause for database-level filtering
+        final whereConditions = <String>[];
+        final params = <dynamic>[];
+        
+        // Add INCLUDE constraints using LIKE operators (must match ALL)
+        for (final constraint in includeConstraints) {
+          final likePattern = '%${constraint.toLowerCase()}%';
+          whereConditions.add('''
+            (LOWER(title) LIKE ? OR 
+             LOWER(artist) LIKE ? OR 
+             LOWER(description) LIKE ? OR 
+             LOWER(themes) LIKE ?)
+          ''');
+          params.addAll([likePattern, likePattern, likePattern, likePattern]);
+        }
+        
+        // Add EXCLUDE constraints using NOT LIKE operators (must NOT match ANY)
+        for (final constraint in excludeConstraints) {
+          final likePattern = '%${constraint.toLowerCase()}%';
+          whereConditions.add('''
+            NOT (LOWER(title) LIKE ? OR 
+                 LOWER(artist) LIKE ? OR 
+                 LOWER(description) LIKE ? OR 
+                 LOWER(themes) LIKE ?)
+          ''');
+          params.addAll([likePattern, likePattern, likePattern, likePattern]);
+        }
+        
+        // Add exclude IDs if provided
+        if (excludeIds.isNotEmpty) {
+          final placeholders = excludeIds.map((_) => '?').join(', ');
+          whereConditions.add('media_id NOT IN ($placeholders)');
+          params.addAll(excludeIds);
+        }
+        
+        final whereClause = whereConditions.isNotEmpty ? 'WHERE ${whereConditions.join(' AND ')}' : '';
+        
+        // Execute the batch query
+        final query = '''
+          SELECT media_id, title, artist, ${hasAlbum ? 'album,' : ''} description, themes, 
+                 wiki_url, wikidata_id, image_url
+          FROM media_vectors 
+          $whereClause
+          LIMIT ? OFFSET ?
+        ''';
+        
+        params.addAll([batchSize, currentOffset]);
+        
+        final stmt = db.prepare(query);
+        final results = stmt.select(params);
+        stmt.dispose();
+        
+        debugPrint('[CONSTRAINT-BATCH] Batch ${batchesProcessed + 1} returned ${results.length} candidates');
+        
+        // Log progress for UI (since we can't emit events from isolate)
+        final progressPercent = (batchesProcessed / maxBatches * 100).toStringAsFixed(1);
+        debugPrint('[CONSTRAINT-PROGRESS] ${progressPercent}% complete - processed ${batchesProcessed} batches, found ${candidates.length} matches');
+        
+        // Process this batch
+        for (final row in results) {
+          itemsProcessed++;
+          
+          final mediaId = row['media_id'] as String;
+          
+          // Get all searchable text fields
+          final title = (row['title'] as String? ?? '').toLowerCase();
+          final artist = (row['artist'] as String? ?? '').toLowerCase();
+          final description = (row['description'] as String? ?? '').toLowerCase();
+          final themes = (row['themes'] as String? ?? '').toLowerCase();
+          
+          final allText = '$title $artist $description $themes';
+          
+          // Double-check INCLUDE constraints (must match ALL) - more precise than SQL LIKE
+          bool matchesAllIncludes = true;
+          for (final constraint in includeConstraints) {
+            final normalizedConstraint = constraint.toLowerCase();
+            if (!allText.contains(normalizedConstraint)) {
+              matchesAllIncludes = false;
+              break;
+            }
+          }
+          
+          if (!matchesAllIncludes) {
+            continue; // Doesn't match all required constraints
+          }
+          
+          // Double-check EXCLUDE constraints (must NOT match ANY) - more precise than SQL LIKE
+          bool matchesAnyExclude = false;
+          for (final constraint in excludeConstraints) {
+            final normalizedConstraint = constraint.toLowerCase();
+            if (allText.contains(normalizedConstraint)) {
+              matchesAnyExclude = true;
+              break;
+            }
+          }
+          
+          if (matchesAnyExclude) {
+            continue; // Contains excluded constraint
+          }
+          
+          // Calculate match strength based on constraint relevance
+          double matchStrength = 0.0;
+          
+          // Higher score for matches in title/artist vs description/themes
+          for (final constraint in includeConstraints) {
+            final normalizedConstraint = constraint.toLowerCase();
+            if (title.contains(normalizedConstraint)) {
+              matchStrength += 0.4; // Title match = highest relevance
+            } else if (artist.contains(normalizedConstraint)) {
+              matchStrength += 0.3; // Artist match = high relevance
+            } else if (themes.contains(normalizedConstraint)) {
+              matchStrength += 0.2; // Theme match = medium relevance
+            } else if (description.contains(normalizedConstraint)) {
+              matchStrength += 0.1; // Description match = lower relevance
+            }
+          }
+          
+          // Normalize match strength
+          matchStrength = (matchStrength / includeConstraints.length).clamp(0.0, 1.0);
+          
+          // Apply similarity threshold
+          if (matchStrength >= similarityThreshold) {
+            candidates.add({
+              'mediaId': mediaId,
+              'title': row['title'] as String?,
+              'artist': row['artist'] as String?,
+              'album': hasAlbum ? row['album'] as String? : null,
+              'description': row['description'] as String?,
+              'themes': row['themes'] as String?,
+              'wikiUrl': row['wiki_url'] as String?,
+              'wikidataId': row['wikidata_id'] as String?,
+              'coverArtUrl': row['image_url'] as String?,
+              'matchStrength': matchStrength,
+            });
+            
+            if (candidates.length <= 3) { // Only log first few matches to avoid spam
+              debugPrint('[CONSTRAINT-MATCH] ✅ "${row['title']}" matched all constraints (strength: ${matchStrength.toStringAsFixed(3)})');
+            }
+          }
+        }
+        
+        batchesProcessed++;
+        
+        // Early exit if we have enough good candidates
+        if (candidates.length >= (limit * 3)) {
+          debugPrint('[CONSTRAINT-EARLY-EXIT] Found sufficient candidates (${candidates.length}), stopping early');
+          break;
+        }
+        
+        // Yield control to prevent isolate blocking
+        await Future.delayed(Duration.zero);
+      }
+      
+      debugPrint('[CONSTRAINT-COMPLETE] Processed $itemsProcessed items across $batchesProcessed batches, found ${candidates.length} matches');
+      
+      // Sort by match strength (highest first) and return top results
+      candidates.sort((a, b) => (b['matchStrength'] as double).compareTo(a['matchStrength'] as double));
+      final topResults = candidates.take(limit).toList();
+      
+      if (topResults.isNotEmpty) {
+        final winner = topResults.first;
+        debugPrint('[CONSTRAINT-WINNER] Selected: "${winner['title']}" (Match strength: ${winner['matchStrength']})');
+      } else {
+        debugPrint('[CONSTRAINT-NO-MATCHES] No items matched all constraints with sufficient strength');
+      }
+      
+      return topResults.map((item) => MediaSearchResult(
+        mediaId: item['mediaId'] as String,
+        title: item['title'] as String?,
+        artist: item['artist'] as String?,
+        album: item['album'] as String?,
+        description: item['description'] as String?,
+        themes: item['themes'] as String?,
+        wikiUrl: item['wikiUrl'] as String?,
+        wikidataId: item['wikidataId'] as String?,
+        coverArtUrl: item['coverArtUrl'] as String?,
+        similarity: item['matchStrength'] as double,
+        mediaType: mediaType,
+      )).toList();
+      
+    } catch (e) {
+      debugPrint('❌ [CONSTRAINT-SEARCH] Error in constraint-based search: $e');
+      return [];
+    }
+  }
+
   /// Check if a media type is available locally
   bool isMediaTypeAvailable(String mediaType) {
     return _shards.containsKey(mediaType);

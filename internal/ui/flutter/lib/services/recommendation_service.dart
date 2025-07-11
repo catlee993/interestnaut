@@ -765,6 +765,7 @@ class RecommendationService extends ChangeNotifier {
   final Map<String, bool> _queueBeingFilled = {};
   final Map<String, int> _pendingQueueCounts = {};
   final Map<String, bool> _backgroundGenerationInProgress = {};
+  final Map<String, Completer<void>> _cancellationTokens = {};  // For cancelling operations
   
   Timer? _queueTimer;
   
@@ -1126,6 +1127,9 @@ class RecommendationService extends ChangeNotifier {
 
     _queueBeingFilled[mediaType] = true;
 
+    // Create cancellation token
+    _cancellationTokens[mediaType] = Completer<void>();
+
     // Emit started event
     _eventService.emitSuggestionStarted(mediaType);
 
@@ -1144,6 +1148,7 @@ class RecommendationService extends ChangeNotifier {
     // Start background generation without blocking - new isolate system handles everything
     _generateSuggestionAsyncFull(mediaType).then((result) {
       _queueBeingFilled[mediaType] = false;
+      _cancellationTokens.remove(mediaType);
       if (result != null) {
         debugPrint('✅ Background suggestion ready: ${result.title}');
         _eventService.emitSuggestionReady(mediaType, result);
@@ -1154,11 +1159,35 @@ class RecommendationService extends ChangeNotifier {
       }
     }).catchError((e, stackTrace) {
       _queueBeingFilled[mediaType] = false;
+      _cancellationTokens.remove(mediaType);
       debugPrint('❌ Error in background suggestion generation: $e');
       _eventService.emitSuggestionError(mediaType, e.toString());
     });
 
     return loadingSuggestion;
+  }
+
+  /// Cancel ongoing suggestion generation for a media type
+  void cancelSuggestionGeneration(String mediaType) {
+    debugPrint('🚫 Cancelling suggestion generation for $mediaType');
+    
+    final cancellationToken = _cancellationTokens[mediaType];
+    if (cancellationToken != null && !cancellationToken.isCompleted) {
+      cancellationToken.complete();
+      debugPrint('✅ Cancellation token completed for $mediaType');
+    }
+    
+    _queueBeingFilled[mediaType] = false;
+    _backgroundGenerationInProgress[mediaType] = false;
+    _cancellationTokens.remove(mediaType);
+    
+    _eventService.emitSuggestionError(mediaType, 'Cancelled by user');
+  }
+
+  /// Check if suggestion generation is in progress for a media type
+  bool isSuggestionGenerationInProgress(String mediaType) {
+    return _queueBeingFilled[mediaType] == true || 
+           _backgroundGenerationInProgress[mediaType] == true;
   }
 
   /// Generate suggestion in background and emit events when ready
@@ -1720,7 +1749,8 @@ class RecommendationService extends ChangeNotifier {
       buffer.writeln('**$capitalizedMediaType Themes**');
       buffer.writeln('━━━━━━━━━━━━━━━');
       if (mediaThemes.isNotEmpty) {
-        for (final theme in mediaThemes.take(3)) {
+        // Show ALL themes that were matched on (not just first 3)
+        for (final theme in mediaThemes) {
           buffer.writeln('• $theme');
         }
       } else {
@@ -2163,7 +2193,7 @@ class RecommendationService extends ChangeNotifier {
       debugPrint('✅ [PURE-ISOLATE] Vector database initialized: $appSupportPath/vectors/vectors_${targetMediaType == 'video_game' ? 'games' : targetMediaType == 'tv_show' ? 'tv' : targetMediaType == 'movie' ? 'movies' : targetMediaType == 'music' ? 'music' : 'books'}.db');
       
       // Step 2: Use behavioral matching or fallback to random
-      List<MediaResult> searchResults;
+      List<MediaResult> searchResults = [];
       
       if (userProfileData != null) {
         debugPrint('🎯 [PURE-ISOLATE] Attempting behavioral matching...');
@@ -2175,8 +2205,68 @@ class RecommendationService extends ChangeNotifier {
         final userConstraints = userProfileData['userConstraints'] as List<String>? ?? [];
         if (userConstraints.isNotEmpty) {
           debugPrint('🎯 [PURE-ISOLATE] Using constraint-based search for: ${userConstraints.join(', ')}');
-          debugPrint('⚠️ [PURE-ISOLATE] Constraint search not implemented, falling back to behavioral matching');
-          // Fall back to behavioral matching
+          
+          // Extract include and exclude constraints from the user constraints
+          final includeConstraints = <String>[];
+          final excludeConstraints = <String>[];
+          
+          for (final constraint in userConstraints) {
+            if (constraint.startsWith('Include: ')) {
+              includeConstraints.add(constraint.substring('Include: '.length));
+            } else if (constraint.startsWith('Exclude: ')) {
+              excludeConstraints.add(constraint.substring('Exclude: '.length));
+            }
+          }
+          
+          if (includeConstraints.isNotEmpty) {
+            debugPrint('🎯 [CONSTRAINT-SEARCH] Include: ${includeConstraints.join(', ')}');
+            debugPrint('🎯 [CONSTRAINT-SEARCH] Exclude: ${excludeConstraints.join(', ')}');
+            
+            try {
+              // Create real VectorDatabase instance for constraint search
+              final constraintVectorDb = VectorDatabase();
+              await constraintVectorDb.init();
+              
+                      final constraintResults = await constraintVectorDb.searchByConstraints(
+          mediaType: mediaType,
+          includeConstraints: includeConstraints,
+          excludeConstraints: excludeConstraints,
+          excludeIds: behavioralData['excludeIds'] as List<String>,
+          limit: 1,
+          similarityThreshold: behavioralData['similarityThreshold'] as double,
+          isCancelled: () => false,  // TODO: Add proper cancellation support in isolate
+        );
+              
+              if (constraintResults.isNotEmpty) {
+                debugPrint('✅ [CONSTRAINT-SEARCH] Found ${constraintResults.length} constraint-based matches');
+                final result = constraintResults.first;
+                
+                searchResults = [MediaResult(
+                  title: _getSafeTitle(result.title, result.artist),
+                  artist: result.artist,
+                  album: result.album,
+                  coverArtUrl: result.coverArtUrl,
+                  description: result.description,
+                  wikiUrl: result.wikiUrl,
+                  wikidataId: result.wikidataId,
+                  themes: result.themes,
+                  mediaId: result.mediaId,
+                )];
+                
+                debugPrint('✅ [CONSTRAINT-SUCCESS] Using constraint result: ${result.title}');
+                // Skip behavioral matching since we found a constraint match
+              } else {
+                debugPrint('⚠️ [CONSTRAINT-EMPTY] No constraint matches found, falling back to behavioral matching');
+              }
+            } catch (e) {
+              debugPrint('❌ [CONSTRAINT-ERROR] Constraint search failed: $e, falling back to behavioral matching');
+            }
+          }
+        }
+        
+        // Only use behavioral matching if constraint search failed or no constraints
+        if (searchResults.isEmpty) {
+          debugPrint('🎯 [PURE-ISOLATE] Falling back to behavioral matching...');
           if (behavioralData['hasPositiveSignals']) {
             final behavioralResults = await vectorDb.searchByBehavioralMatch(
               mediaType: mediaType,
@@ -2755,11 +2845,13 @@ class RecommendationService extends ChangeNotifier {
     buffer.writeln('**Matched Themes**');
     buffer.writeln('━━━━━━━━━━━━━━━');
     if (matchingThemes.isNotEmpty) {
-      for (final theme in matchingThemes.take(3)) {
+      // Show ALL matching themes (not just first 3)
+      for (final theme in matchingThemes) {
         buffer.writeln('• $theme');
       }
     } else if (mediaThemes.isNotEmpty) {
-      for (final theme in mediaThemes.take(3)) {
+      // Show ALL themes if no matching ones (not just first 3)
+      for (final theme in mediaThemes) {
         buffer.writeln('• $theme');
       }
     } else {
@@ -2770,7 +2862,8 @@ class RecommendationService extends ChangeNotifier {
     buffer.writeln('**User Preferences**');
     buffer.writeln('━━━━━━━━━━━━━━━━━');
     if (userThemes.isNotEmpty) {
-      for (final theme in userThemes.take(3)) {
+      // Show more user themes to provide better context (up to 6)
+      for (final theme in userThemes.take(6)) {
         buffer.writeln('• $theme');
       }
     } else {

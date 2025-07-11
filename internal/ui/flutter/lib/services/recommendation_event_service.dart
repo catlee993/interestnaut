@@ -7,6 +7,7 @@ enum RecommendationEventType {
   suggestionReady,
   suggestionError,
   suggestionStarted,
+  suggestionProgress,  // New event for progress updates
 }
 
 /// Event data for recommendation updates
@@ -15,6 +16,8 @@ class RecommendationEvent {
   final String mediaType;
   final MediaSuggestion? suggestion;
   final String? error;
+  final double? progress;  // Progress percentage (0.0-1.0)
+  final String? progressMessage;  // Human-readable progress message
   final DateTime timestamp;
 
   RecommendationEvent({
@@ -22,6 +25,8 @@ class RecommendationEvent {
     required this.mediaType,
     this.suggestion,
     this.error,
+    this.progress,
+    this.progressMessage,
   }) : timestamp = DateTime.now();
 }
 
@@ -60,6 +65,17 @@ class RecommendationEventService {
       type: RecommendationEventType.suggestionError,
       mediaType: mediaType,
       error: error,
+    ));
+  }
+
+  /// Emit a suggestion progress event
+  void emitSuggestionProgress(String mediaType, double progress, String message) {
+    debugPrint('📡 Emitting suggestion progress event for $mediaType: ${(progress * 100).toStringAsFixed(1)}% - $message');
+    _eventController.add(RecommendationEvent(
+      type: RecommendationEventType.suggestionProgress,
+      mediaType: mediaType,
+      progress: progress,
+      progressMessage: message,
     ));
   }
 

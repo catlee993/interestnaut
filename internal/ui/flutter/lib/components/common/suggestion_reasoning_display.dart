@@ -174,7 +174,6 @@ class _SuggestionReasoningDisplayState extends State<SuggestionReasoningDisplay>
           final parts = content.split('|');
           final title = parts[0].trim();
           final mediaItemId = parts.length > 1 ? parts[1].trim() : '';
-          debugPrint('🔍 [REASONING-PARSE] Found title: "$title", mediaItemId: "$mediaItemId"');
           matchSources.add({'title': title, 'mediaItemId': mediaItemId});
         } else {
           detectedThemes.add(content);
@@ -186,7 +185,6 @@ class _SuggestionReasoningDisplayState extends State<SuggestionReasoningDisplay>
           final parts = line.split('|');
           final title = parts[0].trim();
           final mediaItemId = parts.length > 1 ? parts[1].trim() : '';
-          debugPrint('🔍 [REASONING-PARSE] Found title: "$title", mediaItemId: "$mediaItemId"');
           matchSources.add({'title': title, 'mediaItemId': mediaItemId});
         } else {
           detectedThemes.add(line);
@@ -273,12 +271,9 @@ class _SuggestionReasoningDisplayState extends State<SuggestionReasoningDisplay>
               
               return GestureDetector(
                 onTap: () {
-                  debugPrint('🔍 [MATCH-SOURCE-TAP] Tapped "$title" with mediaItemId: "$mediaItemId"');
                   if (mediaItemId.isNotEmpty) {
-                    debugPrint('✅ [MATCH-SOURCE-TAP] Using direct SQLite lookup');
                     widget.onMatchSourceTap(context, int.parse(mediaItemId));
                   } else {
-                    debugPrint('⚠️ [MATCH-SOURCE-TAP] No mediaItemId, falling back to similarity search');
                     widget.onMatchSourceFallback(context, title);
                   }
                 },
@@ -368,16 +363,12 @@ class _SuggestionReasoningDisplayState extends State<SuggestionReasoningDisplay>
 
   Widget _buildCustomMatchingContent() {
     final constraints = _customMatchingConstraints!;
-    debugPrint('🔍 [CUSTOM-MATCHING] Using cached constraints: $constraints');
     
     // Database returns 'positive' and 'negative' keys
     final includeItems = (constraints['positive'] as List<dynamic>?)?.cast<String>() ?? [];
     final excludeItems = (constraints['negative'] as List<dynamic>?)?.cast<String>() ?? [];
     
-    debugPrint('🔍 [CUSTOM-MATCHING] Parsed constraints - Include: $includeItems, Exclude: $excludeItems');
-    
     if (includeItems.isEmpty && excludeItems.isEmpty) {
-      debugPrint('🔍 [CUSTOM-MATCHING] No constraints found - hiding custom matching content');
       return const SizedBox.shrink();
     }
     
