@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import '../../services/recommendation_service.dart';
 import '../../utils/text_utils.dart';
 import 'media_library_grid.dart'; // Import for CardFormat enum

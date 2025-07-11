@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../db/vector_db.dart';
+import '../../theme.dart';
 
 /// MediaTypeSettings
 /// Allows users to enable/disable different media types
@@ -91,7 +92,7 @@ class _MediaTypeSettingsState extends State<MediaTypeSettings> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(message),
-          backgroundColor: Colors.red,
+          backgroundColor: AppTheme.errorColor,
           duration: const Duration(seconds: 3),
         ),
       );
@@ -203,7 +204,7 @@ class _MediaTypeSettingsState extends State<MediaTypeSettings> {
                       if (isDownloading)
                         const Text(
                           'Downloading...',
-                          style: TextStyle(color: Colors.orange),
+                          style: TextStyle(color: AppTheme.warningColor),
                         ),
                     ],
                   ),

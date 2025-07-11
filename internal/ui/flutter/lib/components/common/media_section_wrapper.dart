@@ -9,6 +9,7 @@ import 'loading_suggestion.dart';
 import 'base_media_section_controller.dart';
 import 'media_library_grid.dart'; // For CardFormat enum
 import 'scroll_content_wrapper.dart'; // For MediaSectionLayout
+import 'suggestion_reasoning_display.dart'; // New reasoning component
 import '../../theme.dart';
 import '../../utils/text_utils.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
@@ -318,127 +319,168 @@ class MediaSectionWrapper extends StatelessWidget {
     }
   }
 
+  /// Build dynamic content layout with improved scrolling and height management
   Widget _buildDynamicContentLayout({
     required BoxConstraints constraints,
     required BuildContext context,
-    String? description,
-    String? reasoning,
+    required String? description,
+    required String? reasoning,
   }) {
-    // Calculate optimal heights based on content
-    final hasDescription = description?.isNotEmpty == true;
-    final hasReasoning = reasoning?.isNotEmpty == true;
+    // Calculate available height (account for padding and spacing)
+    final availableHeight = constraints.maxHeight - 32; // Account for top/bottom spacing
     
+    // Determine content types
+    final hasDescription = description != null && description.isNotEmpty;
+    final hasReasoning = reasoning != null && reasoning.isNotEmpty;
+    
+    // If no content, show placeholder
     if (!hasDescription && !hasReasoning) {
-      return const SizedBox.shrink();
-    }
-    
-    if (!hasDescription && hasReasoning) {
-      // Only reasoning - use most of the space
-      return Column(
-        children: [
-          Expanded(child: _buildRichTextReasoning(reasoning!, context)),
-        ],
+      return Center(
+        child: Text(
+          'No additional details available',
+          style: AppTheme.mediaDescriptionStyle.copyWith(
+            color: Colors.white54,
+            fontSize: 14,
+          ),
+        ),
       );
     }
     
+    // If only one type of content, give it full height
     if (hasDescription && !hasReasoning) {
-      // Only description - use all space
-      return Column(
-        children: [
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: SingleChildScrollView(
-                child: Text(
-                  description!,
-                  style: AppTheme.mediaDescriptionStyle,
-                  textAlign: TextAlign.center,
-                ),
-              ),
-            ),
-          ),
-        ],
-      );
+      return _buildDescriptionOnlyLayout(description!, availableHeight);
     }
     
-    // Both present - measure description and allocate remaining space to reasoning
-    return LayoutBuilder(
-      builder: (context, innerConstraints) {
-        // Measure how much space the description actually needs
-        final textPainter = TextPainter(
-          text: TextSpan(
-            text: description!,
-            style: AppTheme.mediaDescriptionStyle,
-          ),
-          textDirection: TextDirection.ltr,
-          maxLines: null,
-        );
-        textPainter.layout(maxWidth: innerConstraints.maxWidth);
-        
-                         final descriptionNaturalHeight = textPainter.size.height;
-        final availableHeight = innerConstraints.maxHeight;
-        final spacing = 16.0;
-        final minimumReasoningHeight = 100.0;
-        
-        // Account for ALL spacing overhead in the layout
-        // Description padding (8px) + middle spacing (16px) + reasoning header+divider+spacing (~31px) + reasoning bottom margin (12px)
-        final totalLayoutOverhead = 8.0 + 16.0 + 31.0 + 12.0; // ~67px
-        final usableHeight = availableHeight - totalLayoutOverhead;
-        
-        // Calculate how much space to give each section
-        double descriptionHeight;
-        double reasoningHeight;
-        
-        // Default split: 60% description, 40% reasoning (based on usable height)
-        final descriptionPreferredSpace = usableHeight * 0.6;
-        final reasoningPreferredSpace = usableHeight * 0.4;
-        
-        if (descriptionNaturalHeight <= descriptionPreferredSpace) {
-          // Description fits in preferred space or less - give it what it needs
-          descriptionHeight = descriptionNaturalHeight + 8.0; // Include its padding
-          reasoningHeight = availableHeight - descriptionHeight - spacing;
-        } else {
-          // Description needs more than 60% - give description 60%, reasoning 40%
-          descriptionHeight = descriptionPreferredSpace + 8.0; // Include its padding
-          reasoningHeight = reasoningPreferredSpace + spacing; // Include remaining overhead
-        }
-        
-        return Column(
-          children: [
-            // Description with calculated height - account for its own padding
-            Container(
-              height: descriptionHeight,
-              padding: const EdgeInsets.only(bottom: 8),
-              child: SingleChildScrollView(
-                child: Text(
-                  description!,
-                  style: AppTheme.mediaDescriptionStyle,
-                  textAlign: TextAlign.center,
-                ),
-              ),
-            ),
-            
-            SizedBox(height: spacing),
-            
-            // Reasoning with remaining height
-            SizedBox(
-              height: reasoningHeight,
-              child: _buildRichTextReasoning(reasoning!, context),
-            ),
-          ],
-        );
-      },
+    if (hasReasoning && !hasDescription) {
+      return _buildReasoningOnlyLayout(reasoning!, availableHeight, context);
+    }
+    
+    // Both description and reasoning exist - smart allocation
+    return _buildDualContentLayout(
+      description: description!,
+      reasoning: reasoning!,
+      availableHeight: availableHeight,
+      context: context,
     );
   }
 
-  Widget _buildRichTextReasoning(String reasoning, BuildContext context) {
+  /// Build layout with description only (full height)
+  Widget _buildDescriptionOnlyLayout(String description, double availableHeight) {
     return Container(
-      width: double.infinity,
+      height: availableHeight,
       child: SingleChildScrollView(
-        child: _buildIndependentReasoningSections(reasoning, mediaType, context),
+        child: Text(
+          description,
+          style: AppTheme.mediaDescriptionStyle.copyWith(
+            fontSize: 14,
+            height: 1.5,
+          ),
+          textAlign: TextAlign.center,
+        ),
       ),
     );
   }
+
+  /// Build layout with reasoning only (full height)
+  Widget _buildReasoningOnlyLayout(String reasoning, double availableHeight, BuildContext context) {
+    return Container(
+      height: availableHeight,
+      child: SuggestionReasoningDisplay(
+        reasoning: reasoning,
+        mediaType: mediaType,
+        onMatchSourceTap: _showItemDrawerByMediaItemId,
+        onMatchSourceFallback: _showItemDrawer,
+      ),
+    );
+  }
+
+  /// Build dual content layout with smart allocation
+  Widget _buildDualContentLayout({
+    required String description,
+    required String reasoning,
+    required double availableHeight,
+    required BuildContext context,
+  }) {
+    // Calculate content sizes for smart allocation
+    final descriptionLength = description.length;
+    final reasoningComplexity = _calculateReasoningComplexity(reasoning);
+    
+    // Smart height allocation based on content
+    double descriptionRatio;
+    
+    if (descriptionLength < 200 && reasoningComplexity > 0.7) {
+      // Short description, complex reasoning -> favor reasoning
+      descriptionRatio = 0.25;
+    } else if (descriptionLength > 800 && reasoningComplexity < 0.5) {
+      // Long description, simple reasoning -> favor description
+      descriptionRatio = 0.65;
+    } else {
+      // Balanced allocation
+      descriptionRatio = 0.4;
+    }
+    
+    final descriptionHeight = (availableHeight * descriptionRatio).clamp(80.0, availableHeight * 0.7);
+    final reasoningHeight = availableHeight - descriptionHeight - 16; // 16px spacing
+    
+    return Column(
+      children: [
+        // Description section with calculated height
+        Container(
+          height: descriptionHeight,
+          child: SingleChildScrollView(
+            child: Text(
+              description,
+              style: AppTheme.mediaDescriptionStyle.copyWith(
+                fontSize: 14,
+                height: 1.5,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ),
+        
+        const SizedBox(height: 16),
+        
+        // Reasoning section with remaining height
+        Container(
+          height: reasoningHeight,
+          child: SuggestionReasoningDisplay(
+            reasoning: reasoning,
+            mediaType: mediaType,
+            onMatchSourceTap: _showItemDrawerByMediaItemId,
+            onMatchSourceFallback: _showItemDrawer,
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Calculate reasoning complexity (0.0 to 1.0)
+  double _calculateReasoningComplexity(String reasoning) {
+    if (reasoning.isEmpty) return 0.0;
+    
+    double complexity = 0.0;
+    
+    // Factor 1: Length (more content = more complex)
+    final lengthFactor = (reasoning.length / 500).clamp(0.0, 0.3);
+    complexity += lengthFactor;
+    
+    // Factor 2: Number of sections (more sections = more complex)
+    final sectionCount = reasoning.split('**').length / 2;
+    final sectionFactor = (sectionCount / 3).clamp(0.0, 0.3);
+    complexity += sectionFactor;
+    
+    // Factor 3: Match sources (clickable items = more interactive)
+    final matchSourceLines = reasoning.split('\n').where((line) => 
+      line.trim().isNotEmpty && !line.startsWith('**') && !line.startsWith('━')
+    ).length;
+    final interactivityFactor = (matchSourceLines / 10).clamp(0.0, 0.4);
+    complexity += interactivityFactor;
+    
+    return complexity.clamp(0.0, 1.0);
+  }
+
+
 
   void _showMediaDrawer(BuildContext context, MediaDetailDrawer drawer) {
     // Close any existing modals before opening new one (ensures single instance)
@@ -798,285 +840,17 @@ class MediaSectionWrapper extends StatelessWidget {
     );
   }
 
-  Widget _buildIndependentReasoningSections(String reasoning, String mediaType, BuildContext context) {
-    // Parse the structured reasoning text into two clean sections
-    final lines = reasoning.split('\n');
-    final detectedThemes = <String>[];
-    final matchSources = <String>[];
-    
-    List<String> currentSection = detectedThemes;
-    bool isFirstSection = true;
-    
-    for (int i = 0; i < lines.length; i++) {
-      final line = lines[i].trim();
-      if (line.isEmpty) continue;
-      
-      if (line.startsWith('**') && line.endsWith('**')) {
-        // Switch to second section on second header
-        if (!isFirstSection) {
-          currentSection = matchSources;
-        }
-        isFirstSection = false;
-        continue;
-      } else if (line.startsWith('━')) {
-        // Skip ASCII underlines
-        continue;
-      } else if (line.startsWith('• ')) {
-        // Remove bullet and add to section
-        currentSection.add(line.substring(2));
-      } else if (line.isNotEmpty) {
-        // Regular text line
-        currentSection.add(line);
-      }
-    }
-    
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Detected Themes Section
-        if (detectedThemes.isNotEmpty) ...[
-          _buildCleanSection(
-            title: 'Detected Themes',
-            items: detectedThemes,
-            rightAlign: false,
-            onChipTap: null, // Remove linking behavior for themes
-          ),
-          const SizedBox(height: 16),
-        ],
-        
-        // Match Sources Section  
-        if (matchSources.isNotEmpty) ...[
-          _buildCleanSection(
-            title: 'Match Sources',
-            items: matchSources,
-            rightAlign: false, // Keep consistent alignment
-            onChipTap: (item) => _showItemDrawer(context, item), // Keep linking for match sources
-          ),
-        ],
-      ],
-    );
-  }
 
-  Widget _buildCleanSection({
-    required String title,
-    required List<String> items,
-    required bool rightAlign,
-    Function(String)? onChipTap,
-  }) {
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.only(bottom: 8),
-      child: Column(
-        crossAxisAlignment: rightAlign ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-        children: [
-          // Section title
-          Text(
-            title,
-            style: AppTheme.headerSelectorStyle.copyWith(
-              fontSize: 13,
-              color: AppTheme.primaryColor,
-              letterSpacing: 1.0,
-              fontWeight: FontWeight.w500, // Make purple headers bolder
-            ),
-          ),
-          const SizedBox(height: 6),
-          
-          // Smart layout: dots for short items, wrapping for long ones
-          _buildSmartItemLayout(items, rightAlign, onChipTap),
-        ],
-      ),
-    );
-  }
 
-  Widget _buildSmartItemLayout(List<String> items, bool rightAlign, Function(String)? onChipTap) {
-    // Always use clickable chips when onChipTap is provided (for drawer functionality)
-    if (onChipTap != null) {
-      return Wrap(
-        alignment: rightAlign ? WrapAlignment.end : WrapAlignment.start,
-        spacing: 12.0, // Horizontal spacing between items
-        runSpacing: 4.0, // Vertical spacing between lines
-        children: items.map((item) => GestureDetector(
-          onTap: () => onChipTap(item),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.12),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: const Color(0xFF8C86E2).withOpacity(0.4),
-                width: 0.5,
-              ),
-            ),
-            child: Text(
-              item,
-              style: TextStyle(
-                fontFamily: 'Inter',
-                fontWeight: FontWeight.w300,
-                fontSize: 12,
-                color: Colors.white.withOpacity(0.9),
-                letterSpacing: 0.2,
-              ),
-            ),
-          ),
-        )).toList(),
-      );
-    } else {
-      // Check if all items are reasonably short for dot layout (fallback for non-clickable items)
-      final allShort = items.every((item) => item.length <= 25);
-      
-      if (allShort && items.length <= 4) {
-        // Use dot-separated layout for short items - not clickable
-        return Text(
-          items.join(' • '),
-          style: TextStyle(
-            fontFamily: 'Inter',
-            fontWeight: FontWeight.w300,
-            fontSize: 13,
-            color: Colors.white.withOpacity(0.85),
-            letterSpacing: 0.3,
-            height: 1.4,
-          ),
-          textAlign: rightAlign ? TextAlign.right : TextAlign.left,
-        );
-      } else {
-        // Use wrapping layout for longer items - not clickable
-        return Wrap(
-          alignment: rightAlign ? WrapAlignment.end : WrapAlignment.start,
-          spacing: 12.0,
-          runSpacing: 4.0,
-          children: items.map((item) => Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: Colors.white.withOpacity(0.2),
-                width: 0.5,
-              ),
-            ),
-            child: Text(
-              item,
-              style: TextStyle(
-                fontFamily: 'Inter',
-                fontWeight: FontWeight.w300,
-                fontSize: 12,
-                color: Colors.white.withOpacity(0.9),
-                letterSpacing: 0.2,
-              ),
-            ),
-          )).toList(),
-        );
-      }
-    }
-  }
 
-  Widget _buildColumnarReasoningContent(String reasoning, String mediaType) {
-    // Parse the structured reasoning text into two sections
-    final lines = reasoning.split('\n');
-    final firstSectionWidgets = <Widget>[];
-    final secondSectionWidgets = <Widget>[];
-    
-    List<Widget> currentSection = firstSectionWidgets;
-    bool isFirstSection = true;
-    
-    for (int i = 0; i < lines.length; i++) {
-      final line = lines[i].trim();
-      if (line.isEmpty) continue;
-      
-      if (line.startsWith('**') && line.endsWith('**')) {
-        // Header line - switch to second section if this is the second header
-        String headerText;
-        
-        if (isFirstSection) {
-          headerText = 'Detected Themes';
-          currentSection = firstSectionWidgets;
-        } else {
-          headerText = 'Match Sources';
-          currentSection = secondSectionWidgets;
-        }
-        isFirstSection = false;
-        
-        currentSection.add(
-          Container(
-            width: double.infinity,
-            margin: EdgeInsets.only(
-              bottom: 8, 
-              top: currentSection == secondSectionWidgets ? 16 : 0
-            ),
-            child: Text(
-              headerText,
-              style: const TextStyle(
-                fontFamily: 'Inter',
-                fontWeight: FontWeight.w300,
-                fontSize: 15.0,
-                color: Color(0xFF8C86E2),
-                letterSpacing: 0.5,
-              ).copyWith(
-                color: const Color(0xFF8C86E2).withOpacity(0.9),
-              ),
-              textAlign: TextAlign.center,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-        );
-      } else if (line.startsWith('━')) {
-        // Skip ASCII underlines - we use proper underlines now
-        continue;
-      } else if (line.startsWith('• ')) {
-        // Remove bullet and center the text
-        final bulletText = line.substring(2);
-        currentSection.add(
-          Container(
-            width: double.infinity,
-            margin: const EdgeInsets.only(bottom: 3),
-            child: Text(
-              bulletText,
-              style: TextStyle(
-                fontFamily: 'Inter',
-                fontWeight: FontWeight.w300,
-                fontSize: 13,
-                color: Colors.white.withOpacity(0.85),
-                letterSpacing: 0.3,
-                height: 1.3,
-              ),
-              textAlign: TextAlign.center,
-            ),
-          ),
-        );
-      } else {
-        // Regular text line
-        currentSection.add(
-          Container(
-            width: double.infinity,
-            margin: const EdgeInsets.only(bottom: 3),
-            child: Text(
-              line,
-              style: TextStyle(
-                fontFamily: 'Inter',
-                fontWeight: FontWeight.w300,
-                fontSize: 13,
-                color: Colors.white.withOpacity(0.85),
-                letterSpacing: 0.3,
-                height: 1.3,
-              ),
-              textAlign: TextAlign.center,
-            ),
-          ),
-        );
-      }
-    }
-    
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        // First section - Detected Themes
-        ...firstSectionWidgets,
-        // Second section - Match Sources  
-        ...secondSectionWidgets,
-      ],
-    );
-  }
+
+
+
+
+
+
+
+
 
   // Helper method to build watchlist section (matches TV section exactly)
   Widget _buildWatchlistSection(BuildContext context) {
@@ -1218,6 +992,47 @@ class MediaSectionWrapper extends StatelessWidget {
         controller.loadDbLibrary();
         controller.loadDbWatchlist();
         break;
+    }
+  }
+
+  /// Show item drawer by media_item_id (direct SQLite lookup - fastest)
+  Future<void> _showItemDrawerByMediaItemId(BuildContext context, int mediaItemId) async {
+    try {
+      debugPrint('🔍 [DRAWER-SQLITE] Looking up item by media_item_id: $mediaItemId');
+      
+      final db = SQLiteDatabase();
+      await db.init();
+      
+      // Get the media item directly from SQLite
+      final mediaItemData = await db.getMediaItemById(mediaItemId);
+      
+      if (mediaItemData == null) {
+        debugPrint('❌ [DRAWER-SQLITE] No media item found with ID: $mediaItemId');
+        _showErrorDialog(context, 'Media item not found');
+        return;
+      }
+      
+      // Convert SQLite data to MediaSearchResult format
+      final item = MediaSearchResult(
+        title: mediaItemData['title'] as String,
+        artist: mediaItemData['primaryCreator'] as String?,
+        album: null, // Not stored in media_items table
+        description: mediaItemData['description'] as String?,
+        themes: mediaItemData['themes'] as String?,
+        coverArtUrl: mediaItemData['coverArtUrl'] as String?,
+        wikiUrl: mediaItemData['wikiUrl'] as String?,
+        wikidataId: mediaItemData['wikidataId'] as String?,
+        mediaId: mediaItemData['vectorMediaId'] as String,
+        similarity: 1.0, // Direct lookup, perfect match
+        mediaType: mediaType,
+      );
+      
+      debugPrint('✅ [DRAWER-SQLITE] Found item: "${item.title}" by "${item.artist}"');
+      await _showItemDrawerDirect(context, item);
+      
+    } catch (e) {
+      debugPrint('❌ [DRAWER-SQLITE] Error showing item drawer by media_item_id: $e');
+      _showErrorDialog(context, 'Failed to load item details: $e');
     }
   }
 } 

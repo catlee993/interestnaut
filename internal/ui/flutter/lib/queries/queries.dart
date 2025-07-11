@@ -123,16 +123,66 @@ CREATE TABLE IF NOT EXISTS media_metadata (
 CREATE INDEX IF NOT EXISTS idx_media_metadata_key ON media_metadata(key);
 ''';
 
-// Create user constraints table
-const String createUserConstraintsTableQuery = '''
-CREATE TABLE IF NOT EXISTS user_constraints (
+// Create media blends table
+const String createMediaBlendsTableQuery = '''
+CREATE TABLE IF NOT EXISTS media_blends (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  primary_media_type_id INTEGER NOT NULL,
+  blended_media_type_id INTEGER NOT NULL,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (primary_media_type_id) REFERENCES media_types (id),
+  FOREIGN KEY (blended_media_type_id) REFERENCES media_types (id),
+  UNIQUE(primary_media_type_id, blended_media_type_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_media_blends_primary ON media_blends(primary_media_type_id);
+''';
+
+// Create media matching table
+const String createMediaMatchingTableQuery = '''
+CREATE TABLE IF NOT EXISTS media_matching (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   media_type_id INTEGER NOT NULL,
   value TEXT NOT NULL,
-  FOREIGN KEY (media_type_id) REFERENCES media_types (id)
+  is_positive BOOLEAN NOT NULL,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (media_type_id) REFERENCES media_types (id),
+  UNIQUE(media_type_id, value)
 );
 
-CREATE INDEX IF NOT EXISTS idx_user_constraints_media_type ON user_constraints(media_type_id);
+CREATE INDEX IF NOT EXISTS idx_media_matching_type ON media_matching(media_type_id);
+''';
+
+// Create media priority titles table
+const String createMediaPriorityTitlesTableQuery = '''
+CREATE TABLE IF NOT EXISTS media_priority_titles (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  media_type_id INTEGER NOT NULL,
+  media_item_id INTEGER NOT NULL,
+  is_positive BOOLEAN NOT NULL,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (media_type_id) REFERENCES media_types (id),
+  FOREIGN KEY (media_item_id) REFERENCES media_items (id),
+  UNIQUE(media_type_id, media_item_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_media_priority_titles_type ON media_priority_titles(media_type_id);
+''';
+
+// Create media settings table
+const String createMediaSettingsTableQuery = '''
+CREATE TABLE IF NOT EXISTS media_settings (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  media_type_id INTEGER NOT NULL,
+  similarity_matching REAL NOT NULL DEFAULT 0.5,
+  themes_matching INTEGER NOT NULL DEFAULT 3,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (media_type_id) REFERENCES media_types (id),
+  UNIQUE(media_type_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_media_settings_type ON media_settings(media_type_id);
 ''';
 
 /// Media Type Queries
@@ -147,32 +197,85 @@ const String getAllMediaTypesQuery = '''
 SELECT id, name FROM media_types ORDER BY name;
 ''';
 
-/// User Constraints Queries
+/// Media Settings Queries
 
-// Insert user constraint
-const String insertUserConstraintQuery = '''
-INSERT INTO user_constraints (media_type_id, value) VALUES (?, ?);
+// Insert or update media settings
+const String insertOrUpdateMediaSettingsQuery = '''
+INSERT OR REPLACE INTO media_settings (media_type_id, similarity_matching, themes_matching, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?);
 ''';
 
-// Get user constraints for a media type
-const String getUserConstraintsForMediaQuery = '''
-SELECT uc.value 
-FROM user_constraints uc
-JOIN media_types mt ON uc.media_type_id = mt.id
+// Get media settings for a media type
+const String getMediaSettingsQuery = '''
+SELECT ms.similarity_matching, ms.themes_matching, ms.created_at, ms.updated_at
+FROM media_settings ms
+JOIN media_types mt ON ms.media_type_id = mt.id
 WHERE mt.name = ?;
 ''';
 
-// Get all user constraints
-const String getAllUserConstraintsQuery = '''
-SELECT uc.id, mt.name as media_type, uc.value
-FROM user_constraints uc
-JOIN media_types mt ON uc.media_type_id = mt.id
-ORDER BY mt.name, uc.value;
+/// Media Matching Queries
+
+// Insert media matching constraint
+const String insertMediaMatchingQuery = '''
+INSERT OR REPLACE INTO media_matching (media_type_id, value, is_positive, created_at)
+VALUES (?, ?, ?, ?);
 ''';
 
-// Delete user constraint
-const String deleteUserConstraintQuery = '''
-DELETE FROM user_constraints WHERE id = ?;
+// Get media matching constraints for a media type
+const String getMediaMatchingQuery = '''
+SELECT mm.value, mm.is_positive
+FROM media_matching mm
+JOIN media_types mt ON mm.media_type_id = mt.id
+WHERE mt.name = ?;
+''';
+
+// Delete media matching constraint
+const String deleteMediaMatchingQuery = '''
+DELETE FROM media_matching WHERE media_type_id = ? AND value = ?;
+''';
+
+/// Media Priority Titles Queries
+
+// Insert media priority title
+const String insertMediaPriorityTitleQuery = '''
+INSERT OR REPLACE INTO media_priority_titles (media_type_id, media_item_id, is_positive, created_at)
+VALUES (?, ?, ?, ?);
+''';
+
+// Get media priority titles for a media type
+const String getMediaPriorityTitlesQuery = '''
+SELECT mi.title, mi.primary_creator, mpt.is_positive, mpt.created_at
+FROM media_priority_titles mpt
+JOIN media_types mt ON mpt.media_type_id = mt.id
+JOIN media_items mi ON mpt.media_item_id = mi.id
+WHERE mt.name = ?;
+''';
+
+// Delete media priority title
+const String deleteMediaPriorityTitleQuery = '''
+DELETE FROM media_priority_titles WHERE media_type_id = ? AND media_item_id = ?;
+''';
+
+/// Media Blends Queries
+
+// Insert media blend
+const String insertMediaBlendQuery = '''
+INSERT OR IGNORE INTO media_blends (primary_media_type_id, blended_media_type_id, created_at)
+VALUES (?, ?, ?);
+''';
+
+// Get media blends for a media type
+const String getMediaBlendsQuery = '''
+SELECT mt_blended.name as blended_media_type
+FROM media_blends mb
+JOIN media_types mt_primary ON mb.primary_media_type_id = mt_primary.id
+JOIN media_types mt_blended ON mb.blended_media_type_id = mt_blended.id
+WHERE mt_primary.name = ?;
+''';
+
+// Delete media blend
+const String deleteMediaBlendQuery = '''
+DELETE FROM media_blends WHERE primary_media_type_id = ? AND blended_media_type_id = ?;
 ''';
 
 /// Media Items Queries

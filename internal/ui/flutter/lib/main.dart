@@ -706,7 +706,7 @@ class _UnifiedSearchHandlerState extends State<_UnifiedSearchHandler> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Failed to add to favorites: $e'),
-            backgroundColor: Colors.red,
+            backgroundColor: AppTheme.errorColor,
             duration: const Duration(seconds: 3),
           ),
         );
@@ -827,7 +827,7 @@ class _UnifiedSearchHandlerState extends State<_UnifiedSearchHandler> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('Failed to add to watchlist: $e'),
-              backgroundColor: Colors.red,
+              backgroundColor: AppTheme.errorColor,
               duration: const Duration(seconds: 3),
             ),
           );

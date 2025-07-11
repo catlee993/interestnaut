@@ -258,7 +258,7 @@ class _SearchResultCardState extends State<SearchResultCard> {
                               const Text(
                                 'Playback unavailable',
                                 style: TextStyle(
-                                  color: Colors.red,
+                                  color: AppTheme.errorColor,
                                   fontSize: 8,
                                 ),
                                 textAlign: TextAlign.center,

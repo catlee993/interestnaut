@@ -203,23 +203,34 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
     
     return Align(
       alignment: Alignment.bottomCenter,
-      child: Container(
+          child: Container(
         width: MediaQuery.of(context).size.width * 0.95,
         height: MediaQuery.of(context).size.height * 0.65, // Increased from 0.55 to 0.65 (10% more height)
         margin: const EdgeInsets.all(AppTheme.spacingMD),
-        decoration: BoxDecoration(
-          color: AppTheme.surfaceColor,
+            decoration: BoxDecoration(
+          color: const Color(0xFF0A0A0A), // Very dark background to match select from history modal
           borderRadius: BorderRadius.circular(AppTheme.cardBorderRadius),
-          border: Border.all(
+              border: Border.all(
             color: AppTheme.primaryColor.withOpacity(0.3),
-            width: 1,
-          ),
-        ),
-        child: Column(
-          children: [
+                width: 1,
+              ),
+            ),
+            child: Column(
+              children: [
             // Title and status at top
             Container(
               padding: const EdgeInsets.all(AppTheme.spacingMD),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    AppTheme.primaryColor.withOpacity(0.1),
+                    Colors.transparent,
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(AppTheme.cardBorderRadius),
+              ),
               child: Row(
                 children: [
                   Expanded(
@@ -231,7 +242,10 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
                       );
                       return Text(
                         displayInfo.displayTitle,
-                        style: AppTheme.mediaTitleStyle.copyWith(fontSize: 18),
+                        style: AppTheme.mediaTitleStyle.copyWith(
+                          fontSize: 18,
+                          letterSpacing: 2.5,
+                        ),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       );
@@ -250,9 +264,9 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
               child: Container(
                 margin: const EdgeInsets.symmetric(horizontal: AppTheme.spacingMD),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF1A1A1A), // Much darker gray background
+                  color: Colors.white.withOpacity(0.03), // Match other components
                   border: Border.all(
-                    color: Colors.white.withOpacity(0.2),
+                    color: Colors.white.withOpacity(0.1),
                     width: 1,
                   ),
                   borderRadius: BorderRadius.circular(AppTheme.borderRadius),
@@ -282,14 +296,14 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
                                         _buildPlaceholderIcon(),
                                   )
                                 : _buildPlaceholderIcon(),
-                          ),
-                        ),
-                      ),
-                      
+                  ),
+                ),
+              ),
+              
                       const SizedBox(width: AppTheme.spacingMD),
-                      
+              
                       // Scrollable summary area - 2/3 of width
-                      Expanded(
+              Expanded(
                         child: SingleChildScrollView(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -355,17 +369,17 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
                                               style: AppTheme.bodyStyle.copyWith(
                                                 fontSize: 12,
                                                 fontWeight: FontWeight.w600,
-                                                color: AppTheme.textSecondary,
+                  color: AppTheme.textSecondary,
                                               ),
                                             ),
                                             TextSpan(
                                               text: displayInfo.displaySubtitle!,
                                               style: AppTheme.bodyStyle.copyWith(
                                                 fontSize: 12,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
+                ),
+              ),
+            ],
+          ),
                                       ),
                                       const SizedBox(height: AppTheme.spacingXS),
                                     ],
@@ -379,7 +393,7 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
                               if (hasThemes) ...[
                                 RichText(
                                   text: TextSpan(
-                                    children: [
+        children: [
                                       TextSpan(
                                         text: 'THEMES: ',
                                         style: AppTheme.bodyStyle.copyWith(
@@ -454,9 +468,9 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
                     iconSize: 28,
                   ),
                 ],
-              ),
             ),
-          ],
+          ),
+        ],
         ),
       ),
     );

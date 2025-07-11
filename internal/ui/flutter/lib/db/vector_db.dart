@@ -2,7 +2,7 @@ import 'dart:io';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'dart:math';
-import 'package:path/path.dart' as pathLib;
+import 'package:path/path.dart' as path_lib;
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter/foundation.dart';
 import 'package:sqlite3/sqlite3.dart';
@@ -59,7 +59,7 @@ class VectorDatabase {
         if (!shardFiles.containsKey(mediaType)) continue;
         
         final filename = shardFiles[mediaType]!;
-        final localPath = pathLib.join(dbDir.path, filename);
+        final localPath = path_lib.join(dbDir.path, filename);
         
         debugPrint('🔍 [REAL-VECTOR-DB] Processing $mediaType:');
         debugPrint('🔍 [REAL-VECTOR-DB]   - File: $filename');
@@ -125,7 +125,7 @@ class VectorDatabase {
     try {
       final dbDir = await _getVectorDatabaseDir();
       final filename = shardFiles[mediaType]!;
-      final localPath = pathLib.join(dbDir.path, filename);
+      final localPath = path_lib.join(dbDir.path, filename);
       
       // Download if not exists
       if (!await File(localPath).exists()) {
@@ -171,7 +171,7 @@ class VectorDatabase {
   /// Get vector database directory
   Future<Directory> _getVectorDatabaseDir() async {
     final appDir = await getApplicationSupportDirectory();
-    final vectorDir = Directory(pathLib.join(appDir.path, 'vectors'));
+    final vectorDir = Directory(path_lib.join(appDir.path, 'vectors'));
     
     // REAL PATH LOGGING - NO MOCKING
     debugPrint('🔍 [REAL-VECTOR-DB] Vector database paths:');
@@ -226,7 +226,7 @@ class VectorDatabase {
       for (int i = 0; i < mediaTypes.length; i++) {
         final mediaType = mediaTypes[i];
         final filename = shardFiles[mediaType]!;
-        final localPath = pathLib.join(dbDir.path, filename);
+        final localPath = path_lib.join(dbDir.path, filename);
         
         // Skip if already exists
         if (await File(localPath).exists()) {
@@ -263,7 +263,7 @@ class VectorDatabase {
     for (final entry in shardFiles.entries) {
       final mediaType = entry.key;
       final filename = entry.value;
-      final file = File(pathLib.join(dbDir.path, filename));
+      final file = File(path_lib.join(dbDir.path, filename));
       
       if (await file.exists()) {
         downloadedTypes.add(mediaType);
@@ -286,7 +286,7 @@ class VectorDatabase {
     for (final entry in shardFiles.entries) {
       final mediaType = entry.key;
       final filename = entry.value;
-      final file = File(pathLib.join(dbDir.path, filename));
+      final file = File(path_lib.join(dbDir.path, filename));
       
       if (await file.exists()) {
         sizes[mediaType] = await file.length();
@@ -830,7 +830,7 @@ class VectorDatabase {
           
           final similarity = _cosineSimilarity(refEmbedding, itemEmbedding);
           
-          if (similarity >= minSimilarity) {
+          if (similarity >= minSimilarity && !excludeIds.contains(row['media_id'])) {
             similarities.add({
               'mediaId': row['media_id'] as String,
               'title': row['title'] as String?,  // Allow null titles
@@ -1213,6 +1213,8 @@ class VectorDatabase {
     List<String> userConstraints = const [],   // User-defined constraints
     int limit = 1,                             // Usually just need 1 suggestion
     int batchSize = 100,                       // Smaller batches for mobile isolates
+    double similarityThreshold = 0.5,          // From user settings
+    int themesCount = 3,                       // From user settings
   }) async {
     try {
       debugPrint('[FUNCTION-START] Entering searchByBehavioralMatch for $mediaType');
@@ -1224,6 +1226,7 @@ class VectorDatabase {
       }
 
       debugPrint('[BEHAVIORAL-START] Beginning searchByBehavioralMatch for $mediaType with limit=$limit');
+      debugPrint('[SETTINGS] Using similarity threshold: $similarityThreshold, themes count: $themesCount');
       final db = _shards[mediaType]!;
       
       // 🔍 LOG THE BEHAVIORAL INPUT DATA
@@ -1291,24 +1294,19 @@ class VectorDatabase {
         return [];
       }
       
-      // Step 2: Select 2-3 positive themes (focused approach)
+      // Step 2: Select themes based on user's themesCount setting
       final sortedThemes = themeFrequency.entries.toList()
         ..sort((a, b) => b.value.compareTo(a.value));
       
       final selectedPositiveThemes = <String>[];
       final random = Random();
       
-      // Always take top 2 themes
-      if (sortedThemes.isNotEmpty) {
-        selectedPositiveThemes.add(sortedThemes[0].key);
-      }
-      if (sortedThemes.length > 1) {
-        selectedPositiveThemes.add(sortedThemes[1].key);
-      }
+      // Use the user's themesCount setting instead of hardcoded 2-3
+      final targetThemeCount = themesCount.clamp(1, sortedThemes.length);
       
-      // Occasionally add a 3rd theme for variety (30% chance)
-      if (sortedThemes.length > 2 && random.nextDouble() < 0.3) {
-        selectedPositiveThemes.add(sortedThemes[2].key);
+      // Select the top themes up to the user's preference
+      for (int i = 0; i < targetThemeCount && i < sortedThemes.length; i++) {
+        selectedPositiveThemes.add(sortedThemes[i].key);
       }
       
       // Step 3: Select 1 negative theme to avoid (keep it simple)
@@ -1341,63 +1339,46 @@ class VectorDatabase {
       final totalCount = countResult.first['count'] as int;
       debugPrint('[THEME-SCAN] Processing $totalCount items in batches of $batchSize...');
       
-      final candidates = <Map<String, dynamic>>[];
-      final hasAlbum = mediaType == 'music';
-      int itemsProcessed = 0;
-      int itemsMatched = 0;
-      
-      // Step 4.5: Filter exclusion IDs to only those that exist in vector database
-      debugPrint('[EXCLUSION-FILTER] Filtering exclusion IDs to only those in vector database...');
-      final validExcludeIds = <String>[];
-      final allExcludeIds = [
-        ...excludeIds,
-        ...likedItemIds,
-        ...dislikedItemIds,
-        ...favoriteItemIds,
-        ...watchlistItemIds,
-        ...skippedItemIds,
-      ];
-      
-      debugPrint('[EXCLUSION-FILTER] Checking ${allExcludeIds.length} exclusion IDs against vector database...');
-      for (final excludeId in allExcludeIds) {
-        final checkStmt = db.prepare('SELECT 1 FROM media_vectors WHERE media_id = ? LIMIT 1');
-        final checkResult = checkStmt.select([excludeId]);
-        checkStmt.dispose();
+      // Step 5: Filter excludeIds to only include those that exist in the vector database
+      final validExcludeIds = <String>{};
+      if (excludeIds.isNotEmpty) {
+        debugPrint('[EXCLUSION-FILTER] Filtering exclusion IDs to only those in vector database...');
+        debugPrint('[EXCLUSION-FILTER] Checking ${excludeIds.length} exclusion IDs against vector database...');
         
-        if (checkResult.isNotEmpty) {
-          validExcludeIds.add(excludeId);
-          debugPrint('[EXCLUSION-FOUND] Valid exclusion ID: $excludeId');
-        } else {
-          debugPrint('[EXCLUSION-MISSING] ID not in vector DB: $excludeId');
+        // Check which exclude IDs actually exist in the database
+        for (final excludeId in excludeIds) {
+          final checkStmt = db.prepare('SELECT 1 FROM media_vectors WHERE media_id = ? LIMIT 1');
+          final checkResult = checkStmt.select([excludeId]);
+          checkStmt.dispose();
+          
+          if (checkResult.isNotEmpty) {
+            validExcludeIds.add(excludeId);
+            debugPrint('[EXCLUSION-FOUND] Valid exclusion ID: $excludeId');
+          } else {
+            debugPrint('[EXCLUSION-MISSING] ID not in vector DB: $excludeId');
+          }
         }
       }
       
-      debugPrint('[EXCLUSION-SUMMARY] Found ${validExcludeIds.length} valid exclusions out of ${allExcludeIds.length} total');
+      // Step 6: Process items in batches to find matches
+      final hasAlbum = mediaType == 'music';
+      final candidates = <Map<String, dynamic>>[];
       
-      // Step 5: Process in batches to find theme matches
+      int itemsProcessed = 0;
+      int itemsMatched = 0;
+      
+      debugPrint('[THEME-SCAN] Starting batch processing...');
+      
       for (int offset = 0; offset < totalCount; offset += batchSize) {
-        try {
-          debugPrint('[BATCH-START] Processing batch at offset $offset');
-          
-          late PreparedStatement batchStmt;
-          late List<Row> batchResults;
-          
-          try {
-            batchStmt = db.prepare('''
-              SELECT 
-                media_id, title, artist, ${hasAlbum ? 'album,' : ''} description, themes, 
-                wiki_url, wikidata_id, image_url
-              FROM media_vectors 
-              LIMIT ? OFFSET ?
-            ''');
-            
-            batchResults = batchStmt.select([batchSize, offset]);
-            batchStmt.dispose();
-            debugPrint('[BATCH-FETCHED] Got ${batchResults.length} rows from database');
-          } catch (e) {
-            debugPrint('❌ [DB-QUERY-ERROR] Database query failed at offset $offset: $e');
-            continue;
-          }
+        final batchStmt = db.prepare('''
+          SELECT media_id, title, artist, ${hasAlbum ? 'album,' : ''} description, themes, 
+                 wiki_url, wikidata_id, image_url
+          FROM media_vectors 
+          LIMIT ? OFFSET ?
+        ''');
+        
+        final batchResults = batchStmt.select([batchSize, offset]);
+        batchStmt.dispose();
         
         for (final row in batchResults) {
           try {
@@ -1461,20 +1442,18 @@ class VectorDatabase {
             continue;
           }
           
-          // 🎯 DIVERSIFIED THRESHOLDS: Accept different tiers for variety
-          // Perfect matches (1.0): 2/2 or 3/3 themes match
-          // Good matches (0.67-0.99): 2/3 themes match  
-          // Decent matches (0.33-0.66): 1/3 or 1/2 themes match
-          // Lower tier (0.25-0.32): Near misses for diversity
+          // Use the user's similarity threshold instead of hardcoded 0.25
+          // Convert score to match threshold (0.33 = 1/3 themes match, 0.5 = 1/2 themes match, etc.)
+          final minThreshold = (1.0 / targetThemeCount) * similarityThreshold;
           
           try {
-            debugPrint('[POST-SCORE] Processing score: $matchScore for ${row['title']}');
+            debugPrint('[POST-SCORE] Processing score: $matchScore for ${row['title']} (threshold: $minThreshold)');
             
-            if (matchScore >= 0.25) {
+            if (matchScore >= minThreshold) {
             itemsMatched++;
             
             final title = row['title'] as String? ?? 'Unknown Title';
-            debugPrint('[THEME-MATCH] 📈 "$title" scored ${matchScore.toStringAsFixed(3)} - ACCEPTED');
+            debugPrint('[THEME-MATCH] 📈 "$title" scored ${matchScore.toStringAsFixed(3)} - ACCEPTED (threshold: ${minThreshold.toStringAsFixed(3)})');
             debugPrint('[THEME-DETAILS]   - Media ID: $mediaId');
             debugPrint('[THEME-DETAILS]   - Item themes: ${itemThemes.join(', ')}');
             debugPrint('[THEME-OVERLAP]   - Positive overlap: ${itemThemes.where((t) => selectedPositiveThemes.contains(t)).toList()}');
@@ -1499,14 +1478,10 @@ class VectorDatabase {
             } catch (e) {
               debugPrint('[CANDIDATE-ADD] ❌ ERROR adding candidate: $e');
             }
-          } else if (matchScore > 0.1) {
-            // Log close misses for debugging
-            debugPrint('[THEME-MISSED] 📉 "${row['title']}" scored ${matchScore.toStringAsFixed(3)} - REJECTED');
-            debugPrint('[MISS-THEMES]   - Item themes: ${itemThemes.take(3).join(', ')}${itemThemes.length > 3 ? '...' : ''}');
           } else {
-            // ✅ CRITICAL FIX: Handle scores <= 0.1 (including 0.0) to prevent infinite loops
-            debugPrint('[THEME-ZERO] No match found');
-            debugPrint('[AFTER-THEME-ZERO] Still alive after theme zero log');
+            // Log close misses for debugging
+            debugPrint('[THEME-MISSED] 📉 "${row['title']}" scored ${matchScore.toStringAsFixed(3)} - REJECTED (threshold: ${minThreshold.toStringAsFixed(3)})');
+            debugPrint('[MISS-THEMES]   - Item themes: ${itemThemes.take(3).join(', ')}${itemThemes.length > 3 ? '...' : ''}');
           }
           
           debugPrint('[ROW-COMPLETE] Row completed');
@@ -1530,82 +1505,20 @@ class VectorDatabase {
         // 🚀 ENHANCED EARLY EXIT: Allow much more exploration for variety
         debugPrint('[EARLY-CHECK] Checking early exit: ${candidates.length} candidates found');
         
-        try {
-          // Count candidates by score tiers for balanced results
-          debugPrint('[TIER-COUNT] About to count score tiers...');
-          final perfectMatches = candidates.where((c) => (c['matchScore'] as double) >= 1.0).length;
-          final goodMatches = candidates.where((c) => (c['matchScore'] as double) >= 0.67).length;
-          final decentMatches = candidates.where((c) => (c['matchScore'] as double) >= 0.33).length;
-          debugPrint('[TIER-COUNT] Successfully counted score tiers');
-          
-          debugPrint('[TIER-CHECK] Perfect: $perfectMatches, Good: $goodMatches, Decent: $decentMatches, Total: ${candidates.length}');
-          
-          // 🎯 CRITICAL FIX: When we only need 1 result, ensure we scan enough to find valid candidates
-          // that aren't in the exclusion list
-          if (limit == 1) {
-            debugPrint('[EARLY-SINGLE] Checking single suggestion early exit conditions...');
-            // For single suggestions, we need at least a few good candidates to choose from
-            // but since we're finding results, continue scanning to ensure we have enough variety
-            if (candidates.length >= 10 && itemsProcessed >= 2000) {
-              debugPrint('[EARLY-EXIT] Found ${candidates.length} candidates after processing $itemsProcessed items - sufficient for single suggestion');
-              break;
-            } else if (candidates.length >= 5 && itemsProcessed >= 5000) {
-              debugPrint('[EARLY-EXIT] Found ${candidates.length} candidates after extensive search - using best available');
-              break;
-            }
-            debugPrint('[EARLY-SINGLE] Single suggestion conditions not met, continuing...');
-          } else {
-            debugPrint('[EARLY-MULTI] Checking multiple suggestion early exit conditions...');
-            // For multiple suggestions, need more diversity
-            final hasExcellentDiversity = perfectMatches >= 2 && goodMatches >= 5 && decentMatches >= 12;
-            final hasExploredEnough = itemsProcessed >= 1000; // Minimum exploration
-            
-            if (hasExcellentDiversity && hasExploredEnough) {
-              debugPrint('[EARLY-EXIT] Excellent diversity achieved: ${candidates.length} candidates after processing $itemsProcessed/$totalCount items');
-              debugPrint('[EARLY-EXIT] Perfect: $perfectMatches, Good: $goodMatches, Decent: $decentMatches');
-              break;
-            } else if (candidates.length >= 50 && itemsProcessed >= 5000) {
-              // Secondary exit: reasonable collection after significant exploration
-              debugPrint('[EARLY-EXIT] Reasonable collection: ${candidates.length} candidates after $itemsProcessed items');
-              break;
-            }
-            debugPrint('[EARLY-MULTI] Multiple suggestion conditions not met, continuing...');
-          }
-          debugPrint('[EARLY-CHECK] Continuing scan...');
-        } catch (e) {
-          debugPrint('❌ [EARLY-EXIT-ERROR] EXCEPTION in early exit logic: $e');
-          debugPrint('❌ [EARLY-EXIT-ERROR] This is likely the root cause of the crash!');
-          debugPrint('❌ [EARLY-EXIT-ERROR] Breaking from loop to prevent crash...');
-          break; // Exit the loop to prevent further crashes
-        }
-        
-        // Log progress every few batches
-        if ((offset ~/ batchSize + 1) % 5 == 0) {
-          debugPrint('[SCAN-PROGRESS] Batch ${offset ~/ batchSize + 1}/${(totalCount / batchSize).ceil()}: processed $itemsProcessed items, found $itemsMatched matches');
-        }
-        } catch (e, stackTrace) {
-          debugPrint('❌ [BATCH-OUTER-ERROR] Critical error in batch $offset: $e');
-          debugPrint('❌ [BATCH-OUTER-STACK] Stack trace: $stackTrace');
-          // Continue to next batch instead of crashing the entire isolate
-          continue;
+        // More permissive early exit - collect more candidates before stopping
+        if (candidates.length >= (limit * 5)) {
+          debugPrint('[EARLY-EXIT] Found sufficient candidates (${candidates.length}), stopping early');
+          break;
         }
       }
       
-      // Step 7: Sort by match score and return top results
-      debugPrint('[PRE-SORT] About to sort ${candidates.length} candidates...');
-      try {
-        candidates.sort((a, b) => (b['matchScore'] as double).compareTo(a['matchScore'] as double));
-        debugPrint('[POST-SORT] Successfully sorted candidates');
-      } catch (e) {
-        debugPrint('❌ [SORT-ERROR] Failed to sort candidates: $e');
-        return [];
-      }
+      debugPrint('[SCAN-COMPLETE] Finished processing $itemsProcessed items, found ${candidates.length} candidates ($itemsMatched matched)');
       
-      final topResults = candidates.take(limit);
-      debugPrint('[TOP-RESULTS] Selected ${topResults.length} from ${candidates.length} candidates');
+      // Step 7: Sort and return top matches
+      candidates.sort((a, b) => (b['matchScore'] as double).compareTo(a['matchScore'] as double));
+      final topResults = candidates.take(limit).toList();
       
-      debugPrint('[THEME-SUMMARY] Processed $itemsProcessed/$totalCount items, found ${candidates.length} candidates');
-      debugPrint('[THEME-EFFICIENCY] Theme-based matching is much faster than embedding similarity!');
+      debugPrint('[RESULTS] Selected top ${topResults.length} results from ${candidates.length} candidates');
       
       if (topResults.isNotEmpty) {
         final winner = topResults.first;

@@ -20,19 +20,32 @@ class AppTheme {
   static const Color textSecondary = Color(0xFFB3B3B3); // Light gray
   static const Color textTertiary = Color(0xFF808080); // Medium gray
   
-  static const Color errorColor = Color(0xFFFF4444); // Red
+  // === NEW THEME COLORS ===
+  // Replacing red/green with turquoise/violet purple scheme
+  static const Color positiveColor = Color(0xFF4DD0E1); // Turquoise - for positive actions
+  static const Color negativeColor = Color(0xFFC23B85); // Violet purple - for negative actions (based on Spotify clear auth)
+  static const Color neutralColor = Color(0xFF9E9E9E); // Neutral gray
+  
+  // Legacy color definitions for backward compatibility
+  static const Color errorColor = negativeColor; // Use new negative color
   static const Color warningColor = Color(0xFFFFAA00); // Orange
-  static const Color successColor = Color(0xFF00CC44); // Green
-  static const Color infoColor = Color(0xFF0091EA); // Blue
-  static const Color purpleRed = Color(0xFFC23B85); // For errors/warnings - legacy compatibility
+  static const Color successColor = positiveColor; // Use new positive color
+  static const Color infoColor = Color(0xFF4A9EFF); // Bluer color to match reasoning section
+  static const Color purpleRed = negativeColor; // Legacy name pointing to new negative color
   static const Color purpleBlue = Color(0xFF6A5ACD); // For specific UI elements - legacy compatibility
   
   // === ACTION BUTTON COLORS ===
-  // Standardized colors for user interaction buttons across the app
-  static const Color likeColor = successColor; // Green for like actions
-  static const Color dislikeColor = errorColor; // Red for dislike actions
+  // Updated to use new theme colors
+  static const Color likeColor = positiveColor; // Turquoise for like actions
+  static const Color dislikeColor = negativeColor; // Violet purple for dislike actions
   static const Color favoriteColor = primaryColor; // Purple for favorite actions
   static const Color watchlistColor = infoColor; // Blue for watchlist/playlist actions
+  static const Color skipColor = neutralColor; // Neutral gray for skip actions
+  
+  // === MATCHING COLORS ===
+  // For include/exclude matching in settings
+  static const Color includeColor = positiveColor; // Turquoise for include/positive matching
+  static const Color excludeColor = negativeColor; // Violet purple for exclude/negative matching
   
   // === MEDIA TYPE CONFIGURATION ===
   // Centralized configuration for all media types - single source of truth

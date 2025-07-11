@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:path_provider/path_provider.dart';
@@ -29,8 +30,20 @@ class SQLiteDatabase {
       // Use the same directory as vector databases
       final appDir = await getApplicationSupportDirectory();
       final dbPath = path.join(appDir.path, 'interestnaut.db');
+      
+      // Check if database exists
+      final dbExists = await File(dbPath).exists();
+      
       _db = sqlite3.open(dbPath);
-      await _createTables();
+      
+      if (dbExists) {
+        debugPrint('✅ Existing database found, checking for schema updates...');
+        await _migrateSchema();
+      } else {
+        debugPrint('✅ Creating new database with full schema...');
+        await _createTables();
+      }
+      
       _initialized = true;
       debugPrint('✅ Database initialized successfully with new schema at: $dbPath');
     } catch (e) {
@@ -53,9 +66,112 @@ class SQLiteDatabase {
     }
   }
 
+  /// Migrate existing database schema
+  Future<void> _migrateSchema() async {
+    try {
+      debugPrint('🔄 Starting database schema migration...');
+      
+      // Drop deprecated tables first
+      await _dropDeprecatedTables();
+      
+      // Check for missing tables and create them
+      await _ensureAllTablesExist();
+      
+      // Ensure default data is present
+      await _ensureDefaultData();
+      
+      debugPrint('✅ Database schema migration completed successfully');
+    } catch (e) {
+      debugPrint('❌ Error during schema migration: $e');
+      rethrow;
+    }
+  }
 
+  /// Drop deprecated tables
+  Future<void> _dropDeprecatedTables() async {
+    try {
+      // Drop user_constraints table if it exists
+      final userConstraintsExists = await _tableExists('user_constraints');
+      if (userConstraintsExists) {
+        _db!.execute('DROP TABLE user_constraints');
+        debugPrint('✅ Dropped deprecated user_constraints table');
+      }
+      
+      // Add other deprecated tables here if needed in the future
+      // _db!.execute('DROP TABLE IF EXISTS other_deprecated_table');
+      
+    } catch (e) {
+      debugPrint('❌ Error dropping deprecated tables: $e');
+      rethrow;
+    }
+  }
 
-  /// Create all tables
+  /// Ensure all required tables exist
+  Future<void> _ensureAllTablesExist() async {
+    try {
+      final requiredTables = [
+        {'name': 'media_types', 'query': createMediaTypesTableQuery},
+        {'name': 'recommendation_status', 'query': createRecommendationStatusTableQuery},
+        {'name': 'media_items', 'query': createMediaItemsTableQuery},
+        {'name': 'recommendations', 'query': createRecommendationsTableQuery},
+        {'name': 'favorites', 'query': createFavoritesTableQuery},
+        {'name': 'watchlist', 'query': createWatchlistTableQuery},
+        {'name': 'media_metadata', 'query': createMediaMetadataTableQuery},
+        {'name': 'media_blends', 'query': createMediaBlendsTableQuery},
+        {'name': 'media_matching', 'query': createMediaMatchingTableQuery},
+        {'name': 'media_priority_titles', 'query': createMediaPriorityTitlesTableQuery},
+        {'name': 'media_settings', 'query': createMediaSettingsTableQuery},
+      ];
+      
+      for (final table in requiredTables) {
+        final exists = await _tableExists(table['name']!);
+        if (!exists) {
+          debugPrint('🔄 Creating missing table: ${table['name']}');
+          _db!.execute(table['query']!);
+          debugPrint('✅ Created table: ${table['name']}');
+        } else {
+          debugPrint('✅ Table already exists: ${table['name']}');
+        }
+      }
+    } catch (e) {
+      debugPrint('❌ Error ensuring tables exist: $e');
+      rethrow;
+    }
+  }
+
+  /// Ensure default data is present
+  Future<void> _ensureDefaultData() async {
+    try {
+      // Insert default media types
+      _db!.execute(insertMediaTypesQuery);
+      
+      // Insert default recommendation status
+      _db!.execute(insertRecommendationStatusQuery);
+      
+      debugPrint('✅ Default data ensured');
+    } catch (e) {
+      debugPrint('❌ Error ensuring default data: $e');
+      rethrow;
+    }
+  }
+
+  /// Check if a table exists
+  Future<bool> _tableExists(String tableName) async {
+    try {
+      final stmt = _db!.prepare('''
+        SELECT name FROM sqlite_master 
+        WHERE type='table' AND name=?
+      ''');
+      final result = stmt.select([tableName]);
+      stmt.dispose();
+      return result.isNotEmpty;
+    } catch (e) {
+      debugPrint('❌ Error checking table existence: $e');
+      return false;
+    }
+  }
+
+  /// Create all tables (for new databases)
   Future<void> _createTables() async {
     try {
       _db!.execute(createMediaTypesTableQuery);
@@ -64,14 +180,19 @@ class SQLiteDatabase {
       _db!.execute(createRecommendationsTableQuery);
       _db!.execute(createFavoritesTableQuery);
       _db!.execute(createWatchlistTableQuery);
-      _db!.execute(createMediaMetadataTableQuery);
-      _db!.execute(createUserConstraintsTableQuery);
+      _db!.execute(createMediaMetadataTableQuery); // Keep for now, will remove later
+      
+      // New tables for media-specific settings
+      _db!.execute(createMediaBlendsTableQuery);
+      _db!.execute(createMediaMatchingTableQuery);
+      _db!.execute(createMediaPriorityTitlesTableQuery);
+      _db!.execute(createMediaSettingsTableQuery);
       
       // Insert default data
       _db!.execute(insertMediaTypesQuery);
       _db!.execute(insertRecommendationStatusQuery);
       
-      debugPrint('✅ All tables created successfully');
+      debugPrint('✅ All tables created successfully with new schema');
     } catch (e) {
       debugPrint('❌ Error creating tables: $e');
       rethrow;
@@ -983,49 +1104,39 @@ class SQLiteDatabase {
     }
   }
 
-  // ===== USER CONSTRAINTS =====
+  // ===== MEDIA SETTINGS =====
 
-  /// Get user constraints for a media type
-  Future<List<String>> getUserConstraints(String mediaType) async {
+  /// Get media settings for a media type
+  Future<Map<String, dynamic>?> getMediaSettings(String mediaType) async {
     await _ensureInitialized();
 
     try {
-      final stmt = _db!.prepare(getUserConstraintsForMediaQuery);
+      final stmt = _db!.prepare(getMediaSettingsQuery);
       final result = stmt.select([mediaType]);
 
-      final constraints = result.map((row) => row['value'] as String).toList();
+      if (result.isEmpty) {
+        stmt.dispose();
+        return null;
+      }
+
+      final row = result.first;
+      final settings = {
+        'similarity_matching': row['similarity_matching'] as double,
+        'themes_matching': row['themes_matching'] as int,
+        'created_at': row['created_at'] as String,
+        'updated_at': row['updated_at'] as String,
+      };
+
       stmt.dispose();
-      return constraints;
+      return settings;
     } catch (e) {
-      debugPrint('Error getting user constraints: $e');
-      return [];
+      debugPrint('Error getting media settings: $e');
+      return null;
     }
   }
 
-  /// Get all user constraints
-  Future<List<Map<String, dynamic>>> getAllUserConstraints() async {
-    await _ensureInitialized();
-
-    try {
-      final stmt = _db!.prepare(getAllUserConstraintsQuery);
-      final result = stmt.select([]);
-
-      final constraints = result.map((row) => {
-        'id': row['id'] as int,
-        'media_type': row['media_type'] as String,
-        'value': row['value'] as String,
-      }).toList();
-
-      stmt.dispose();
-      return constraints;
-    } catch (e) {
-      debugPrint('Error getting all user constraints: $e');
-      return [];
-    }
-  }
-
-  /// Add user constraint
-  Future<bool> addUserConstraint(String mediaType, String constraint) async {
+  /// Save media settings
+  Future<bool> saveMediaSettings(String mediaType, double similarityMatching, int themesMatching) async {
     await _ensureInitialized();
 
     try {
@@ -1034,29 +1145,244 @@ class SQLiteDatabase {
         throw Exception('Invalid media type: $mediaType');
       }
 
-      final stmt = _db!.prepare(insertUserConstraintQuery);
-      stmt.execute([mediaTypeId, constraint]);
+      final now = DateTime.now().toIso8601String();
+      final stmt = _db!.prepare(insertOrUpdateMediaSettingsQuery);
+      stmt.execute([mediaTypeId, similarityMatching, themesMatching, now, now]);
       stmt.dispose();
 
       return true;
     } catch (e) {
-      debugPrint('Error adding user constraint: $e');
+      debugPrint('Error saving media settings: $e');
       return false;
     }
   }
 
-  /// Delete user constraint
-  Future<bool> deleteUserConstraint(int constraintId) async {
+  // ===== MEDIA MATCHING =====
+
+  /// Get media matching constraints for a media type
+  Future<Map<String, List<String>>> getMediaMatchingConstraints(String mediaType) async {
     await _ensureInitialized();
 
     try {
-      final stmt = _db!.prepare(deleteUserConstraintQuery);
-      stmt.execute([constraintId]);
+      final stmt = _db!.prepare(getMediaMatchingQuery);
+      final result = stmt.select([mediaType]);
+
+      final positive = <String>[];
+      final negative = <String>[];
+
+      for (final row in result) {
+        final value = row['value'] as String;
+        final isPositive = (row['is_positive'] as int) == 1;
+        
+        if (isPositive) {
+          positive.add(value);
+        } else {
+          negative.add(value);
+        }
+      }
+
+      stmt.dispose();
+      return {
+        'positive': positive,
+        'negative': negative,
+      };
+    } catch (e) {
+      debugPrint('Error getting media matching constraints: $e');
+      return {'positive': [], 'negative': []};
+    }
+  }
+
+  /// Add media matching constraint
+  Future<bool> addMediaMatchingConstraint(String mediaType, String value, bool isPositive) async {
+    await _ensureInitialized();
+
+    try {
+      final mediaTypeId = await getMediaTypeId(mediaType);
+      if (mediaTypeId == null) {
+        throw Exception('Invalid media type: $mediaType');
+      }
+
+      final now = DateTime.now().toIso8601String();
+      final stmt = _db!.prepare(insertMediaMatchingQuery);
+      stmt.execute([mediaTypeId, value, isPositive ? 1 : 0, now]);
       stmt.dispose();
 
       return true;
     } catch (e) {
-      debugPrint('Error deleting user constraint: $e');
+      debugPrint('Error adding media matching constraint: $e');
+      return false;
+    }
+  }
+
+  /// Delete media matching constraint
+  Future<bool> deleteMediaMatchingConstraint(String mediaType, String value) async {
+    await _ensureInitialized();
+
+    try {
+      final mediaTypeId = await getMediaTypeId(mediaType);
+      if (mediaTypeId == null) {
+        throw Exception('Invalid media type: $mediaType');
+      }
+
+      final stmt = _db!.prepare(deleteMediaMatchingQuery);
+      stmt.execute([mediaTypeId, value]);
+      stmt.dispose();
+
+      return true;
+    } catch (e) {
+      debugPrint('Error deleting media matching constraint: $e');
+      return false;
+    }
+  }
+
+  // ===== MEDIA PRIORITY TITLES =====
+
+  /// Get media priority titles for a media type
+  Future<Map<String, List<Map<String, dynamic>>>> getMediaPriorityTitles(String mediaType) async {
+    await _ensureInitialized();
+
+    try {
+      final stmt = _db!.prepare(getMediaPriorityTitlesQuery);
+      final result = stmt.select([mediaType]);
+
+      final positive = <Map<String, dynamic>>[];
+      final negative = <Map<String, dynamic>>[];
+
+      for (final row in result) {
+        final titleData = {
+          'title': row['title'] as String,
+          'creator': row['primary_creator'] as String?,
+          'created_at': row['created_at'] as String,
+        };
+        
+        final isPositive = (row['is_positive'] as int) == 1;
+        if (isPositive) {
+          positive.add(titleData);
+        } else {
+          negative.add(titleData);
+        }
+      }
+
+      stmt.dispose();
+      return {
+        'positive': positive,
+        'negative': negative,
+      };
+    } catch (e) {
+      debugPrint('Error getting media priority titles: $e');
+      return {'positive': [], 'negative': []};
+    }
+  }
+
+  /// Add media priority title
+  Future<bool> addMediaPriorityTitle(String mediaType, int mediaItemId, bool isPositive) async {
+    await _ensureInitialized();
+
+    try {
+      final mediaTypeId = await getMediaTypeId(mediaType);
+      if (mediaTypeId == null) {
+        throw Exception('Invalid media type: $mediaType');
+      }
+
+      final now = DateTime.now().toIso8601String();
+      final stmt = _db!.prepare(insertMediaPriorityTitleQuery);
+      stmt.execute([mediaTypeId, mediaItemId, isPositive ? 1 : 0, now]);
+      stmt.dispose();
+
+      return true;
+    } catch (e) {
+      debugPrint('Error adding media priority title: $e');
+      return false;
+    }
+  }
+
+  /// Delete media priority title
+  Future<bool> deleteMediaPriorityTitle(String mediaType, int mediaItemId) async {
+    await _ensureInitialized();
+
+    try {
+      final mediaTypeId = await getMediaTypeId(mediaType);
+      if (mediaTypeId == null) {
+        throw Exception('Invalid media type: $mediaType');
+      }
+
+      final stmt = _db!.prepare(deleteMediaPriorityTitleQuery);
+      stmt.execute([mediaTypeId, mediaItemId]);
+      stmt.dispose();
+
+      return true;
+    } catch (e) {
+      debugPrint('Error deleting media priority title: $e');
+      return false;
+    }
+  }
+
+  // ===== MEDIA BLENDS =====
+
+  /// Get media blends for a media type
+  Future<List<String>> getMediaBlends(String mediaType) async {
+    await _ensureInitialized();
+
+    try {
+      final stmt = _db!.prepare(getMediaBlendsQuery);
+      final result = stmt.select([mediaType]);
+
+      final blends = <String>[];
+      for (final row in result) {
+        blends.add(row['blended_media_type'] as String);
+      }
+
+      stmt.dispose();
+      return blends;
+    } catch (e) {
+      debugPrint('Error getting media blends: $e');
+      return [];
+    }
+  }
+
+  /// Add media blend
+  Future<bool> addMediaBlend(String primaryMediaType, String blendedMediaType) async {
+    await _ensureInitialized();
+
+    try {
+      final primaryMediaTypeId = await getMediaTypeId(primaryMediaType);
+      final blendedMediaTypeId = await getMediaTypeId(blendedMediaType);
+      
+      if (primaryMediaTypeId == null || blendedMediaTypeId == null) {
+        throw Exception('Invalid media type(s): $primaryMediaType, $blendedMediaType');
+      }
+
+      final now = DateTime.now().toIso8601String();
+      final stmt = _db!.prepare(insertMediaBlendQuery);
+      stmt.execute([primaryMediaTypeId, blendedMediaTypeId, now]);
+      stmt.dispose();
+
+      return true;
+    } catch (e) {
+      debugPrint('Error adding media blend: $e');
+      return false;
+    }
+  }
+
+  /// Delete media blend
+  Future<bool> deleteMediaBlend(String primaryMediaType, String blendedMediaType) async {
+    await _ensureInitialized();
+
+    try {
+      final primaryMediaTypeId = await getMediaTypeId(primaryMediaType);
+      final blendedMediaTypeId = await getMediaTypeId(blendedMediaType);
+      
+      if (primaryMediaTypeId == null || blendedMediaTypeId == null) {
+        throw Exception('Invalid media type(s): $primaryMediaType, $blendedMediaType');
+      }
+
+      final stmt = _db!.prepare(deleteMediaBlendQuery);
+      stmt.execute([primaryMediaTypeId, blendedMediaTypeId]);
+      stmt.dispose();
+
+      return true;
+    } catch (e) {
+      debugPrint('Error deleting media blend: $e');
       return false;
     }
   }
@@ -1095,6 +1421,48 @@ class SQLiteDatabase {
     } catch (e) {
       debugPrint('Error getting media metadata: $e');
       return {};
+    }
+  }
+
+  /// Get media item by ID (for direct lookup)
+  Future<Map<String, dynamic>?> getMediaItemById(int mediaItemId) async {
+    await _ensureInitialized();
+
+    try {
+      debugPrint('🔍 [GET-MEDIA-ITEM] Looking up media item by ID: $mediaItemId');
+      
+      final stmt = _db!.prepare(getMediaItemByIdQuery);
+      final result = stmt.select([mediaItemId]);
+
+      if (result.isEmpty) {
+        stmt.dispose();
+        debugPrint('❌ [GET-MEDIA-ITEM] No media item found with ID: $mediaItemId');
+        return null;
+      }
+
+      final row = result.first;
+      final mediaItem = {
+        'id': row['id'] as int,
+        'mediaTypeId': row['media_type_id'] as int,
+        'vectorMediaId': row['vector_media_id'] as String,
+        'title': row['title'] as String,
+        'primaryCreator': row['primary_creator'] as String?,
+        'coverArtUrl': row['cover_art_url'] as String?,
+        'description': row['description'] as String?,
+        'wikiUrl': row['wiki_url'] as String?,
+        'wikidataId': row['wikidata_id'] as String?,
+        'themes': row['themes'] as String?,
+        'createdAt': row['created_at'] as String,
+        'updatedAt': row['updated_at'] as String,
+        'mediaType': row['media_type'] as String,
+      };
+
+      stmt.dispose();
+      debugPrint('✅ [GET-MEDIA-ITEM] Found media item: "${mediaItem['title']}" by "${mediaItem['primaryCreator']}"');
+      return mediaItem;
+    } catch (e) {
+      debugPrint('❌ [GET-MEDIA-ITEM] Error getting media item by ID: $e');
+      return null;
     }
   }
 

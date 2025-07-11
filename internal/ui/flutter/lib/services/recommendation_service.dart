@@ -9,7 +9,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'dart:ui';
 import 'package:path_provider/path_provider.dart';
-import 'package:path/path.dart' as pathLib;
+import 'package:path/path.dart' as path_lib;
 import 'package:sqlite3/sqlite3.dart';
 import 'package:vector_math/vector_math.dart' as vm;
 import 'sqlite_db.dart';
@@ -1410,9 +1410,37 @@ class RecommendationService extends ChangeNotifier {
             debugPrint('🔍 [BACKGROUND] Watchlist titles: ${watchlistSuggestions.map((s) => s.title).join(', ')}');
           }
           
-          // Always check for user constraints
-          final userConstraints = await _db.getUserConstraints(mediaType);
-          debugPrint('🔍 [BACKGROUND] Found ${userConstraints.length} user constraints: $userConstraints');
+          // Always check for media-specific settings from new schema
+          final mediaSettings = await _db.getMediaSettings(mediaType);
+          final mediaMatchingConstraints = await _db.getMediaMatchingConstraints(mediaType);
+          final mediaPriorityTitles = await _db.getMediaPriorityTitles(mediaType);
+          final mediaBlends = await _db.getMediaBlends(mediaType);
+          
+          // Convert media matching constraints to user constraints format
+          final userConstraints = <String>[];
+          
+          // Add positive matching constraints
+          for (final constraint in mediaMatchingConstraints['positive'] ?? []) {
+            userConstraints.add('Include: $constraint');
+          }
+          
+          // Add negative matching constraints
+          for (final constraint in mediaMatchingConstraints['negative'] ?? []) {
+            userConstraints.add('Exclude: $constraint');
+          }
+          
+          // Add priority titles as constraints
+          for (final title in mediaPriorityTitles['positive'] ?? []) {
+            userConstraints.add('Similar to: ${title['title']} by ${title['creator']}');
+          }
+          
+          for (final title in mediaPriorityTitles['negative'] ?? []) {
+            userConstraints.add('Avoid similar to: ${title['title']} by ${title['creator']}');
+          }
+          
+          debugPrint('🔍 [BACKGROUND] Found ${userConstraints.length} media-specific constraints: $userConstraints');
+          debugPrint('🔍 [BACKGROUND] Media settings: ${mediaSettings != null ? 'similarity=${mediaSettings['similarity_matching']}, themes=${mediaSettings['themes_matching']}' : 'default'}');
+          debugPrint('🔍 [BACKGROUND] Media blends: ${mediaBlends.length} blended types');
           
           // Create profile data if we have ANY user data (constraints, likes, dislikes, favorites, watchlist, or skipped)
           if (likedSuggestions.isNotEmpty || dislikedSuggestions.isNotEmpty || favoriteSuggestions.isNotEmpty || 
@@ -1486,33 +1514,45 @@ class RecommendationService extends ChangeNotifier {
               'avoidedArtists': avoidedArtists.toList(),
               'constraints': [], // Rule-based constraints (generated)
               'userConstraints': userConstraints, // Explicit user constraints (critical directives)
+              // Media-specific settings from new schema
+              'mediaSettings': mediaSettings ?? {'similarity_matching': 0.5, 'themes_matching': 3},
+              'mediaBlends': mediaBlends,
+              'positiveMatching': mediaMatchingConstraints['positive'] ?? [],
+              'negativeMatching': mediaMatchingConstraints['negative'] ?? [],
+              'positivePriorityTitles': mediaPriorityTitles['positive'] ?? [],
+              'negativePriorityTitles': mediaPriorityTitles['negative'] ?? [],
               // NEW: Add all behavioral data for vector search
               'liked_items': likedSuggestions.map((s) => {
                 'media_id': s.mediaId ?? s.id.toString(),
+                'media_item_id': s.mediaItemId,
                 'title': s.title,
                 'artist': s.artist,
                 'themes': s.themes,
               }).toList(),
               'favorite_items': favoriteSuggestions.map((s) => {
                 'media_id': s.mediaId ?? s.id.toString(),
+                'media_item_id': s.mediaItemId,
                 'title': s.title,
                 'artist': s.artist,
                 'themes': s.themes,
               }).toList(),
               'watchlist_items': watchlistSuggestions.map((s) => {
                 'media_id': s.mediaId ?? s.id.toString(),
+                'media_item_id': s.mediaItemId,
                 'title': s.title,
                 'artist': s.artist,
                 'themes': s.themes,
               }).toList(),
               'disliked_items': dislikedSuggestions.map((s) => {
                 'media_id': s.mediaId ?? s.id.toString(),
+                'media_item_id': s.mediaItemId,
                 'title': s.title,
                 'artist': s.artist,
                 'themes': s.themes,
               }).toList(),
               'skipped_items': skippedSuggestions.map((s) => {
                 'media_id': s.mediaId ?? s.id.toString(),
+                'media_item_id': s.mediaItemId,
                 'title': s.title,
                 'artist': s.artist,
                 'themes': s.themes,
@@ -1637,9 +1677,13 @@ class RecommendationService extends ChangeNotifier {
 
   /// Get safe title with intelligent fallback
   static String _getSafeTitle(String? title, String? artist) {
-    return title?.isNotEmpty == true ? title! : 
-           artist?.isNotEmpty == true ? artist! : 
-           'Unknown';
+    // Use MediaDisplayHelper's intelligent title resolution
+    final displayInfo = MediaDisplayHelper.resolveDisplayInfo(
+      title: title,
+      artist: artist,
+      fallbackTitle: 'Unknown',
+    );
+    return displayInfo.displayTitle;
   }
 
 
@@ -1687,21 +1731,22 @@ class RecommendationService extends ChangeNotifier {
       buffer.writeln('**Related ${capitalizedMediaType}s**');
       buffer.writeln('━━━━━━━━━━━━━━━━━');
       
-      // Show contributing titles from behavioral data - only ones that contributed to the matched themes
-      final contributingTitles = <String>[];
+      // Show contributing titles with their media IDs for direct navigation
+      final contributingTitles = <Map<String, String>>[];
       
       // Get the themes of the recommended item to find relevant contributing titles
       final recommendedThemes = mediaThemes.map((t) => t.toLowerCase()).toSet();
       
-      // Get titles from favorites first (highest weight)
+      // Get titles from favorites first (highest weight) - include media_item_id for direct SQLite lookup
       final favoriteItems = userProfileData?['favorite_items'] as List<dynamic>? ?? [];
       for (final item in favoriteItems) {
-        if (item is Map<String, dynamic>) {
+        if (item is Map<String, dynamic> && contributingTitles.length < 3) {
           final itemTitle = item['title'] as String? ?? '';
           final itemArtist = item['artist'] as String? ?? '';
           final itemThemes = item['themes'] as String? ?? '';
+          final mediaItemId = item['media_item_id'] as int?;
           
-          if (itemThemes.isNotEmpty) {
+          if (itemThemes.isNotEmpty && mediaItemId != null) {
             // Check if this item has any of the recommended themes
             final userItemThemes = itemThemes.split(',').map((t) => t.trim().toLowerCase()).toSet();
             final hasMatchingTheme = recommendedThemes.any((theme) => userItemThemes.contains(theme));
@@ -1713,13 +1758,21 @@ class RecommendationService extends ChangeNotifier {
                 artist: itemArtist,
                 fallbackTitle: 'Unknown $mediaType',
               );
-              contributingTitles.add(displayInfo.displayTitle);
+              final displayTitle = displayInfo.displayTitle;
+              
+              // Only add if we don't already have this title
+              if (!contributingTitles.any((t) => t['title'] == displayTitle)) {
+                contributingTitles.add({
+                  'title': displayTitle,
+                  'mediaItemId': mediaItemId.toString(),
+                });
+              }
             }
           }
         }
       }
       
-      // Add liked items if we need more (and they have matching themes)
+      // Add from liked items if needed
       if (contributingTitles.length < 3) {
         final likedItems = userProfileData?['liked_items'] as List<dynamic>? ?? [];
         for (final item in likedItems) {
@@ -1727,8 +1780,9 @@ class RecommendationService extends ChangeNotifier {
             final itemTitle = item['title'] as String? ?? '';
             final itemArtist = item['artist'] as String? ?? '';
             final itemThemes = item['themes'] as String? ?? '';
+            final mediaItemId = item['media_item_id'] as int?;
             
-            if (itemThemes.isNotEmpty) {
+            if (itemThemes.isNotEmpty && mediaItemId != null) {
               // Check if this item has any of the recommended themes
               final userItemThemes = itemThemes.split(',').map((t) => t.trim().toLowerCase()).toSet();
               final hasMatchingTheme = recommendedThemes.any((theme) => userItemThemes.contains(theme));
@@ -1743,8 +1797,11 @@ class RecommendationService extends ChangeNotifier {
                 final displayTitle = displayInfo.displayTitle;
                 
                 // Only add if we don't already have this title
-                if (!contributingTitles.contains(displayTitle)) {
-                  contributingTitles.add(displayTitle);
+                if (!contributingTitles.any((t) => t['title'] == displayTitle)) {
+                  contributingTitles.add({
+                    'title': displayTitle,
+                    'mediaItemId': mediaItemId.toString(),
+                  });
                 }
               }
             }
@@ -1753,8 +1810,9 @@ class RecommendationService extends ChangeNotifier {
       }
       
       if (contributingTitles.isNotEmpty) {
-        for (final title in contributingTitles.take(3)) {
-          buffer.writeln('• $title');
+        for (final titleData in contributingTitles.take(3)) {
+          // Format: "title|mediaItemId" so the UI can extract both for direct SQLite lookup
+          buffer.writeln('• ${titleData['title']}|${titleData['mediaItemId']}');
         }
       } else {
         buffer.writeln('• Learning your preferences...');
@@ -1765,34 +1823,13 @@ class RecommendationService extends ChangeNotifier {
       return result;
       
     } catch (e) {
-      debugPrint('⚠️ [ALGORITHMIC-REASONING] Error generating reasoning: $e');
-      
-      // Fallback to simple reasoning
-      final buffer = StringBuffer();
-      final mediaDisplayName = _getMediaTypeLabel(mediaType).toLowerCase();
-      final capitalizedMediaType = mediaDisplayName[0].toUpperCase() + mediaDisplayName.substring(1);
-      
-      buffer.writeln('**$capitalizedMediaType Themes**');
-      buffer.writeln('━━━━━━━━━━━━━━━');
-      
-      final mediaThemes = themes != null && themes.isNotEmpty 
-          ? themes.split(',').map((t) => t.trim()).where((t) => t.isNotEmpty).take(3).toList()
-          : <String>[];
-      
-      if (mediaThemes.isNotEmpty) {
-        for (final theme in mediaThemes) {
-          buffer.writeln('• $theme');
-        }
-      } else {
-        buffer.writeln('• No themes available');
-      }
-      
-      buffer.writeln('');
-      buffer.writeln('**Related ${capitalizedMediaType}s**');
-      buffer.writeln('━━━━━━━━━━━━━━━━━');
-      buffer.writeln('• Learning your preferences...');
-      
-      return buffer.toString().trim();
+      debugPrint('❌ [ALGORITHMIC-REASONING] Error generating reasoning: $e');
+      return _generateFallbackReasoning(
+        mediaType: mediaType,
+        title: title,
+        artist: artist,
+        themes: themes,
+      );
     }
   }
 
@@ -1827,123 +1864,83 @@ class RecommendationService extends ChangeNotifier {
     return 'I recommended "$title"$artistPart as it appears to be a high-quality $mediaLabel that fits your request. This selection should provide an engaging and worthwhile experience.';
   }
 
-  /// Extract behavioral data from user profile for matching
+  /// Extract behavioral data from user profile for isolate processing
   static Map<String, dynamic> _extractBehavioralDataFromProfile(Map<String, dynamic> userProfileData) {
-    final likedItemIds = <String>[];
-    final dislikedItemIds = <String>[];
-    final skippedItemIds = <String>[];
-    final favoriteItemIds = <String>[];
-    final watchlistItemIds = <String>[];
-    final excludeIds = <String>[];
+    debugPrint('🎯 [BEHAVIORAL-EXTRACT] Extracting behavioral data from profile...');
     
-    try {
-      // Extract from liked items
-      final likedItems = userProfileData['liked_items'] as List<dynamic>? ?? [];
-      for (final item in likedItems) {
-        if (item is Map<String, dynamic> && item['media_id'] != null) {
-          likedItemIds.add(item['media_id'] as String);
-        }
+    // Extract lists from profile data
+    final likedItems = userProfileData['liked_items'] as List<dynamic>? ?? [];
+    final favoriteItems = userProfileData['favorite_items'] as List<dynamic>? ?? [];
+    final watchlistItems = userProfileData['watchlist_items'] as List<dynamic>? ?? [];
+    final dislikedItems = userProfileData['disliked_items'] as List<dynamic>? ?? [];
+    final skippedItems = userProfileData['skipped_items'] as List<dynamic>? ?? [];
+    
+    // Extract media IDs
+    final likedItemIds = likedItems.map((item) => item['media_id'] as String? ?? '').where((id) => id.isNotEmpty).toList();
+    final favoriteItemIds = favoriteItems.map((item) => item['media_id'] as String? ?? '').where((id) => id.isNotEmpty).toList();
+    final watchlistItemIds = watchlistItems.map((item) => item['media_id'] as String? ?? '').where((id) => id.isNotEmpty).toList();
+    final dislikedItemIds = dislikedItems.map((item) => item['media_id'] as String? ?? '').where((id) => id.isNotEmpty).toList();
+    final skippedItemIds = skippedItems.map((item) => item['media_id'] as String? ?? '').where((id) => id.isNotEmpty).toList();
+    
+    // Create exclusion list from all suggestions
+    final excludeIds = <String>[];
+    final userConstraints = <String>[];
+    final constraintItems = userProfileData['user_constraints'] as List<dynamic>? ?? [];
+    for (final constraint in constraintItems) {
+      if (constraint is String && constraint.isNotEmpty) {
+        userConstraints.add(constraint);
+      } else if (constraint is Map<String, dynamic> && constraint['rule'] != null) {
+        userConstraints.add(constraint['rule'] as String);
       }
-      
-      // Extract from disliked items
-      final dislikedItems = userProfileData['disliked_items'] as List<dynamic>? ?? [];
-      for (final item in dislikedItems) {
-        if (item is Map<String, dynamic> && item['media_id'] != null) {
-          dislikedItemIds.add(item['media_id'] as String);
-        }
-      }
-      
-      // Extract from skipped items
-      final skippedItems = userProfileData['skipped_items'] as List<dynamic>? ?? [];
-      for (final item in skippedItems) {
-        if (item is Map<String, dynamic> && item['media_id'] != null) {
-          skippedItemIds.add(item['media_id'] as String);
-        }
-      }
-      
-      // Extract from favorite items (plural)
-      final favoriteItems = userProfileData['favorite_items'] as List<dynamic>? ?? [];
-      for (final item in favoriteItems) {
-        if (item is Map<String, dynamic> && item['media_id'] != null) {
-          favoriteItemIds.add(item['media_id'] as String);
-        }
-      }
-      
-      // Extract from watchlist items
-      final watchlistItems = userProfileData['watchlist_items'] as List<dynamic>? ?? [];
-      for (final item in watchlistItems) {
-        if (item is Map<String, dynamic> && item['media_id'] != null) {
-          watchlistItemIds.add(item['media_id'] as String);
-        }
-      }
-      
-      // Extract user constraints
-      final userConstraints = <String>[];
-      final constraintItems = userProfileData['user_constraints'] as List<dynamic>? ?? [];
-      for (final constraint in constraintItems) {
-        if (constraint is String && constraint.isNotEmpty) {
-          userConstraints.add(constraint);
-        } else if (constraint is Map<String, dynamic> && constraint['rule'] != null) {
-          userConstraints.add(constraint['rule'] as String);
-        }
-      }
-      
-      // 🚫 CRITICAL FIX: Add ALL previously suggested media_ids to exclude list
-      final allSuggestions = userProfileData['all_suggestions'] as List<dynamic>? ?? [];
-      debugPrint('🚫 [EXCLUDE-ALL] Found ${allSuggestions.length} previous suggestions to exclude');
-      for (final suggestion in allSuggestions) {
-        if (suggestion is Map<String, dynamic> && suggestion['media_id'] != null) {
-          final mediaId = suggestion['media_id'] as String;
-          final title = suggestion['title'] as String? ?? 'Unknown';
-          final status = suggestion['status'] as String? ?? 'Unknown';
-          excludeIds.add(mediaId);
-          debugPrint('🚫 [EXCLUDE-ALL] Excluding "$title" (ID: $mediaId, Status: $status)');
-        }
-      }
-      
-      // Exclude ALL previously interacted items from new suggestions
-      excludeIds.addAll(likedItemIds);      // Already consumed and liked
-      excludeIds.addAll(dislikedItemIds);   // User doesn't want these
-      excludeIds.addAll(skippedItemIds);    // User rejected these
-      excludeIds.addAll(favoriteItemIds);   // Already consumed and loved
-      excludeIds.addAll(watchlistItemIds);  // User already saw and readlisted these
-      
-      // 🔍 DEBUG: Show exclusion summary
-      debugPrint('🚫 [EXCLUDE-SUMMARY] Total items to exclude: ${excludeIds.length}');
-      debugPrint('🚫 [EXCLUDE-BREAKDOWN] Liked: ${likedItemIds.length}, Disliked: ${dislikedItemIds.length}, Skipped: ${skippedItemIds.length}, Favorites: ${favoriteItemIds.length}, Watchlist: ${watchlistItemIds.length}, All Suggestions: ${allSuggestions.length}');
-      
-      final hasPositiveSignals = likedItemIds.isNotEmpty || favoriteItemIds.isNotEmpty || watchlistItemIds.isNotEmpty;
-      
-      debugPrint('🎯 [BEHAVIORAL-EXTRACT] Extracted: ${likedItemIds.length} liked, '
-          '${dislikedItemIds.length} disliked, ${skippedItemIds.length} skipped, '
-          '${favoriteItemIds.length} favorites, ${watchlistItemIds.length} watchlist, '
-          '${userConstraints.length} constraints, hasPositive: $hasPositiveSignals');
-      
-      return {
-        'likedItemIds': likedItemIds,
-        'dislikedItemIds': dislikedItemIds,
-        'skippedItemIds': skippedItemIds,
-        'favoriteItemIds': favoriteItemIds,
-        'watchlistItemIds': watchlistItemIds,
-        'excludeIds': excludeIds,
-        'userConstraints': userConstraints,
-        'hasPositiveSignals': hasPositiveSignals,
-      };
-    } catch (e) {
-      debugPrint('⚠️ [BEHAVIORAL-EXTRACT] Error extracting behavioral data: $e');
-      return {
-        'likedItemIds': <String>[],
-        'dislikedItemIds': <String>[],
-        'skippedItemIds': <String>[],
-        'favoriteItemIds': <String>[],
-        'watchlistItemIds': <String>[],
-        'excludeIds': <String>[],
-        'hasPositiveSignals': false,
-      };
     }
+    
+    // 🚫 CRITICAL FIX: Add ALL previously suggested media_ids to exclude list
+    final allSuggestions = userProfileData['all_suggestions'] as List<dynamic>? ?? [];
+    debugPrint('🚫 [EXCLUDE-ALL] Found ${allSuggestions.length} previous suggestions to exclude');
+    for (final suggestion in allSuggestions) {
+      if (suggestion is Map<String, dynamic> && suggestion['media_id'] != null) {
+        final mediaId = suggestion['media_id'] as String;
+        final title = suggestion['title'] as String? ?? 'Unknown';
+        final status = suggestion['status'] as String? ?? 'Unknown';
+        excludeIds.add(mediaId);
+        debugPrint('🚫 [EXCLUDE-ALL] Excluding "$title" (ID: $mediaId, Status: $status)');
+      }
+    }
+    
+    // Exclude ALL previously interacted items from new suggestions
+    excludeIds.addAll(likedItemIds);      // Already consumed and liked
+    excludeIds.addAll(dislikedItemIds);   // User doesn't want these
+    excludeIds.addAll(skippedItemIds);    // User rejected these
+    excludeIds.addAll(favoriteItemIds);   // Already consumed and loved
+    excludeIds.addAll(watchlistItemIds);  // User already saw and readlisted these
+    
+    // 🔍 DEBUG: Show exclusion summary
+    debugPrint('🚫 [EXCLUDE-SUMMARY] Total items to exclude: ${excludeIds.length}');
+    debugPrint('🚫 [EXCLUDE-BREAKDOWN] Liked: ${likedItemIds.length}, Disliked: ${dislikedItemIds.length}, Skipped: ${skippedItemIds.length}, Favorites: ${favoriteItemIds.length}, Watchlist: ${watchlistItemIds.length}, All Suggestions: ${allSuggestions.length}');
+    
+    // Extract media settings for behavioral matching parameters
+    final mediaSettings = userProfileData['mediaSettings'] as Map<String, dynamic>? ?? {};
+    final similarityThreshold = mediaSettings['similarity_matching'] as double? ?? 0.5;
+    final themesCount = mediaSettings['themes_matching'] as int? ?? 3;
+    
+    debugPrint('🎯 [SETTINGS-EXTRACT] Similarity threshold: $similarityThreshold, Themes count: $themesCount');
+    
+    final hasPositiveSignals = likedItemIds.isNotEmpty || favoriteItemIds.isNotEmpty || watchlistItemIds.isNotEmpty;
+    debugPrint('🎯 [BEHAVIORAL-EXTRACT] Extracted: ${likedItemIds.length} liked, ${dislikedItemIds.length} disliked, ${skippedItemIds.length} skipped, ${favoriteItemIds.length} favorites, ${watchlistItemIds.length} watchlist, ${userConstraints.length} constraints, hasPositive: $hasPositiveSignals');
+    
+    return {
+      'likedItemIds': likedItemIds,
+      'dislikedItemIds': dislikedItemIds,
+      'favoriteItemIds': favoriteItemIds,
+      'watchlistItemIds': watchlistItemIds,
+      'skippedItemIds': skippedItemIds,
+      'excludeIds': excludeIds,
+      'userConstraints': userConstraints,
+      'hasPositiveSignals': hasPositiveSignals,
+      'similarityThreshold': similarityThreshold, // Pass to vector DB
+      'themesCount': themesCount, // Pass to vector DB
+    };
   }
-
-
 
   /// Generate TV show title based on user preferences
   static String _generateTVShowTitle(List<dynamic> preferredThemes, List<dynamic> userConstraints) {
@@ -2191,6 +2188,8 @@ class RecommendationService extends ChangeNotifier {
               excludeIds: behavioralData['excludeIds'] as List<String>,
               userConstraints: behavioralData['userConstraints'] as List<String>,
               limit: 1,
+              similarityThreshold: behavioralData['similarityThreshold'] as double,
+              themesCount: behavioralData['themesCount'] as int,
             );
             final randomResults = await vectorDb.getRandomMedia(mediaType: mediaType, limit: 1, excludeIds: behavioralData['excludeIds'] as List<String>);
             
@@ -2267,6 +2266,8 @@ class RecommendationService extends ChangeNotifier {
               excludeIds: behavioralData['excludeIds'] as List<String>,
               userConstraints: behavioralData['userConstraints'] as List<String>,
               limit: 1,
+              similarityThreshold: behavioralData['similarityThreshold'] as double,
+              themesCount: behavioralData['themesCount'] as int,
             );
             debugPrint('🔍 [THEME-MATCHING] Real behavioral matching completed successfully');
           } catch (e, stackTrace) {
@@ -2430,7 +2431,7 @@ class RecommendationService extends ChangeNotifier {
   ) async {
     try {
       // Create vector database directory path
-      final vectorDirPath = pathLib.join(appSupportPath, 'vectors');
+      final vectorDirPath = path_lib.join(appSupportPath, 'vectors');
       
       // Media type to file mapping
       const shardFiles = {
@@ -2452,7 +2453,7 @@ class RecommendationService extends ChangeNotifier {
       }
       
       final filename = shardFiles[targetMediaType]!;
-      final dbPath = pathLib.join(vectorDirPath, filename);
+      final dbPath = path_lib.join(vectorDirPath, filename);
       
       debugPrint('🔄 [PURE-ISOLATE] Opening vector database at: $dbPath');
       

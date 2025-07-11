@@ -14,7 +14,7 @@ class AppIcons {
   static const IconData thumbUp = FontAwesomeIcons.thumbsUp;
   static const IconData thumbDown = FontAwesomeIcons.thumbsDown;
   static const IconData plus = FontAwesomeIcons.plus;
-  static const IconData stepForward = FontAwesomeIcons.stepForward;
+  static const IconData stepForward = FontAwesomeIcons.forwardStep;
   static const IconData times = FontAwesomeIcons.xmark;
   static const IconData spotify = FontAwesomeIcons.spotify;
   static const IconData robot = FontAwesomeIcons.robot;

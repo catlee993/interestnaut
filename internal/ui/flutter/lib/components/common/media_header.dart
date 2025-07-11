@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:ui';
 import 'search_bar.dart' as custom;
-import 'settings_drawer.dart';
+import 'media_specific_settings_drawer.dart';
 import 'media_history_screen.dart';  // Add import for MediaHistoryScreen
 import '../../theme.dart';  // Add import for AppTheme
 import '../music/spotify_service.dart';
@@ -419,8 +419,8 @@ class _MediaHeaderState extends State<MediaHeader> {
                             IconButton(
                               icon: const Icon(Icons.settings, color: Color(0xFF7b68ee), size: 20),
                               onPressed: () {
-                                // Use the showSettingsDrawer function to display drawer as overlay
-                                showSettingsDrawer(context);
+                                // Use the showMediaSpecificSettingsDrawer function to display drawer as overlay
+                                showMediaSpecificSettingsDrawer(context, widget.currentMedia);
                               },
                               padding: const EdgeInsets.all(2),
                               splashRadius: 18,

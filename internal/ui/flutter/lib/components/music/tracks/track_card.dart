@@ -445,7 +445,7 @@ class _TrackCardState extends State<TrackCard> {
                               const Text(
                                 'Playback unavailable',
                                 style: TextStyle(
-                                  color: Colors.red,
+                                  color: AppTheme.errorColor,
                                   fontSize: 10, // Smaller font
                                 ),
                                 textAlign: TextAlign.center,

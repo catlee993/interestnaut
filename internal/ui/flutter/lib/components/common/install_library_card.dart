@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../db/vector_db.dart';
+import '../../theme.dart';
 
 /// InstallLibraryCard
 /// Shows when a media type's vector database is not installed
@@ -84,7 +85,7 @@ class _InstallLibraryCardState extends State<InstallLibraryCard> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('${_getMediaTypeDisplayName(widget.mediaType)} library installed successfully!'),
-              backgroundColor: Colors.green,
+              backgroundColor: AppTheme.successColor,
               duration: const Duration(seconds: 3),
             ),
           );

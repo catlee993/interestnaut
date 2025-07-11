@@ -4,7 +4,7 @@ import 'continuous_playback_switch.dart';
 import '../../services/llm_downloader_service.dart';
 import '../../services/model_constants.dart';
 import '../../db/vector_db.dart';
-import 'user_constraints_dialog.dart';
+import '../../theme.dart';
 
 /// A widget that displays the settings drawer overlay.
 /// This should be placed at a top level in the widget tree, not inside a constrained container.
@@ -202,7 +202,7 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor: isError ? Colors.red : Colors.green,
+        backgroundColor: isError ? AppTheme.errorColor : AppTheme.successColor,
         duration: Duration(seconds: isError ? 5 : 3),
       ),
     );
@@ -374,46 +374,7 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
                             : const Text('Download All Databases'),
                       ),
                     ),
-                    const SizedBox(height: 24),
-                    const Divider(color: Colors.white24),
-                    const SizedBox(height: 24),
-                    
-                    // User Preferences Section
-                    const Text(
-                      'User Preferences',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'Set preferences to customize your recommendations',
-                      style: TextStyle(
-                        color: Colors.white70,
-                        fontSize: 14,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        onPressed: () {
-                          showDialog(
-                            context: context,
-                            builder: (context) => const UserConstraintsDialog(),
-                          );
-                        },
-                        icon: const Icon(Icons.tune),
-                        label: const Text('Manage Preferences'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF7B68EE),
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                        ),
-                      ),
-                    ),
+
                   ],
                 ),
               ),

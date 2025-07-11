@@ -3,7 +3,6 @@ import '../../theme.dart';
 import '../../services/sqlite_db.dart';
 import '../../services/recommendation_service.dart';
 import 'media_detail_drawer.dart';
-import 'media_action_icons.dart';
 import '../../models.dart'; // For MediaDisplayHelper
 
 /// Sleek screen for reviewing user's media history
@@ -141,11 +140,11 @@ class _MediaHistoryScreenState extends State<MediaHistoryScreen> {
       margin: const EdgeInsets.only(bottom: 6),
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: AppTheme.surfaceColor.withOpacity(0.6),
+        color: Colors.white.withOpacity(0.03), // Match select from history modal
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
           color: Colors.white.withOpacity(0.1),
-          width: 0.5,
+          width: 1,
         ),
       ),
       child: GestureDetector(
@@ -254,7 +253,7 @@ class _MediaHistoryScreenState extends State<MediaHistoryScreen> {
                 const SizedBox(width: 2),
                 _buildActionButton(item, 'disliked', Icons.thumb_down, AppTheme.dislikeColor),
                 const SizedBox(width: 2),
-                _buildActionButton(item, 'skipped', Icons.skip_next, AppTheme.textSecondary),
+                _buildActionButton(item, 'skipped', Icons.skip_next, AppTheme.skipColor),
               ],
             ),
           ],
@@ -684,11 +683,15 @@ class _MediaHistoryScreenState extends State<MediaHistoryScreen> {
     return Container(
       height: MediaQuery.of(context).size.height * 0.65,
       margin: const EdgeInsets.only(top: 20),
-      decoration: const BoxDecoration(
-        color: AppTheme.surfaceColor,
-        borderRadius: BorderRadius.only(
+      decoration: BoxDecoration(
+        color: const Color(0xFF0A0A0A), // Very dark background like select from history modal
+        borderRadius: const BorderRadius.only(
           topLeft: Radius.circular(20),
           topRight: Radius.circular(20),
+        ),
+        border: Border.all(
+          color: AppTheme.primaryColor.withOpacity(0.3),
+          width: 1,
         ),
       ),
       child: Column(
@@ -696,6 +699,20 @@ class _MediaHistoryScreenState extends State<MediaHistoryScreen> {
           // Header with drag handle and title
           Container(
             padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  AppTheme.primaryColor.withOpacity(0.1),
+                  Colors.transparent,
+                ],
+              ),
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(20),
+                topRight: Radius.circular(20),
+              ),
+            ),
             child: Column(
               children: [
                 // Drag handle
