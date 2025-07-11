@@ -253,8 +253,8 @@ class MediaSuggestionItem {
 /// Utility class to handle smart title/artist resolution
 class MediaDisplayHelper {
   /// Intelligently determine what to show as title and subtitle
-  /// If title is null/empty but artist exists, use artist as title
-  /// If both exist, use normally
+  /// If title is generic/unknown but artist exists, use artist as title
+  /// If both exist and title is meaningful, use normally
   /// If both are null/empty, use fallback
   static MediaDisplayInfo resolveDisplayInfo({
     String? title,
@@ -264,27 +264,64 @@ class MediaDisplayHelper {
     final cleanTitle = title?.trim();
     final cleanArtist = artist?.trim();
     
-    // Case 1: Title exists, use it as primary
-    if (cleanTitle != null && cleanTitle.isNotEmpty) {
+    // Case 1: Title is generic/unknown but artist exists and is meaningful
+    if (_isGenericTitle(cleanTitle) && 
+        cleanArtist != null && 
+        cleanArtist.isNotEmpty && 
+        !_isGenericArtist(cleanArtist)) {
+      return MediaDisplayInfo(
+        displayTitle: cleanArtist,
+        displaySubtitle: null, // No subtitle when using artist as title
+      );
+    }
+    
+    // Case 2: Title exists and is meaningful, use it as primary
+    if (cleanTitle != null && cleanTitle.isNotEmpty && !_isGenericTitle(cleanTitle)) {
       return MediaDisplayInfo(
         displayTitle: cleanTitle,
         displaySubtitle: cleanArtist, // Can be null, that's fine
       );
     }
     
-    // Case 2: No title but artist exists, use artist as title
-    if (cleanArtist != null && cleanArtist.isNotEmpty) {
+    // Case 3: No meaningful title but artist exists, use artist as title
+    if (cleanArtist != null && cleanArtist.isNotEmpty && !_isGenericArtist(cleanArtist)) {
       return MediaDisplayInfo(
         displayTitle: cleanArtist,
         displaySubtitle: null, // No subtitle in this case
       );
     }
     
-    // Case 3: Both are null/empty, use fallback
+    // Case 4: Both are null/empty or generic, use fallback
     return MediaDisplayInfo(
       displayTitle: fallbackTitle,
       displaySubtitle: null,
     );
+  }
+
+  /// Check if a title is generic/placeholder
+  static bool _isGenericTitle(String? title) {
+    if (title == null || title.isEmpty) return true;
+    
+    final lowerTitle = title.toLowerCase().trim();
+    return lowerTitle == 'unknown' ||
+           lowerTitle == 'unknown title' ||
+           lowerTitle == 'untitled' ||
+           lowerTitle == 'no title' ||
+           lowerTitle == '' ||
+           lowerTitle.startsWith('unknown ');
+  }
+
+  /// Check if an artist name is generic/placeholder
+  static bool _isGenericArtist(String? artist) {
+    if (artist == null || artist.isEmpty) return true;
+    
+    final lowerArtist = artist.toLowerCase().trim();
+    return lowerArtist == 'unknown' ||
+           lowerArtist == 'unknown artist' ||
+           lowerArtist == 'various artists' ||
+           lowerArtist == 'various' ||
+           lowerArtist == '' ||
+           lowerArtist.startsWith('unknown ');
   }
 }
 

@@ -4,6 +4,7 @@ import '../../services/sqlite_db.dart';
 import '../../services/recommendation_service.dart';
 import 'media_detail_drawer.dart';
 import 'media_action_icons.dart';
+import '../../models.dart'; // For MediaDisplayHelper
 
 /// Sleek screen for reviewing user's media history
 /// Shows reactions for the current media type only
@@ -177,30 +178,50 @@ class _MediaHistoryScreenState extends State<MediaHistoryScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    item.title ?? 'Unknown',
-                    style: const TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
-                      color: AppTheme.textPrimary,
-                      letterSpacing: 0.2,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  if (item.artist != null && item.artist!.isNotEmpty) ...[
-                    const SizedBox(height: 1),
-                    Text(
-                      item.artist!,
+                  () {
+                    final displayInfo = MediaDisplayHelper.resolveDisplayInfo(
+                      title: item.title,
+                      artist: item.artist,
+                      fallbackTitle: 'Unknown',
+                    );
+                    return Text(
+                      displayInfo.displayTitle,
                       style: const TextStyle(
-                        fontSize: 11,
-                        color: AppTheme.textSecondary,
-                        letterSpacing: 0.1,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        color: AppTheme.textPrimary,
+                        letterSpacing: 0.2,
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
+                    );
+                  }(),
+                  () {
+                    final displayInfo = MediaDisplayHelper.resolveDisplayInfo(
+                      title: item.title,
+                      artist: item.artist,
+                      fallbackTitle: 'Unknown',
+                    );
+                    if (displayInfo.hasSubtitle) {
+                      return Column(
+                        children: [
+                          const SizedBox(height: 1),
+                          Text(
+                            displayInfo.displaySubtitle!,
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: AppTheme.textSecondary,
+                              letterSpacing: 0.1,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      );
+                    } else {
+                      return const SizedBox.shrink();
+                    }
+                  }(),
                 ],
               ),
             ),
@@ -265,11 +286,11 @@ class _MediaHistoryScreenState extends State<MediaHistoryScreen> {
 
   bool _isItemInCategory(MediaSuggestion item, String category) {
     switch (category) {
-      case 'favorited': return _favoritedItems.any((i) => i.id == item.id);
-      case 'liked': return _likedItems.any((i) => i.id == item.id);
-      case 'watchlisted': return _watchlistedItems.any((i) => i.id == item.id);
-      case 'disliked': return _dislikedItems.any((i) => i.id == item.id);
-      case 'skipped': return _skippedItems.any((i) => i.id == item.id);
+      case 'favorited': return _favoritedItems.any((i) => i.mediaItemId == item.mediaItemId);
+      case 'liked': return _likedItems.any((i) => i.mediaItemId == item.mediaItemId);
+      case 'watchlisted': return _watchlistedItems.any((i) => i.mediaItemId == item.mediaItemId);
+      case 'disliked': return _dislikedItems.any((i) => i.mediaItemId == item.mediaItemId);
+      case 'skipped': return _skippedItems.any((i) => i.mediaItemId == item.mediaItemId);
       default: return false;
     }
   }

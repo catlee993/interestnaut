@@ -160,25 +160,42 @@ class MediaSuggestionDisplay extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  suggestedItem?.title ?? '',
+                  () {
+                    final displayInfo = MediaDisplayHelper.resolveDisplayInfo(
+                      title: suggestedItem?.title,
+                      artist: suggestedItem?.artist,
+                      fallbackTitle: '',
+                    );
+                    return displayInfo.displayTitle;
+                  }(),
                   style: AppTheme.mediaTitleStyle.copyWith(fontSize: 24),
                 ),
                 if (mediaType == 'movie')
                   Padding(
                     padding: const EdgeInsets.only(top: 4.0),
-                    child:                     Text(
+                    child: Text(
                       '${suggestedItem?.releaseDate?.substring(0, 4) ?? ''}${suggestedItem?.rating != null ? ' • Rating: ${suggestedItem?.rating}/10' : ''}${suggestedItem?.voteCount != null ? ' (${suggestedItem?.voteCount} votes)' : ''}',
                       style: AppTheme.mediaDescriptionStyle,
                     ),
                   ),
-                if (suggestedItem?.artist != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 4.0),
-                    child: Text(
-                      suggestedItem?.artist ?? '',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                  ),
+                () {
+                  final displayInfo = MediaDisplayHelper.resolveDisplayInfo(
+                    title: suggestedItem?.title,
+                    artist: suggestedItem?.artist,
+                    fallbackTitle: '',
+                  );
+                  if (displayInfo.hasSubtitle) {
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 4.0),
+                      child: Text(
+                        displayInfo.displaySubtitle!,
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                    );
+                  } else {
+                    return const SizedBox.shrink();
+                  }
+                }(),
                 if (suggestedItem?.description != null)
                   Padding(
                     padding: const EdgeInsets.only(top: 16.0),

@@ -5,6 +5,7 @@ import '../../utils/text_utils.dart';
 import 'media_library_grid.dart'; // Import for CardFormat enum
 import '../../theme.dart';
 import 'media_action_icons.dart';
+import '../../models.dart'; // For MediaDisplayHelper
 
 /// A reusable card component for displaying media items in library/watchlist sections
 /// Based on the music section's beautiful styling with gradient overlay and action buttons
@@ -156,7 +157,7 @@ class MediaLibraryCard extends StatelessWidget {
                       Color(0xCC000000), // rgba(0,0,0,0.8) stronger contrast for title area
                       Color(0xFF000000), // rgba(0,0,0,1.0) fully dark at bottom
                     ],
-                    stops: [0.0, 0.70, 0.80, 0.90, 1.0], // Start fade earlier at 70%
+                    stops: [0.0, 0.60, 0.75, 0.85, 1.0], // Start fade earlier at 60% and more gradual
                   ),
                 ),
               ),
@@ -262,42 +263,99 @@ class MediaLibraryCard extends StatelessWidget {
                 ),
               ),
             
-            // Title - positioned just above controls with full width
+            // Title - positioned with conditional logic for better alignment
             Positioned(
-              bottom: 45, // Brought title up another 5px from 40
+              bottom: () {
+                // Check if we're showing artist as title (because original title was "Unknown")
+                final originalTitle = suggestion.title?.trim();
+                final hasArtist = suggestion.artist?.trim()?.isNotEmpty == true;
+                final isGenericTitle = originalTitle == null || 
+                                     originalTitle.isEmpty || 
+                                     originalTitle.toLowerCase() == 'unknown' ||
+                                     originalTitle.toLowerCase().startsWith('unknown ');
+                
+                // If showing artist as title, position it at subtitle level (flush with controls)
+                // Otherwise, position title higher to allow artist to align with controls
+                return (isGenericTitle && hasArtist) ? 18.0 : 38.0;
+              }(),
               left: 16,
-              right: 16, // Title gets full width
-              child: Text(
-                suggestion.title ?? 'Unknown',
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w300, // Thinner like suggestion title
-                  color: Colors.white,
-                  letterSpacing: 1.2, // Wide letter spacing like suggestions
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            
-            // Author/year - positioned at control level with ellipsis protection
-            if (suggestion.artist?.isNotEmpty == true || _getMediaYear(suggestion) != null)
-              Positioned(
-                bottom: 26, // Brought author up another 3px from 23
-                left: 16,
-                right: isWatchlist ? 110 : 90, // More space for watchlist controls, normal space for favorites
-                child: Text(
-                  _buildArtistYearText(suggestion),
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w200, // Thinner like suggestion author
-                    color: Colors.white.withOpacity(0.8),
-                    letterSpacing: 0.9, // Wide letter spacing like suggestions
+              right: isWatchlist ? 110 : 90, // Leave space for controls
+              child: () {
+                final displayInfo = MediaDisplayHelper.resolveDisplayInfo(
+                  title: suggestion.title,
+                  artist: suggestion.artist,
+                  fallbackTitle: 'Unknown',
+                );
+                return Text(
+                  displayInfo.displayTitle,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w300, // Thinner like suggestion title
+                    color: Colors.white,
+                    letterSpacing: 1.2, // Wide letter spacing like suggestions
                   ),
                   maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
+                  overflow: TextOverflow.ellipsis, // Always add ellipsis for overflow
+                );
+              }(),
+            ),
+            
+            // Author/year - positioned at control level with ellipsis protection - only show if we have subtitle
+            () {
+              final displayInfo = MediaDisplayHelper.resolveDisplayInfo(
+                title: suggestion.title,
+                artist: suggestion.artist,
+                fallbackTitle: 'Unknown',
+              );
+              final year = _getMediaYear(suggestion);
+              
+              // If we have a subtitle (artist as subtitle), combine with year
+              if (displayInfo.hasSubtitle) {
+                final artistYearText = year != null 
+                    ? '${displayInfo.displaySubtitle} ($year)'
+                    : displayInfo.displaySubtitle!;
+                    
+                return Positioned(
+                  bottom: 18, // Align with controls baseline
+                  left: 16,
+                  right: isWatchlist ? 110 : 90, // Leave space for controls
+                  child: Text(
+                    artistYearText,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w200, // Thinner like suggestion author
+                      color: Colors.white.withOpacity(0.8),
+                      letterSpacing: 0.9, // Wide letter spacing like suggestions
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis, // Always add ellipsis for overflow
+                  ),
+                );
+              }
+              // If no subtitle but we have year, show year only
+              else if (year != null) {
+                return Positioned(
+                  bottom: 18, // Align with controls baseline to match subtitle positioning
+                  left: 16,
+                  right: isWatchlist ? 110 : 90,
+                  child: Text(
+                    year,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w200,
+                      color: Colors.white.withOpacity(0.8),
+                      letterSpacing: 0.9,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis, // Always add ellipsis for overflow
+                  ),
+                );
+              }
+              // Otherwise show nothing
+              else {
+                return const SizedBox.shrink();
+              }
+            }(),
           ],
         ),
       ),

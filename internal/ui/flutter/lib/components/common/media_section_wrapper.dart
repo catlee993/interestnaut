@@ -203,21 +203,38 @@ class MediaSectionWrapper extends StatelessWidget {
                 children: [
                   // Media title
                   Text(
-                    suggestion.title ?? 'Unknown ${AppTheme.getMediaDisplayName(mediaType)}',
+                    () {
+                      final displayInfo = MediaDisplayHelper.resolveDisplayInfo(
+                        title: suggestion.title,
+                        artist: suggestion.artist,
+                        fallbackTitle: 'Unknown ${AppTheme.getMediaDisplayName(mediaType)}',
+                      );
+                      return displayInfo.displayTitle;
+                    }(),
                     style: AppTheme.mediaTitleStyle,
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 8),
                   
-                  // Artist/creator info
-                  if (suggestion.artist?.isNotEmpty == true)
-                    Text(
-                      _getArtistText(suggestion.artist!),
-                      style: AppTheme.mediaArtistStyle,
-                      textAlign: TextAlign.center,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
+                  // Artist/creator info - only show if we have a subtitle
+                  () {
+                    final displayInfo = MediaDisplayHelper.resolveDisplayInfo(
+                      title: suggestion.title,
+                      artist: suggestion.artist,
+                      fallbackTitle: 'Unknown ${AppTheme.getMediaDisplayName(mediaType)}',
+                    );
+                    if (displayInfo.hasSubtitle) {
+                      return Text(
+                        _getArtistText(displayInfo.displaySubtitle!),
+                        style: AppTheme.mediaArtistStyle,
+                        textAlign: TextAlign.center,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      );
+                    } else {
+                      return const SizedBox(height: 0);
+                    }
+                  }(),
                   const SizedBox(height: 16),
                   
                   // Flexible content area for description and reasoning with dynamic height allocation

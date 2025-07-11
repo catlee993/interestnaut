@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../theme.dart';
 import '../../services/sqlite_db.dart';
 import 'media_action_icons.dart';
+import '../../models.dart'; // For MediaDisplayHelper
 
 /// Reusable media display area component with side-by-side layout
 class MediaDisplayArea extends StatelessWidget {
@@ -222,12 +223,19 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
               child: Row(
                 children: [
                   Expanded(
-                    child: Text(
-                      widget.title,
-                      style: AppTheme.mediaTitleStyle.copyWith(fontSize: 18),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
+                    child: () {
+                      final displayInfo = MediaDisplayHelper.resolveDisplayInfo(
+                        title: widget.title,
+                        artist: widget.artist,
+                        fallbackTitle: 'Unknown Media',
+                      );
+                      return Text(
+                        displayInfo.displayTitle,
+                        style: AppTheme.mediaTitleStyle.copyWith(fontSize: 18),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      );
+                    }(),
                   ),
                   const SizedBox(width: AppTheme.spacingSM),
                   // Status text in interestnaut style
@@ -327,30 +335,45 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             mainAxisSize: MainAxisSize.min, // Important: only take needed space
                             children: [
-                              // Artist/Creator
-                              if (hasArtist) ...[
-                                RichText(
-                                  text: TextSpan(
+                              // Artist/Creator - only show if we have a subtitle (not used as title)
+                              () {
+                                final displayInfo = MediaDisplayHelper.resolveDisplayInfo(
+                                  title: widget.title,
+                                  artist: widget.artist,
+                                  fallbackTitle: 'Unknown Media',
+                                );
+                                
+                                if (displayInfo.hasSubtitle) {
+                                  return Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      TextSpan(
-                                        text: '${_getCreatorLabel().toUpperCase()}: ',
-                                        style: AppTheme.bodyStyle.copyWith(
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w600,
-                                          color: AppTheme.textSecondary,
+                                      RichText(
+                                        text: TextSpan(
+                                          children: [
+                                            TextSpan(
+                                              text: '${_getCreatorLabel().toUpperCase()}: ',
+                                              style: AppTheme.bodyStyle.copyWith(
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.w600,
+                                                color: AppTheme.textSecondary,
+                                              ),
+                                            ),
+                                            TextSpan(
+                                              text: displayInfo.displaySubtitle!,
+                                              style: AppTheme.bodyStyle.copyWith(
+                                                fontSize: 12,
+                                              ),
+                                            ),
+                                          ],
                                         ),
                                       ),
-                                      TextSpan(
-                                        text: widget.artist!,
-                                        style: AppTheme.bodyStyle.copyWith(
-                                          fontSize: 12,
-                                        ),
-                                      ),
+                                      const SizedBox(height: AppTheme.spacingXS),
                                     ],
-                                  ),
-                                ),
-                                const SizedBox(height: AppTheme.spacingXS),
-                              ],
+                                  );
+                                } else {
+                                  return const SizedBox.shrink();
+                                }
+                              }(),
                               
                               // Themes with proper text wrapping
                               if (hasThemes) ...[
