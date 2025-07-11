@@ -1698,15 +1698,22 @@ class RecommendationService extends ChangeNotifier {
       for (final item in favoriteItems) {
         if (item is Map<String, dynamic>) {
           final itemTitle = item['title'] as String? ?? '';
+          final itemArtist = item['artist'] as String? ?? '';
           final itemThemes = item['themes'] as String? ?? '';
           
-          if (itemTitle.isNotEmpty && itemThemes.isNotEmpty) {
+          if (itemThemes.isNotEmpty) {
             // Check if this item has any of the recommended themes
             final userItemThemes = itemThemes.split(',').map((t) => t.trim().toLowerCase()).toSet();
             final hasMatchingTheme = recommendedThemes.any((theme) => userItemThemes.contains(theme));
             
             if (hasMatchingTheme) {
-              contributingTitles.add(itemTitle); // Just title, no author
+              // Use MediaDisplayHelper to get the best display name
+              final displayInfo = MediaDisplayHelper.resolveDisplayInfo(
+                title: itemTitle,
+                artist: itemArtist,
+                fallbackTitle: 'Unknown $mediaType',
+              );
+              contributingTitles.add(displayInfo.displayTitle);
             }
           }
         }
@@ -1718,15 +1725,27 @@ class RecommendationService extends ChangeNotifier {
         for (final item in likedItems) {
           if (item is Map<String, dynamic> && contributingTitles.length < 3) {
             final itemTitle = item['title'] as String? ?? '';
+            final itemArtist = item['artist'] as String? ?? '';
             final itemThemes = item['themes'] as String? ?? '';
             
-            if (itemTitle.isNotEmpty && itemThemes.isNotEmpty && !contributingTitles.contains(itemTitle)) {
+            if (itemThemes.isNotEmpty) {
               // Check if this item has any of the recommended themes
               final userItemThemes = itemThemes.split(',').map((t) => t.trim().toLowerCase()).toSet();
               final hasMatchingTheme = recommendedThemes.any((theme) => userItemThemes.contains(theme));
               
               if (hasMatchingTheme) {
-                contributingTitles.add(itemTitle); // Just title, no author
+                // Use MediaDisplayHelper to get the best display name
+                final displayInfo = MediaDisplayHelper.resolveDisplayInfo(
+                  title: itemTitle,
+                  artist: itemArtist,
+                  fallbackTitle: 'Unknown $mediaType',
+                );
+                final displayTitle = displayInfo.displayTitle;
+                
+                // Only add if we don't already have this title
+                if (!contributingTitles.contains(displayTitle)) {
+                  contributingTitles.add(displayTitle);
+                }
               }
             }
           }

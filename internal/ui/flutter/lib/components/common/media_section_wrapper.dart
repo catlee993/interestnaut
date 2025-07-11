@@ -480,11 +480,18 @@ class MediaSectionWrapper extends StatelessWidget {
       
       debugPrint('🔍 [DRAWER-DIRECT] Status for "$bestTitle": $statusResult');
       
+      // Smart artist handling: if we used the artist as the title, don't pass it as artist
+      String? effectiveArtist = item.artist;
+      if (item.artist != null && bestTitle == item.artist) {
+        // The artist became the title, so clear the artist field to avoid duplication
+        effectiveArtist = null;
+      }
+      
       _showMediaDrawer(
         context,
         MediaDetailDrawer(
           title: bestTitle,
-          artist: item.artist,
+          artist: effectiveArtist,
           description: item.description,
           themes: item.themes,
           coverArtUrl: item.coverArtUrl,
