@@ -62,6 +62,9 @@ abstract class BaseMediaSectionController extends ChangeNotifier {
         case RecommendationEventType.suggestionStarted:
           // Loading state is already set when we call generateSuggestionOnDemand
           break;
+        case RecommendationEventType.suggestionProgress:
+          // Progress events are handled by specific controllers if needed
+          break;
       }
     });
   }

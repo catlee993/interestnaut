@@ -48,11 +48,11 @@ class _SuggestionReasoningDisplayState extends State<SuggestionReasoningDisplay>
 
   /// Get match style label based on similarity threshold
   String _getMatchStyleLabel(double threshold) {
-    if (threshold <= 0.1) return 'Free Spirit';
+    if (threshold <= 0.1) return 'Bohemian';
     if (threshold <= 0.3) return 'Eclectic';
-    if (threshold <= 0.5) return 'Average';
-    if (threshold <= 0.7) return 'Picky';
-    return 'Niche';
+    if (threshold <= 0.5) return 'Versatile';
+    if (threshold <= 0.7) return 'Discerning';
+          return 'Meticulous';
   }
 
   /// Load media settings to get similarity threshold
@@ -307,6 +307,8 @@ class _SuggestionReasoningDisplayState extends State<SuggestionReasoningDisplay>
   }
 
   Widget _buildMatchDetailsSection(BuildContext context) {
+    final matchStyle = _getMatchStyleLabel(_similarityThreshold);
+    
     return Container(
       width: double.infinity,
       child: Column(
@@ -316,18 +318,14 @@ class _SuggestionReasoningDisplayState extends State<SuggestionReasoningDisplay>
             transform: Matrix4.identity()..scale(1.15, 1.0),
             alignment: Alignment.centerLeft,
             child: Text(
-              'MATCH DETAILS',
+              '${matchStyle.toUpperCase()} MATCHING',
               style: AppTheme.reasoningHeaderStyle,
             ),
           ),
           const SizedBox(height: 6),
           
-          // Match Style Chip (always shown)
-          _buildMatchStyleChip(),
-          
           // Custom Matching (only shown if constraints exist)
           if (_customMatchingConstraints != null && !_isLoadingConstraints) ...[
-            const SizedBox(height: 8),
             _buildCustomMatchingContent(),
           ],
         ],
