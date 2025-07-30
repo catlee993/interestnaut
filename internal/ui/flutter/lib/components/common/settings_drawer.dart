@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as path;
 import 'continuous_playback_switch.dart';
-import '../../services/llm_downloader_service.dart';
+// LLM downloader service removed - using gRPC backend
 import '../../services/model_constants.dart';
 import '../../db/vector_db.dart';
 import '../../theme.dart';
@@ -45,8 +45,8 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
 
   Future<void> _checkModelStatus() async {
     try {
-      // Check if any models exist in the models directory
-      final hasModels = await LLMDownloaderService.hasModels();
+      // LLM models no longer needed - using gRPC backend
+      final hasModels = false; // await LLMDownloaderService.hasModels();
       if (mounted) {
         setState(() {
           _hasModel = hasModels;
@@ -63,8 +63,8 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
   }
 
   Future<String> _getModelPath() async {
-    // Use the proper method from LLMDownloaderService
-    final modelDir = await LLMDownloaderService.getModelDirectory();
+    // LLM models no longer needed - using gRPC backend
+    final modelDir = ''; // await LLMDownloaderService.getModelDirectory();
     return path.join(modelDir, kLlamaModelFileName);
   }
 
@@ -76,8 +76,8 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
     });
 
     try {
-      // Get the model directory
-      final modelDir = await LLMDownloaderService.getModelDirectory();
+      // LLM models no longer needed - using gRPC backend
+      final modelDir = ''; // await LLMDownloaderService.getModelDirectory();
 
       // Show a toast that download has started
       ScaffoldMessenger.of(context).showSnackBar(
@@ -88,26 +88,25 @@ class _SettingsDrawerState extends State<SettingsDrawer> {
       );
 
       try {
-        // Start the download using TinyLlama
-        final response = await LLMDownloaderService.downloadModel(
-          modelDir,
-          kTinyLlamaModelFileName, // Use TinyLlama instead
-          downloadUrl: 'https://interestnaut.com/models/tinyllama-1.1b-chat-q4_0.gguf',
-        );
+        // LLM models no longer needed - using gRPC backend
+        return;
+        // final response = await LLMDownloaderService.downloadModel(
+        //   modelDir,
+        //   kTinyLlamaModelFileName, // Use TinyLlama instead
+        //   downloadUrl: 'https://interestnaut.com/models/tinyllama-1.1b-chat-q4_0.gguf',
+        // );
 
         if (mounted) {
           setState(() {
             _isDownloadingModel = false;
-            _hasModel = response.success;
+            _hasModel = false; // Models no longer needed
           });
 
-          // Show success or error toast
+          // Show info that gRPC backend is used instead
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(response.success
-                  ? 'TinyLlama model downloaded successfully!'
-                  : 'Failed to download model: ${response.error}'),
-              duration: const Duration(seconds: 5),
+            const SnackBar(
+              content: Text('Using remote gRPC backend - no local model needed'),
+              duration: Duration(seconds: 3),
             ),
           );
         }

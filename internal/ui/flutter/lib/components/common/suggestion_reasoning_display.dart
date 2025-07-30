@@ -272,7 +272,9 @@ class _SuggestionReasoningDisplayState extends State<SuggestionReasoningDisplay>
               return GestureDetector(
                 onTap: () {
                   if (mediaItemId.isNotEmpty) {
-                    widget.onMatchSourceTap(context, int.parse(mediaItemId));
+                    // Media IDs are now strings like "music_000060_DannyElfman"
+                    // Use fallback for now since we need to update the tap handler
+                    widget.onMatchSourceFallback(context, title);
                   } else {
                     widget.onMatchSourceFallback(context, title);
                   }

@@ -333,6 +333,7 @@ class _SpotifyPlayerState extends State<SpotifyPlayer> {
     if (_isPlaying) {
       _spotifyService.pausePlayback(deviceId: _deviceId).catchError((e) {
         debugPrint('Error pausing playback: $e');
+        return false;
       });
     } else {
       // Use resumePlayback when unpausing to avoid restarting the track
@@ -340,6 +341,7 @@ class _SpotifyPlayerState extends State<SpotifyPlayer> {
         debugPrint('Resuming current track: ${_currentTrack!.name}');
         _spotifyService.resumePlayback(deviceId: _deviceId).catchError((e) {
           debugPrint('Error resuming playback: $e');
+          return false;
         });
       }
     }

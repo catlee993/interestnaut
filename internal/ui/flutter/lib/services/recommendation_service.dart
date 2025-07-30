@@ -20,8 +20,7 @@ import '../models.dart';
 import 'package:interestnaut/services/wikipedia_service.dart';
 import '../components/music/spotify_service.dart';
 import 'recommendation_event_service.dart';
-import 'llm_performance_monitor.dart';
-import 'tflite_vector_service.dart'; 
+// All ML/LLM services removed - using gRPC backend for recommendations 
 
 // --- Isolate-Safe Classes ---
 
@@ -759,7 +758,7 @@ class RecommendationService extends ChangeNotifier {
   final SQLiteDatabase _db = SQLiteDatabase();
   final SpotifyService _spotifyService = SpotifyService();
   final RecommendationEventService _eventService = RecommendationEventService();
-  final LLMPerformanceMonitor _performanceMonitor = LLMPerformanceMonitor(); 
+  // LLM performance monitoring removed - using gRPC backend 
   
   bool _isProcessingQueue = false;
   final Map<String, bool> _queueBeingFilled = {};
@@ -772,9 +771,7 @@ class RecommendationService extends ChangeNotifier {
   Future<void> init() async {
     try {
       await _db.init();
-      _performanceMonitor.init();
-      await _performanceMonitor.loadPerformanceData();
-      debugPrint('RecommendationService initialized with performance monitoring');
+      debugPrint('RecommendationService initialized (legacy - use GrpcRecommendationService instead)');
       // Remove automatic queue prefilling - suggestions will be generated on-demand
     } catch (e) {
       debugPrint('Error initializing RecommendationService: $e');

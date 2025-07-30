@@ -24,10 +24,10 @@ import 'components/common/media_detail_drawer.dart';
 import 'components/music/spotify_service.dart';
 import 'components/music/player/spotify_player_view.dart';
 import 'components/music/player/spotify_web_player.dart';
-import 'services/tflite_llm_service.dart';
+// TFLite LLM service removed - using gRPC backend
 import 'services/wikidata_service.dart';
 import 'services/wikipedia_service.dart';
-import 'services/recommendation_service.dart';
+import 'services/recommendation_service_grpc.dart';
 import 'services/sqlite_db.dart';
 import 'services/ffi_init.dart';
 import 'services/go_bindings.dart';
@@ -104,29 +104,12 @@ Future<void> main() async {
     // Continue anyway, the app will handle missing FFI gracefully
   }
 
-  // --- Initialize TensorFlow Lite LLM Service ---
-  final tfliteService = TFLiteLLMService();
-  bool llmInitialized = false;
+  // --- TensorFlow Lite LLM Service removed ---
+  // Using gRPC backend instead of local LLM models
 
-  try {
-    // Initialize TensorFlow Lite LLM (looks for model in Documents/models/)
-    debugPrint('🔄 Starting TensorFlow Lite LLM initialization...');
-    llmInitialized = await tfliteService.initialize();
-    
-    if (llmInitialized) {
-      debugPrint('✅ TensorFlow Lite LLM initialized successfully');
-    } else {
-      debugPrint('❌ TensorFlow Lite LLM initialization failed - continuing with limited functionality');
-    }
-  } catch (e) {
-    debugPrint('💥 Error initializing TensorFlow Lite LLM: $e');
-    debugPrint('📍 Stack trace: ${StackTrace.current}');
-    // Continue anyway, the app will handle missing LLM gracefully
-  }
-
-  // --- Initialize RecommendationService ---
-  // Create the recommendation service
-  final recommendationService = RecommendationService();
+  // --- Initialize GrpcRecommendationService ---
+  // Create the gRPC-based recommendation service
+  final recommendationService = GrpcRecommendationService();
 
   // Set window size for desktop platforms
   if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
@@ -148,8 +131,8 @@ Future<void> main() async {
   runApp(
     MultiProvider(
       providers: [
-        // Provide TensorFlow Lite LLM Service, RecommendationService, etc.
-        Provider.value(value: tfliteService),
+        // Provide GrpcRecommendationService
+        // TensorFlow Lite LLM Service removed - using gRPC backend
         ChangeNotifierProvider.value(value: recommendationService),
         // If SpotifyService needs to be a provider:
         Provider.value(value: SpotifyService()),
@@ -158,20 +141,16 @@ Future<void> main() async {
     ),
   );
 
-  // --- Post-runApp async initialization for RecommendationService ---
-  // Initialize the recommendation service with the SQLite database
+  // --- Post-runApp async initialization for GrpcRecommendationService ---
+  // Initialize the gRPC recommendation service with backend connection
   try {
     await recommendationService.init();
 
-    // Prefill recommendation queues if TensorFlow Lite LLM is available
-    if (llmInitialized) {
-      await recommendationService.prefillQueues();
-      debugPrint('RecommendationService initialized with queues prefilled');
-    } else {
-      debugPrint('RecommendationService initialized without LLM support');
-    }
+    // Prefill recommendation queues for gRPC backend
+    await recommendationService.prefillQueues();
+    debugPrint('GrpcRecommendationService initialized with queues prefilled');
   } catch (e) {
-    debugPrint('Error initializing RecommendationService: $e');
+    debugPrint('Error initializing GrpcRecommendationService: $e');
   }
 }
 

@@ -1,14 +1,15 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import '../../services/recommendation_service.dart';
+import '../../services/recommendation_service_grpc.dart';
 import '../../services/recommendation_event_service.dart';
 import '../../services/sqlite_db.dart';
+import '../../services/recommendation_service.dart'; // For MediaSuggestion and SuggestionStatus
 
 /// Base controller for media section suggestion management
 /// Handles all the common logic that's duplicated across media types
 abstract class BaseMediaSectionController extends ChangeNotifier {
   final String mediaType;
-  final RecommendationService _recommendationService = RecommendationService();
+  final GrpcRecommendationService _recommendationService = GrpcRecommendationService();
   final SQLiteDatabase _db = SQLiteDatabase();
   
   // Common suggestion state

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../theme.dart';
 import '../../services/sqlite_db.dart';
 import '../../enums/media_type.dart';
+import 'autocomplete_search.dart';
 
 /// Panel for refining media recommendations with advanced controls
 class MediaRefinementPanel extends StatefulWidget {
@@ -24,16 +25,15 @@ class _MediaRefinementPanelState extends State<MediaRefinementPanel> {
   final List<String> _negativeConstraints = [];
   final List<String> _priorityTitles = [];
   final List<String> _avoidTitles = [];
-  final TextEditingController _constraintController = TextEditingController();
   final TextEditingController _titleController = TextEditingController();
   bool _isLoading = true;
 
   final Map<double, String> _similarityLabels = {
-    0.1: 'Free Spirit',
+    0.1: 'Bohemian',
     0.3: 'Eclectic',
-    0.5: 'Average',
-    0.7: 'Picky',
-    1.0: 'Niche',
+    0.5: 'Versatile',
+    0.7: 'Discerning',
+    1.0: 'Meticulous',
   };
 
   @override
@@ -44,7 +44,6 @@ class _MediaRefinementPanelState extends State<MediaRefinementPanel> {
 
   @override
   void dispose() {
-    _constraintController.dispose();
     _titleController.dispose();
     super.dispose();
   }
@@ -186,16 +185,55 @@ class _MediaRefinementPanelState extends State<MediaRefinementPanel> {
     }
   }
 
-  void _addConstraintToList(bool isPositive) {
-    final constraint = _constraintController.text.trim();
+  void _addConstraintToList(String constraint, bool isPositive) {
     final targetList = isPositive ? _positiveConstraints : _negativeConstraints;
     if (constraint.isNotEmpty && !targetList.contains(constraint)) {
       setState(() {
         targetList.add(constraint);
-        _constraintController.clear();
       });
       _saveSettings(); // Save immediately when constraints change
     }
+  }
+
+  void _showIncludeExcludeDialog(String item) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF0A0A0A),
+        title: Text(
+          'Add "$item"',
+          style: const TextStyle(color: Colors.white, fontSize: 16),
+        ),
+        content: Text(
+          'Would you like to include or exclude this constraint?',
+          style: TextStyle(color: Colors.white.withOpacity(0.8), fontSize: 14),
+        ),
+        actions: [
+          TextButton.icon(
+            onPressed: () {
+              Navigator.of(context).pop();
+              _addConstraintToList(item, true);
+            },
+            icon: Icon(Icons.thumb_up_outlined, color: AppTheme.includeColor, size: 18),
+            label: Text(
+              'Include',
+              style: TextStyle(color: AppTheme.includeColor),
+            ),
+          ),
+          TextButton.icon(
+            onPressed: () {
+              Navigator.of(context).pop();
+              _addConstraintToList(item, false);
+            },
+            icon: Icon(Icons.thumb_down_outlined, color: AppTheme.excludeColor, size: 18),
+            label: Text(
+              'Exclude',
+              style: TextStyle(color: AppTheme.excludeColor),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   void _removePositiveConstraint(int index) {
@@ -502,59 +540,33 @@ class _MediaRefinementPanelState extends State<MediaRefinementPanel> {
           ),
           const SizedBox(height: 16),
           
-          // Input field with + and - buttons
+          // Themes search section
           Row(
             children: [
               Expanded(
-                child: TextField(
-                  controller: _constraintController,
-                  style: const TextStyle(color: Colors.white, fontSize: 14),
-                  decoration: InputDecoration(
-                    hintText: 'e.g., "acoustic"',
-                    hintStyle: TextStyle(
-                      color: Colors.white.withOpacity(0.5),
-                      fontSize: 14,
-                    ),
-                    filled: true,
-                    fillColor: const Color(0xFF0A0A0A),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                      borderSide: BorderSide(color: Colors.white.withOpacity(0.1)),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                      borderSide: BorderSide(color: Colors.white.withOpacity(0.1)),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                      borderSide: BorderSide(color: AppTheme.primaryColor),
-                    ),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                  ),
+                child: AutocompleteSearch(
+                  mediaType: widget.mediaType,
+                  searchType: 'themes',
+                  hintText: 'Search themes (e.g., "industrial")',
+                  existingItems: [..._positiveConstraints, ..._negativeConstraints],
+                  onSelected: (theme) => _showIncludeExcludeDialog(theme),
                 ),
               ),
-              const SizedBox(width: 12),
-              // Vertically aligned thumbs up/down buttons
-              Column(
-                children: [
-                  GestureDetector(
-                    onTap: () => _addConstraintToList(true),
-                    child: Icon(
-                      Icons.thumb_up_outlined,
-                      color: AppTheme.includeColor, // Use theme color
-                      size: 18,
-                    ),
-                  ),
-                  const SizedBox(height: 4), // Closer together
-                  GestureDetector(
-                    onTap: () => _addConstraintToList(false),
-                    child: Icon(
-                      Icons.thumb_down_outlined,
-                      color: AppTheme.excludeColor, // Use theme color
-                      size: 18,
-                    ),
-                  ),
-                ],
+            ],
+          ),
+          const SizedBox(height: 12),
+          
+          // Genres search section  
+          Row(
+            children: [
+              Expanded(
+                child: AutocompleteSearch(
+                  mediaType: widget.mediaType,
+                  searchType: 'genres',
+                  hintText: 'Search genres (e.g., "rock")',
+                  existingItems: [..._positiveConstraints, ..._negativeConstraints],
+                  onSelected: (genre) => _showIncludeExcludeDialog(genre),
+                ),
               ),
             ],
           ),

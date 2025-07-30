@@ -6,7 +6,7 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:uni_links/uni_links.dart';
+import 'package:app_links/app_links.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import './player/spotify_player_view.dart';  
@@ -58,6 +58,9 @@ class SpotifyService {
     required this.callbackServerUri,
   });
   
+  // App links for handling deep links
+  final _appLinks = AppLinks();
+  
   // Stream controllers for events
   final _authStatusController = StreamController<AuthStatusEvent>.broadcast();
   final _userProfileController = StreamController<UserProfileEvent>.broadcast();
@@ -81,7 +84,6 @@ class SpotifyService {
   String? _refreshToken;
   DateTime _tokenExpiry = DateTime.now();
   Timer? _refreshTimer;
-  bool _authenticating = false;
   
   // Backup token storage in memory
   String? _accessTokenInMemory;
@@ -153,8 +155,8 @@ class SpotifyService {
     
     // Set up URI handling for auth callbacks on mobile
     if (Platform.isIOS || Platform.isAndroid) {
-      uriLinkStream.listen((Uri? uri) {
-        if (uri != null && uri.toString().contains('/callback')) {
+      _appLinks.uriLinkStream.listen((Uri uri) {
+        if (uri.toString().contains('/callback')) {
           _handleAuthCallback(uri);
         }
       }, onError: (err) {
@@ -422,18 +424,52 @@ class SpotifyService {
   
   /// Try to find an available registered callback port
   Future<int> _findAvailableCallbackPort() async {
+    // First, try the registered ports in order
     for (final port in _registeredCallbackPorts) {
-      try {
-        // Just try to bind to check availability, then close immediately
-        final server = await HttpServer.bind(InternetAddress.loopbackIPv4, port, shared: true);
-        debugPrint('Successfully bound to port $port');
-        await server.close();
+      if (await _isPortAvailable(port)) {
         return port;
-      } catch (e) {
-        debugPrint('Port $port is not available: $e');
       }
     }
-    return -1;
+    
+    // If none of the registered ports work, let the OS pick one
+    debugPrint('🔄 No registered ports available, letting OS pick a dynamic port...');
+    try {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0, shared: false);
+      final dynamicPort = server.port;
+      await server.close();
+      await Future.delayed(Duration(milliseconds: 100));
+      
+      debugPrint('✅ OS assigned dynamic port: $dynamicPort');
+      return dynamicPort;
+    } catch (e) {
+      debugPrint('❌ Failed to get dynamic port: $e');
+      return -1;
+    }
+  }
+  
+  /// Check if a specific port is available for HTTP server use
+  Future<bool> _isPortAvailable(int port) async {
+    try {
+      // Step 1: Try to bind a server to the port
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, port, shared: false);
+      await server.close();
+      await Future.delayed(Duration(milliseconds: 50));
+      
+      // Step 2: Try to connect as a client to see if anything else is listening
+      try {
+        final socket = await Socket.connect('localhost', port, timeout: Duration(milliseconds: 300));
+        await socket.close();
+        
+        debugPrint('❌ Port $port: Something else is listening');
+        return false;
+      } catch (e) {
+        debugPrint('✅ Port $port: Available (no conflicts detected)');
+        return true;
+      }
+    } catch (e) {
+      debugPrint('❌ Port $port: Cannot bind ($e)');
+      return false;
+    }
   }
 
   /// Handle the authentication callback from the browser
@@ -468,12 +504,17 @@ class SpotifyService {
   /// Authenticate with Spotify using appropriate method for the current platform
   /// Returns true if the authentication process was initiated successfully
   Future<bool> authenticate(BuildContext context) async {
-    if (_authenticating) {
-      debugPrint('Authentication already in progress');
-      return false;
+    // Instead of blocking, clean up any existing auth state
+    if (_callbackServer != null) {
+      debugPrint('Cleaning up existing authentication attempt');
+      await _closeCallbackServer();
     }
     
-    _authenticating = true;
+    // Reset any incomplete completers
+    if (_callbackCompleter != null && !_callbackCompleter!.isCompleted) {
+      _callbackCompleter!.complete(null);
+    }
+    
     bool success = false;
     
     try {
@@ -555,8 +596,6 @@ class SpotifyService {
         );
       }
     } finally {
-      _authenticating = false;
-      
       // Ensure the callback server is closed
       await _closeCallbackServer();
     }
@@ -569,58 +608,119 @@ class SpotifyService {
     try {
       _callbackCompleter = Completer<String?>();
       
-      // Attempt to bind to the port we found available
-      try {
-        _callbackServer = await HttpServer.bind(InternetAddress.loopbackIPv4, _callbackPort, shared: true);
-        debugPrint('Callback server started on port $_callbackPort');
-      } catch (e) {
-        debugPrint('Failed to bind to port $_callbackPort: $e');
+      // If the predetermined port fails, try finding a new one
+      bool serverStarted = false;
+      int retriesLeft = 3;
+      
+      while (!serverStarted && retriesLeft > 0) {
+        try {
+          _callbackServer = await HttpServer.bind(InternetAddress.loopbackIPv4, _callbackPort, shared: false);
+          debugPrint('✅ Callback server successfully started on port $_callbackPort');
+          debugPrint('✅ Server address: ${_callbackServer!.address}:${_callbackServer!.port}');
+          serverStarted = true;
+        } catch (e) {
+          debugPrint('❌ Failed to bind to port $_callbackPort: $e');
+          retriesLeft--;
+          
+          if (retriesLeft > 0) {
+            debugPrint('🔄 Trying to find another available port...');
+            final newPort = await _findAvailableCallbackPort();
+            if (newPort > 0) {
+              _callbackPort = newPort;
+              debugPrint('🔄 Retrying with port $_callbackPort');
+            } else {
+              debugPrint('❌ No more available ports found');
+              break;
+            }
+          }
+        }
+      }
+      
+      if (!serverStarted) {
+        debugPrint('❌ CRITICAL: Could not start callback server on any available port');
         return false;
       }
       
+      debugPrint('Setting up HTTP server listener...');
       _callbackServer!.listen((HttpRequest request) async {
-        debugPrint('Received callback: ${request.uri}');
+        debugPrint('🎯 HTTP REQUEST RECEIVED: ${request.method} ${request.uri}');
+        debugPrint('🎯 Headers: ${request.headers}');
         
-        // Parse the URI
-        final uri = request.uri;
-        
-        // Write a friendly HTML response
-        request.response.headers.set('Content-Type', 'text/html');
-        request.response.write('''
-          <!DOCTYPE html>
-          <html>
-            <head>
-              <title>Authentication Successful</title>
-              <style>
-                body { font-family: Arial, sans-serif; text-align: center; padding: 50px; }
-                h1 { color: #1DB954; }
-              </style>
-            </head>
-            <body>
-              <h1>Authentication Successful</h1>
-              <p>You can close this window and return to the app.</p>
-            </body>
-          </html>
-        ''');
-        await request.response.close();
-        
-        // Extract the code
-        final code = uri.queryParameters['code'];
-        if (code != null && _callbackCompleter != null && !_callbackCompleter!.isCompleted) {
-          _callbackCompleter!.complete(code);
+        try {
+          // Parse the URI
+          final uri = request.uri;
           
-          // Close the server after a delay to ensure the response has been sent
-          Timer(const Duration(seconds: 1), () {
-            _closeCallbackServer();
-          });
-        } else if (uri.queryParameters['error'] != null && _callbackCompleter != null && !_callbackCompleter!.isCompleted) {
-          debugPrint('Error during auth: ${uri.queryParameters['error']}');
-          _callbackCompleter!.complete(null);
+          // Extract the code before responding
+          final code = uri.queryParameters['code'];
+          final error = uri.queryParameters['error'];
           
-          // Close the server after a delay
-          Timer(const Duration(seconds: 1), () {
-            _closeCallbackServer();
-          });
+          // Write a simple, clean HTML response
+          final htmlResponse = '''<!DOCTYPE html>
+<html>
+<head>
+<title>Authentication Successful</title>
+<meta charset="UTF-8">
+<style>
+body { font-family: Arial, sans-serif; text-align: center; padding: 50px; }
+h1 { color: #1DB954; }
+</style>
+</head>
+<body>
+<h1>Authentication Successful</h1>
+<p>You can close this window and return to the app.</p>
+</body>
+</html>''';
+          
+          final responseBytes = utf8.encode(htmlResponse);
+          
+          request.response.statusCode = 200;
+          request.response.reasonPhrase = 'OK';
+          request.response.headers.set('Content-Type', 'text/html; charset=UTF-8');
+          request.response.headers.set('Content-Length', responseBytes.length.toString());
+          request.response.headers.set('Connection', 'close');
+          request.response.headers.set('Server', 'Dart HttpServer');
+          
+          debugPrint('Sending HTTP response with ${responseBytes.length} bytes');
+          
+          request.response.add(responseBytes);
+          await request.response.close();
+          
+          // Handle the callback result
+          if (code != null && _callbackCompleter != null && !_callbackCompleter!.isCompleted) {
+            debugPrint('Successfully extracted auth code from callback');
+            _callbackCompleter!.complete(code);
+            
+            // Close the server after a delay to ensure the response has been sent
+            Timer(const Duration(seconds: 1), () {
+              _closeCallbackServer();
+            });
+          } else if (error != null && _callbackCompleter != null && !_callbackCompleter!.isCompleted) {
+            debugPrint('Error during auth: $error');
+            _callbackCompleter!.complete(null);
+            
+            // Close the server after a delay
+            Timer(const Duration(seconds: 1), () {
+              _closeCallbackServer();
+            });
+          }
+        } catch (e) {
+          debugPrint('Error handling callback request: $e');
+          try {
+            final errorResponse = 'OK';
+            final errorBytes = utf8.encode(errorResponse);
+            
+            request.response.statusCode = 200;
+            request.response.reasonPhrase = 'OK';
+            request.response.headers.set('Content-Type', 'text/plain; charset=UTF-8');
+            request.response.headers.set('Content-Length', errorBytes.length.toString());
+            request.response.headers.set('Connection', 'close');
+            request.response.headers.set('Server', 'Dart HttpServer');
+            
+            request.response.add(errorBytes);
+            await request.response.close();
+          } catch (fallbackError) {
+            debugPrint('Failed to send fallback response: $fallbackError');
+          }
         }
       }, onError: (e) {
         debugPrint('Error in callback server: $e');
@@ -1433,20 +1533,18 @@ class SpotifyService {
   /// Subscribe to incoming deep links
   void _subscribeToAuthLinks() {
     try {
-      uriLinkStream.listen((Uri? uri) {
-        if (uri != null) {
-          debugPrint('Received URI: $uri');
-          
-          // Check if this is a callback URI with a code parameter
-          if (uri.toString().contains('/callback') && uri.queryParameters.containsKey('code')) {
-            final code = uri.queryParameters['code'];
-            if (code != null) {
-              debugPrint('Extracted code from URI: ${code.substring(0, math.min(10, code.length))}...');
-              
-              // Complete the callback completer if it exists and hasn't been completed yet
-              if (_callbackCompleter != null && !_callbackCompleter!.isCompleted) {
-                _callbackCompleter!.complete(code);
-              }
+      _appLinks.uriLinkStream.listen((Uri uri) {
+        debugPrint('Received URI: $uri');
+        
+        // Check if this is a callback URI with a code parameter
+        if (uri.toString().contains('/callback') && uri.queryParameters.containsKey('code')) {
+          final code = uri.queryParameters['code'];
+          if (code != null) {
+            debugPrint('Extracted code from URI: ${code.substring(0, math.min(10, code.length))}...');
+            
+            // Complete the callback completer if it exists and hasn't been completed yet
+            if (_callbackCompleter != null && !_callbackCompleter!.isCompleted) {
+              _callbackCompleter!.complete(code);
             }
           }
         }

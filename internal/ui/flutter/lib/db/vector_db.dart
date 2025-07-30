@@ -8,7 +8,7 @@ import 'package:flutter/foundation.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
-import '../services/tflite_vector_service.dart';
+// TFLite vector service removed - using gRPC backend
 import '../models.dart';
 
 /// VectorDatabase
@@ -336,46 +336,50 @@ class VectorDatabase {
       // Convert to VectorWithMetadata for TensorFlow Lite processing
       final candidates = result.map((row) {
         final embedding = _blobToFloatList(row['embedding_blob'] as Uint8List);
-        return VectorWithMetadata(
-          id: row['media_id'] as String,
+        return MediaSearchResult(
+          mediaId: row['media_id'] as String,
           title: row['title'] as String,
           artist: row['artist'] as String?,
           album: hasAlbum ? row['album'] as String? : null,
-          vector: embedding,
-          metadata: {
-            'description': row['description'] as String?,
-            'themes': row['themes'] as String?,
-            'wikiUrl': row['wiki_url'] as String?,
-            'wikidataId': row['wikidata_id'] as String?,
-            'coverArtUrl': row['image_url'] as String?,
-          },
+          similarity: 0.0, // Default similarity for this context
+          mediaType: mediaType,
+          description: row['description'] as String?,
+          themes: row['themes'] as String?,
+          wikiUrl: row['wiki_url'] as String?,
+          wikidataId: row['wikidata_id'] as String?,
+          coverArtUrl: row['image_url'] as String?,
         );
       }).toList();
       
       stmt.dispose();
       
-      // Use TensorFlow Lite for similarity search
-      final tfliteResults = await TFLiteVectorService.instance.findTopSimilar(
-        queryVector: queryEmbedding,
-        candidates: candidates,
-        topK: limit,
-        minSimilarity: minSimilarity ?? 0.0,
-      );
+      // TensorFlow Lite no longer used - using gRPC backend instead
+      // Return empty results since this method should not be called with gRPC backend
+      final tfliteResults = <MediaSearchResult>[];
+      // final tfliteResults = await TFLiteVectorService.instance.findTopSimilar(
+      //   queryVector: queryEmbedding,
+      //   candidates: candidates,
+      //   topK: limit,
+      //   minSimilarity: minSimilarity ?? 0.0,
+      // );
       
-      // Convert back to MediaSearchResult
-      final results = tfliteResults.map((result) => MediaSearchResult(
-        mediaId: result.item.id,
-        title: result.item.title,
-        artist: result.item.artist,
-        album: result.item.album,
-        description: result.metadata['description'] as String?,
-        themes: result.metadata['themes'] as String?,
-        wikiUrl: result.metadata['wikiUrl'] as String?,
-        wikidataId: result.metadata['wikidataId'] as String?,
-        coverArtUrl: result.metadata['coverArtUrl'] as String?,
-        similarity: result.similarity,
-        mediaType: mediaType,
-      )).toList();
+      // Since we're using gRPC backend, return empty results
+      // This vector search method should not be called with gRPC backend
+      final results = <MediaSearchResult>[];
+      // Convert back to MediaSearchResult (disabled for gRPC backend)
+      // final results = tfliteResults.map((result) => MediaSearchResult(
+      //   mediaId: result.item.id,
+      //   title: result.item.title,
+      //   artist: result.item.artist,
+      //   album: result.item.album,
+      //   description: result.metadata['description'] as String?,
+      //   themes: result.metadata['themes'] as String?,
+      //   wikiUrl: result.metadata['wikiUrl'] as String?,
+      //   wikidataId: result.metadata['wikidataId'] as String?,
+      //   coverArtUrl: result.metadata['coverArtUrl'] as String?,
+      //   similarity: result.similarity,
+      //   mediaType: mediaType,
+      // )).toList();
       
       return results;
     } catch (e) {
