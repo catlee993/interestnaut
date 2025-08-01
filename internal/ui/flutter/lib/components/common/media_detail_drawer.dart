@@ -156,6 +156,31 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
     _currentWatchlisted = widget.isInWatchlist;
   }
 
+  String _getReactionStatus() {
+    if (_currentFavorited) return 'FAVORITED';
+    if (_currentLiked) return 'LIKED';
+    if (_currentWatchlisted) return _getQueueName().toUpperCase();
+    if (_currentDisliked) return 'DISLIKED';
+    if (widget.hasSkipped) return 'SKIPPED';
+    return '';
+  }
+
+  String _getQueueName() {
+    switch (widget.mediaType) {
+      case 'movie':
+      case 'tv_show':
+        return 'Watchlist';
+      case 'book':
+        return 'Reading List';
+      case 'music':
+        return 'Playlist';
+      case 'video_game':
+        return 'Game Library';
+      default:
+        return 'Watchlist';
+    }
+  }
+
   void _handleAction(String action) {
     setState(() {
       switch (action) {
@@ -249,11 +274,16 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
                         artist: widget.artist,
                         fallbackTitle: 'Unknown Media',
                       );
+                      final reactionStatus = _getReactionStatus();
+                      final titleText = reactionStatus.isNotEmpty 
+                          ? '${displayInfo.displayTitle} • $reactionStatus'
+                          : displayInfo.displayTitle;
+                      
                       return Transform(
                         transform: Matrix4.identity()..scale(1.15, 1.0),
                         alignment: Alignment.centerLeft,
                         child: Text(
-                          displayInfo.displayTitle.toUpperCase(),
+                          titleText.toUpperCase(),
                           style: AppTheme.suggestionHeaderSmall.copyWith(
                             fontSize: 18,
                             letterSpacing: 2.5,
@@ -273,9 +303,9 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
               ),
             ),
             
-            // Media display area component - flexible to fit available space
+            // Media display area component - reduced to allow more space for themes/genres/buttons
             Expanded(
-              flex: 3, // Takes most of the available space
+              flex: 2, // Reduced from 3 to give more space to themes/genres/buttons
               child: Container(
                 margin: const EdgeInsets.symmetric(horizontal: AppTheme.spacingMD),
                 decoration: BoxDecoration(
@@ -291,9 +321,10 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      // Static image - 1/3 of width
+                      // Static image - reduced width for better space allocation
                       Container(
-                        width: MediaQuery.of(context).size.width * 0.95 * 0.33 * 0.8,
+                        width: MediaQuery.of(context).size.width * 0.95 * 0.25, // Reduced from 0.33 * 0.8 to 0.25
+                        height: 140, // Fixed height to prevent image from being too tall
                         child: Container(
                           decoration: BoxDecoration(
                             color: Colors.transparent,
@@ -342,9 +373,9 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
               ),
             ),
             
-            // Developer/themes section - flexible for remaining space
+            // Developer/themes section - increased space for themes/genres/buttons
             Expanded(
-              flex: 1, // Takes less space than media display
+              flex: 2, // Increased from 1 to accommodate themes/genres/YouTube/Spotify buttons
               child: Container(
                 padding: const EdgeInsets.all(AppTheme.spacingMD),
                 child: Row(
@@ -485,10 +516,8 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
                             ],
                           );
                           
-                          // Return with scrolling if content exceeds available space
-                          return SingleChildScrollView(
-                            child: contentWidget,
-                          );
+                          // Return without scrolling - content should fit in allocated space
+                          return contentWidget;
                         },
                       ),
                     ),

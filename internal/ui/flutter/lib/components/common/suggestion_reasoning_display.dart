@@ -121,6 +121,8 @@ class _SuggestionReasoningDisplayState extends State<SuggestionReasoningDisplay>
     final scrollController = ScrollController();
     
     return Container(
+      width: double.infinity,
+      height: double.infinity, // Expand to fill parent height
       decoration: BoxDecoration(
         color: const Color(0xFF1A1A1A),
         borderRadius: BorderRadius.circular(12),

@@ -39,9 +39,11 @@ class _SearchBarState extends State<SearchBar> {
     _focusNode = FocusNode(debugLabel: _focusNodeId);
     _lastSearch = widget.initialValue;
     
-    // If there's an initial value, notify the search handler
+    // If there's an initial value, notify the search handler after build completes
     if (widget.initialValue.isNotEmpty) {
-      widget.onSearch(widget.initialValue);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        widget.onSearch(widget.initialValue);
+      });
     }
   }
 
