@@ -401,7 +401,9 @@ class VectorDatabase {
 
     try {
       final db = _shards[mediaType]!;
-      final hasAlbum = mediaType == 'music';      
+      final hasAlbum = mediaType == 'music';
+      final hasSpotify = mediaType == 'music';
+      
       final query = '''
         SELECT 
           media_id,
@@ -410,9 +412,12 @@ class VectorDatabase {
           ${hasAlbum ? 'album,' : ''}
           description,
           themes,
+          genres,
           wiki_url,
           wikidata_id,
-          image_url
+          image_url,
+          youtube_id,
+          ${hasSpotify ? 'spotify_id,' : ''}
         FROM media_vectors 
         WHERE media_id = ?
         LIMIT 1
@@ -434,9 +439,12 @@ class VectorDatabase {
         album: hasAlbum ? row['album'] as String? : null,
         description: row['description'] as String?,
         themes: row['themes'] as String?,
+        genres: row['genres'] as String?,
         wikiUrl: row['wiki_url'] as String?,
         wikidataId: row['wikidata_id'] as String?,
         coverArtUrl: row['image_url'] as String?,
+        youtubeId: row['youtube_id'] as String?,
+        spotifyId: hasSpotify ? row['spotify_id'] as String? : null,
         similarity: 1.0,
         mediaType: mediaType,
       );
@@ -547,7 +555,9 @@ class VectorDatabase {
 
     try {
       final db = _shards[mediaType]!;
-      final hasAlbum = mediaType == 'music';      
+      final hasAlbum = mediaType == 'music';
+      final hasSpotify = mediaType == 'music';
+      
       // Check if FTS5 table exists for this media type
       final tableCheckStmt = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='media_fts'");
       final tableCheckResult = tableCheckStmt.select([]);
@@ -569,14 +579,27 @@ class VectorDatabase {
           ${hasAlbum ? 'v.album,' : ''}
           v.description,
           v.themes,
+          v.genres,
+          v.youtube_id,
+          ${hasSpotify ? 'v.spotify_id,' : ''}
           v.wiki_url,
           v.wikidata_id,
           v.image_url,
-          fts.rank
+          fts.rank,
+          (
+            CASE WHEN LOWER(v.title) = LOWER(?) THEN 1000                           -- Exact title match gets highest priority
+            WHEN LOWER(v.title) LIKE LOWER(?) || '%' THEN 900                       -- Title starts with query gets very high priority  
+            WHEN LOWER(v.title) LIKE '%' || LOWER(?) || '%' THEN 800                -- Title contains query gets high priority
+            WHEN LOWER(COALESCE(v.artist, '')) = LOWER(?) THEN 300                  -- Exact artist match gets medium priority
+            WHEN LOWER(COALESCE(v.artist, '')) LIKE LOWER(?) || '%' THEN 200        -- Artist starts with query gets lower priority
+            WHEN LOWER(COALESCE(v.artist, '')) LIKE '%' || LOWER(?) || '%' THEN 150 -- Artist contains query gets lower priority
+            WHEN LOWER(COALESCE(v.themes, '')) LIKE '%' || LOWER(?) || '%' THEN 100  -- Theme matches get low priority
+            ELSE 50 END
+          ) as relevance_score
         FROM media_fts fts
         JOIN media_vectors v ON v.rowid = fts.rowid
         WHERE media_fts MATCH ?
-        ORDER BY rank
+        ORDER BY relevance_score DESC, rank
         LIMIT ?
       ''';
       
@@ -595,9 +618,12 @@ class VectorDatabase {
           album: mediaType == 'music' ? row['album'] as String? : null,
           description: row['description'] as String?,
           themes: row['themes'] as String?,
+          genres: row['genres'] as String?,  // Include genres from vector DB
           wikiUrl: row['wiki_url'] as String?,
           wikidataId: row['wikidata_id'] as String?,
           coverArtUrl: row['image_url'] as String?,
+          youtubeId: row['youtube_id'] as String?,  // Include YouTube ID from vector DB
+          spotifyId: mediaType == 'music' ? row['spotify_id'] as String? : null,  // Only for music
           similarity: similarity,
           mediaType: mediaType,
         );
@@ -647,8 +673,9 @@ class VectorDatabase {
   Future<List<MediaSearchResult>> _fallbackTextSearch(String query, String mediaType, int limit) async {
     final db = _shards[mediaType]!;
     
-    // Build query based on media type (music has album, others don't)
+    // Build query based on media type (music has album and spotify, others don't)
     final hasAlbum = mediaType == 'music';
+    final hasSpotify = mediaType == 'music';
     
     final searchQuery = '''
       SELECT 
@@ -658,16 +685,21 @@ class VectorDatabase {
         ${hasAlbum ? 'album,' : ''}
         description,
         themes,
+        genres,
         wiki_url,
         wikidata_id,
         image_url,
+        youtube_id,
+        ${hasSpotify ? 'spotify_id,' : ''}
         (
-          CASE WHEN LOWER(title) LIKE LOWER(?) || '%' THEN 100
-          WHEN LOWER(title) LIKE '%' || LOWER(?) || '%' THEN 80
-          WHEN LOWER(COALESCE(artist, '')) LIKE LOWER(?) || '%' THEN 70
-          WHEN LOWER(COALESCE(artist, '')) LIKE '%' || LOWER(?) || '%' THEN 60
-          WHEN LOWER(COALESCE(themes, '')) LIKE '%' || LOWER(?) || '%' THEN 40
-          ELSE 20 END
+          CASE WHEN LOWER(title) = LOWER(?) THEN 1000                           -- Exact title match gets highest priority
+          WHEN LOWER(title) LIKE LOWER(?) || '%' THEN 900                       -- Title starts with query gets very high priority  
+          WHEN LOWER(title) LIKE '%' || LOWER(?) || '%' THEN 800                -- Title contains query gets high priority
+          WHEN LOWER(COALESCE(artist, '')) = LOWER(?) THEN 300                  -- Exact artist match gets medium priority
+          WHEN LOWER(COALESCE(artist, '')) LIKE LOWER(?) || '%' THEN 200        -- Artist starts with query gets lower priority
+          WHEN LOWER(COALESCE(artist, '')) LIKE '%' || LOWER(?) || '%' THEN 150 -- Artist contains query gets lower priority
+          WHEN LOWER(COALESCE(themes, '')) LIKE '%' || LOWER(?) || '%' THEN 100  -- Theme matches get low priority
+          ELSE 50 END
         ) as relevance_score
       FROM media_vectors 
       WHERE (
@@ -679,7 +711,7 @@ class VectorDatabase {
       LIMIT ?
     ''';
     
-    final params = [query, query, query, query, query, query, query, query, limit];
+    final params = [query, query, query, query, query, query, query, query, query, query, limit];
     
     final stmt = db.prepare(searchQuery);
     final result = stmt.select(params);
@@ -695,9 +727,12 @@ class VectorDatabase {
         album: hasAlbum ? row['album'] as String? : null,
         description: row['description'] as String?,
         themes: row['themes'] as String?,
+        genres: row['genres'] as String?,
         wikiUrl: row['wiki_url'] as String?,
         wikidataId: row['wikidata_id'] as String?,
         coverArtUrl: row['image_url'] as String?,
+        youtubeId: row['youtube_id'] as String?,
+        spotifyId: hasSpotify ? row['spotify_id'] as String? : null,
         similarity: similarity,
         mediaType: mediaType,
       );
@@ -2203,9 +2238,12 @@ class MediaSearchResult {
   final String? album;
   final String? description;
   final String? themes;
+  final String? genres;  // Added genres field
   final String? wikiUrl;
   final String? wikidataId;
   final String? coverArtUrl;
+  final String? youtubeId;  // Added YouTube ID field
+  final String? spotifyId;  // Added Spotify ID field
   final double similarity;
   final String mediaType;
 
@@ -2216,9 +2254,12 @@ class MediaSearchResult {
     this.album,
     this.description,
     this.themes,
+    this.genres,  // Added genres parameter
     this.wikiUrl,
     this.wikidataId,
     this.coverArtUrl,
+    this.youtubeId,  // Added YouTube ID parameter
+    this.spotifyId,  // Added Spotify ID parameter
     required this.similarity,
     required this.mediaType,
   });

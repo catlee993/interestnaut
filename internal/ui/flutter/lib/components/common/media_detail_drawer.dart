@@ -237,10 +237,37 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
     
     return Align(
       alignment: Alignment.bottomCenter,
-          child: Container(
-        width: MediaQuery.of(context).size.width * 0.95,
-        height: MediaQuery.of(context).size.height * 0.85, // Increased to 85% to ensure play buttons are visible without scrolling
-        margin: const EdgeInsets.all(AppTheme.spacingMD),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              // Calculate dynamic height based on content
+              final screenHeight = MediaQuery.of(context).size.height;
+              final hasDescription = widget.description != null && widget.description!.trim().isNotEmpty;
+              final hasThemes = widget.themes != null && widget.themes!.trim().isNotEmpty;
+              final hasGenres = widget.genres != null && widget.genres!.trim().isNotEmpty;
+              final hasPlayButtons = widget.youtubeId != null || widget.spotifyId != null;
+              
+              // Base height for header + action buttons + margins/padding
+              double baseHeight = 200; // Header (80) + Actions (60) + Margins/Padding (60)
+              
+              // Add height for media display area based on whether we have description
+              baseHeight += hasDescription ? 160 : 120; // More space if description exists
+              
+              // Add height for themes/genres/buttons section
+              double themeGenreHeight = 80; // Base for artist info
+              if (hasThemes) themeGenreHeight += 40;
+              if (hasGenres) themeGenreHeight += 40;
+              if (hasPlayButtons) themeGenreHeight += 50;
+              baseHeight += themeGenreHeight;
+              
+              // Cap at reasonable limits: min 60% (for simple content), max 100% (allow full screen if needed)
+              final minHeight = screenHeight * 0.6;
+              final maxHeight = screenHeight * 1.0;
+              final dynamicHeight = baseHeight.clamp(minHeight, maxHeight);
+              
+              return Container(
+                width: MediaQuery.of(context).size.width * 0.95,
+                height: dynamicHeight,
+                margin: const EdgeInsets.all(AppTheme.spacingMD),
             decoration: BoxDecoration(
           color: const Color(0xFF0A0A0A), // Very dark background to match select from history modal
           borderRadius: BorderRadius.circular(AppTheme.cardBorderRadius),
@@ -570,7 +597,9 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
           ),
         ],
         ),
-      ),
+              );
+            },
+          ),
     );
   }
 

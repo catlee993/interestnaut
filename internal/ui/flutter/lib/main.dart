@@ -530,8 +530,11 @@ class _UnifiedSearchHandlerState extends State<_UnifiedSearchHandler> {
                 'source': 'vector_database',
                 'similarity': result.similarity,
                 'themes': result.themes,
+                'genres': result.genres,
                 'wikiUrl': result.wikiUrl,
                 'wikidataId': result.wikidataId,
+                'youtubeId': result.youtubeId,
+                'spotifyId': result.spotifyId,
               },
             )).toList();
             
@@ -1022,58 +1025,61 @@ class _WikidataSearchSection extends StatelessWidget {
       );
     }
 
-    // Use the same layout as Spotify search results
-    return Padding(
-      padding: const EdgeInsets.all(16.0),
-      child: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.only(left: 16.0, bottom: 8.0),
-                  child: Transform.scale(
-                    scaleX: 1.15, // Same horizontal stretch as stylized headers
-                    child: Text(
-                      _getSearchResultsText(searchResults.length, mediaType),
-                      style: const TextStyle(
-                        fontFamily: 'Inter',
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w300,
-                        letterSpacing: 1.2,
-                      ),
-                    ),
+    // Use column layout with sticky header for search results
+    return Column(
+      children: [
+        // Sticky header with results count and X button
+        Container(
+          padding: const EdgeInsets.fromLTRB(32.0, 16.0, 16.0, 8.0),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Transform.scale(
+                scaleX: 1.15, // Same horizontal stretch as stylized headers
+                child: Text(
+                  _getSearchResultsText(searchResults.length, mediaType),
+                  style: const TextStyle(
+                    fontFamily: 'Inter',
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w300,
+                    letterSpacing: 1.2,
                   ),
                 ),
-                GestureDetector(
-                  onTap: onClose,
-                  child: Container(
-                    width: 24,
-                    height: 24,
-                    child: CustomPaint(
-                      painter: _SearchXButtonPainter(),
-                    ),
+              ),
+              GestureDetector(
+                onTap: onClose,
+                child: Container(
+                  width: 28, // Slightly larger for easier tapping
+                  height: 28,
+                  child: CustomPaint(
+                    painter: _SearchXButtonPainter(),
                   ),
                 ),
-              ],
-            ),
-            MediaGrid(
-              columns: 3, // Using 3 columns for better readability
-              children: searchResults
-                  .map((result) => _WikidataCard(
-                        result: result,
-                        mediaType: mediaType,
-                        onAddToFavorites: () => onAddToFavorites(result),
-                        onAddToWatchlist: () => onAddToWatchlist(result),
-                      ))
-                  .toList(),
-            ),
-          ],
+              ),
+            ],
+          ),
         ),
-      ),
+        // Scrollable results area
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16.0, 0, 16.0, 16.0),
+            child: SingleChildScrollView(
+              child: MediaGrid(
+                columns: 3, // Using 3 columns for better readability
+                children: searchResults
+                    .map((result) => _WikidataCard(
+                          result: result,
+                          mediaType: mediaType,
+                          onAddToFavorites: () => onAddToFavorites(result),
+                          onAddToWatchlist: () => onAddToWatchlist(result),
+                        ))
+                    .toList(),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -1355,20 +1361,6 @@ class _WikidataCardState extends State<_WikidataCard> {
   /// Opens the media detail drawer when cover art is clicked
   Future<void> _openMediaDetailDrawer(BuildContext context) async {
     try {
-      // Convert WikidataSearchResult to MediaSearchResult for consistency
-      final mediaSearchResult = MediaSearchResult(
-        mediaId: widget.result.id,
-        title: widget.result.title,
-        artist: widget.result.artist,
-        description: widget.result.description,
-        coverArtUrl: widget.result.imageUrl,
-        themes: widget.result.additionalData?['themes'] as String?,
-        wikiUrl: widget.result.additionalData?['wikiUrl'] as String?,
-        wikidataId: widget.result.id, // Use ID as wikidata ID
-        similarity: 1.0, // Default similarity for search results
-        mediaType: widget.mediaType,
-      );
-
       // Get comprehensive status from database
       final db = SQLiteDatabase();
       final statusResult = await db.getMediaItemStatusByProperties(
@@ -1396,9 +1388,9 @@ class _WikidataCardState extends State<_WikidataCard> {
                   artist: widget.result.artist,
                   description: widget.result.description,
                   themes: widget.result.additionalData?['themes'] as String?,
-                  genres: statusResult['genres'] as String?,
-                  youtubeId: statusResult['youtubeId'] as String?,
-                  spotifyId: statusResult['spotifyId'] as String?,
+                  genres: widget.result.additionalData?['genres'] as String? ?? statusResult['genres'] as String?,
+                  youtubeId: widget.result.additionalData?['youtubeId'] as String? ?? statusResult['youtubeId'] as String?,
+                  spotifyId: widget.result.additionalData?['spotifyId'] as String? ?? statusResult['spotifyId'] as String?,
                   coverArtUrl: widget.result.imageUrl,
                   mediaType: widget.mediaType,
                   hasLiked: statusResult['hasLiked'] as bool? ?? false,
@@ -1409,7 +1401,22 @@ class _WikidataCardState extends State<_WikidataCard> {
                   onAction: (action) => _handleDrawerAction(
                     context,
                     action,
-                    mediaSearchResult,
+                    MediaSearchResult(
+                      mediaId: widget.result.id,
+                      title: widget.result.title,
+                      artist: widget.result.artist,
+                      album: null,
+                      description: widget.result.description,
+                      themes: widget.result.additionalData?['themes'] as String?,
+                      genres: widget.result.additionalData?['genres'] as String?,
+                      wikiUrl: widget.result.additionalData?['wikiUrl'] as String?,
+                      wikidataId: widget.result.additionalData?['wikidataId'] as String?,
+                      coverArtUrl: widget.result.imageUrl,
+                      youtubeId: widget.result.additionalData?['youtubeId'] as String?,
+                      spotifyId: widget.result.additionalData?['spotifyId'] as String?,
+                      similarity: widget.result.additionalData?['similarity'] as double? ?? 1.0,
+                      mediaType: widget.mediaType,
+                    ),
                     statusResult['mediaItemId'] as int?,
                   ),
                 ),

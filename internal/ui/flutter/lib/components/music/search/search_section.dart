@@ -115,59 +115,62 @@ class SearchSection extends StatelessWidget {
       );
     }
 
-    // Display search results in a MediaGrid with 3 columns using SearchResultCard
-    return Padding(
-      padding: const EdgeInsets.all(16.0),
-      child: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.only(left: 16.0, bottom: 8.0),
-                  child: Transform.scale(
-                    scaleX: 1.15, // Same horizontal stretch as stylized headers
-                    child: Text(
-                      _getSearchResultsText(searchResults.length),
-                      style: const TextStyle(
-                        fontFamily: 'Inter',
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w300,
-                        letterSpacing: 1.2,
-                      ),
-                    ),
+    // Display search results with sticky X button at top
+    return Column(
+      children: [
+        // Sticky header with results count and X button
+        Container(
+          padding: const EdgeInsets.fromLTRB(32.0, 16.0, 16.0, 8.0),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Transform.scale(
+                scaleX: 1.15, // Same horizontal stretch as stylized headers
+                child: Text(
+                  _getSearchResultsText(searchResults.length),
+                  style: const TextStyle(
+                    fontFamily: 'Inter',
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w300,
+                    letterSpacing: 1.2,
                   ),
                 ),
-                GestureDetector(
-                  onTap: onClose,
-                  child: Container(
-                    width: 24,
-                    height: 24,
-                    child: CustomPaint(
-                      painter: _SearchXButtonPainter(),
-                    ),
+              ),
+              GestureDetector(
+                onTap: onClose,
+                child: Container(
+                  width: 28, // Slightly larger for easier tapping
+                  height: 28,
+                  child: CustomPaint(
+                    painter: _SearchXButtonPainter(),
                   ),
                 ),
-              ],
-            ),
-            MediaGrid(
-              columns: 3,  // Using 3 columns for better readability
-              children: searchResults
-                  .map((track) => SearchResultCard(
-                        track: track,
-                        isSaved: false,
-                        onPlay: (t) => onPlay(t),
-                        onSave: (t) => onSave(t),
-                        onRemove: (t) => onRemove(t),
-                      ))
-                  .toList(),
-            ),
-          ],
+              ),
+            ],
+          ),
         ),
-      ),
+        // Scrollable results area
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16.0, 0, 16.0, 16.0),
+            child: SingleChildScrollView(
+              child: MediaGrid(
+                columns: 3,  // Using 3 columns for better readability
+                children: searchResults
+                    .map((track) => SearchResultCard(
+                          track: track,
+                          isSaved: false,
+                          onPlay: (t) => onPlay(t),
+                          onSave: (t) => onSave(t),
+                          onRemove: (t) => onRemove(t),
+                        ))
+                    .toList(),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
