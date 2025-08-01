@@ -349,6 +349,9 @@ class _SearchResultCardState extends State<SearchResultCard> {
                   artist: info['artist'] ?? 'Unknown Artist',
                   description: info['album'] != null ? 'Album: ${info['album']}' : null,
                   themes: null, // Music tracks typically don't have themes
+                  genres: statusResult['genres'] as String?,
+                  youtubeId: statusResult['youtubeId'] as String?,
+                  spotifyId: statusResult['spotifyId'] as String?,
                   coverArtUrl: info['albumArtUrl'],
                   mediaType: 'music',
                   hasLiked: statusResult['hasLiked'] as bool? ?? false,
@@ -414,6 +417,9 @@ class _SearchResultCardState extends State<SearchResultCard> {
           wikiUrl: item.wikiUrl,
           wikidataId: item.wikidataId,
           themes: item.themes,
+          genres: null, // TODO: Extract from item if available
+          youtubeId: null, // TODO: Extract from item if available
+          spotifyId: null, // TODO: Extract from item if available
         );
         debugPrint('🔍 [MUSIC-SEARCH-DRAWER] Created new media item with ID: $mediaItemId');
       }

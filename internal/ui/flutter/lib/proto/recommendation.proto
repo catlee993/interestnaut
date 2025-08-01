@@ -1,0 +1,202 @@
+syntax = "proto3";
+
+package recommendation;
+
+option go_package = "github.com/catlee993/interestnaut-backend/proto";
+
+// RecommendationService handles vector-based media recommendations
+service RecommendationService {
+  // Generate recommendations based on user preferences and constraints
+  rpc GetRecommendations(RecommendationRequest) returns (RecommendationResponse);
+  
+  // Get similar items to a specific media item
+  rpc GetSimilarItems(SimilarItemsRequest) returns (SimilarItemsResponse);
+  
+  // Search for media items with constraints
+  rpc SearchMedia(SearchRequest) returns (SearchResponse);
+  
+  // Get media item details by vector media ID
+  rpc GetMediaDetails(MediaDetailsRequest) returns (MediaDetailsResponse);
+  
+  // Get random media items for exploration
+  rpc GetRandomMedia(RandomMediaRequest) returns (RandomMediaResponse);
+  
+  // Health check
+  rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+  
+  // Get available themes for a media type
+  rpc GetAvailableThemes(AvailableThemesRequest) returns (AvailableThemesResponse);
+  
+  // Get available genres for a media type
+  rpc GetAvailableGenres(AvailableGenresRequest) returns (AvailableGenresResponse);
+  
+  // Search themes by query
+  rpc SearchThemes(SearchThemesRequest) returns (SearchThemesResponse);
+  
+  // Search genres by query
+  rpc SearchGenres(SearchGenresRequest) returns (SearchGenresResponse);
+}
+
+// Request for personalized recommendations
+message RecommendationRequest {
+  string media_type = 1; // "music", "movie", "book", "tv_show", "video_game"
+  string user_query = 2; // Optional user query for context
+  
+  // User behavior signals from local database
+  repeated string liked_media_ids = 3;      // Vector media IDs user has liked
+  repeated string favorited_media_ids = 4;  // Vector media IDs user has favorited
+  repeated string watchlist_media_ids = 5;  // Vector media IDs in user's watchlist
+  repeated string disliked_media_ids = 6;   // Vector media IDs user has disliked
+  repeated string skipped_media_ids = 7;    // Vector media IDs user has skipped
+  
+  // Exclusions to prevent re-suggesting
+  repeated string exclude_media_ids = 8;    // All vector media IDs to exclude
+  
+  // Constraints and preferences
+  repeated string constraints = 9;          // Text constraints (e.g., "jazz", "sci-fi")
+  int32 limit = 10;                        // Number of recommendations requested
+  bool use_behavioral_matching = 11;       // Whether to use user behavior for recommendations
+  
+  // Matching parameters
+  double similarity_threshold = 12;         // Vector similarity threshold (0.0-1.0): Bohemian(≤0.15), Eclectic(≤0.25), Versatile(≤0.35), Discerning(≤0.55), Meticulous(≤0.75)
+  int32 attributes_to_match = 13;          // Number of themes/genres to extract for vector matching
+  repeated string priority_title_ids = 14; // Priority titles for theme/genre extraction
+}
+
+message RecommendationResponse {
+  repeated MediaItem recommendations = 1;
+  string error = 2;
+  RecommendationMetadata metadata = 3;
+}
+
+message RecommendationMetadata {
+  string algorithm_used = 1;  // "behavioral", "constraint", "random", "hybrid"
+  int32 total_candidates = 2; // Number of items considered
+  double processing_time_ms = 3;
+}
+
+// Request for similar items
+message SimilarItemsRequest {
+  string reference_media_id = 1; // Vector media ID to find similar items to
+  string media_type = 2;
+  repeated string exclude_media_ids = 3;
+  int32 limit = 4;
+}
+
+message SimilarItemsResponse {
+  repeated MediaItem similar_items = 1;
+  string error = 2;
+}
+
+// Search request with constraints
+message SearchRequest {
+  string media_type = 1;
+  repeated string constraints = 2;          // Text constraints to match
+  repeated string exclude_media_ids = 3;
+  int32 limit = 4;
+  int32 offset = 5;
+}
+
+message SearchResponse {
+  repeated MediaItem results = 1;
+  string error = 2;
+  int32 total_count = 3;
+}
+
+// Get media details request
+message MediaDetailsRequest {
+  string media_id = 1;  // Vector media ID
+  string media_type = 2;
+}
+
+message MediaDetailsResponse {
+  MediaItem media = 1;
+  string error = 2;
+}
+
+// Random media request
+message RandomMediaRequest {
+  string media_type = 1;
+  repeated string exclude_media_ids = 2;
+  int32 limit = 3;
+}
+
+message RandomMediaResponse {
+  repeated MediaItem items = 1;
+  string error = 2;
+}
+
+// Health check messages
+message HealthCheckRequest {}
+
+message HealthCheckResponse {
+  bool healthy = 1;
+  string version = 2;
+  map<string, bool> database_status = 3; // media_type -> availability
+}
+
+// Get available themes request
+message AvailableThemesRequest {
+  string media_type = 1;
+}
+
+message AvailableThemesResponse {
+  repeated string themes = 1;
+  string error = 2;
+}
+
+// Get available genres request
+message AvailableGenresRequest {
+  string media_type = 1;
+}
+
+message AvailableGenresResponse {
+  repeated string genres = 1;
+  string error = 2;
+}
+
+// Search themes request
+message SearchThemesRequest {
+  string media_type = 1;
+  string query = 2;     // Search query to filter themes
+  int32 limit = 3;      // Maximum number of results (default 50)
+}
+
+message SearchThemesResponse {
+  repeated string themes = 1;
+  int32 total_count = 2; // Total themes matching query
+  string error = 3;
+}
+
+// Search genres request
+message SearchGenresRequest {
+  string media_type = 1;
+  string query = 2;     // Search query to filter genres
+  int32 limit = 3;      // Maximum number of results (default 50)
+}
+
+message SearchGenresResponse {
+  repeated string genres = 1;
+  int32 total_count = 2; // Total genres matching query
+  string error = 3;
+}
+
+// Core media item representation
+message MediaItem {
+  string media_id = 1;        // Vector database media ID
+  string title = 2;
+  string primary_creator = 3;  // Artist, Author, Director, Developer
+  string media_type = 4;
+  
+  // Optional fields based on media type
+  string album = 5;           // For music
+  string cover_art_url = 6;
+  string description = 7;
+  string wiki_url = 8;
+  string wikidata_id = 9;
+  string themes = 10;
+  
+  // Recommendation context (when returned as recommendation)
+  double similarity_score = 11;
+  string reasoning = 12;      // Why this item was recommended
+} 

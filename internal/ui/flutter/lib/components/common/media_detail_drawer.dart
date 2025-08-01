@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:youtube_player_flutter/youtube_player_flutter.dart';
 import '../../theme.dart';
 import '../../services/sqlite_db.dart';
 import 'media_action_icons.dart';
 import '../../models.dart'; // For MediaDisplayHelper
+import '../music/spotify_service.dart'; // For Spotify playback
 
 /// Reusable media display area component with side-by-side layout
 class MediaDisplayArea extends StatelessWidget {
@@ -102,6 +105,9 @@ class MediaDetailDrawer extends StatefulWidget {
   final String? description;
   final String? coverArtUrl;
   final String? themes;
+  final String? genres;
+  final String? youtubeId;
+  final String? spotifyId;
   final String mediaType;
   final bool hasLiked;
   final bool hasDisliked;
@@ -117,6 +123,9 @@ class MediaDetailDrawer extends StatefulWidget {
     this.description,
     this.coverArtUrl,
     this.themes,
+    this.genres,
+    this.youtubeId,
+    this.spotifyId,
     required this.mediaType,
     required this.hasLiked,
     required this.hasDisliked,
@@ -205,7 +214,7 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
       alignment: Alignment.bottomCenter,
           child: Container(
         width: MediaQuery.of(context).size.width * 0.95,
-        height: MediaQuery.of(context).size.height * 0.65, // Increased from 0.55 to 0.65 (10% more height)
+        height: MediaQuery.of(context).size.height * 0.85, // Increased to 85% to ensure play buttons are visible without scrolling
         margin: const EdgeInsets.all(AppTheme.spacingMD),
             decoration: BoxDecoration(
           color: const Color(0xFF0A0A0A), // Very dark background to match select from history modal
@@ -343,9 +352,10 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
                     Expanded(
                       child: LayoutBuilder(
                         builder: (context, constraints) {
-                          // Calculate expected height for artist + themes + spacing
+                          // Calculate expected height for artist + themes + genres + spacing
                           final hasArtist = widget.artist != null && widget.artist!.isNotEmpty;
                           final hasThemes = widget.themes != null && widget.themes!.isNotEmpty;
+                          final hasGenres = widget.genres != null && widget.genres!.isNotEmpty;
                           
                           // Use available height efficiently
                           final availableHeight = constraints.maxHeight - 24; // Account for padding
@@ -417,6 +427,59 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
                                       ),
                                     ],
                                   ),
+                                ),
+                                if (hasGenres) const SizedBox(height: AppTheme.spacingXS),
+                              ],
+                              
+                              // Genres with proper text wrapping
+                              if (hasGenres) ...[
+                                RichText(
+                                  text: TextSpan(
+                                    children: [
+                                      TextSpan(
+                                        text: 'GENRES: ',
+                                        style: AppTheme.bodyStyle.copyWith(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                          color: AppTheme.textSecondary,
+                                        ),
+                                      ),
+                                      TextSpan(
+                                        text: widget.genres!,
+                                        style: AppTheme.bodyStyle.copyWith(
+                                          fontSize: 12,
+                                          height: 1.4, // Better line spacing for readability
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(height: AppTheme.spacingXS),
+                              ],
+                              
+                              // Play buttons for YouTube/Spotify
+                              if (widget.youtubeId != null || widget.spotifyId != null) ...[
+                                const SizedBox(height: AppTheme.spacingXS),
+                                Row(
+                                  children: [
+                                    if (widget.youtubeId != null) ...[
+                                      _buildPlayButton(
+                                        icon: Icons.play_circle_outline,
+                                        label: 'YouTube',
+                                        color: AppTheme.positiveColor, // Turquoise for YouTube
+                                        onPressed: () => _openYouTube(widget.youtubeId!),
+                                      ),
+                                      if (widget.spotifyId != null) const SizedBox(width: 8),
+                                    ],
+                                    if (widget.spotifyId != null) ...[
+                                      _buildPlayButton(
+                                        icon: Icons.music_note,
+                                        label: 'Spotify',
+                                        color: AppTheme.primaryColor, // Purple for Spotify to match brand
+                                        onPressed: () => _openSpotify(widget.spotifyId!),
+                                      ),
+                                    ],
+                                  ],
                                 ),
                               ],
                             ],
@@ -548,5 +611,255 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
     return const SizedBox.shrink();
   }
 
+  Widget _buildPlayButton({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onPressed,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: color.withOpacity(0.3), width: 1),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(6),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  icon,
+                  color: color,
+                  size: 16,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  label,
+                  style: TextStyle(
+                    color: color,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
-} 
+  void _openYouTube(String videoId) async {
+    try {
+      // Show internal YouTube player
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (context) => _YouTubePlayerDialog(videoId: videoId),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error opening YouTube player: $e');
+      // Fallback to external app
+      _openYouTubeExternal(videoId);
+    }
+  }
+
+  void _openYouTubeExternal(String videoId) async {
+    final url = 'https://www.youtube.com/watch?v=$videoId';
+    if (await canLaunchUrl(Uri.parse(url))) {
+      await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+    } else {
+      debugPrint('Could not launch YouTube URL: $url');
+    }
+  }
+
+  void _openSpotify(String trackId) async {
+    try {
+      final spotifyService = SpotifyService();
+      
+      // Check if user is authenticated
+      final isAuthenticated = await spotifyService.checkAuthentication();
+      
+      if (!isAuthenticated) {
+        // Show authentication dialog
+        if (mounted) {
+          showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              backgroundColor: const Color(0xFF1E1E1E),
+              title: Row(
+                children: [
+                  Icon(Icons.music_note, color: AppTheme.primaryColor),
+                  const SizedBox(width: 8),
+                  const Text('Spotify Login Required', style: TextStyle(color: AppTheme.textPrimary)),
+                ],
+              ),
+              content: const Text(
+                'Please log in to Spotify to play tracks internally.',
+                style: TextStyle(color: AppTheme.textSecondary),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    _openSpotifyExternal(trackId);
+                  },
+                  child: Text('Open Spotify App', style: TextStyle(color: AppTheme.primaryColor)),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: Text('Cancel', style: TextStyle(color: AppTheme.textSecondary)),
+                ),
+              ],
+            ),
+          );
+        }
+        return;
+      }
+
+      // Try to play the track using the internal Spotify service
+      final trackUri = 'spotify:track:$trackId';
+      final success = await spotifyService.playTrack(trackUri);
+      
+      if (success) {
+        debugPrint('✅ Successfully started Spotify playback for track: $trackId');
+        // The existing Spotify playbar should now show the playing track
+      } else {
+        debugPrint('❌ Failed to start Spotify playback, falling back to external app');
+        _openSpotifyExternal(trackId);
+      }
+    } catch (e) {
+      debugPrint('Error playing Spotify track: $e');
+      _openSpotifyExternal(trackId);
+    }
+  }
+
+  void _openSpotifyExternal(String trackId) async {
+    final spotifyUrl = 'spotify:track:$trackId';
+    final webUrl = 'https://open.spotify.com/track/$trackId';
+    
+    // Try Spotify app first, fallback to web
+    if (await canLaunchUrl(Uri.parse(spotifyUrl))) {
+      await launchUrl(Uri.parse(spotifyUrl), mode: LaunchMode.externalApplication);
+    } else if (await canLaunchUrl(Uri.parse(webUrl))) {
+      await launchUrl(Uri.parse(webUrl), mode: LaunchMode.externalApplication);
+    } else {
+      debugPrint('Could not launch Spotify URL: $webUrl');
+    }
+  }
+}
+
+/// Internal YouTube Player Dialog
+class _YouTubePlayerDialog extends StatefulWidget {
+  final String videoId;
+
+  const _YouTubePlayerDialog({required this.videoId});
+
+  @override
+  State<_YouTubePlayerDialog> createState() => _YouTubePlayerDialogState();
+}
+
+class _YouTubePlayerDialogState extends State<_YouTubePlayerDialog> {
+  late YoutubePlayerController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = YoutubePlayerController(
+      initialVideoId: widget.videoId,
+      flags: const YoutubePlayerFlags(
+        autoPlay: true,
+        mute: false,
+        enableCaption: true,
+        captionLanguage: 'en',
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: Colors.black,
+      insetPadding: const EdgeInsets.all(16),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.black,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppTheme.primaryColor.withOpacity(0.3)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Header with close button
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1E1E1E),
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(12),
+                  topRight: Radius.circular(12),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.play_circle_outline,
+                    color: AppTheme.positiveColor,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'YouTube Player',
+                    style: TextStyle(
+                      color: AppTheme.textPrimary,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    icon: const Icon(Icons.close, color: AppTheme.textSecondary),
+                    onPressed: () => Navigator.of(context).pop(),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                  ),
+                ],
+              ),
+            ),
+            // YouTube Player
+            ClipRRect(
+              borderRadius: const BorderRadius.only(
+                bottomLeft: Radius.circular(12),
+                bottomRight: Radius.circular(12),
+              ),
+              child: YoutubePlayer(
+                controller: _controller,
+                showVideoProgressIndicator: true,
+                progressIndicatorColor: AppTheme.positiveColor,
+                progressColors: ProgressBarColors(
+                  playedColor: AppTheme.positiveColor,
+                  handleColor: AppTheme.positiveColor,
+                  bufferedColor: AppTheme.positiveColor.withOpacity(0.3),
+                  backgroundColor: AppTheme.textSecondary.withOpacity(0.3),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

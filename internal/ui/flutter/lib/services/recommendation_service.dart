@@ -569,6 +569,9 @@ class MediaSuggestion {
   final String? wikidataId;
   final String? botReasoning; 
   final String? themes;
+  final String? genres;
+  final String? youtubeId;
+  final String? spotifyId;
   final String mediaId;  // Links to vector database media_id - REQUIRED
   SuggestionStatus status;
   final DateTime createdAt;
@@ -588,6 +591,9 @@ class MediaSuggestion {
     this.wikidataId,
     this.botReasoning,
     this.themes,
+    this.genres,
+    this.youtubeId,
+    this.spotifyId,
     required this.mediaId,
     this.status = SuggestionStatus.pending,
     DateTime? createdAt,
@@ -609,6 +615,9 @@ class MediaSuggestion {
       wikidataId: json['wikidata_id'] as String?,
       botReasoning: json['bot_reasoning'] as String?,
       themes: json['themes'] as String?,
+      genres: json['genres'] as String?,
+      youtubeId: json['youtube_id'] as String?,
+      spotifyId: json['spotify_id'] as String?,
       mediaId: json['media_id'] as String? ?? 
           MediaSuggestion._generateMediaId(json['media_type'] as String, json['title'] as String?, json['artist'] as String?),
       status: SuggestionStatus.values.firstWhere(

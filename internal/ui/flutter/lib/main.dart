@@ -29,6 +29,7 @@ import 'services/wikidata_service.dart';
 import 'services/wikipedia_service.dart';
 import 'services/recommendation_service_grpc.dart';
 import 'services/sqlite_db.dart';
+import 'services/continuous_playback_service.dart';
 import 'services/ffi_init.dart';
 import 'services/go_bindings.dart';
 import 'models.dart';
@@ -110,6 +111,9 @@ Future<void> main() async {
   // --- Initialize GrpcRecommendationService ---
   // Create the gRPC-based recommendation service
   final recommendationService = GrpcRecommendationService();
+  
+  // --- Initialize ContinuousPlaybackService ---
+  final continuousPlaybackService = ContinuousPlaybackService();
 
   // Set window size for desktop platforms
   if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
@@ -136,6 +140,8 @@ Future<void> main() async {
         ChangeNotifierProvider.value(value: recommendationService),
         // If SpotifyService needs to be a provider:
         Provider.value(value: SpotifyService()),
+        // Provide ContinuousPlaybackService
+        Provider.value(value: continuousPlaybackService),
       ],
       child: const MyApp(),
     ),
@@ -151,6 +157,14 @@ Future<void> main() async {
     debugPrint('GrpcRecommendationService initialized with queues prefilled');
   } catch (e) {
     debugPrint('Error initializing GrpcRecommendationService: $e');
+  }
+
+  // --- Initialize ContinuousPlaybackService ---
+  try {
+    await continuousPlaybackService.initialize();
+    debugPrint('ContinuousPlaybackService initialized');
+  } catch (e) {
+    debugPrint('Error initializing ContinuousPlaybackService: $e');
   }
 }
 
@@ -1382,6 +1396,9 @@ class _WikidataCardState extends State<_WikidataCard> {
                   artist: widget.result.artist,
                   description: widget.result.description,
                   themes: widget.result.additionalData?['themes'] as String?,
+                  genres: statusResult['genres'] as String?,
+                  youtubeId: statusResult['youtubeId'] as String?,
+                  spotifyId: statusResult['spotifyId'] as String?,
                   coverArtUrl: widget.result.imageUrl,
                   mediaType: widget.mediaType,
                   hasLiked: statusResult['hasLiked'] as bool? ?? false,
@@ -1447,6 +1464,9 @@ class _WikidataCardState extends State<_WikidataCard> {
           wikiUrl: item.wikiUrl,
           wikidataId: item.wikidataId,
           themes: item.themes,
+          genres: null, // TODO: Extract from item if available
+          youtubeId: null, // TODO: Extract from item if available  
+          spotifyId: null, // TODO: Extract from item if available
         );
         debugPrint('🔍 [SEARCH-DRAWER] Created new media item with ID: $mediaItemId');
       }

@@ -19,18 +19,19 @@ class MediaRefinementPanel extends StatefulWidget {
 
 class _MediaRefinementPanelState extends State<MediaRefinementPanel> {
   final SQLiteDatabase _db = SQLiteDatabase();
-  int _themeCount = 3;
+  // Removed _themeCount since backend now extracts ALL themes/genres
   double _similarityThreshold = 0.5;
   final List<String> _positiveConstraints = [];
   final List<String> _negativeConstraints = [];
   final List<String> _priorityTitles = [];
   final List<String> _avoidTitles = [];
+  final TextEditingController _constraintController = TextEditingController();
   final TextEditingController _titleController = TextEditingController();
   bool _isLoading = true;
 
   final Map<double, String> _similarityLabels = {
     0.1: 'Bohemian',
-    0.3: 'Eclectic',
+    0.3: 'Eclectic', 
     0.5: 'Versatile',
     0.7: 'Discerning',
     1.0: 'Meticulous',
@@ -44,6 +45,7 @@ class _MediaRefinementPanelState extends State<MediaRefinementPanel> {
 
   @override
   void dispose() {
+    _constraintController.dispose();
     _titleController.dispose();
     super.dispose();
   }
@@ -72,9 +74,9 @@ class _MediaRefinementPanelState extends State<MediaRefinementPanel> {
       if (mediaSettings != null) {
         setState(() {
           _similarityThreshold = mediaSettings['similarity_matching'] ?? 0.5;
-          _themeCount = mediaSettings['themes_matching'] ?? 3;
+          // Removed _themeCount = mediaSettings['themes_matching'] ?? 3;
         });
-        debugPrint('✅ [SETTINGS-LOAD] Loaded media settings: similarity=${_similarityThreshold}, themes=${_themeCount}');
+        debugPrint('✅ [SETTINGS-LOAD] Loaded media settings: similarity=${_similarityThreshold}');
       }
       
       // Load matching constraints
@@ -117,9 +119,9 @@ class _MediaRefinementPanelState extends State<MediaRefinementPanel> {
       final dbMediaType = _getDbMediaType();
       debugPrint('🔧 [SETTINGS-SAVE] Saving settings for ${widget.mediaType} -> $dbMediaType');
       
-      // Save media settings
-      await _db.saveMediaSettings(dbMediaType, _similarityThreshold, _themeCount);
-      debugPrint('✅ [SETTINGS-SAVE] Saved media settings: similarity=${_similarityThreshold}, themes=${_themeCount}');
+      // Save media settings (use default theme count of 3 for compatibility since backend extracts ALL themes/genres)
+      await _db.saveMediaSettings(dbMediaType, _similarityThreshold, 3);
+      debugPrint('✅ [SETTINGS-SAVE] Saved media settings: similarity=${_similarityThreshold}');
       
       // Save matching constraints - need to clear existing ones first
       await _clearAndSaveMatchingConstraints();
@@ -295,7 +297,7 @@ class _MediaRefinementPanelState extends State<MediaRefinementPanel> {
       }
     }
     
-    return _similarityLabels[closestKey] ?? 'Average';
+    return _similarityLabels[closestKey] ?? 'Versatile';
   }
 
   void _showTitleSelectionModal() {
@@ -418,89 +420,6 @@ class _MediaRefinementPanelState extends State<MediaRefinementPanel> {
               ),
             ),
           ],
-        ],
-      ),
-    );
-  }
-
-  Widget _buildThemeCountControl() {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.03),
-        borderRadius: BorderRadius.circular(15),
-        border: Border.all(
-          color: Colors.white.withOpacity(0.1),
-          width: 1,
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'THEME MATCHING',
-            style: TextStyle(
-              color: AppTheme.primaryColor.withOpacity(0.9),
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 1.2,
-            ),
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  'Number of themes to match:',
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.9),
-                    fontSize: 14,
-                    fontWeight: FontWeight.w400,
-                  ),
-                ),
-              ),
-              Row(
-                children: [
-                  IconButton(
-                    onPressed: _themeCount > 1 ? () {
-                      setState(() => _themeCount--);
-                      _saveSettings(); // Save immediately when theme count changes
-                    } : null,
-                    icon: const Icon(Icons.remove, size: 18),
-                    style: IconButton.styleFrom(
-                      backgroundColor: Colors.white.withOpacity(0.1),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.all(8),
-                    ),
-                  ),
-                  Container(
-                    width: 40,
-                    alignment: Alignment.center,
-                    child: Text(
-                      '$_themeCount',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                  IconButton(
-                    onPressed: _themeCount < 8 ? () {
-                      setState(() => _themeCount++);
-                      _saveSettings(); // Save immediately when theme count changes
-                    } : null,
-                    icon: const Icon(Icons.add, size: 18),
-                    style: IconButton.styleFrom(
-                      backgroundColor: Colors.white.withOpacity(0.1),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.all(8),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
         ],
       ),
     );
@@ -865,8 +784,6 @@ class _MediaRefinementPanelState extends State<MediaRefinementPanel> {
       child: SingleChildScrollView(
         child: Column(
           children: [
-            _buildThemeCountControl(),
-            const SizedBox(height: 16),
             _buildModernSlider(),
             const SizedBox(height: 16),
             _buildCustomConstraints(),

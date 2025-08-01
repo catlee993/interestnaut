@@ -10,6 +10,7 @@ import 'base_media_section_controller.dart';
 import 'media_library_grid.dart'; // For CardFormat enum
 import 'scroll_content_wrapper.dart'; // For MediaSectionLayout
 import 'suggestion_reasoning_display.dart'; // New reasoning component
+import 'media_preview_buttons.dart'; // Preview buttons
 import '../../theme.dart';
 import '../../utils/text_utils.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
@@ -252,6 +253,20 @@ class MediaSectionWrapper extends StatelessWidget {
                     ),
                   ),
                   
+                  // Preview buttons (YouTube/Spotify)
+                  if (suggestion.youtubeId != null || suggestion.spotifyId != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 16.0),
+                      child: MediaPreviewButtons(
+                        title: suggestion.title ?? '',
+                        artist: suggestion.artist,
+                        mediaType: mediaType,
+                        spotifyId: suggestion.spotifyId,
+                        youtubeId: suggestion.youtubeId,
+                        youtubeUrl: null, // Could be added later if available in the database
+                      ),
+                    ),
+                  
                   // Action buttons using generic component (INSIDE the suggestion pane)
                   SuggestionActionButtons(
                     mediaType: mediaType,
@@ -279,6 +294,36 @@ class MediaSectionWrapper extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  /// Extract Spotify ID from mediaId if it's a Spotify URL or ID
+  String? _extractSpotifyId(String? mediaId) {
+    if (mediaId == null || mediaType != 'music') return null;
+    
+    // Handle Spotify URI format: spotify:track:4iV5W9uYEdYUVa79Axb7Rh
+    if (mediaId.startsWith('spotify:track:')) {
+      return mediaId.substring('spotify:track:'.length);
+    }
+    
+    // Handle Spotify URL format: https://open.spotify.com/track/4iV5W9uYEdYUVa79Axb7Rh
+    if (mediaId.contains('spotify.com/track/')) {
+      final match = RegExp(r'track/([a-zA-Z0-9]+)').firstMatch(mediaId);
+      return match?.group(1);
+    }
+    
+    // Handle direct Spotify ID (22 character alphanumeric string)
+    if (RegExp(r'^[a-zA-Z0-9]{22}$').hasMatch(mediaId)) {
+      return mediaId;
+    }
+    
+    // For music media_ids from vector database, check if it contains a Spotify ID
+    // Format might be: music_spotify_4iV5W9uYEdYUVa79Axb7Rh or similar
+    if (mediaId.contains('spotify') && mediaId.length > 22) {
+      final spotifyMatch = RegExp(r'[a-zA-Z0-9]{22}').firstMatch(mediaId);
+      return spotifyMatch?.group(0);
+    }
+    
+    return null;
   }
 
   Widget _buildPlaceholderImage() {
@@ -361,6 +406,7 @@ class MediaSectionWrapper extends StatelessWidget {
       reasoning: reasoning!,
       availableHeight: availableHeight,
       context: context,
+      constraints: constraints,
     );
   }
 
@@ -400,27 +446,47 @@ class MediaSectionWrapper extends StatelessWidget {
     required String reasoning,
     required double availableHeight,
     required BuildContext context,
+    required BoxConstraints constraints,
   }) {
-    // Calculate content sizes for smart allocation
-    final descriptionLength = description.length;
-    final reasoningComplexity = _calculateReasoningComplexity(reasoning);
+    // Calculate natural content heights based on text
+    final descriptionTextHeight = _estimateTextHeight(description, AppTheme.mediaDescriptionStyle, constraints.maxWidth - 32);
+    final reasoningTextHeight = _estimateReasoningHeight(reasoning, constraints.maxWidth - 32);
     
-    // Smart height allocation based on content
-    double descriptionRatio;
+    // Define max proportions
+    const double maxDescriptionRatio = 0.6; // 3/5
+    const double maxReasoningRatio = 0.4; // 2/5
+    const double spacing = 16.0;
     
-    if (descriptionLength < 200 && reasoningComplexity > 0.7) {
-      // Short description, complex reasoning -> favor reasoning
-      descriptionRatio = 0.25;
-    } else if (descriptionLength > 800 && reasoningComplexity < 0.5) {
-      // Long description, simple reasoning -> favor description
-      descriptionRatio = 0.65;
+    // Calculate max allowed heights
+    final maxDescriptionHeight = availableHeight * maxDescriptionRatio;
+    final maxReasoningHeight = availableHeight * maxReasoningRatio;
+    
+    double descriptionHeight;
+    double reasoningHeight;
+    
+    // Smart allocation logic
+    if (descriptionTextHeight <= maxDescriptionHeight && reasoningTextHeight <= maxReasoningHeight) {
+      // Both fit within their max - use natural heights
+      descriptionHeight = descriptionTextHeight;
+      reasoningHeight = reasoningTextHeight;
+    } else if (descriptionTextHeight <= maxDescriptionHeight && reasoningTextHeight > maxReasoningHeight) {
+      // Description fits, reasoning doesn't - give reasoning all remaining space
+      descriptionHeight = descriptionTextHeight;
+      reasoningHeight = availableHeight - descriptionHeight - spacing;
+    } else if (descriptionTextHeight > maxDescriptionHeight && reasoningTextHeight <= maxReasoningHeight) {
+      // Reasoning fits, description doesn't - give description all remaining space
+      reasoningHeight = reasoningTextHeight;
+      descriptionHeight = availableHeight - reasoningHeight - spacing;
     } else {
-      // Balanced allocation
-      descriptionRatio = 0.4;
+      // Both exceed their max - split equally
+      final halfSpace = (availableHeight - spacing) / 2;
+      descriptionHeight = halfSpace;
+      reasoningHeight = halfSpace;
     }
     
-    final descriptionHeight = (availableHeight * descriptionRatio).clamp(80.0, availableHeight * 0.7);
-    final reasoningHeight = availableHeight - descriptionHeight - 16; // 16px spacing
+    // Ensure minimum heights
+    descriptionHeight = descriptionHeight.clamp(60.0, availableHeight - spacing - 60.0);
+    reasoningHeight = reasoningHeight.clamp(60.0, availableHeight - spacing - 60.0);
     
     return Column(
       children: [
@@ -536,6 +602,9 @@ class MediaSectionWrapper extends StatelessWidget {
           artist: effectiveArtist,
           description: item.description,
           themes: item.themes,
+          genres: statusResult['genres'] as String?,
+          youtubeId: statusResult['youtubeId'] as String?,
+          spotifyId: statusResult['spotifyId'] as String?,
           coverArtUrl: item.coverArtUrl,
           mediaType: mediaType,
           hasLiked: statusResult['hasLiked'] as bool? ?? false,
@@ -696,6 +765,9 @@ class MediaSectionWrapper extends StatelessWidget {
           wikiUrl: item.wikiUrl,
           wikidataId: item.wikidataId,
           themes: item.themes,
+          genres: null, // TODO: Extract from item if available
+          youtubeId: null, // TODO: Extract from item if available
+          spotifyId: null, // TODO: Extract from item if available
         );
         debugPrint('🔍 [DRAWER-ACTION] Created new media item with ID: $mediaItemId');
       }
@@ -1035,5 +1107,38 @@ class MediaSectionWrapper extends StatelessWidget {
       debugPrint('❌ [DRAWER-SQLITE] Error showing item drawer by media_item_id: $e');
       _showErrorDialog(context, 'Failed to load item details: $e');
     }
+  }
+
+  /// Estimate text height for description content
+  double _estimateTextHeight(String text, TextStyle style, double maxWidth) {
+    if (text.isEmpty) return 0.0;
+    
+    final textPainter = TextPainter(
+      text: TextSpan(text: text, style: style),
+      maxLines: null,
+      textDirection: TextDirection.ltr,
+    );
+    
+    textPainter.layout(maxWidth: maxWidth);
+    return textPainter.size.height;
+  }
+
+  /// Estimate text height for reasoning content (includes markdown formatting considerations)
+  double _estimateReasoningHeight(String reasoning, double maxWidth) {
+    if (reasoning.isEmpty) return 0.0;
+    
+    // Use AppTheme.reasoningStyle if available, otherwise fallback to default
+    final reasoningStyle = AppTheme.mediaDescriptionStyle.copyWith(fontSize: 14);
+    
+    final textPainter = TextPainter(
+      text: TextSpan(text: reasoning, style: reasoningStyle),
+      maxLines: null,
+      textDirection: TextDirection.ltr,
+    );
+    
+    textPainter.layout(maxWidth: maxWidth);
+    
+    // Add slight buffer for markdown formatting and line spacing
+    return textPainter.size.height + 8.0;
   }
 } 

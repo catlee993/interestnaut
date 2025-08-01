@@ -235,6 +235,12 @@ class MediaSuggestionItem {
   final String? releaseDate;
   final double? rating;
   final int? voteCount;
+  final String? mediaId; // Vector database ID
+  final String? youtubeUrl; // Direct YouTube URL if available
+  final String? youtubeId; // YouTube video ID
+  final String? spotifyId; // Spotify track ID
+  final String? themes; // Detected themes
+  final String? genres; // Detected genres
 
   MediaSuggestionItem({
     required this.id,
@@ -247,6 +253,12 @@ class MediaSuggestionItem {
     this.releaseDate,
     this.rating,
     this.voteCount,
+    this.mediaId,
+    this.youtubeUrl,
+    this.youtubeId,
+    this.spotifyId,
+    this.themes,
+    this.genres,
   });
 }
 

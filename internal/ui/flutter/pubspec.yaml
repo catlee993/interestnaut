@@ -75,6 +75,9 @@ dependencies:
   grpc: ^4.0.1
   protobuf: ^4.1.1
 
+  # YouTube player for internal video playback
+  youtube_player_flutter: ^9.0.3
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

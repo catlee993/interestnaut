@@ -52,6 +52,9 @@ CREATE TABLE IF NOT EXISTS media_items (
   wiki_url TEXT,
   wikidata_id TEXT,
   themes TEXT,
+  genres TEXT,
+  youtube_id TEXT,
+  spotify_id TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   FOREIGN KEY (media_type_id) REFERENCES media_types (id),
@@ -185,6 +188,19 @@ CREATE TABLE IF NOT EXISTS media_settings (
 CREATE INDEX IF NOT EXISTS idx_media_settings_type ON media_settings(media_type_id);
 ''';
 
+// Create general settings table for app-wide and media-specific settings
+const String createGeneralSettingsTableQuery = '''
+CREATE TABLE IF NOT EXISTS general_settings (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  key TEXT NOT NULL UNIQUE,
+  value TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_general_settings_key ON general_settings(key);
+''';
+
 /// Media Type Queries
 
 // Get media type ID by name
@@ -211,6 +227,24 @@ SELECT ms.similarity_matching, ms.themes_matching, ms.created_at, ms.updated_at
 FROM media_settings ms
 JOIN media_types mt ON ms.media_type_id = mt.id
 WHERE mt.name = ?;
+''';
+
+/// General Settings Queries
+
+// Insert or update general setting
+const String insertOrUpdateGeneralSettingQuery = '''
+INSERT OR REPLACE INTO general_settings (key, value, created_at, updated_at)
+VALUES (?, ?, ?, ?);
+''';
+
+// Get general setting by key
+const String getGeneralSettingQuery = '''
+SELECT value FROM general_settings WHERE key = ?;
+''';
+
+// Get all general settings
+const String getAllGeneralSettingsQuery = '''
+SELECT key, value FROM general_settings;
 ''';
 
 /// Media Matching Queries
@@ -284,8 +318,8 @@ DELETE FROM media_blends WHERE primary_media_type_id = ? AND blended_media_type_
 const String insertOrGetMediaItemQuery = '''
 INSERT OR IGNORE INTO media_items (
   media_type_id, vector_media_id, title, primary_creator, cover_art_url, 
-  description, wiki_url, wikidata_id, themes, created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+  description, wiki_url, wikidata_id, themes, genres, youtube_id, spotify_id, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 ''';
 
 // Get media item by title and creator
@@ -299,8 +333,8 @@ WHERE mi.title = ? AND COALESCE(mi.primary_creator, '') = ? AND mt.name = ?;
 // Get media item by ID
 const String getMediaItemByIdQuery = '''
 SELECT mi.id, mi.media_type_id, mi.vector_media_id, mi.title, mi.primary_creator,
-       mi.cover_art_url, mi.description, mi.wiki_url, mi.wikidata_id, mi.themes,
-       mi.created_at, mi.updated_at, mt.name as media_type
+       mi.cover_art_url, mi.description, mi.wiki_url, mi.wikidata_id, mi.themes, mi.genres,
+       mi.youtube_id, mi.spotify_id, mi.created_at, mi.updated_at, mt.name as media_type
 FROM media_items mi
 JOIN media_types mt ON mi.media_type_id = mt.id
 WHERE mi.id = ?;
@@ -310,7 +344,8 @@ WHERE mi.id = ?;
 const String updateMediaItemQuery = '''
 UPDATE media_items SET
   vector_media_id = ?, title = ?, primary_creator = ?, cover_art_url = ?,
-  description = ?, wiki_url = ?, wikidata_id = ?, themes = ?, updated_at = ?
+  description = ?, wiki_url = ?, wikidata_id = ?, themes = ?, genres = ?, 
+  youtube_id = ?, spotify_id = ?, updated_at = ?
 WHERE id = ?;
 ''';
 
@@ -334,7 +369,7 @@ const String getRecommendationByIdQuery = '''
 SELECT r.id, r.media_item_id, r.query, r.bot_reasoning, rs.name as status,
        r.created_at, r.updated_at,
        mi.vector_media_id, mi.title, mi.primary_creator, mi.cover_art_url,
-       mi.description, mi.wiki_url, mi.wikidata_id, mi.themes,
+       mi.description, mi.wiki_url, mi.wikidata_id, mi.themes, mi.genres,
        mt.name as media_type
 FROM recommendations r
 JOIN media_items mi ON r.media_item_id = mi.id
@@ -348,7 +383,7 @@ const String getPendingRecommendationsNotInWatchlistQuery = '''
 SELECT r.id, r.media_item_id, r.query, r.bot_reasoning, rs.name as status,
        r.created_at, r.updated_at,
        mi.vector_media_id, mi.title, mi.primary_creator, mi.cover_art_url,
-       mi.description, mi.wiki_url, mi.wikidata_id, mi.themes,
+       mi.description, mi.wiki_url, mi.wikidata_id, mi.themes, mi.genres,
        mt.name as media_type
 FROM recommendations r
 JOIN media_items mi ON r.media_item_id = mi.id
@@ -364,7 +399,7 @@ const String getRecommendationsByStatusQuery = '''
 SELECT r.id, r.media_item_id, r.query, r.bot_reasoning, rs.name as status,
        r.created_at, r.updated_at,
        mi.vector_media_id, mi.title, mi.primary_creator, mi.cover_art_url,
-       mi.description, mi.wiki_url, mi.wikidata_id, mi.themes,
+       mi.description, mi.wiki_url, mi.wikidata_id, mi.themes, mi.genres,
        mt.name as media_type
 FROM recommendations r
 JOIN media_items mi ON r.media_item_id = mi.id
@@ -410,7 +445,7 @@ SELECT COUNT(*) as count FROM favorites WHERE media_item_id = ?;
 const String getFavoritesQuery = '''
 SELECT f.id, f.created_at as favorited_at,
        mi.id as media_item_id, mi.vector_media_id, mi.title, mi.primary_creator,
-       mi.cover_art_url, mi.description, mi.wiki_url, mi.wikidata_id, mi.themes,
+       mi.cover_art_url, mi.description, mi.wiki_url, mi.wikidata_id, mi.themes, mi.genres,
        mt.name as media_type,
        r.id as recommendation_id, r.query, r.bot_reasoning
 FROM favorites f
@@ -442,7 +477,7 @@ SELECT COUNT(*) as count FROM watchlist WHERE media_item_id = ?;
 const String getWatchlistQuery = '''
 SELECT w.id, w.created_at as watchlist_added_at,
        mi.id as media_item_id, mi.vector_media_id, mi.title, mi.primary_creator,
-       mi.cover_art_url, mi.description, mi.wiki_url, mi.wikidata_id, mi.themes,
+       mi.cover_art_url, mi.description, mi.wiki_url, mi.wikidata_id, mi.themes, mi.genres,
        mt.name as media_type,
        r.id as recommendation_id, r.query, r.bot_reasoning
 FROM watchlist w
@@ -468,7 +503,7 @@ const String getLikedRecommendationsQuery = '''
 SELECT r.id, r.media_item_id, r.query, r.bot_reasoning, rs.name as status,
        r.created_at, r.updated_at,
        mi.vector_media_id, mi.title, mi.primary_creator, mi.cover_art_url,
-       mi.description, mi.wiki_url, mi.wikidata_id, mi.themes,
+       mi.description, mi.wiki_url, mi.wikidata_id, mi.themes, mi.genres,
        mt.name as media_type
 FROM recommendations r
 JOIN media_items mi ON r.media_item_id = mi.id
@@ -483,7 +518,7 @@ const String getDislikedRecommendationsQuery = '''
 SELECT r.id, r.media_item_id, r.query, r.bot_reasoning, rs.name as status,
        r.created_at, r.updated_at,
        mi.vector_media_id, mi.title, mi.primary_creator, mi.cover_art_url,
-       mi.description, mi.wiki_url, mi.wikidata_id, mi.themes,
+       mi.description, mi.wiki_url, mi.wikidata_id, mi.themes, mi.genres,
        mt.name as media_type
 FROM recommendations r
 JOIN media_items mi ON r.media_item_id = mi.id
@@ -501,7 +536,7 @@ const String getSkippedRecommendationsQuery = '''
 SELECT r.id, r.media_item_id, r.query, r.bot_reasoning, rs.name as status,
        r.created_at, r.updated_at,
        mi.vector_media_id, mi.title, mi.primary_creator, mi.cover_art_url,
-       mi.description, mi.wiki_url, mi.wikidata_id, mi.themes,
+       mi.description, mi.wiki_url, mi.wikidata_id, mi.themes, mi.genres,
        mt.name as media_type
 FROM recommendations r
 JOIN media_items mi ON r.media_item_id = mi.id
@@ -556,7 +591,7 @@ DELETE FROM media_metadata WHERE media_item_id = ?;
 // Get media items with specific metadata
 const String getMediaItemsByMetadataQuery = '''
 SELECT DISTINCT mi.id, mi.vector_media_id, mi.title, mi.primary_creator,
-       mi.cover_art_url, mi.description, mi.wiki_url, mi.wikidata_id, mi.themes,
+       mi.cover_art_url, mi.description, mi.wiki_url, mi.wikidata_id, mi.themes, mi.genres,
        mt.name as media_type, mi.created_at, mi.updated_at
 FROM media_items mi
 JOIN media_types mt ON mi.media_type_id = mt.id
@@ -570,7 +605,7 @@ ORDER BY mi.title ASC;
 // Search media items by title or creator
 const String searchMediaItemsQuery = '''
 SELECT mi.id as media_item_id, mi.vector_media_id, mi.title, mi.primary_creator,
-       mi.cover_art_url, mi.description, mi.wiki_url, mi.wikidata_id, mi.themes,
+       mi.cover_art_url, mi.description, mi.wiki_url, mi.wikidata_id, mi.themes, mi.genres,
        mt.name as media_type, mi.created_at, mi.updated_at
 FROM media_items mi
 JOIN media_types mt ON mi.media_type_id = mt.id
@@ -585,7 +620,7 @@ ORDER BY mi.title ASC;
 const String getMediaSuggestionByIdQuery = '''
 SELECT r.id, r.media_item_id, r.query, r.bot_reasoning,
        mi.vector_media_id, mi.title, mi.primary_creator, mi.cover_art_url,
-       mi.description, mi.wiki_url, mi.wikidata_id, mi.themes,
+       mi.description, mi.wiki_url, mi.wikidata_id, mi.themes, mi.genres,
        mt.name as media_type, rs.name as status,
        r.created_at, r.updated_at
 FROM recommendations r
@@ -628,7 +663,7 @@ WHERE mt.name = ? AND rs.name = 'pending';
 const String getPendingSuggestionsNotInWatchlistQuery = '''
 SELECT r.id, r.media_item_id, r.query, r.bot_reasoning,
        mi.vector_media_id, mi.title, mi.primary_creator, mi.cover_art_url,
-       mi.description, mi.wiki_url, mi.wikidata_id, mi.themes,
+       mi.description, mi.wiki_url, mi.wikidata_id, mi.themes, mi.genres,
        mt.name as media_type, rs.name as status,
        r.created_at, r.updated_at
 FROM recommendations r
@@ -636,7 +671,8 @@ JOIN media_items mi ON r.media_item_id = mi.id
 JOIN media_types mt ON mi.media_type_id = mt.id
 JOIN recommendation_status rs ON r.status_id = rs.id
 LEFT JOIN watchlist w ON mi.id = w.media_item_id
-WHERE mt.name = ? AND rs.name = 'pending' AND w.media_item_id IS NULL
+LEFT JOIN favorites f ON mi.id = f.media_item_id
+WHERE mt.name = ? AND rs.name = 'pending' AND w.media_item_id IS NULL AND f.media_item_id IS NULL
 ORDER BY r.created_at DESC;
 ''';
 
@@ -648,7 +684,7 @@ SELECT
   COALESCE(r.query, 'User Added') as query, 
   COALESCE(r.bot_reasoning, 'Added from search') as bot_reasoning,
   mi.vector_media_id, mi.title, mi.primary_creator, mi.cover_art_url,
-  mi.description, mi.wiki_url, mi.wikidata_id, mi.themes,
+  mi.description, mi.wiki_url, mi.wikidata_id, mi.themes, mi.genres,
   mt.name as media_type, 
   COALESCE(rs.name, 'added') as status,
   COALESCE(r.created_at, w.created_at) as created_at, 
@@ -674,7 +710,7 @@ SELECT
   COALESCE(r.query, 'User Added') as query, 
   COALESCE(r.bot_reasoning, 'Added from search') as bot_reasoning,
   mi.vector_media_id, mi.title, mi.primary_creator, mi.cover_art_url,
-  mi.description, mi.wiki_url, mi.wikidata_id, mi.themes,
+  mi.description, mi.wiki_url, mi.wikidata_id, mi.themes, mi.genres,
   mt.name as media_type, 
   COALESCE(rs.name, 'added') as status,
   COALESCE(r.created_at, f.created_at) as created_at, 

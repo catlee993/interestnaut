@@ -77,6 +77,9 @@ class SQLiteDatabase {
       // Check for missing tables and create them
       await _ensureAllTablesExist();
       
+      // Migrate table columns if needed
+      await _migrateTableColumns();
+      
       // Ensure default data is present
       await _ensureDefaultData();
       
@@ -121,6 +124,7 @@ class SQLiteDatabase {
         {'name': 'media_matching', 'query': createMediaMatchingTableQuery},
         {'name': 'media_priority_titles', 'query': createMediaPriorityTitlesTableQuery},
         {'name': 'media_settings', 'query': createMediaSettingsTableQuery},
+        {'name': 'general_settings', 'query': createGeneralSettingsTableQuery},
       ];
       
       for (final table in requiredTables) {
@@ -136,6 +140,50 @@ class SQLiteDatabase {
     } catch (e) {
       debugPrint('❌ Error ensuring tables exist: $e');
       rethrow;
+    }
+  }
+
+  /// Migrate table columns for schema updates
+  Future<void> _migrateTableColumns() async {
+    try {
+      // Add new columns to media_items table if they don't exist
+      await _addColumnIfNotExists('media_items', 'youtube_id', 'TEXT');
+      await _addColumnIfNotExists('media_items', 'spotify_id', 'TEXT');
+      await _addColumnIfNotExists('media_items', 'genres', 'TEXT');
+      
+      debugPrint('✅ Column migration completed');
+    } catch (e) {
+      debugPrint('❌ Error migrating table columns: $e');
+      rethrow;
+    }
+  }
+  
+  /// Add a column to a table if it doesn't already exist
+  Future<void> _addColumnIfNotExists(String tableName, String columnName, String columnType) async {
+    final exists = await _columnExists(tableName, columnName);
+    if (!exists) {
+      debugPrint('🔄 Adding column $columnName to table $tableName');
+      _db!.execute('ALTER TABLE $tableName ADD COLUMN $columnName $columnType');
+      debugPrint('✅ Added column $columnName to table $tableName');
+    } else {
+      debugPrint('✅ Column $columnName already exists in table $tableName');
+    }
+  }
+  
+
+  /// Check if a column exists in a table
+  Future<bool> _columnExists(String tableName, String columnName) async {
+    try {
+      final result = _db!.select('PRAGMA table_info($tableName)');
+      for (final row in result) {
+        if (row['name'] == columnName) {
+          return true;
+        }
+      }
+      return false;
+    } catch (e) {
+      debugPrint('❌ Error checking column existence: $e');
+      return false;
     }
   }
 
@@ -187,6 +235,7 @@ class SQLiteDatabase {
       _db!.execute(createMediaMatchingTableQuery);
       _db!.execute(createMediaPriorityTitlesTableQuery);
       _db!.execute(createMediaSettingsTableQuery);
+      _db!.execute(createGeneralSettingsTableQuery);
       
       // Insert default data
       _db!.execute(insertMediaTypesQuery);
@@ -228,6 +277,9 @@ class SQLiteDatabase {
     String? wikiUrl,
     String? wikidataId,
     String? themes,
+    String? genres,
+    String? youtubeId,
+    String? spotifyId,
   }) async {
     await _ensureInitialized();
 
@@ -263,6 +315,9 @@ class SQLiteDatabase {
         wikiUrl,
         wikidataId,
         themes,
+        genres,
+        youtubeId,
+        spotifyId,
         now,
         now,
       ]);
@@ -471,6 +526,9 @@ class SQLiteDatabase {
       // Remove from watchlist
       await removeFromWatchlist(mediaItemId);
       
+      // Update any existing recommendation status to 'added'
+      await _updateRecommendationStatusForMediaItem(mediaItemId, 'added');
+      
       debugPrint('✅ Moved from watchlist to favorites (media_item_id: $mediaItemId)');
     } catch (e) {
       debugPrint('Error moving from watchlist to favorites: $e');
@@ -506,10 +564,16 @@ class SQLiteDatabase {
         wikiUrl: wikiUrl,
         wikidataId: wikidataId,
         themes: themes,
+        genres: null,
+        youtubeId: null,
+        spotifyId: null,
       );
 
       // Add to favorites
       await addToFavorites(mediaItemId);
+      
+      // Update any existing recommendation status to 'added'
+      await _updateRecommendationStatusForMediaItem(mediaItemId, 'added');
     } catch (e) {
       debugPrint('Error adding search item to favorites: $e');
       rethrow;
@@ -542,6 +606,9 @@ class SQLiteDatabase {
         wikiUrl: wikiUrl,
         wikidataId: wikidataId,
         themes: themes,
+        genres: null,
+        youtubeId: null,
+        spotifyId: null,
       );
 
       // Add to watchlist
@@ -585,6 +652,9 @@ class SQLiteDatabase {
           wikiUrl: suggestion.wikiUrl,
           wikidataId: suggestion.wikidataId,
           themes: suggestion.themes,
+          genres: null, // TODO: Extract from suggestion if available
+          youtubeId: null, // TODO: Extract from suggestion if available
+          spotifyId: null, // TODO: Extract from suggestion if available
         );
 
         // Then create the recommendation that references the media item
@@ -956,7 +1026,7 @@ class SQLiteDatabase {
       // First, try to find the media item
       final findMediaQuery = '''
       SELECT mi.id, mi.title, mi.primary_creator, mi.cover_art_url, mi.description, 
-             mi.wiki_url, mi.wikidata_id, mi.themes, mi.vector_media_id,
+             mi.wiki_url, mi.wikidata_id, mi.themes, mi.genres, mi.youtube_id, mi.spotify_id, mi.vector_media_id,
              CASE WHEN f.media_item_id IS NOT NULL THEN 1 ELSE 0 END as is_favorited,
              CASE WHEN w.media_item_id IS NOT NULL THEN 1 ELSE 0 END as is_in_watchlist
       FROM media_items mi
@@ -1043,6 +1113,9 @@ class SQLiteDatabase {
         'wikiUrl': row['wiki_url'] as String?,
         'wikidataId': row['wikidata_id'] as String?,
         'themes': row['themes'] as String?,
+        'genres': row['genres'] as String?,
+        'youtubeId': row['youtube_id'] as String?,
+        'spotifyId': row['spotify_id'] as String?,
         'vectorMediaId': row['vector_media_id'] as String?,
       };
 
@@ -1155,6 +1228,89 @@ class SQLiteDatabase {
       debugPrint('Error saving media settings: $e');
       return false;
     }
+  }
+
+  // ===== GENERAL SETTINGS =====
+
+  /// Get general setting by key
+  Future<String?> getGeneralSetting(String key) async {
+    await _ensureInitialized();
+
+    try {
+      final stmt = _db!.prepare(getGeneralSettingQuery);
+      final result = stmt.select([key]);
+
+      if (result.isEmpty) {
+        stmt.dispose();
+        return null;
+      }
+
+      final value = result.first['value'] as String;
+      stmt.dispose();
+      return value;
+    } catch (e) {
+      debugPrint('Error getting general setting: $e');
+      return null;
+    }
+  }
+
+  /// Set general setting
+  Future<bool> setGeneralSetting(String key, String value) async {
+    await _ensureInitialized();
+
+    try {
+      final now = DateTime.now().toIso8601String();
+      final stmt = _db!.prepare(insertOrUpdateGeneralSettingQuery);
+      stmt.execute([key, value, now, now]);
+      stmt.dispose();
+      return true;
+    } catch (e) {
+      debugPrint('Error setting general setting: $e');
+      return false;
+    }
+  }
+
+  /// Get all general settings as a map
+  Future<Map<String, String>> getAllGeneralSettings() async {
+    await _ensureInitialized();
+
+    try {
+      final stmt = _db!.prepare(getAllGeneralSettingsQuery);
+      final result = stmt.select([]);
+
+      final settings = <String, String>{};
+      for (final row in result) {
+        settings[row['key'] as String] = row['value'] as String;
+      }
+
+      stmt.dispose();
+      return settings;
+    } catch (e) {
+      debugPrint('Error getting all general settings: $e');
+      return {};
+    }
+  }
+
+  /// Get continuous playback setting for music (uses general_settings)
+  Future<bool> getContinuousPlaybackSetting() async {
+    final value = await getGeneralSetting('continuous_playback_music');
+    return value == 'true';
+  }
+
+  /// Set continuous playback setting for music (uses general_settings)
+  Future<bool> setContinuousPlaybackSetting(bool enabled) async {
+    return await setGeneralSetting('continuous_playback_music', enabled.toString());
+  }
+
+  /// Get YouTube previews setting (uses general_settings)  
+  Future<bool> getYouTubePreviewsSetting() async {
+    final value = await getGeneralSetting('youtube_previews');
+    return value == 'true';
+  }
+
+  /// Set YouTube previews setting (uses general_settings)
+  Future<bool> setYouTubePreviewsSetting(bool enabled) async {
+    return await setGeneralSetting('youtube_previews', enabled.toString());
   }
 
   // ===== MEDIA MATCHING =====
@@ -1492,6 +1648,9 @@ class SQLiteDatabase {
       wikidataId: row['wikidata_id'] as String?,
       botReasoning: row['bot_reasoning'] as String?,
       themes: row['themes'] as String?,
+      genres: row['genres'] as String?,
+      youtubeId: row['youtube_id'] as String?,
+      spotifyId: row['spotify_id'] as String?,
       mediaId: (row['vector_media_id'] as String?) ?? 'db_legacy_${suggestionId}_${DateTime.now().millisecondsSinceEpoch}',
       status: SuggestionStatus.values.firstWhere(
         (s) => s.toString().split('.').last == (statusFromDb ?? 'pending'),
@@ -1502,5 +1661,27 @@ class SQLiteDatabase {
           ? DateTime.parse(row['updated_at'] as String)
           : null,
     );
+  }
+
+  /// Update recommendation status for a media item (used when items are favorited/watchlisted from search)
+  Future<void> _updateRecommendationStatusForMediaItem(int mediaItemId, String statusName) async {
+    await _ensureInitialized();
+
+    try {
+      // Find any existing recommendations for this media item
+      final stmt = _db!.prepare('''
+        UPDATE recommendations 
+        SET status_id = (SELECT id FROM recommendation_status WHERE name = ?)
+        WHERE media_item_id = ?
+      ''');
+      
+      stmt.execute([statusName, mediaItemId]);
+      stmt.dispose();
+      
+      debugPrint('✅ Updated recommendation status to "$statusName" for media_item_id: $mediaItemId');
+    } catch (e) {
+      debugPrint('⚠️ Error updating recommendation status for media_item_id $mediaItemId: $e');
+      // Don't rethrow - this is a non-critical operation that shouldn't break the main flow
+    }
   }
 } 

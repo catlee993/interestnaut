@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'dart:ui';
 import 'search_bar.dart' as custom;
-import 'media_specific_settings_drawer.dart';
 import 'media_history_screen.dart';  // Add import for MediaHistoryScreen
+import 'settings_drawer.dart';  // Import for showMediaSpecificSettingsDrawer
 import '../../theme.dart';  // Add import for AppTheme
 import '../music/spotify_service.dart';
 import '../music/spotify_connect_button.dart';
@@ -447,9 +447,9 @@ class _MediaHeaderState extends State<MediaHeader> {
                           ? 'Search movies...'
                           : activeMedia == 'tv'
                               ? 'Search TV shows...'
-                              : activeMedia == 'books'
-                                  ? 'Search books...'
-                                  : 'Search games...',
+                          : activeMedia == 'books'
+                              ? 'Search books...'
+                              : 'Search games...',
                   onSearch: widget.onSearch,
                   onClear: widget.onClearSearch,
                   initialValue: widget.searchQuery,  // Use the current search query from parent

@@ -324,6 +324,9 @@ class _MediaHistoryScreenState extends State<MediaHistoryScreen> {
         coverArtUrl: item.coverArtUrl,
         description: item.description,
         themes: item.themes,
+        genres: null, // TODO: Extract from item if available
+        youtubeId: null, // TODO: Extract from item if available
+        spotifyId: null, // TODO: Extract from item if available
       );
 
       // Handle state changes based on action
@@ -648,6 +651,9 @@ class _MediaHistoryScreenState extends State<MediaHistoryScreen> {
                 artist: item.artist,
                 description: item.description,
                 themes: item.themes,
+                genres: item.genres,
+                youtubeId: item.youtubeId,
+                spotifyId: item.spotifyId,
                 coverArtUrl: item.coverArtUrl,
                 mediaType: _currentMediaType,
                 hasLiked: status['hasLiked'] as bool? ?? false,

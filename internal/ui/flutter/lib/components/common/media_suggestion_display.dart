@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../models.dart';
 import '../../theme.dart';
+import 'media_preview_buttons.dart';
 
 class MediaSuggestionDisplay extends StatelessWidget {
   final String mediaType;
@@ -164,7 +165,7 @@ class MediaSuggestionDisplay extends StatelessWidget {
                     final displayInfo = MediaDisplayHelper.resolveDisplayInfo(
                       title: suggestedItem?.title,
                       artist: suggestedItem?.artist,
-                      fallbackTitle: '',
+                      fallbackTitle: 'Pending Suggestion',
                     );
                     return displayInfo.displayTitle;
                   }(),
@@ -182,7 +183,7 @@ class MediaSuggestionDisplay extends StatelessWidget {
                   final displayInfo = MediaDisplayHelper.resolveDisplayInfo(
                     title: suggestedItem?.title,
                     artist: suggestedItem?.artist,
-                    fallbackTitle: '',
+                    fallbackTitle: 'Pending Suggestion',
                   );
                   if (displayInfo.hasSubtitle) {
                     return Padding(
@@ -210,6 +211,63 @@ class MediaSuggestionDisplay extends StatelessWidget {
                     child: Text(
                       suggestionReason!,
                       style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ),
+                // Detected Themes section
+                if (suggestedItem?.themes != null && suggestedItem!.themes!.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12.0),
+                    child: RichText(
+                      text: TextSpan(
+                        children: [
+                          TextSpan(
+                            text: 'Detected Themes: ',
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              fontWeight: FontWeight.w600,
+                              color: AppTheme.textSecondary,
+                            ),
+                          ),
+                          TextSpan(
+                            text: suggestedItem!.themes!,
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                // Detected Genres section
+                if (suggestedItem?.genres != null && suggestedItem!.genres!.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8.0),
+                    child: RichText(
+                      text: TextSpan(
+                        children: [
+                          TextSpan(
+                            text: 'Detected Genres: ',
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              fontWeight: FontWeight.w600,
+                              color: AppTheme.textSecondary,
+                            ),
+                          ),
+                          TextSpan(
+                            text: suggestedItem!.genres!,
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                // Preview buttons for music (or YouTube for other media)
+                if (suggestedItem != null && (suggestedItem!.youtubeId != null || suggestedItem!.spotifyId != null))
+                  Padding(
+                    padding: const EdgeInsets.only(top: 16.0),
+                    child: MediaPreviewButtons(
+                      title: suggestedItem!.title ?? '',
+                      artist: suggestedItem!.artist,
+                      mediaType: mediaType,
+                      spotifyId: suggestedItem!.spotifyId,
+                      youtubeId: suggestedItem!.youtubeId,
+                      youtubeUrl: suggestedItem!.youtubeUrl,
                     ),
                   ),
                 const Spacer(),
@@ -252,5 +310,28 @@ class MediaSuggestionDisplay extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  /// Extract Spotify ID from mediaId if it's a Spotify URL or ID
+  String? _extractSpotifyId(String? mediaId) {
+    if (mediaId == null || mediaType != 'music') return null;
+    
+    // Handle Spotify URI format: spotify:track:4iV5W9uYEdYUVa79Axb7Rh
+    if (mediaId.startsWith('spotify:track:')) {
+      return mediaId.substring('spotify:track:'.length);
+    }
+    
+    // Handle Spotify URL format: https://open.spotify.com/track/4iV5W9uYEdYUVa79Axb7Rh
+    if (mediaId.contains('spotify.com/track/')) {
+      final match = RegExp(r'track/([a-zA-Z0-9]+)').firstMatch(mediaId);
+      return match?.group(1);
+    }
+    
+    // Handle direct Spotify ID (22 character alphanumeric string)
+    if (RegExp(r'^[a-zA-Z0-9]{22}$').hasMatch(mediaId)) {
+      return mediaId;
+    }
+    
+    return null;
   }
 } 

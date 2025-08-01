@@ -27,6 +27,8 @@ abstract class BaseMediaSectionController extends ChangeNotifier {
   bool _isLoadingDbWatchlist = false;
   
   StreamSubscription<RecommendationEvent>? _eventSubscription;
+  Timer? _timeoutTimer;
+  bool _disposed = false;
   
   BaseMediaSectionController(this.mediaType) {
     _initializeEventListener();
@@ -203,8 +205,29 @@ abstract class BaseMediaSectionController extends ChangeNotifier {
       }
       
       debugPrint('✅ [${mediaType.toUpperCase()}] Database available, checking for pending suggestions...');
+      
+      // Debug: Check all suggestions for this media type
+      final allSuggestions = await _db.getAllMediaSuggestions(mediaType);
+      debugPrint('🔍 [${mediaType.toUpperCase()}] Total suggestions in DB: ${allSuggestions.length}');
+      
+      // Debug: Check pending suggestions specifically
+      final pendingSuggestions = await _db.getAllMediaSuggestions(mediaType, status: 'pending');
+      debugPrint('🔍 [${mediaType.toUpperCase()}] Pending suggestions in DB: ${pendingSuggestions.length}');
+      
+      if (pendingSuggestions.isNotEmpty) {
+        for (int i = 0; i < pendingSuggestions.length && i < 3; i++) {
+          final s = pendingSuggestions[i];
+          debugPrint('   - Pending #${i+1}: "${s.title}" (ID: ${s.id}, Status: ${s.status})');
+        }
+      }
+      
+      // Debug: Check pending suggestions not in watchlist
       final suggestions = await _db.getPendingSuggestionsNotInWatchlist(mediaType);
-      debugPrint('🔄 [${mediaType.toUpperCase()}] Found ${suggestions.length} pending suggestions');
+      debugPrint('🔄 [${mediaType.toUpperCase()}] Found ${suggestions.length} pending suggestions NOT in watchlist');
+      
+      if (pendingSuggestions.isNotEmpty && suggestions.isEmpty) {
+        debugPrint('⚠️ [${mediaType.toUpperCase()}] Found pending suggestions but they are all in watchlist');
+      }
       
       if (suggestions.isNotEmpty) {
         debugPrint('✅ [${mediaType.toUpperCase()}] Using existing suggestion: ${suggestions.first.title}');
@@ -560,7 +583,9 @@ abstract class BaseMediaSectionController extends ChangeNotifier {
           _isInWatchlistCurrentSuggestion = false;
           notifyListeners();
       
-      Timer(const Duration(seconds: 30), () {
+      _timeoutTimer?.cancel(); // Cancel any existing timer
+      _timeoutTimer = Timer(const Duration(seconds: 30), () {
+        if (_disposed) return; // Guard against disposed controller
         if (_isLoadingDbSuggestion && _currentDbSuggestion == null) {
           _dbSuggestionError = 'Suggestion generation timed out. Please try again.';
           _isLoadingDbSuggestion = false;
@@ -701,7 +726,9 @@ abstract class BaseMediaSectionController extends ChangeNotifier {
   
   @override
   void dispose() {
+    _disposed = true;
     _eventSubscription?.cancel();
+    _timeoutTimer?.cancel();
     super.dispose();
   }
 } 

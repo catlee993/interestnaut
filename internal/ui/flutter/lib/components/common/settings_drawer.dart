@@ -1,18 +1,20 @@
 import 'package:flutter/material.dart';
-import 'package:path/path.dart' as path;
-import 'continuous_playback_switch.dart';
-// LLM downloader service removed - using gRPC backend
-import '../../services/model_constants.dart';
-import '../../db/vector_db.dart';
+import 'dart:ui';
 import '../../theme.dart';
+import 'continuous_playback_switch.dart';
+import 'media_refinement_panel.dart';
+import 'media_blend_panel.dart';
+import 'database_management_panel.dart';
+import '../../services/sqlite_db.dart';
+import '../../services/continuous_playback_service.dart';
 
-/// A widget that displays the settings drawer overlay.
-/// This should be placed at a top level in the widget tree, not inside a constrained container.
 class SettingsDrawer extends StatefulWidget {
+  final String mediaType;
   final VoidCallback onClose;
 
   const SettingsDrawer({
     Key? key,
+    required this.mediaType,
     required this.onClose,
   }) : super(key: key);
 
@@ -20,385 +22,339 @@ class SettingsDrawer extends StatefulWidget {
   State<SettingsDrawer> createState() => _SettingsDrawerState();
 }
 
-class _SettingsDrawerState extends State<SettingsDrawer> {
+class _SettingsDrawerState extends State<SettingsDrawer> with SingleTickerProviderStateMixin {
+  late TabController _tabController;
   bool _continuousPlayback = false;
-  bool _isDownloadingModel = false;
-  bool _hasModel = false;
-  bool _isDownloadingDatabases = false;
-  String _downloadStatus = '';
-  double _downloadProgress = 0.0;
+  bool _youTubePreviews = false;
+  final SQLiteDatabase _db = SQLiteDatabase();
+  final ContinuousPlaybackService _continuousPlaybackService = ContinuousPlaybackService();
 
   @override
   void initState() {
     super.initState();
-    // Wrap in try-catch to handle FFI errors gracefully
+    _tabController = TabController(length: 3, vsync: this);
+    _loadSettings();
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  /// Load all settings from database
+  Future<void> _loadSettings() async {
     try {
-      _checkModelStatus();
-    } catch (e) {
-      print('Error in SettingsDrawer initState: $e');
-      // Set default value if we can't check
+      // Load continuous playback setting (music only)
+      if (widget.mediaType == 'music') {
+        debugPrint('📱 Loading continuous playback setting from general_settings...');
+        final continuousPlayback = await _db.getContinuousPlaybackSetting();
+        debugPrint('📱 Continuous playback value: $continuousPlayback');
+        setState(() {
+          _continuousPlayback = continuousPlayback;
+        });
+      }
+
+      // Load YouTube previews setting (all media types)
+      debugPrint('📱 Loading YouTube previews setting from general_settings...');
+      final youTubePreviews = await _db.getYouTubePreviewsSetting();
+      debugPrint('📱 YouTube previews value: $youTubePreviews');
       setState(() {
-        _hasModel = false;
+        _youTubePreviews = youTubePreviews;
       });
-    }
-  }
-
-  Future<void> _checkModelStatus() async {
-    try {
-      // LLM models no longer needed - using gRPC backend
-      final hasModels = false; // await LLMDownloaderService.hasModels();
-      if (mounted) {
-        setState(() {
-          _hasModel = hasModels;
-        });
-      }
     } catch (e) {
-      print('Error in _checkModelStatus: $e');
-      if (mounted) {
-        setState(() {
-          _hasModel = false;
-        });
-      }
+      debugPrint('❌ Error loading settings: $e');
     }
   }
 
-  Future<String> _getModelPath() async {
-    // LLM models no longer needed - using gRPC backend
-    final modelDir = ''; // await LLMDownloaderService.getModelDirectory();
-    return path.join(modelDir, kLlamaModelFileName);
-  }
-
-  Future<void> _downloadModel() async {
-    if (_isDownloadingModel) return;
-
-    setState(() {
-      _isDownloadingModel = true;
-    });
-
+  /// Save the continuous playback setting to database and update service
+  Future<void> _saveContinuousPlaybackSetting(bool value) async {
     try {
-      // LLM models no longer needed - using gRPC backend
-      final modelDir = ''; // await LLMDownloaderService.getModelDirectory();
-
-      // Show a toast that download has started
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Downloading TinyLlama model (608MB). This may take a while...'),
-          duration: Duration(seconds: 5),
-        ),
-      );
-
-      try {
-        // LLM models no longer needed - using gRPC backend
-        return;
-        // final response = await LLMDownloaderService.downloadModel(
-        //   modelDir,
-        //   kTinyLlamaModelFileName, // Use TinyLlama instead
-        //   downloadUrl: 'https://interestnaut.com/models/tinyllama-1.1b-chat-q4_0.gguf',
-        // );
-
-        if (mounted) {
-          setState(() {
-            _isDownloadingModel = false;
-            _hasModel = false; // Models no longer needed
-          });
-
-          // Show info that gRPC backend is used instead
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Using remote gRPC backend - no local model needed'),
-              duration: Duration(seconds: 3),
-            ),
-          );
-        }
-      } catch (e) {
-        // Handle FFI errors specifically
-        if (mounted) {
-          setState(() {
-            _isDownloadingModel = false;
-          });
-
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Download error: $e'),
-              duration: const Duration(seconds: 5),
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isDownloadingModel = false;
-        });
-
-        // Show error toast
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error downloading model: $e'),
-            duration: const Duration(seconds: 5),
-          ),
-        );
-      }
-    }
-  }
-
-  /// Download all vector databases
-  Future<void> _downloadAllDatabases() async {
-    if (_isDownloadingDatabases) return;
-
-    setState(() {
-      _isDownloadingDatabases = true;
-      _downloadStatus = 'Starting download...';
-      _downloadProgress = 0.0;
-    });
-
-    try {
-      final vectorDb = VectorDatabase();
+      debugPrint('💾 Saving continuous playback setting: $value');
+      final success = await _db.setContinuousPlaybackSetting(value);
+      debugPrint('💾 Save result: $success');
       
-      // Show initial toast
-      _showToast('Downloading all vector databases. This may take a while...');
-
-      final success = await vectorDb.downloadAllDatabases(
-        onProgress: (mediaType, progress) {
-          if (mounted) {
-            setState(() {
-              _downloadStatus = 'Downloading $mediaType...';
-              _downloadProgress = progress;
-            });
-          }
-        },
-      );
-
-      if (mounted) {
-        setState(() {
-          _isDownloadingDatabases = false;
-          _downloadStatus = '';
-          _downloadProgress = 0.0;
-        });
-
-        if (success) {
-          // Enable all downloaded databases
-          await vectorDb.enableAllDownloadedMediaTypes();
-          _showToast('All vector databases downloaded successfully!');
-        } else {
-          _showToast('Some databases failed to download. Check logs for details.', isError: true);
-        }
-      }
+      // Activate continuous playback service
+      await _continuousPlaybackService.setEnabled(value);
+      
+      setState(() {
+        _continuousPlayback = value;
+      });
+      
+      // Verify it was saved
+      final savedValue = await _db.getContinuousPlaybackSetting();
+      debugPrint('💾 Verification - Continuous playback after save: $savedValue');
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isDownloadingDatabases = false;
-          _downloadStatus = '';
-          _downloadProgress = 0.0;
-        });
-        _showToast('Error downloading databases: $e', isError: true);
-      }
+      debugPrint('❌ Error saving continuous playback setting: $e');
     }
   }
 
-  /// Show a toast message to the user
-  void _showToast(String message, {bool isError = false}) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: isError ? AppTheme.errorColor : AppTheme.successColor,
-        duration: Duration(seconds: isError ? 5 : 3),
-      ),
-    );
+  /// Save the YouTube previews setting to database
+  Future<void> _saveYouTubePreviewsSetting(bool value) async {
+    try {
+      debugPrint('💾 Saving YouTube previews setting: $value');
+      final success = await _db.setYouTubePreviewsSetting(value);
+      debugPrint('💾 Save result: $success');
+      
+      setState(() {
+        _youTubePreviews = value;
+      });
+      
+      // Verify it was saved
+      final savedValue = await _db.getYouTubePreviewsSetting();
+      debugPrint('💾 Verification - YouTube previews after save: $savedValue');
+    } catch (e) {
+      debugPrint('❌ Error saving YouTube previews setting: $e');
+    }
+  }
+
+  String get _mediaDisplayName {
+    switch (widget.mediaType) {
+      case 'music': return 'Music';
+      case 'movies': return 'Movies';
+      case 'tv': return 'TV Shows';
+      case 'books': return 'Books';
+      case 'games': return 'Games';
+      default: return 'Media';
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    // The settings drawer panel
     return Material(
-      color: const Color(0xFF121212),
-      child: SizedBox(
-        width: 350,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Header with title and close button
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Padding(
-                    padding: EdgeInsets.only(left: 16.0),
-                    child: Text(
-                      'Settings',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.close, color: Colors.white),
-                    onPressed: widget.onClose,
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-
-              // Content area
-              Expanded(
-                child: ListView(
-                  children: [
-                    ContinuousPlaybackSwitch(
-                      value: _continuousPlayback,
-                      onChanged: (v) => setState(() => _continuousPlayback = v),
-                    ),
-                    const SizedBox(height: 24),
-                    const Divider(color: Colors.white24),
-                    const SizedBox(height: 24),
-                    const Text(
-                      'TinyLlama AI',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      _hasModel
-                          ? 'TinyLlama model is installed'
-                          : 'Download TinyLlama (608MB) to enable offline AI explanations',
-                      style: const TextStyle(
-                        color: Colors.white70,
-                        fontSize: 14,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        onPressed: _isDownloadingModel ? null : _downloadModel,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF7B68EE),
-                          foregroundColor: Colors.white,
-                          disabledBackgroundColor: Colors.grey.shade700,
-                          disabledForegroundColor: Colors.grey.shade400,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                        ),
-                        child: _isDownloadingModel
-                            ? const Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  SizedBox(
-                                    width: 16,
-                                    height: 16,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: Colors.white,
-                                    ),
-                                  ),
-                                  SizedBox(width: 8),
-                                  Text('Downloading...'),
-                                ],
-                              )
-                            : Text(_hasModel ? 'Installed' : 'Install Model'),
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                    const Divider(color: Colors.white24),
-                    const SizedBox(height: 24),
-                    
-                    // Vector Databases Section
-                    const Text(
-                      'Vector Databases',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'Download all media databases (Books, Music, Movies, TV Shows, Games) for offline recommendations',
-                      style: TextStyle(
-                        color: Colors.white70,
-                        fontSize: 14,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    
-                    // Download progress
-                    if (_isDownloadingDatabases) ...[
-                      Text(
-                        _downloadStatus,
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 13,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      LinearProgressIndicator(
-                        value: _downloadProgress,
-                        backgroundColor: Colors.white24,
-                        valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF7B68EE)),
-                      ),
-                      const SizedBox(height: 16),
-                    ],
-                    
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        onPressed: _isDownloadingDatabases ? null : _downloadAllDatabases,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF7B68EE),
-                          foregroundColor: Colors.white,
-                          disabledBackgroundColor: Colors.grey.shade700,
-                          disabledForegroundColor: Colors.grey.shade400,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                        ),
-                        child: _isDownloadingDatabases
-                            ? const Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  SizedBox(
-                                    width: 16,
-                                    height: 16,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: Colors.white,
-                                    ),
-                                  ),
-                                  SizedBox(width: 8),
-                                  Text('Downloading...'),
-                                ],
-                              )
-                            : const Text('Download All Databases'),
-                      ),
-                    ),
-
+      color: Colors.transparent,
+      child: Container(
+        width: 400,
+        height: MediaQuery.of(context).size.height * 0.85,
+        decoration: BoxDecoration(
+          color: const Color(0xFF0A0A0A), // Deeper black for modern look
+          borderRadius: const BorderRadius.only(
+            topLeft: Radius.circular(8),
+            bottomLeft: Radius.circular(8),
+          ),
+          border: Border.all(
+            color: AppTheme.primaryColor.withOpacity(0.3),
+            width: 1,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.5),
+              blurRadius: 20,
+              offset: const Offset(-4, 0),
+            ),
+          ],
+        ),
+        child: Column(
+          children: [
+            // Header with frosted glass effect
+            Container(
+              height: 100,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    AppTheme.primaryColor.withOpacity(0.1),
+                    Colors.transparent,
                   ],
                 ),
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(8),
+                ),
               ),
-            ],
-          ),
+                              child: ClipRRect(
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(8),
+                ),
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                  child: Container(
+                    padding: const EdgeInsets.fromLTRB(24, 16, 16, 8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Title and close button
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Transform(
+                                  transform: Matrix4.identity()..scale(1.15, 1.0),
+                                  alignment: Alignment.centerLeft,
+                                  child: Text(
+                                    _mediaDisplayName.toUpperCase(),
+                                    style: AppTheme.settingsMediaHeaderStyle,
+                                  ),
+                                ),
+                                Text(
+                                  'Settings',
+                                  style: TextStyle(
+                                    color: AppTheme.primaryColor.withOpacity(0.9),
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w400,
+                                    letterSpacing: 0.8,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            IconButton(
+                              icon: Icon(
+                                Icons.close,
+                                color: AppTheme.primaryColor.withOpacity(0.8),
+                                size: 20,
+                                shadows: [
+                                  Shadow(
+                                    color: AppTheme.primaryColor.withOpacity(0.6),
+                                    offset: const Offset(0, 0),
+                                    blurRadius: 1,
+                                  ),
+                                ],
+                              ),
+                              onPressed: widget.onClose,
+                              style: IconButton.styleFrom(
+                                padding: const EdgeInsets.all(6),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+
+            // Tab bar with modern styling
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.05),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(
+                  color: Colors.white.withOpacity(0.1),
+                  width: 1,
+                ),
+              ),
+              child: TabBar(
+                controller: _tabController,
+                indicator: BoxDecoration(
+                  color: AppTheme.primaryColor.withOpacity(0.8),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                indicatorSize: TabBarIndicatorSize.tab,
+                dividerColor: Colors.transparent,
+                labelColor: Colors.white,
+                unselectedLabelColor: Colors.white.withOpacity(0.6),
+                labelStyle: const TextStyle(
+                  fontWeight: FontWeight.w500,
+                  fontSize: 13,
+                  letterSpacing: 0.5,
+                ),
+                unselectedLabelStyle: const TextStyle(
+                  fontWeight: FontWeight.w400,
+                  fontSize: 13,
+                  letterSpacing: 0.5,
+                ),
+                tabs: const [
+                  Tab(text: 'REFINE'),
+                  Tab(text: 'BLEND'),
+                  Tab(text: 'DATABASE'),
+                ],
+              ),
+            ),
+
+            // Tab content
+            Expanded(
+              child: TabBarView(
+                controller: _tabController,
+                children: [
+                  // Refinement Panel
+                  MediaRefinementPanel(mediaType: widget.mediaType),
+                  
+                  // Blend Panel
+                  MediaBlendPanel(currentMediaType: widget.mediaType),
+                  
+                  // Database Panel
+                  DatabaseManagementPanel(mediaType: widget.mediaType),
+                ],
+              ),
+            ),
+
+            // Bottom section with general settings
+            Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                border: Border(
+                  top: BorderSide(
+                    color: Colors.white.withOpacity(0.1),
+                    width: 1,
+                  ),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'GENERAL',
+                    style: TextStyle(
+                      color: AppTheme.primaryColor.withOpacity(0.9),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 1.2,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  
+                  // YouTube Previews (all media types)
+                  SwitchListTile(
+                    value: _youTubePreviews,
+                    onChanged: _saveYouTubePreviewsSetting,
+                    title: const Text(
+                      'Enable YouTube previews if available',
+                      style: TextStyle(color: Colors.white, fontSize: 14),
+                    ),
+                    activeColor: const Color(0xFF7B68EE),
+                    activeTrackColor: const Color(0x887B68EE),
+                    inactiveThumbColor: Colors.grey[400],
+                    inactiveTrackColor: Colors.grey[800],
+                    contentPadding: EdgeInsets.zero,
+                    controlAffinity: ListTileControlAffinity.leading,
+                    dense: true,
+                  ),
+                  
+                  // Continuous Playback (music only)
+                  if (widget.mediaType == 'music') ...[
+                    const SizedBox(height: 8),
+                    ContinuousPlaybackSwitch(
+                      value: _continuousPlayback,
+                      onChanged: _saveContinuousPlaybackSetting,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
 }
 
-/// Shows a settings drawer as an overlay above the entire application.
-/// This function handles creating and showing the drawer properly.
-void showSettingsDrawer(BuildContext context) {
+/// Shows the media-specific settings drawer as an overlay
+void showMediaSpecificSettingsDrawer(BuildContext context, String mediaType) {
   Navigator.of(context).push(
     PageRouteBuilder(
       opaque: false,
       barrierDismissible: true,
+      barrierColor: Colors.black.withOpacity(0.3),
       pageBuilder: (context, _, __) {
         return Align(
           alignment: Alignment.centerRight,
           child: SettingsDrawer(
-            onClose: () {
-              Navigator.of(context).pop();
-            },
+            mediaType: mediaType,
+            onClose: () => Navigator.of(context).pop(),
           ),
         );
       },
@@ -407,10 +363,13 @@ void showSettingsDrawer(BuildContext context) {
           position: Tween<Offset>(
             begin: const Offset(1.0, 0.0),
             end: Offset.zero,
-          ).animate(animation),
+          ).animate(CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOutCubic,
+          )),
           child: child,
         );
       },
     ),
   );
-}
+} 
