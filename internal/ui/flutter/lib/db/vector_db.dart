@@ -604,12 +604,12 @@ class VectorDatabase {
       ''';
       
       final stmt = db.prepare(searchQuery);
-      final result = stmt.select([cleanQuery, limit]);
+      final result = stmt.select([query, query, query, query, query, query, query, cleanQuery, limit]);
       
       final results = result.map((row) {
-        // Convert FTS5 rank to similarity score (higher rank = lower similarity)
-        final rank = row['rank'] as double;
-        final similarity = (1.0 / (1.0 + (-rank / 10.0))).clamp(0.0, 1.0);
+        // Use our custom relevance score for better title prioritization
+        final relevanceScore = row['relevance_score'] as int;
+        final similarity = (relevanceScore / 1000.0).clamp(0.0, 1.0);
         
         return MediaSearchResult(
           mediaId: row['media_id'] as String,
