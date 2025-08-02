@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import '../../services/recommendation_service_grpc.dart';
 import '../../services/recommendation_event_service.dart';
 import '../../services/sqlite_db.dart';
 import '../../services/recommendation_service.dart'; // For MediaSuggestion and SuggestionStatus
@@ -9,7 +8,7 @@ import '../../services/recommendation_service.dart'; // For MediaSuggestion and 
 /// Handles all the common logic that's duplicated across media types
 abstract class BaseMediaSectionController extends ChangeNotifier {
   final String mediaType;
-  final GrpcRecommendationService _recommendationService = GrpcRecommendationService();
+  final RecommendationService _recommendationService;
   final SQLiteDatabase _db = SQLiteDatabase();
   
   // Common suggestion state
@@ -30,7 +29,7 @@ abstract class BaseMediaSectionController extends ChangeNotifier {
   Timer? _timeoutTimer;
   bool _disposed = false;
   
-  BaseMediaSectionController(this.mediaType) {
+  BaseMediaSectionController(this.mediaType, this._recommendationService) {
     _initializeEventListener();
     _loadInitialData();
   }
@@ -335,14 +334,20 @@ abstract class BaseMediaSectionController extends ChangeNotifier {
     try {
       // Remove from favorites if favorited
       if (_hasFavoritedCurrentSuggestion && _currentDbSuggestion!.mediaItemId != null) {
-        await _db.removeFromFavorites(_currentDbSuggestion!.mediaItemId!);
-        loadDbLibrary();
+        final intMediaItemId = await _db.getMediaItemIdByVectorId(_currentDbSuggestion!.mediaItemId!);
+        if (intMediaItemId != null) {
+          await _db.removeFromFavorites(intMediaItemId);
+          loadDbLibrary();
+        }
       }
       
       // Remove from watchlist if in watchlist
       if (_isInWatchlistCurrentSuggestion && _currentDbSuggestion!.mediaItemId != null) {
-        await _db.removeFromWatchlist(_currentDbSuggestion!.mediaItemId!);
-        loadDbWatchlist();
+        final intMediaItemId = await _db.getMediaItemIdByVectorId(_currentDbSuggestion!.mediaItemId!);
+        if (intMediaItemId != null) {
+          await _db.removeFromWatchlist(intMediaItemId);
+          loadDbWatchlist();
+        }
       }
       
       // Set status back to pending (since user undid all actions, treat as no action taken)
@@ -369,10 +374,13 @@ abstract class BaseMediaSectionController extends ChangeNotifier {
     
     try {
       if (_currentDbSuggestion!.mediaItemId != null) {
-        final isInWatchlist = await _db.isInWatchlist(_currentDbSuggestion!.mediaItemId!);
-        if (isInWatchlist) {
-          await _db.removeFromWatchlist(_currentDbSuggestion!.mediaItemId!);
-          loadDbWatchlist();
+        final intMediaItemId = await _db.getMediaItemIdByVectorId(_currentDbSuggestion!.mediaItemId!);
+        if (intMediaItemId != null) {
+          final isInWatchlist = await _db.isInWatchlist(intMediaItemId);
+          if (isInWatchlist) {
+            await _db.removeFromWatchlist(intMediaItemId);
+            loadDbWatchlist();
+          }
         }
       }
       
@@ -382,7 +390,10 @@ abstract class BaseMediaSectionController extends ChangeNotifier {
       );
       
       if (_hasFavoritedCurrentSuggestion && _currentDbSuggestion!.mediaItemId != null) {
-        await _db.removeFromFavorites(_currentDbSuggestion!.mediaItemId!);
+        final intMediaItemId = await _db.getMediaItemIdByVectorId(_currentDbSuggestion!.mediaItemId!);
+        if (intMediaItemId != null) {
+          await _db.removeFromFavorites(intMediaItemId);
+        }
       }
       
       loadDbLibrary();
@@ -463,7 +474,10 @@ abstract class BaseMediaSectionController extends ChangeNotifier {
     if (_currentDbSuggestion == null) return;
     
     try {
-      await _db.addToFavorites(_currentDbSuggestion!.mediaItemId!);
+      final intMediaItemId = await _db.getMediaItemIdByVectorId(_currentDbSuggestion!.mediaItemId!);
+      if (intMediaItemId != null) {
+        await _db.addToFavorites(intMediaItemId);
+      }
       await _recommendationService.updateSuggestionStatus(
         _currentDbSuggestion!.id,
         SuggestionStatus.added,
@@ -485,7 +499,10 @@ abstract class BaseMediaSectionController extends ChangeNotifier {
     if (_currentDbSuggestion == null) return;
     
     try {
-      await _db.removeFromFavorites(_currentDbSuggestion!.mediaItemId!);
+      final intMediaItemId = await _db.getMediaItemIdByVectorId(_currentDbSuggestion!.mediaItemId!);
+      if (intMediaItemId != null) {
+        await _db.removeFromFavorites(intMediaItemId);
+      }
       
       // Determine the status to restore based on current state
       SuggestionStatus statusToRestore;
@@ -517,7 +534,10 @@ abstract class BaseMediaSectionController extends ChangeNotifier {
     if (_currentDbSuggestion == null) return;
     
     try {
-      await _db.addToWatchlist(_currentDbSuggestion!.mediaItemId!);
+      final intMediaItemId = await _getIntMediaItemId(_currentDbSuggestion!.mediaItemId!);
+      if (intMediaItemId != null) {
+        await _db.addToWatchlist(intMediaItemId);
+      }
       
       // Update suggestion status to watchlist
       await _recommendationService.updateSuggestionStatus(
@@ -544,7 +564,10 @@ abstract class BaseMediaSectionController extends ChangeNotifier {
     if (_currentDbSuggestion == null) return;
     
     try {
-      await _db.removeFromWatchlist(_currentDbSuggestion!.mediaItemId!);
+      final intMediaItemId = await _getIntMediaItemId(_currentDbSuggestion!.mediaItemId!);
+      if (intMediaItemId != null) {
+        await _db.removeFromWatchlist(intMediaItemId);
+      }
       
       // If this was the only action (not liked, not favorited), ensure status is pending
       if (!_hasLikedCurrentSuggestion && !_hasFavoritedCurrentSuggestion) {
@@ -648,7 +671,10 @@ abstract class BaseMediaSectionController extends ChangeNotifier {
   /// Like a watchlist item
   Future<void> likeWatchlistItem(MediaSuggestion suggestion) async {
     try {
-      await _db.removeFromWatchlist(suggestion.mediaItemId!);
+      final intMediaItemId = await _getIntMediaItemId(suggestion.mediaItemId!);
+      if (intMediaItemId != null) {
+        await _db.removeFromWatchlist(intMediaItemId);
+      }
       
       // Only change status if not already favorited (added)
       if (suggestion.status != SuggestionStatus.added) {
@@ -671,7 +697,10 @@ abstract class BaseMediaSectionController extends ChangeNotifier {
   /// Dislike a watchlist item
   Future<void> dislikeWatchlistItem(MediaSuggestion suggestion) async {
     try {
-      await _db.removeFromWatchlist(suggestion.mediaItemId!);
+      final intMediaItemId = await _getIntMediaItemId(suggestion.mediaItemId!);
+      if (intMediaItemId != null) {
+        await _db.removeFromWatchlist(intMediaItemId);
+      }
       
       await _recommendationService.updateSuggestionStatus(
         suggestion.id,
@@ -691,7 +720,10 @@ abstract class BaseMediaSectionController extends ChangeNotifier {
   /// Favorite a watchlist item (move from watchlist to favorites)
   Future<void> favoriteWatchlistItem(MediaSuggestion suggestion) async {
     try {
-      await _db.moveFromWatchlistToFavorites(suggestion.mediaItemId!);
+      final intMediaItemId = await _getIntMediaItemId(suggestion.mediaItemId!);
+      if (intMediaItemId != null) {
+        await _db.moveFromWatchlistToFavorites(intMediaItemId);
+      }
       
       // Refresh both sections
       loadDbWatchlist();
@@ -707,7 +739,10 @@ abstract class BaseMediaSectionController extends ChangeNotifier {
   /// Add library item to watchlist
   Future<void> addLibraryItemToWatchlist(MediaSuggestion suggestion) async {
     try {
-      await _db.addToWatchlist(suggestion.mediaItemId!);
+      final intMediaItemId = await _getIntMediaItemId(suggestion.mediaItemId!);
+      if (intMediaItemId != null) {
+        await _db.addToWatchlist(intMediaItemId);
+      }
       loadDbWatchlist();
       
       // Sync current suggestion state if this item matches
@@ -723,6 +758,11 @@ abstract class BaseMediaSectionController extends ChangeNotifier {
   void onSuggestionSkipped(MediaSuggestion suggestion) {}
   void onSuggestionFavorited(MediaSuggestion suggestion) {}
   void onSuggestionAddedToWatchlist(MediaSuggestion suggestion) {}
+  
+  /// Helper method to get integer media_item_id from string vector_media_id
+  Future<int?> _getIntMediaItemId(String vectorMediaId) async {
+    return await _db.getMediaItemIdByVectorId(vectorMediaId);
+  }
   
   @override
   void dispose() {

@@ -5,7 +5,7 @@ import 'package:flutter/foundation.dart';
 /// Book-specific controller that extends the base controller
 /// Books have no unique behavior, so this is just a thin wrapper
 class BookSectionController extends BaseMediaSectionController {
-  BookSectionController() : super('book');
+  BookSectionController(RecommendationService recommendationService) : super('book', recommendationService);
   
   // Books don't need any special behavior beyond the base controller
   // All the suggestion loading, library management, etc. is handled by the base class

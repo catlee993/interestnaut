@@ -410,6 +410,26 @@ class SQLiteDatabase {
     }
   }
 
+  /// Get the integer media_item_id from a vector_media_id string
+  Future<int?> getMediaItemIdByVectorId(String vectorMediaId) async {
+    await _ensureInitialized();
+
+    try {
+      const query = 'SELECT id FROM media_items WHERE vector_media_id = ?';
+      final stmt = _db!.prepare(query);
+      final result = stmt.select([vectorMediaId]);
+      stmt.dispose();
+      
+      if (result.isNotEmpty) {
+        return result.first['id'] as int;
+      }
+      return null;
+    } catch (e) {
+      debugPrint('Error getting media_item_id for vector_media_id $vectorMediaId: $e');
+      return null;
+    }
+  }
+
   /// Check if item is in favorites
   Future<bool> isInFavorites(int mediaItemId) async {
     await _ensureInitialized();
@@ -644,7 +664,7 @@ class SQLiteDatabase {
         // First, create or get the media item
         final mediaItemId = await createOrGetMediaItem(
           mediaType: suggestion.mediaType,
-          vectorMediaId: suggestion.mediaId, // Already required and non-null
+          vectorMediaId: suggestion.mediaId ?? 'unknown_${DateTime.now().millisecondsSinceEpoch}',
           title: suggestion.title ?? '',
           primaryCreator: suggestion.artist,
           coverArtUrl: suggestion.coverArtUrl,
@@ -664,7 +684,7 @@ class SQLiteDatabase {
           suggestion.query,
           suggestion.botReasoning,
           statusId,
-          suggestion.createdAt.toIso8601String(),
+          suggestion.createdAt?.toIso8601String() ?? DateTime.now().toIso8601String(),
           suggestion.updatedAt?.toIso8601String(),
         ]);
 
@@ -1001,8 +1021,8 @@ class SQLiteDatabase {
       stmt.dispose();
       return SuggestionWithStatus(
         suggestion: suggestion,
-        hasLiked: hasLiked,
-        hasFavorited: hasFavorited,
+        isLiked: hasLiked,
+        isFavorited: hasFavorited,
         isInWatchlist: isInWatchlistStatus,
       );
     } catch (e) {
@@ -1622,6 +1642,94 @@ class SQLiteDatabase {
     }
   }
 
+  /// Get media item with status information by ID (optimized single query)
+  /// This replaces the need for getMediaItemById + getMediaItemStatusByProperties
+  Future<Map<String, dynamic>?> getMediaItemWithStatusById(int mediaItemId) async {
+    await _ensureInitialized();
+
+    try {
+      debugPrint('🔍 [GET-MEDIA-ITEM-STATUS] Fast lookup for media item ID: $mediaItemId');
+      
+      // Single optimized query that gets media item + all status info using primary key
+      const query = '''
+      SELECT mi.id, mi.media_type_id, mi.vector_media_id, mi.title, mi.primary_creator,
+             mi.cover_art_url, mi.description, mi.wiki_url, mi.wikidata_id, mi.themes, mi.genres,
+             mi.youtube_id, mi.spotify_id, mi.created_at, mi.updated_at, mt.name as media_type,
+             CASE WHEN f.media_item_id IS NOT NULL THEN 1 ELSE 0 END as is_favorited,
+             CASE WHEN w.media_item_id IS NOT NULL THEN 1 ELSE 0 END as is_in_watchlist,
+             rs.name as recommendation_status
+      FROM media_items mi
+      JOIN media_types mt ON mi.media_type_id = mt.id
+      LEFT JOIN favorites f ON mi.id = f.media_item_id
+      LEFT JOIN watchlist w ON mi.id = w.media_item_id
+      LEFT JOIN recommendations r ON mi.id = r.media_item_id
+      LEFT JOIN recommendation_status rs ON r.status_id = rs.id
+      WHERE mi.id = ?;
+      ''';
+      
+      final stmt = _db!.prepare(query);
+      final result = stmt.select([mediaItemId]);
+
+      if (result.isEmpty) {
+        stmt.dispose();
+        debugPrint('❌ [GET-MEDIA-ITEM-STATUS] No media item found with ID: $mediaItemId');
+        return null;
+      }
+
+      final row = result.first;
+      final isFavorited = (row['is_favorited'] as int) == 1;
+      final isInWatchlist = (row['is_in_watchlist'] as int) == 1;
+      
+      // Handle recommendation status
+      bool hasLiked = false;
+      bool hasDisliked = false;
+      bool hasSkipped = false;
+
+      final recStatus = row['recommendation_status'] as String?;
+      if (recStatus != null) {
+        switch (recStatus) {
+          case 'liked':
+            hasLiked = !isFavorited; // Only show liked if not favorited (favorite takes priority)
+            break;
+          case 'disliked':
+            hasDisliked = true;
+            break;
+          case 'skipped':
+            hasSkipped = true;
+            break;
+        }
+      }
+
+      final statusResult = {
+        'found': true,
+        'hasLiked': hasLiked,
+        'hasFavorited': isFavorited,
+        'hasDisliked': hasDisliked,
+        'isInWatchlist': isInWatchlist,
+        'hasSkipped': hasSkipped,
+        'mediaItemId': mediaItemId,
+        'title': row['title'] as String?,
+        'primaryCreator': row['primary_creator'] as String?,
+        'coverArtUrl': row['cover_art_url'] as String?,
+        'description': row['description'] as String?,
+        'wikiUrl': row['wiki_url'] as String?,
+        'wikidataId': row['wikidata_id'] as String?,
+        'themes': row['themes'] as String?,
+        'genres': row['genres'] as String?,
+        'youtubeId': row['youtube_id'] as String?,
+        'spotifyId': row['spotify_id'] as String?,
+        'vectorMediaId': row['vector_media_id'] as String?,
+      };
+
+      stmt.dispose();
+      debugPrint('✅ [GET-MEDIA-ITEM-STATUS] Fast lookup complete: Liked=$hasLiked, Favorited=$isFavorited, Disliked=$hasDisliked, Watchlist=$isInWatchlist, Skipped=$hasSkipped');
+      return statusResult;
+    } catch (e) {
+      debugPrint('❌ [GET-MEDIA-ITEM-STATUS] Error in fast lookup: $e');
+      return null;
+    }
+  }
+
   // ===== UTILITY METHODS =====
 
   /// Map database row to MediaSuggestion
@@ -1637,7 +1745,7 @@ class SQLiteDatabase {
     
     return MediaSuggestion(
       id: suggestionId,
-      mediaItemId: row['media_item_id'] as int?,
+      mediaId: (row['vector_media_id'] as String?) ?? 'db_legacy_${suggestionId}_${DateTime.now().millisecondsSinceEpoch}',
       query: (row['query'] as String?) ?? 'Unknown',
       mediaType: (row['media_type'] as String?) ?? 'unknown',
       title: title,
@@ -1648,10 +1756,9 @@ class SQLiteDatabase {
       wikidataId: row['wikidata_id'] as String?,
       botReasoning: row['bot_reasoning'] as String?,
       themes: row['themes'] as String?,
-      genres: row['genres'] as String?,
+      genres: (row['genres'] as String?)?.split(',').map((e) => e.trim()).toList(),
       youtubeId: row['youtube_id'] as String?,
       spotifyId: row['spotify_id'] as String?,
-      mediaId: (row['vector_media_id'] as String?) ?? 'db_legacy_${suggestionId}_${DateTime.now().millisecondsSinceEpoch}',
       status: SuggestionStatus.values.firstWhere(
         (s) => s.toString().split('.').last == (statusFromDb ?? 'pending'),
         orElse: () => SuggestionStatus.pending,

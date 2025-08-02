@@ -4,7 +4,7 @@ import '../../../models.dart';
 import '../../common/icons.dart';
 import '../../common/media_detail_drawer.dart';
 import '../../../services/sqlite_db.dart';
-import '../../../db/vector_db.dart';
+import '../../../main.dart'; // For MediaSearchResult
 
 class SearchResultCard extends StatefulWidget {
   final dynamic track; // SimpleTrack or full Track
@@ -318,7 +318,6 @@ class _SearchResultCardState extends State<SearchResultCard> {
         themes: null, // Music tracks typically don't have themes
         wikiUrl: null,
         wikidataId: null,
-        similarity: 1.0, // Default similarity for search results
         mediaType: 'music',
       );
 

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../common/media_section_wrapper.dart';
 import 'tv_show_section_controller.dart';
+import '../../services/recommendation_service.dart';
 
 class TVShowSection extends StatefulWidget {
   const TVShowSection({super.key});
@@ -53,8 +55,9 @@ class _TVShowSectionState extends State<TVShowSection> {
     // Set static reference for search refresh
     _currentState = this;
     
-    // Initialize controller
-    _controller = TVShowSectionController();
+    // Initialize controller with recommendation service from provider
+    final recommendationService = Provider.of<RecommendationService>(context, listen: false);
+    _controller = TVShowSectionController(recommendationService);
     _controller!.addListener(_onControllerChanged);
     
     // Load initial data

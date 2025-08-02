@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../common/media_section_wrapper.dart';
 import '../common/media_library_grid.dart';
 import 'music_section_controller.dart';
 import 'spotify_section.dart';
+import '../../services/recommendation_service.dart';
 
 
 class MusicSection extends StatefulWidget {
@@ -56,8 +58,9 @@ class _MusicSectionState extends State<MusicSection> {
     // Set static reference for search refresh
     _currentState = this;
     
-    // Initialize controller
-    _controller = MusicSectionController();
+    // Initialize controller with recommendation service from provider
+    final recommendationService = Provider.of<RecommendationService>(context, listen: false);
+    _controller = MusicSectionController(recommendationService);
     _controller!.addListener(_onControllerChanged);
     
     // Load initial data

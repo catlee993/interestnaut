@@ -276,6 +276,37 @@ class GrpcRecommendationClient {
     }
   }
   
+  /// Get media details by media ID
+  Future<MediaSuggestion?> getMediaDetails({
+    required String mediaId,
+    required String mediaType,
+  }) async {
+    if (!_initialized) {
+      throw Exception('gRPC client not initialized');
+    }
+    
+    try {
+      final request = MediaDetailsRequest()
+        ..mediaId = mediaId
+        ..mediaType = mediaType;
+      
+      final response = await _client.getMediaDetails(request);
+      
+      if (response.error.isNotEmpty) {
+        throw Exception('Backend error: ${response.error}');
+      }
+      
+      if (response.hasMedia()) {
+        return _convertToMediaSuggestion(response.media, mediaType);
+      }
+      
+      return null;
+    } catch (e) {
+      print('❌ Failed to get media details: $e');
+      rethrow;
+    }
+  }
+  
   /// Convert gRPC MediaItem to Flutter MediaSuggestion
   MediaSuggestion _convertToMediaSuggestion(MediaItem item, String mediaType) {
     return MediaSuggestion(

@@ -5,7 +5,7 @@ import 'package:flutter/foundation.dart';
 /// TV show-specific controller that extends the base controller
 /// TV shows have no unique behavior, so this is just a thin wrapper
 class TVShowSectionController extends BaseMediaSectionController {
-  TVShowSectionController() : super('tv_show');
+  TVShowSectionController(RecommendationService recommendationService) : super('tv_show', recommendationService);
   
   // TV shows don't need any special behavior beyond the base controller
   // All the suggestion loading, library management, etc. is handled by the base class

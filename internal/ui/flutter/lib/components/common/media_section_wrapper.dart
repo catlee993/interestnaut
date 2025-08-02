@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'media_detail_drawer.dart';
-import '../../db/vector_db.dart';
 import '../../services/sqlite_db.dart'; // Fixed import path
 import '../../services/recommendation_service.dart'; // For MediaSuggestion and SuggestionStatus
+import '../../services/grpc_client.dart';
+import '../../main.dart'; // For MediaSearchResult
 import '../../utils/media_title_handler.dart';
 import 'suggestion_action_buttons.dart';
 import 'loading_suggestion.dart';
@@ -629,12 +630,28 @@ class MediaSectionWrapper extends StatelessWidget {
   /// Show item drawer by media ID (more reliable than text search)
   Future<void> _showItemDrawerById(BuildContext context, String mediaId) async {
     try {
-      final vectorDb = VectorDatabase();
-      await vectorDb.init();
+      final grpcClient = GrpcRecommendationClient();
+      await grpcClient.init();
       
-      final item = await vectorDb.getMediaById(mediaId: mediaId, mediaType: mediaType);
+      final suggestion = await grpcClient.getMediaDetails(mediaId: mediaId, mediaType: mediaType);
       
-      if (item != null) {
+      if (suggestion != null) {
+        // Convert MediaSuggestion to MediaSearchResult for compatibility
+        final item = MediaSearchResult(
+          mediaId: suggestion.mediaId ?? '',
+          title: suggestion.title,
+          artist: suggestion.artist,
+          album: suggestion.album,
+          description: suggestion.description,
+          themes: suggestion.themes,
+          genres: suggestion.genres?.join(', '),
+          wikiUrl: suggestion.wikiUrl,
+          wikidataId: suggestion.wikidataId,
+          coverArtUrl: suggestion.coverArtUrl,
+          youtubeId: suggestion.youtubeId,
+          spotifyId: suggestion.spotifyId,
+          mediaType: mediaType,
+        );
         await _showItemDrawerDirect(context, item);
       } else {
         debugPrint('❌ [DRAWER-ID] No item found with media_id: $mediaId');
@@ -677,7 +694,6 @@ class MediaSectionWrapper extends StatelessWidget {
         wikiUrl: suggestion.wikiUrl,
         wikidataId: suggestion.wikidataId,
         mediaId: suggestion.mediaId ?? '',
-        similarity: 1.0, // Default similarity for library items
         mediaType: mediaType,
       );
       
@@ -691,18 +707,34 @@ class MediaSectionWrapper extends StatelessWidget {
   /// Legacy method: Show item drawer by name (fallback for old code)
   Future<void> _showItemDrawer(BuildContext context, String itemName) async {
     try {
-      // Look up the actual item from the database
-      final vectorDb = VectorDatabase();
-      await vectorDb.init();
+      // Look up the actual item via gRPC backend
+      final grpcClient = GrpcRecommendationClient();
+      await grpcClient.init();
       
-      final results = await vectorDb.searchByText(
-        query: itemName,
+      final results = await grpcClient.searchMedia(
         mediaType: mediaType,
+        constraints: [itemName],
         limit: 1,
       );
       
       if (results.isNotEmpty) {
-        final item = results.first;
+        final suggestion = results.first;
+        // Convert MediaSuggestion to MediaSearchResult for compatibility
+        final item = MediaSearchResult(
+          mediaId: suggestion.mediaId ?? '',
+          title: suggestion.title,
+          artist: suggestion.artist,
+          album: suggestion.album,
+          description: suggestion.description,
+          themes: suggestion.themes,
+          genres: suggestion.genres?.join(', '),
+          wikiUrl: suggestion.wikiUrl,
+          wikidataId: suggestion.wikidataId,
+          coverArtUrl: suggestion.coverArtUrl,
+          youtubeId: suggestion.youtubeId,
+          spotifyId: suggestion.spotifyId,
+          mediaType: mediaType,
+        );
         // Use the dedicated method - no duplicate drawer creation
         await _showItemDrawerDirect(context, item);
       } else {
@@ -846,7 +878,7 @@ class MediaSectionWrapper extends StatelessWidget {
         // Create new recommendation with the specified status
         final bestTitle = _getBestDisplayName(item);
         final mediaSuggestion = MediaSuggestion(
-          mediaItemId: mediaItemId,
+          id: -1, // Temporary ID, will be set when saved to database
           query: 'User action from detail view: $bestTitle',
           mediaType: mediaType,
           title: bestTitle,
@@ -1025,7 +1057,11 @@ class MediaSectionWrapper extends StatelessWidget {
   
   // Wrapper methods to match MediaLibraryGrid callback signatures
   Future<void> _removeFromWatchlist(MediaSuggestion suggestion) async {
-    await controller.removeFromWatchlist(suggestion.mediaItemId!);
+    final db = SQLiteDatabase();
+    final intMediaItemId = await db.getMediaItemIdByVectorId(suggestion.mediaItemId!);
+    if (intMediaItemId != null) {
+      await controller.removeFromWatchlist(intMediaItemId);
+    }
   }
   
   Future<void> _likeWatchlistItem(MediaSuggestion suggestion) async {
@@ -1045,7 +1081,11 @@ class MediaSectionWrapper extends StatelessWidget {
   }
   
   Future<void> _removeFromLibrary(MediaSuggestion suggestion) async {
-    await controller.removeFromFavorites(suggestion.mediaItemId!);
+    final db = SQLiteDatabase();
+    final intMediaItemId = await db.getMediaItemIdByVectorId(suggestion.mediaItemId!);
+    if (intMediaItemId != null) {
+      await controller.removeFromFavorites(intMediaItemId);
+    }
   }
 
   /// Refresh appropriate lists after drawer actions
@@ -1068,44 +1108,168 @@ class MediaSectionWrapper extends StatelessWidget {
     }
   }
 
-  /// Show item drawer by media_item_id (direct SQLite lookup - fastest)
+  /// Show item drawer by media_item_id (optimized single-query lookup)
   Future<void> _showItemDrawerByMediaItemId(BuildContext context, int mediaItemId) async {
     try {
-      debugPrint('🔍 [DRAWER-SQLITE] Looking up item by media_item_id: $mediaItemId');
+      debugPrint('🚀 [DRAWER-FAST] Fast lookup for media_item_id: $mediaItemId');
       
       final db = SQLiteDatabase();
       await db.init();
       
-      // Get the media item directly from SQLite
-      final mediaItemData = await db.getMediaItemById(mediaItemId);
+      // Single optimized query gets both media item data AND all status information
+      final statusResult = await db.getMediaItemWithStatusById(mediaItemId);
       
-      if (mediaItemData == null) {
-        debugPrint('❌ [DRAWER-SQLITE] No media item found with ID: $mediaItemId');
+      if (statusResult == null) {
+        debugPrint('❌ [DRAWER-FAST] No media item found with ID: $mediaItemId');
         _showErrorDialog(context, 'Media item not found');
         return;
       }
       
-      // Convert SQLite data to MediaSearchResult format
-      final item = MediaSearchResult(
-        title: mediaItemData['title'] as String,
-        artist: mediaItemData['primaryCreator'] as String?,
-        album: null, // Not stored in media_items table
-        description: mediaItemData['description'] as String?,
-        themes: mediaItemData['themes'] as String?,
-        coverArtUrl: mediaItemData['coverArtUrl'] as String?,
-        wikiUrl: mediaItemData['wikiUrl'] as String?,
-        wikidataId: mediaItemData['wikidataId'] as String?,
-        mediaId: mediaItemData['vectorMediaId'] as String,
-        similarity: 1.0, // Direct lookup, perfect match
-        mediaType: mediaType,
+      debugPrint('✅ [DRAWER-FAST] Fast lookup complete for: "${statusResult['title']}" by "${statusResult['primaryCreator']}"');
+      
+      // Show drawer directly with all status information already loaded
+      _showMediaDrawer(
+        context,
+        MediaDetailDrawer(
+          title: statusResult['title'] as String? ?? 'Unknown',
+          artist: statusResult['primaryCreator'] as String?,
+          description: statusResult['description'] as String?,
+          themes: statusResult['themes'] as String?,
+          genres: statusResult['genres'] as String?,
+          youtubeId: statusResult['youtubeId'] as String?,
+          spotifyId: statusResult['spotifyId'] as String?,
+          coverArtUrl: statusResult['coverArtUrl'] as String?,
+          mediaType: mediaType,
+          hasLiked: statusResult['hasLiked'] as bool? ?? false,
+          hasDisliked: statusResult['hasDisliked'] as bool? ?? false,
+          hasFavorited: statusResult['hasFavorited'] as bool? ?? false,
+          isInWatchlist: statusResult['isInWatchlist'] as bool? ?? false,
+          hasSkipped: statusResult['hasSkipped'] as bool? ?? false,
+          onAction: (action) => _handleDrawerActionById(
+            context,
+            action,
+            mediaItemId,
+            statusResult,
+          ),
+        ),
       );
       
-      debugPrint('✅ [DRAWER-SQLITE] Found item: "${item.title}" by "${item.artist}"');
-      await _showItemDrawerDirect(context, item);
+    } catch (e) {
+      debugPrint('❌ [DRAWER-FAST] Error in fast lookup: $e');
+      _showErrorDialog(context, 'Failed to load item details: $e');
+    }
+  }
+
+  /// Handle actions from the media detail drawer when using optimized lookup by ID
+  Future<void> _handleDrawerActionById(
+    BuildContext context,
+    String action,
+    int mediaItemId,
+    Map<String, dynamic> statusResult,
+  ) async {
+    try {
+      final db = SQLiteDatabase();
+      
+      // We already have the media_item_id, so we can act directly
+      switch (action) {
+        case 'like':
+          // Create or update recommendation to liked status
+          await _createOrUpdateRecommendationById(db, mediaItemId, statusResult, 'liked');
+          break;
+          
+        case 'dislike':
+          // Create or update recommendation to disliked status
+          await _createOrUpdateRecommendationById(db, mediaItemId, statusResult, 'disliked');
+          break;
+          
+        case 'favorite':
+          // Add to favorites table (separate from recommendations)
+          await db.addToFavorites(mediaItemId);
+          break;
+          
+        case 'watchlist':
+          // Add to watchlist table (separate from recommendations)
+          await db.addToWatchlist(mediaItemId);
+          break;
+          
+        case 'skip':
+          // Create or update recommendation to skipped status
+          await _createOrUpdateRecommendationById(db, mediaItemId, statusResult, 'skipped');
+          break;
+
+        case 'clear_all':
+          // Handle the case when no positive reactions remain - set to skipped
+          await _createOrUpdateRecommendationById(db, mediaItemId, statusResult, 'skipped');
+          // Remove from all positive tables
+          await db.removeFromFavorites(mediaItemId);
+          await db.removeFromWatchlist(mediaItemId);
+          break;
+      }
+
+      // Refresh appropriate lists when states change
+      await _refreshListsAfterAction(action);
       
     } catch (e) {
-      debugPrint('❌ [DRAWER-SQLITE] Error showing item drawer by media_item_id: $e');
-      _showErrorDialog(context, 'Failed to load item details: $e');
+      debugPrint('❌ [DRAWER-ACTION-ID] Error handling action $action for ID $mediaItemId: $e');
+      // No toast notification - just log the error
+    }
+  }
+
+  /// Create or update recommendation status for an item using media_item_id
+  Future<void> _createOrUpdateRecommendationById(
+    SQLiteDatabase db,
+    int mediaItemId,
+    Map<String, dynamic> statusResult,
+    String status,
+  ) async {
+    try {
+      final title = statusResult['title'] as String? ?? 'Unknown';
+      final artist = statusResult['primaryCreator'] as String?;
+      
+      // Check if a recommendation already exists for this media item
+      final existingRecommendations = await db.getAllMediaSuggestions(mediaType);
+      final existingRec = existingRecommendations.where((rec) => 
+        rec.mediaItemId == mediaItemId ||
+        (rec.title == title && rec.artist == artist)
+      ).firstOrNull;
+
+      if (existingRec != null) {
+        // Update existing recommendation status
+        final suggestionStatus = SuggestionStatus.values.firstWhere(
+          (s) => s.toString().split('.').last == status,
+          orElse: () => SuggestionStatus.pending,
+        );
+        
+        await db.updateMediaSuggestionStatus(existingRec.id, suggestionStatus);
+        debugPrint('🔄 [DRAWER-ACTION-ID] Updated existing recommendation ${existingRec.id} to $status');
+      } else {
+        // Create new recommendation with the specified status
+        final vectorMediaId = statusResult['vectorMediaId'] as String? ?? '';
+        final mediaSuggestion = MediaSuggestion(
+          id: -1, // Temporary ID, will be set when saved to database
+          query: 'User action from detail view: $title',
+          mediaType: mediaType,
+          title: title,
+          artist: artist,
+          coverArtUrl: statusResult['coverArtUrl'] as String?,
+          description: statusResult['description'] as String?,
+          wikiUrl: statusResult['wikiUrl'] as String?,
+          wikidataId: statusResult['wikidataId'] as String?,
+          themes: statusResult['themes'] as String?,
+          mediaId: vectorMediaId,
+          botReasoning: 'User selected this item from the detail view.',
+          status: SuggestionStatus.values.firstWhere(
+            (s) => s.toString().split('.').last == status,
+            orElse: () => SuggestionStatus.pending,
+          ),
+        );
+        
+        await db.saveMediaSuggestion(mediaSuggestion);
+        debugPrint('✅ [DRAWER-ACTION-ID] Created new recommendation with status $status');
+      }
+    } catch (e) {
+      debugPrint('❌ [DRAWER-ACTION-ID] Error creating/updating recommendation: $e');
+      rethrow;
     }
   }
 

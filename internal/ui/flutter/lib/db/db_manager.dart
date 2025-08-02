@@ -1,34 +1,28 @@
 import 'package:flutter/foundation.dart';
 import '../services/sqlite_db.dart';
-import 'vector_db.dart';
 
 /// DatabaseManager
-/// Coordinates both user data (SQLite) and vector search (VectorDB)
-/// Provides a unified interface for all database operations
+/// Manages user data (SQLite) storage for local recommendations and metadata
+/// Vector search is now handled by gRPC backend
 class DatabaseManager {
   static final DatabaseManager _instance = DatabaseManager._internal();
   factory DatabaseManager() => _instance;
   DatabaseManager._internal();
 
   final SQLiteDatabase _userDb = SQLiteDatabase();
-  final VectorDatabase _vectorDb = VectorDatabase();
   
   bool _initialized = false;
 
-  /// Initialize both databases
+  /// Initialize user database
   Future<void> init() async {
     if (_initialized) return;
 
     try {
       debugPrint('Initializing database manager...');
       
-      // Initialize user database first (faster)
+      // Initialize user database (interestnaut.db)
       await _userDb.init();
       debugPrint('User database initialized');
-      
-      // Initialize vector database (may download files)
-      await _vectorDb.init();
-      debugPrint('Vector database initialized');
       
       _initialized = true;
       debugPrint('Database manager initialization complete');
@@ -40,33 +34,17 @@ class DatabaseManager {
 
   /// Get user database instance
   SQLiteDatabase get userDb => _userDb;
-  
-  /// Get vector database instance
-  VectorDatabase get vectorDb => _vectorDb;
 
-  /// Check if both databases are ready
+  /// Check if database is ready
   bool get isReady => _initialized;
 
-  /// Get available media types from vector database
-  List<String> getAvailableMediaTypes() {
-    return _vectorDb.getAvailableMediaTypes();
-  }
-
-  /// Check if a specific media type is available for vector search
-  bool isMediaTypeAvailable(String mediaType) {
-    return _vectorDb.isMediaTypeAvailable(mediaType);
-  }
-
-  /// Get statistics for both databases
+  /// Get user database statistics
   Future<Map<String, dynamic>> getDatabaseStats() async {
     if (!_initialized) {
       await init();
     }
 
     try {
-      // Get vector database stats
-      final vectorStats = await _vectorDb.getShardStats();
-      
       // Get user database stats
       final userStats = <String, int>{};
       for (final mediaType in ['video_game', 'movie', 'tv_show', 'book', 'music']) {
@@ -79,9 +57,7 @@ class DatabaseManager {
       }
 
       return {
-        'vector_database': vectorStats,
         'user_database': userStats,
-        'total_vector_items': vectorStats.values.fold<int>(0, (sum, count) => sum + count),
         'initialized': _initialized,
       };
     } catch (e) {
@@ -93,11 +69,10 @@ class DatabaseManager {
     }
   }
 
-  /// Close both databases
+  /// Close user database
   Future<void> close() async {
     try {
       await _userDb.close();
-      await _vectorDb.close();
       _initialized = false;
       debugPrint('Database manager closed');
     } catch (e) {

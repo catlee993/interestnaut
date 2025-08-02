@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../common/media_section_wrapper.dart';
 import 'movie_section_controller.dart';
+import '../../services/recommendation_service.dart';
 
 class MovieSection extends StatefulWidget {
   const MovieSection({super.key});
@@ -50,7 +52,8 @@ class _MovieSectionState extends State<MovieSection> {
   void initState() {
     super.initState();
     _currentState = this;
-    _controller = MovieSectionController();
+    final recommendationService = Provider.of<RecommendationService>(context, listen: false);
+    _controller = MovieSectionController(recommendationService);
     _controller?.addListener(_onControllerUpdate);
   }
 

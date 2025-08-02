@@ -37,7 +37,7 @@ class MusicSectionController extends BaseMediaSectionController {
   StreamSubscription? _spotifyEventsPlaybackSubscription;
   StreamSubscription? _playerReadySubscription;
   
-  MusicSectionController() : super('music') {
+  MusicSectionController(RecommendationService recommendationService) : super('music', recommendationService) {
     _setupSpotifyListeners();
     _checkAuthentication();
   }

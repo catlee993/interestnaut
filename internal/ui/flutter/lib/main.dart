@@ -25,9 +25,9 @@ import 'components/common/media_detail_drawer.dart';
 import 'components/music/spotify_service.dart';
 import 'components/music/player/spotify_player_view.dart';
 import 'components/music/player/spotify_web_player.dart';
+import 'components/music/spotify_preview_dialog.dart';
 // TFLite LLM service removed - using gRPC backend
 import 'services/wikidata_service.dart';
-import 'services/recommendation_service_grpc.dart';
 import 'services/recommendation_service.dart';
 import 'services/grpc_client.dart';
 import 'services/sqlite_db.dart';
@@ -110,9 +110,9 @@ Future<void> main() async {
   // --- TensorFlow Lite LLM Service removed ---
   // Using gRPC backend instead of local LLM models
 
-  // --- Initialize GrpcRecommendationService ---
+  // --- Initialize RecommendationService ---
   // Create the gRPC-based recommendation service
-  final recommendationService = GrpcRecommendationService();
+  final recommendationService = RecommendationService();
   
   // --- Initialize ContinuousPlaybackService ---
   final continuousPlaybackService = ContinuousPlaybackService();
@@ -577,7 +577,7 @@ class _UnifiedSearchHandlerState extends State<_UnifiedSearchHandler> {
               }
               
               return WikidataSearchResult(
-                id: result.mediaId,
+                id: result.mediaId ?? 'unknown_${DateTime.now().millisecondsSinceEpoch}',
                 title: result.title ?? 'Unknown',
                 artist: result.artist,
                 description: result.description,
@@ -1677,16 +1677,33 @@ class _WikidataCardState extends State<_WikidataCard> {
 
   void _openSpotify(String trackId) async {
     try {
-      final spotifyUrl = 'spotify:track:$trackId';
-      final webUrl = 'https://open.spotify.com/track/$trackId';
+      // Check if user is authenticated with Spotify
+      final spotifyService = SpotifyService();
+      final isAuthenticated = await spotifyService.checkAuthentication();
       
-      // Try Spotify app first, fallback to web
-      if (await canLaunchUrl(Uri.parse(spotifyUrl))) {
-        await launchUrl(Uri.parse(spotifyUrl), mode: LaunchMode.externalApplication);
-      } else if (await canLaunchUrl(Uri.parse(webUrl))) {
-        await launchUrl(Uri.parse(webUrl), mode: LaunchMode.externalApplication);
+      if (!isAuthenticated && mounted) {
+        // Show preview dialog for non-authenticated users
+        showDialog(
+          context: context,
+          builder: (context) => SpotifyPreviewDialog(
+            trackId: trackId,
+            trackName: widget.result.title,
+            artistName: widget.result.artist,
+          ),
+        );
       } else {
-        debugPrint('Could not launch Spotify URL: $webUrl');
+        // For authenticated users, use the existing external launch behavior
+        final spotifyUrl = 'spotify:track:$trackId';
+        final webUrl = 'https://open.spotify.com/track/$trackId';
+        
+        // Try Spotify app first, fallback to web
+        if (await canLaunchUrl(Uri.parse(spotifyUrl))) {
+          await launchUrl(Uri.parse(spotifyUrl), mode: LaunchMode.externalApplication);
+        } else if (await canLaunchUrl(Uri.parse(webUrl))) {
+          await launchUrl(Uri.parse(webUrl), mode: LaunchMode.externalApplication);
+        } else {
+          debugPrint('Could not launch Spotify URL: $webUrl');
+        }
       }
     } catch (e) {
       debugPrint('Error opening Spotify: $e');

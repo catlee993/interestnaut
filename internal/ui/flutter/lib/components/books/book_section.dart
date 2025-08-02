@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../common/media_section_wrapper.dart';
 import 'book_section_controller.dart';
+import '../../services/recommendation_service.dart';
 
 class BookSection extends StatefulWidget {
   const BookSection({super.key});
@@ -53,8 +55,9 @@ class _BookSectionState extends State<BookSection> {
     // Set static reference for search refresh
     _currentState = this;
     
-    // Initialize controller
-    _controller = BookSectionController();
+    // Initialize controller with recommendation service from provider
+    final recommendationService = Provider.of<RecommendationService>(context, listen: false);
+    _controller = BookSectionController(recommendationService);
     _controller!.addListener(_onControllerChanged);
     
     // Load initial data

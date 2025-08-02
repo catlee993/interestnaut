@@ -320,7 +320,7 @@ class _MediaHistoryScreenState extends State<MediaHistoryScreen> {
         title: item.title ?? 'Unknown',
         mediaType: _currentMediaType,
         primaryCreator: item.artist ?? '',
-        vectorMediaId: item.mediaId,
+        vectorMediaId: item.mediaId ?? 'unknown_${DateTime.now().millisecondsSinceEpoch}',
         coverArtUrl: item.coverArtUrl,
         description: item.description,
         themes: item.themes,
@@ -566,7 +566,7 @@ class _MediaHistoryScreenState extends State<MediaHistoryScreen> {
         debugPrint('💡 No existing recommendation found, creating new one with status $status');
         
         final suggestion = MediaSuggestion(
-          mediaItemId: mediaItemId,
+          id: -1, // Temporary ID, will be set when saved
           query: 'User action',
           mediaType: _currentMediaType,
           mediaId: 'user_action_${_currentMediaType}_${DateTime.now().millisecondsSinceEpoch}',
@@ -651,7 +651,7 @@ class _MediaHistoryScreenState extends State<MediaHistoryScreen> {
                 artist: item.artist,
                 description: item.description,
                 themes: item.themes,
-                genres: item.genres,
+                genres: item.genres?.join(', '),
                 youtubeId: item.youtubeId,
                 spotifyId: item.spotifyId,
                 coverArtUrl: item.coverArtUrl,

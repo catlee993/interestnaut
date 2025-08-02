@@ -4,7 +4,6 @@ import '../../theme.dart';
 import 'continuous_playback_switch.dart';
 import 'media_refinement_panel.dart';
 import 'media_blend_panel.dart';
-import 'database_management_panel.dart';
 import '../../services/sqlite_db.dart';
 import '../../services/continuous_playback_service.dart';
 
@@ -276,8 +275,9 @@ class _SettingsDrawerState extends State<SettingsDrawer> with SingleTickerProvid
                   // Blend Panel
                   MediaBlendPanel(currentMediaType: widget.mediaType),
                   
-                  // Database Panel
-                  DatabaseManagementPanel(mediaType: widget.mediaType),
+                  // History Panel (replaces Database Panel)
+                  // TODO: Replace with History tab as requested by user
+                  const SizedBox.shrink(),
                 ],
               ),
             ),

@@ -5,7 +5,7 @@ import 'package:flutter/foundation.dart';
 /// Game-specific controller that extends the base controller
 /// Games have no unique behavior, so this is just a thin wrapper
 class GameSectionController extends BaseMediaSectionController {
-  GameSectionController() : super('video_game');
+  GameSectionController(RecommendationService recommendationService) : super('video_game', recommendationService);
   
   // Override base controller methods for game-specific behavior
   @override

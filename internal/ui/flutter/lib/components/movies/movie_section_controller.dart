@@ -4,7 +4,7 @@ import '../../services/recommendation_service.dart';
 /// Movie-specific controller that extends the base controller
 /// Movies have no unique behavior, so this is just a thin wrapper
 class MovieSectionController extends BaseMediaSectionController {
-  MovieSectionController() : super('movie');
+  MovieSectionController(RecommendationService recommendationService) : super('movie', recommendationService);
   
   // Movies don't need any special behavior beyond the base controller
   // All the suggestion loading, library management, etc. is handled by the base class
