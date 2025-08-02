@@ -1243,8 +1243,8 @@ class _WikidataCardState extends State<_WikidataCard> {
         ),
         child: LayoutBuilder(
           builder: (context, constraints) {
-            // Reserve space for controls at bottom (~60px) and calculate artwork size
-            final controlsHeight = 60.0;
+            // Reserve space for controls at bottom (~65px) and calculate artwork size
+            final controlsHeight = 65.0;
             final availableHeight = constraints.maxHeight - controlsHeight;
             final maxArtworkSize = constraints.maxWidth * 0.75; // Reduced from 85% to 75%
             final artworkSize = availableHeight > maxArtworkSize ? maxArtworkSize : availableHeight;
@@ -1295,139 +1295,157 @@ class _WikidataCardState extends State<_WikidataCard> {
                   height: controlsHeight,
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(4.0, 4.0, 4.0, 4.0),
-                    child: Column(
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      mainAxisSize: MainAxisSize.max,
                       children: [
-                        // YouTube/Spotify buttons row (if available)
-                        if (widget.result.additionalData?['youtubeId'] != null || 
-                            widget.result.additionalData?['spotifyId'] != null) ...[
-                          SizedBox(
-                            height: 20,
-                            child: Row(
+                        // YouTube button (if available)
+                        if (widget.result.additionalData?['youtubeId'] != null) ...[
+                          Container(
+                            decoration: BoxDecoration(
+                              color: AppTheme.positiveColor.withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: IconButton(
+                              icon: const Icon(
+                                Icons.play_circle_outline,
+                                color: AppTheme.positiveColor,
+                                size: 16,
+                              ),
+                              padding: const EdgeInsets.all(4),
+                              constraints: const BoxConstraints(
+                                minWidth: 26,
+                                minHeight: 26,
+                              ),
+                              onPressed: () => _openYouTube(widget.result.additionalData!['youtubeId'] as String),
+                              tooltip: 'Play on YouTube',
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                        ],
+                        
+                        // Spotify button (if available)
+                        if (widget.result.additionalData?['spotifyId'] != null) ...[
+                          Container(
+                            decoration: BoxDecoration(
+                              color: AppTheme.primaryColor.withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: IconButton(
+                              icon: const Icon(
+                                Icons.music_note,
+                                color: AppTheme.primaryColor,
+                                size: 16,
+                              ),
+                              padding: const EdgeInsets.all(4),
+                              constraints: const BoxConstraints(
+                                minWidth: 26,
+                                minHeight: 26,
+                              ),
+                              onPressed: () => _openSpotify(widget.result.additionalData!['spotifyId'] as String),
+                              tooltip: 'Play on Spotify',
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                        ],
+                        
+                        // Add to Watchlist button - blue bookmark
+                        Container(
+                          decoration: BoxDecoration(
+                            color: Colors.blue.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: IconButton(
+                            icon: const Icon(
+                              Icons.bookmark_add,
+                              color: Colors.blue,
+                              size: 16,
+                            ),
+                            padding: const EdgeInsets.all(4),
+                            constraints: const BoxConstraints(
+                              minWidth: 28,
+                              minHeight: 28,
+                            ),
+                            onPressed: widget.onAddToWatchlist,
+                            tooltip: 'Add to ${_getWatchlistTerminology()}',
+                          ),
+                        ),
+                        
+                        // Title and artist/director centered between controls
+                        Expanded(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 4.0),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.center,
                               mainAxisAlignment: MainAxisAlignment.center,
+                              mainAxisSize: MainAxisSize.min,
                               children: [
-                                if (widget.result.additionalData?['youtubeId'] != null) ...[
-                                  _buildMiniPlayButton(
-                                    icon: Icons.play_circle_outline,
-                                    color: AppTheme.positiveColor,
-                                    onPressed: () => _openYouTube(widget.result.additionalData!['youtubeId'] as String),
+                                Text(
+                                  widget.result.title,
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w500,
+                                    fontSize: 11,
+                                    shadows: [
+                                      Shadow(
+                                        color: Colors.black.withOpacity(0.5),
+                                        offset: const Offset(0, 1),
+                                        blurRadius: 2,
+                                      ),
+                                    ],
                                   ),
-                                  if (widget.result.additionalData?['spotifyId'] != null) const SizedBox(width: 4),
-                                ],
-                                if (widget.result.additionalData?['spotifyId'] != null) ...[
-                                  _buildMiniPlayButton(
-                                    icon: Icons.music_note,
-                                    color: AppTheme.primaryColor,
-                                    onPressed: () => _openSpotify(widget.result.additionalData!['spotifyId'] as String),
+                                  maxLines: widget.result.artist != null ? 1 : 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  textAlign: TextAlign.center,
+                                ),
+                                if (widget.result.artist != null) ...[
+                                  const SizedBox(height: 1),
+                                  Text(
+                                    widget.result.artist!,
+                                    style: TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 9,
+                                      shadows: [
+                                        Shadow(
+                                          color: Colors.black.withOpacity(0.3),
+                                          offset: const Offset(0, 1),
+                                          blurRadius: 1,
+                                        ),
+                                      ],
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    textAlign: TextAlign.center,
                                   ),
                                 ],
                               ],
                             ),
                           ),
-                          const SizedBox(height: 2),
-                        ],
+                        ),
                         
-                        // Main controls row
-                        Expanded(
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            crossAxisAlignment: CrossAxisAlignment.center,
-                            children: [
-                              // Add to Watchlist button - blue bookmark (left side)
-                              Container(
-                                decoration: BoxDecoration(
-                                  color: Colors.blue.withOpacity(0.2),
-                                  borderRadius: BorderRadius.circular(14),
-                                ),
-                                child: IconButton(
-                                  icon: const Icon(
-                                    Icons.bookmark_add,
-                                    color: Colors.blue,
-                                    size: 16,
-                                  ),
-                                  padding: const EdgeInsets.all(4),
-                                  constraints: const BoxConstraints(
-                                    minWidth: 28,
-                                    minHeight: 28,
-                                  ),
-                                  onPressed: widget.onAddToWatchlist,
-                                  tooltip: 'Add to ${_getWatchlistTerminology()}',
-                                ),
-                              ),
                         
-                              // Title and artist/director centered between controls
-                              Expanded(
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 6.0),
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.center,
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Text(
-                                        widget.result.title,
-                                        style: TextStyle(
-                                          color: Colors.white,
-                                          fontWeight: FontWeight.w500,
-                                          fontSize: 11,
-                                          shadows: [
-                                            Shadow(
-                                              color: Colors.black.withOpacity(0.5),
-                                              offset: const Offset(0, 1),
-                                              blurRadius: 2,
-                                            ),
-                                          ],
-                                        ),
-                                        maxLines: widget.result.artist != null ? 1 : 2,
-                                        overflow: TextOverflow.ellipsis,
-                                        textAlign: TextAlign.center,
-                                      ),
-                                      if (widget.result.artist != null) ...[
-                                        const SizedBox(height: 1),
-                                        Text(
-                                          widget.result.artist!,
-                                          style: TextStyle(
-                                            color: Colors.white70,
-                                            fontSize: 9,
-                                            shadows: [
-                                              Shadow(
-                                                color: Colors.black.withOpacity(0.3),
-                                                offset: const Offset(0, 1),
-                                                blurRadius: 1,
-                                              ),
-                                            ],
-                                          ),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          textAlign: TextAlign.center,
-                                        ),
-                                      ],
-                                    ],
-                                  ),
-                                ),
-                              ),
+                        const SizedBox(width: 4),
                         
-                              // Add to Favorites button - purple heart (right side)
-                              Container(
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFF7B68EE).withOpacity(0.2),
-                                  borderRadius: BorderRadius.circular(14),
-                                ),
-                                child: IconButton(
-                                  icon: const Icon(
-                                    Icons.favorite,
-                                    color: Color(0xFF7B68EE), // Primary purple color
-                                    size: 16,
-                                  ),
-                                  padding: const EdgeInsets.all(4),
-                                  constraints: const BoxConstraints(
-                                    minWidth: 28,
-                                    minHeight: 28,
-                                  ),
-                                  onPressed: widget.onAddToFavorites,
-                                  tooltip: 'Add to Favorites',
-                                ),
-                              ),
-                            ],
+                        // Add to Favorites button - purple heart
+                        Container(
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF7B68EE).withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: IconButton(
+                            icon: const Icon(
+                              Icons.favorite,
+                              color: Color(0xFF7B68EE), // Primary purple color
+                              size: 16,
+                            ),
+                            padding: const EdgeInsets.all(4),
+                            constraints: const BoxConstraints(
+                              minWidth: 28,
+                              minHeight: 28,
+                            ),
+                            onPressed: widget.onAddToFavorites,
+                            tooltip: 'Add to Favorites',
                           ),
                         ),
                       ],
@@ -1629,6 +1647,22 @@ class _WikidataCardState extends State<_WikidataCard> {
   }
 
   void _openYouTube(String videoId) async {
+    try {
+      // Show internal YouTube player dialog
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (context) => YouTubePlayerDialog(videoId: videoId),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error opening YouTube player: $e');
+      // Fallback to external app
+      _openYouTubeExternal(videoId);
+    }
+  }
+  
+  void _openYouTubeExternal(String videoId) async {
     try {
       final url = 'https://www.youtube.com/watch?v=$videoId';
       if (await canLaunchUrl(Uri.parse(url))) {

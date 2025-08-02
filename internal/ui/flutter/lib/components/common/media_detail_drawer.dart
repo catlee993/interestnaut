@@ -715,7 +715,7 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
       if (mounted) {
         showDialog(
           context: context,
-          builder: (context) => _YouTubePlayerDialog(videoId: videoId),
+          builder: (context) => YouTubePlayerDialog(videoId: videoId),
         );
       }
     } catch (e) {
@@ -810,17 +810,17 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
   }
 }
 
-/// Internal YouTube Player Dialog
-class _YouTubePlayerDialog extends StatefulWidget {
+/// YouTube Player Dialog - Public for reuse across components
+class YouTubePlayerDialog extends StatefulWidget {
   final String videoId;
 
-  const _YouTubePlayerDialog({required this.videoId});
+  const YouTubePlayerDialog({required this.videoId});
 
   @override
-  State<_YouTubePlayerDialog> createState() => _YouTubePlayerDialogState();
+  State<YouTubePlayerDialog> createState() => _YouTubePlayerDialogState();
 }
 
-class _YouTubePlayerDialogState extends State<_YouTubePlayerDialog> {
+class _YouTubePlayerDialogState extends State<YouTubePlayerDialog> {
   late YoutubePlayerController _controller;
 
   @override
