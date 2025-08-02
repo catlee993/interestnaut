@@ -482,6 +482,8 @@ const MediaItem$json = {
     {'1': 'themes', '3': 10, '4': 1, '5': 9, '10': 'themes'},
     {'1': 'similarity_score', '3': 11, '4': 1, '5': 1, '10': 'similarityScore'},
     {'1': 'reasoning', '3': 12, '4': 1, '5': 9, '10': 'reasoning'},
+    {'1': 'youtube_id', '3': 13, '4': 1, '5': 9, '10': 'youtubeId'},
+    {'1': 'spotify_id', '3': 14, '4': 1, '5': 9, '10': 'spotifyId'},
   ],
 };
 
@@ -493,4 +495,5 @@ final $typed_data.Uint8List mediaItemDescriptor = $convert.base64Decode(
     'RfdXJsGAYgASgJUgtjb3ZlckFydFVybBIgCgtkZXNjcmlwdGlvbhgHIAEoCVILZGVzY3JpcHRp'
     'b24SGQoId2lraV91cmwYCCABKAlSB3dpa2lVcmwSHwoLd2lraWRhdGFfaWQYCSABKAlSCndpa2'
     'lkYXRhSWQSFgoGdGhlbWVzGAogASgJUgZ0aGVtZXMSKQoQc2ltaWxhcml0eV9zY29yZRgLIAEo'
-    'AVIPc2ltaWxhcml0eVNjb3JlEhwKCXJlYXNvbmluZxgMIAEoCVIJcmVhc29uaW5n');
+    'AVIPc2ltaWxhcml0eVNjb3JlEhwKCXJlYXNvbmluZxgMIAEoCVIJcmVhc29uaW5nEh0KCnlvdX'
+    'R1YmVfaWQYDSABKAlSCXlvdXR1YmVJZBIdCgpzcG90aWZ5X2lkGA4gASgJUglzcG90aWZ5SWQ=');

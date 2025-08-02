@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:ffi/ffi.dart';
 // Removed llama_cpp_dart - using TensorFlow Lite instead
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'dart:ui';
 
 // Import our components and services
@@ -26,15 +27,16 @@ import 'components/music/player/spotify_player_view.dart';
 import 'components/music/player/spotify_web_player.dart';
 // TFLite LLM service removed - using gRPC backend
 import 'services/wikidata_service.dart';
-import 'services/wikipedia_service.dart';
 import 'services/recommendation_service_grpc.dart';
+import 'services/recommendation_service.dart';
+import 'services/grpc_client.dart';
 import 'services/sqlite_db.dart';
 import 'services/continuous_playback_service.dart';
 import 'services/ffi_init.dart';
 import 'services/go_bindings.dart';
 import 'models.dart';
 import 'theme.dart';
-import 'db/vector_db.dart'; // Import for VectorDatabase
+// Removed VectorDatabase - now using gRPC backend only
 
 
 
@@ -399,6 +401,39 @@ class _InterestnautAppState extends State<InterestnautApp> {
   }
 }
 
+/// Simple data class to replace vector_db MediaSearchResult for gRPC migration
+class MediaSearchResult {
+  final String mediaId;
+  final String? title;
+  final String? artist;
+  final String? album;
+  final String? description;
+  final String? themes;
+  final String? genres;
+  final String? wikiUrl;
+  final String? wikidataId;
+  final String? coverArtUrl;
+  final String? youtubeId;
+  final String? spotifyId;
+  final String mediaType;
+
+  MediaSearchResult({
+    required this.mediaId,
+    this.title,
+    this.artist,
+    this.album,
+    this.description,
+    this.themes,
+    this.genres,
+    this.wikiUrl,
+    this.wikidataId,
+    this.coverArtUrl,
+    this.youtubeId,
+    this.spotifyId,
+    required this.mediaType,
+  });
+}
+
 // A unified search handler that uses Spotify for music and Wikidata for other media types
 class _UnifiedSearchHandler extends StatefulWidget {
   final String searchQuery;
@@ -418,12 +453,13 @@ class _UnifiedSearchHandler extends StatefulWidget {
 
 class _UnifiedSearchHandlerState extends State<_UnifiedSearchHandler> {
   final SpotifyService _spotifyService = SpotifyService();
-  final WikidataService _wikidataService = WikidataService();
+  final GrpcRecommendationClient _grpcClient = GrpcRecommendationClient();
   
-  List<dynamic> _searchResults = []; // Can be SimpleTrack or WikidataSearchResult
+  List<dynamic> _searchResults = []; // Can be SimpleTrack or WikidataSearchResult  
   bool _isLoading = false;
   String? _error;
   bool _isSpotifyActive = false;
+  Timer? _debounceTimer;
 
   @override
   void initState() {
@@ -439,6 +475,12 @@ class _UnifiedSearchHandlerState extends State<_UnifiedSearchHandler> {
       _checkSpotifyStatus();
       _performSearch(widget.searchQuery);
     }
+  }
+  
+  @override
+  void dispose() {
+    _debounceTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _checkSpotifyStatus() async {
@@ -459,123 +501,129 @@ class _UnifiedSearchHandlerState extends State<_UnifiedSearchHandler> {
       return;
     }
 
-    setState(() {
-      _isLoading = true;
-      _error = null;
-    });
+    // Cancel any existing timer
+    _debounceTimer?.cancel();
+    
+    // Add debouncing for gRPC calls to reduce server load
+    _debounceTimer = Timer(const Duration(milliseconds: 300), () async {
+      if (!mounted) return;
+      
+      setState(() {
+        _isLoading = true;
+        _error = null;
+      });
 
-    try {
-      if (widget.mediaType == 'music' && _isSpotifyActive) {
-        // Use Spotify for music when authenticated
-        final results = await _spotifyService.searchTracks(query);
-        if (mounted) {
-          setState(() {
-            _searchResults = results;
-            _isLoading = false;
-          });
-        }
-      } else {
-        // Use vector database search for all media types
-        debugPrint('🔍 Starting vector database search for "$query" in ${widget.mediaType}');
-        try {
-          final vectorDb = VectorDatabase();
-          await vectorDb.init();
-          
-          // Convert media type to vector database format
-          String dbMediaType;
-          switch (widget.mediaType.toLowerCase()) {
-            case 'music':
-              dbMediaType = 'music';
-              break;
-            case 'movie':
-            case 'movies':
-              dbMediaType = 'movie';
-              break;
-            case 'tv':
-            case 'show':
-            case 'shows':
-              dbMediaType = 'tv_show';
-              break;
-            case 'book':
-            case 'books':
-              dbMediaType = 'book';
-              break;
-            case 'game':
-            case 'games':
-              dbMediaType = 'video_game';
-              break;
-            default:
-              dbMediaType = widget.mediaType;
+      try {
+        if (widget.mediaType == 'music' && _isSpotifyActive) {
+          // Use Spotify for music when authenticated
+          final results = await _spotifyService.searchTracks(query);
+          if (mounted) {
+            setState(() {
+              _searchResults = results;
+              _isLoading = false;
+            });
           }
-          
-          // Check if this media type is available in vector database
-          if (vectorDb.isMediaTypeAvailable(dbMediaType)) {
-            final results = await vectorDb.searchByText(
-              query: query,
-              mediaType: dbMediaType,
+        } else {
+          // Use gRPC backend search for all media types
+          debugPrint('🔍 Starting gRPC search for "$query" in ${widget.mediaType}');
+          try {
+            // Convert media type to backend format
+            String backendMediaType;
+            switch (widget.mediaType.toLowerCase()) {
+              case 'music':
+                backendMediaType = 'music';
+                break;
+              case 'movie':
+              case 'movies':
+                backendMediaType = 'movie';
+                break;
+              case 'tv':
+              case 'show':
+              case 'shows':
+                backendMediaType = 'tv_show';
+                break;
+              case 'book':
+              case 'books':
+                backendMediaType = 'book';
+                break;
+              case 'game':
+              case 'games':
+                backendMediaType = 'video_game';
+                break;
+              default:
+                backendMediaType = widget.mediaType;
+            }
+            
+            // Initialize gRPC client if not already done
+            if (!_grpcClient.isInitialized) {
+              await _grpcClient.init();
+            }
+            
+            // Use searchMedia endpoint with query as constraint
+            final results = await _grpcClient.searchMedia(
+              mediaType: backendMediaType,
+              constraints: [query], // Pass query as constraint for text search
               limit: 20,
             );
             
-            // Convert MediaSearchResult to WikidataSearchResult for UI compatibility
-            final convertedResults = results.map((result) => WikidataSearchResult(
-              id: result.mediaId,
-              title: (result.title?.isNotEmpty == true) ? result.title! : 
-                     (result.artist?.isNotEmpty == true) ? result.artist! : 'Unknown',
-              artist: result.artist,
-              description: result.description,
-              imageUrl: result.coverArtUrl,
-              releaseDate: null,
-              genre: null,
-              additionalData: {
-                'source': 'vector_database',
-                'similarity': result.similarity,
-                'themes': result.themes,
-                'genres': result.genres,
-                'wikiUrl': result.wikiUrl,
-                'wikidataId': result.wikidataId,
-                'youtubeId': result.youtubeId,
-                'spotifyId': result.spotifyId,
-              },
-            )).toList();
+            // Convert MediaSuggestion to WikidataSearchResult for UI compatibility
+            final convertedResults = results.map((result) {
+              // Debug logging for YouTube/Spotify IDs
+              if (result.youtubeId != null && result.youtubeId!.isNotEmpty) {
+                debugPrint('🎬 [FLUTTER-SEARCH] ${result.title} has YouTube ID: ${result.youtubeId}');
+              }
+              if (result.spotifyId != null && result.spotifyId!.isNotEmpty) {
+                debugPrint('🎵 [FLUTTER-SEARCH] ${result.title} has Spotify ID: ${result.spotifyId}');
+              }
+              
+              return WikidataSearchResult(
+                id: result.mediaId,
+                title: result.title ?? 'Unknown',
+                artist: result.artist,
+                description: result.description,
+                imageUrl: result.coverArtUrl,
+                releaseDate: null,
+                genre: null,
+                additionalData: {
+                  'source': 'grpc_backend',
+                  'themes': result.themes,
+                  'wikiUrl': result.wikiUrl,
+                  'wikidataId': result.wikidataId,
+                  'youtubeId': result.youtubeId,
+                  'spotifyId': result.spotifyId,
+                  'reasoning': result.botReasoning,
+                },
+              );
+            }).toList();
             
-            debugPrint('✅ Vector database search returned ${convertedResults.length} results');
+            debugPrint('✅ gRPC search returned ${convertedResults.length} results');
             if (mounted) {
               setState(() {
                 _searchResults = convertedResults;
                 _isLoading = false;
               });
             }
-          } else {
-            // No fallback - just return empty results with a message
-            debugPrint('⚠️ Vector database not available for $dbMediaType');
+          } catch (e) {
+            debugPrint('❌ gRPC search error: $e');
             if (mounted) {
               setState(() {
                 _searchResults = [];
                 _isLoading = false;
-                _error = 'Search database not available for ${widget.mediaType}. Please install the ${widget.mediaType} database first.';
+                _error = 'Search failed: $e';
               });
             }
           }
-        } catch (e) {
-          debugPrint('❌ Vector database search error: $e');
-          if (mounted) {
-            setState(() {
-              _searchResults = [];
-              _isLoading = false;
-              _error = 'Search failed: $e';
-            });
-          }
+        }
+      } catch (e) {
+        debugPrint('Error searching ${widget.mediaType}: $e');
+        if (mounted) {
+          setState(() {
+            _error = 'Failed to search ${widget.mediaType}: $e';
+            _isLoading = false;
+          });
         }
       }
-    } catch (e) {
-      debugPrint('Error searching ${widget.mediaType}: $e');
-      if (mounted) {
-        setState(() {
-          _error = 'Failed to search ${widget.mediaType}: $e';
-          _isLoading = false;
-        });
-      }
-    }
+    });
   }
 
   Future<void> _handlePlay(dynamic item) async {
@@ -635,7 +683,7 @@ class _UnifiedSearchHandlerState extends State<_UnifiedSearchHandler> {
         mediaType: _convertMediaTypeToDb(widget.mediaType),
         title: item.title,
         primaryCreator: item.artist ?? '',
-        vectorMediaId: item.id?.toString(),
+        vectorMediaId: item.id,
         coverArtUrl: item.imageUrl,
         description: item.description,
         wikiUrl: item.additionalData?['wikiUrl'],
@@ -786,7 +834,7 @@ class _UnifiedSearchHandlerState extends State<_UnifiedSearchHandler> {
           mediaType: _convertMediaTypeToDb(widget.mediaType),
           title: item.title,
           primaryCreator: item.artist ?? '',
-          vectorMediaId: item.id?.toString(),
+          vectorMediaId: item.id,
           coverArtUrl: item.imageUrl,
           description: item.description,
           wikiUrl: item.additionalData?['wikiUrl'],
@@ -1247,103 +1295,139 @@ class _WikidataCardState extends State<_WikidataCard> {
                   height: controlsHeight,
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(4.0, 4.0, 4.0, 4.0),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.center,
+                    child: Column(
                       children: [
-                        // Add to Watchlist button - blue bookmark (left side)
-                        Container(
-                          decoration: BoxDecoration(
-                            color: Colors.blue.withOpacity(0.2),
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          child: IconButton(
-                            icon: const Icon(
-                              Icons.bookmark_add,
-                              color: Colors.blue,
-                              size: 16,
-                            ),
-                            padding: const EdgeInsets.all(4),
-                            constraints: const BoxConstraints(
-                              minWidth: 28,
-                              minHeight: 28,
-                            ),
-                            onPressed: widget.onAddToWatchlist,
-                            tooltip: 'Add to ${_getWatchlistTerminology()}',
-                          ),
-                        ),
-                        
-                        // Title and artist/director centered between controls
-                        Expanded(
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6.0),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.center,
+                        // YouTube/Spotify buttons row (if available)
+                        if (widget.result.additionalData?['youtubeId'] != null || 
+                            widget.result.additionalData?['spotifyId'] != null) ...[
+                          SizedBox(
+                            height: 20,
+                            child: Row(
                               mainAxisAlignment: MainAxisAlignment.center,
-                              mainAxisSize: MainAxisSize.min,
                               children: [
-                                Text(
-                                  widget.result.title,
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.w500,
-                                    fontSize: 11,
-                                    shadows: [
-                                      Shadow(
-                                        color: Colors.black.withOpacity(0.5),
-                                        offset: const Offset(0, 1),
-                                        blurRadius: 2,
-                                      ),
-                                    ],
+                                if (widget.result.additionalData?['youtubeId'] != null) ...[
+                                  _buildMiniPlayButton(
+                                    icon: Icons.play_circle_outline,
+                                    color: AppTheme.positiveColor,
+                                    onPressed: () => _openYouTube(widget.result.additionalData!['youtubeId'] as String),
                                   ),
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  textAlign: TextAlign.center,
-                                ),
-                                if (widget.result.artist != null) ...[
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    widget.result.artist!,
-                                    style: TextStyle(
-                                      color: Colors.white70,
-                                      fontSize: 9,
-                                      shadows: [
-                                        Shadow(
-                                          color: Colors.black.withOpacity(0.3),
-                                          offset: const Offset(0, 1),
-                                          blurRadius: 1,
-                                        ),
-                                      ],
-                                    ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    textAlign: TextAlign.center,
+                                  if (widget.result.additionalData?['spotifyId'] != null) const SizedBox(width: 4),
+                                ],
+                                if (widget.result.additionalData?['spotifyId'] != null) ...[
+                                  _buildMiniPlayButton(
+                                    icon: Icons.music_note,
+                                    color: AppTheme.primaryColor,
+                                    onPressed: () => _openSpotify(widget.result.additionalData!['spotifyId'] as String),
                                   ),
                                 ],
                               ],
                             ),
                           ),
-                        ),
+                          const SizedBox(height: 2),
+                        ],
                         
-                        // Add to Favorites button - purple heart (right side)
-                        Container(
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF7B68EE).withOpacity(0.2),
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          child: IconButton(
-                            icon: const Icon(
-                              Icons.favorite,
-                              color: Color(0xFF7B68EE), // Primary purple color
-                              size: 16,
-                            ),
-                            padding: const EdgeInsets.all(4),
-                            constraints: const BoxConstraints(
-                              minWidth: 28,
-                              minHeight: 28,
-                            ),
-                            onPressed: widget.onAddToFavorites,
-                            tooltip: 'Add to Favorites',
+                        // Main controls row
+                        Expanded(
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              // Add to Watchlist button - blue bookmark (left side)
+                              Container(
+                                decoration: BoxDecoration(
+                                  color: Colors.blue.withOpacity(0.2),
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                                child: IconButton(
+                                  icon: const Icon(
+                                    Icons.bookmark_add,
+                                    color: Colors.blue,
+                                    size: 16,
+                                  ),
+                                  padding: const EdgeInsets.all(4),
+                                  constraints: const BoxConstraints(
+                                    minWidth: 28,
+                                    minHeight: 28,
+                                  ),
+                                  onPressed: widget.onAddToWatchlist,
+                                  tooltip: 'Add to ${_getWatchlistTerminology()}',
+                                ),
+                              ),
+                        
+                              // Title and artist/director centered between controls
+                              Expanded(
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6.0),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.center,
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        widget.result.title,
+                                        style: TextStyle(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.w500,
+                                          fontSize: 11,
+                                          shadows: [
+                                            Shadow(
+                                              color: Colors.black.withOpacity(0.5),
+                                              offset: const Offset(0, 1),
+                                              blurRadius: 2,
+                                            ),
+                                          ],
+                                        ),
+                                        maxLines: widget.result.artist != null ? 1 : 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        textAlign: TextAlign.center,
+                                      ),
+                                      if (widget.result.artist != null) ...[
+                                        const SizedBox(height: 1),
+                                        Text(
+                                          widget.result.artist!,
+                                          style: TextStyle(
+                                            color: Colors.white70,
+                                            fontSize: 9,
+                                            shadows: [
+                                              Shadow(
+                                                color: Colors.black.withOpacity(0.3),
+                                                offset: const Offset(0, 1),
+                                                blurRadius: 1,
+                                              ),
+                                            ],
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          textAlign: TextAlign.center,
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                              ),
+                        
+                              // Add to Favorites button - purple heart (right side)
+                              Container(
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF7B68EE).withOpacity(0.2),
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                                child: IconButton(
+                                  icon: const Icon(
+                                    Icons.favorite,
+                                    color: Color(0xFF7B68EE), // Primary purple color
+                                    size: 16,
+                                  ),
+                                  padding: const EdgeInsets.all(4),
+                                  constraints: const BoxConstraints(
+                                    minWidth: 28,
+                                    minHeight: 28,
+                                  ),
+                                  onPressed: widget.onAddToFavorites,
+                                  tooltip: 'Add to Favorites',
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ],
@@ -1414,7 +1498,6 @@ class _WikidataCardState extends State<_WikidataCard> {
                       coverArtUrl: widget.result.imageUrl,
                       youtubeId: widget.result.additionalData?['youtubeId'] as String?,
                       spotifyId: widget.result.additionalData?['spotifyId'] as String?,
-                      similarity: widget.result.additionalData?['similarity'] as double? ?? 1.0,
                       mediaType: widget.mediaType,
                     ),
                     statusResult['mediaItemId'] as int?,
@@ -1513,6 +1596,66 @@ class _WikidataCardState extends State<_WikidataCard> {
       debugPrint('✅ [SEARCH-DRAWER] Handled action: $action for ${item.title}');
     } catch (e) {
       debugPrint('❌ [SEARCH-DRAWER] Error handling drawer action: $e');
+    }
+  }
+
+  Widget _buildMiniPlayButton({
+    required IconData icon,
+    required Color color,
+    required VoidCallback onPressed,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withOpacity(0.3), width: 1),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(10),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            child: Icon(
+              icon,
+              color: color,
+              size: 14,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _openYouTube(String videoId) async {
+    try {
+      final url = 'https://www.youtube.com/watch?v=$videoId';
+      if (await canLaunchUrl(Uri.parse(url))) {
+        await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+      } else {
+        debugPrint('Could not launch YouTube URL: $url');
+      }
+    } catch (e) {
+      debugPrint('Error opening YouTube: $e');
+    }
+  }
+
+  void _openSpotify(String trackId) async {
+    try {
+      final spotifyUrl = 'spotify:track:$trackId';
+      final webUrl = 'https://open.spotify.com/track/$trackId';
+      
+      // Try Spotify app first, fallback to web
+      if (await canLaunchUrl(Uri.parse(spotifyUrl))) {
+        await launchUrl(Uri.parse(spotifyUrl), mode: LaunchMode.externalApplication);
+      } else if (await canLaunchUrl(Uri.parse(webUrl))) {
+        await launchUrl(Uri.parse(webUrl), mode: LaunchMode.externalApplication);
+      } else {
+        debugPrint('Could not launch Spotify URL: $webUrl');
+      }
+    } catch (e) {
+      debugPrint('Error opening Spotify: $e');
     }
   }
 }

@@ -292,6 +292,8 @@ class GrpcRecommendationClient {
       themes: item.themes.isEmpty ? null : item.themes,
       botReasoning: item.reasoning.isEmpty ? 'Recommended based on your preferences' : item.reasoning,
       mediaId: item.mediaId, // Store the vector database media ID
+      youtubeId: item.youtubeId.isEmpty ? null : item.youtubeId,
+      spotifyId: item.spotifyId.isEmpty ? null : item.spotifyId,
       status: SuggestionStatus.pending,
     );
   }

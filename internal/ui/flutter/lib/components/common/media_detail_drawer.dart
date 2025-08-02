@@ -400,10 +400,8 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
               ),
             ),
             
-            // Developer/themes section - increased space for themes/genres/buttons
-            Expanded(
-              flex: 2, // Increased from 1 to accommodate themes/genres/YouTube/Spotify buttons
-              child: Container(
+            // Developer/themes section - dynamic height based on content
+            Container(
                 padding: const EdgeInsets.all(AppTheme.spacingMD),
                 child: Row(
                   children: [
@@ -486,7 +484,7 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
                                     ],
                                   ),
                                 ),
-                                if (hasGenres) const SizedBox(height: AppTheme.spacingXS),
+                                if (hasGenres) const SizedBox(height: 2),
                               ],
                               
                               // Genres with proper text wrapping
@@ -512,7 +510,6 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
                                     ],
                                   ),
                                 ),
-                                const SizedBox(height: AppTheme.spacingXS),
                               ],
                               
                               // Play buttons for YouTube/Spotify
@@ -551,7 +548,6 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
                   ],
                 ),
               ),
-            ),
             
             // Divider line matching display area border
             Container(

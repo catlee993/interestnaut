@@ -1652,6 +1652,8 @@ class MediaItem extends $pb.GeneratedMessage {
     $core.String? themes,
     $core.double? similarityScore,
     $core.String? reasoning,
+    $core.String? youtubeId,
+    $core.String? spotifyId,
   }) {
     final result = create();
     if (mediaId != null) result.mediaId = mediaId;
@@ -1666,6 +1668,8 @@ class MediaItem extends $pb.GeneratedMessage {
     if (themes != null) result.themes = themes;
     if (similarityScore != null) result.similarityScore = similarityScore;
     if (reasoning != null) result.reasoning = reasoning;
+    if (youtubeId != null) result.youtubeId = youtubeId;
+    if (spotifyId != null) result.spotifyId = spotifyId;
     return result;
   }
 
@@ -1695,6 +1699,8 @@ class MediaItem extends $pb.GeneratedMessage {
     ..a<$core.double>(
         11, _omitFieldNames ? '' : 'similarityScore', $pb.PbFieldType.OD)
     ..aOS(12, _omitFieldNames ? '' : 'reasoning')
+    ..aOS(13, _omitFieldNames ? '' : 'youtubeId')
+    ..aOS(14, _omitFieldNames ? '' : 'spotifyId')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -1825,6 +1831,25 @@ class MediaItem extends $pb.GeneratedMessage {
   $core.bool hasReasoning() => $_has(11);
   @$pb.TagNumber(12)
   void clearReasoning() => $_clearField(12);
+
+  /// External service IDs
+  @$pb.TagNumber(13)
+  $core.String get youtubeId => $_getSZ(12);
+  @$pb.TagNumber(13)
+  set youtubeId($core.String value) => $_setString(12, value);
+  @$pb.TagNumber(13)
+  $core.bool hasYoutubeId() => $_has(12);
+  @$pb.TagNumber(13)
+  void clearYoutubeId() => $_clearField(13);
+
+  @$pb.TagNumber(14)
+  $core.String get spotifyId => $_getSZ(13);
+  @$pb.TagNumber(14)
+  set spotifyId($core.String value) => $_setString(13, value);
+  @$pb.TagNumber(14)
+  $core.bool hasSpotifyId() => $_has(13);
+  @$pb.TagNumber(14)
+  void clearSpotifyId() => $_clearField(14);
 }
 
 const $core.bool _omitFieldNames =

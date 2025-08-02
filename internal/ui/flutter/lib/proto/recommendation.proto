@@ -199,4 +199,8 @@ message MediaItem {
   // Recommendation context (when returned as recommendation)
   double similarity_score = 11;
   string reasoning = 12;      // Why this item was recommended
+  
+  // External service IDs
+  string youtube_id = 13;     // YouTube video ID (if available)
+  string spotify_id = 14;     // Spotify track ID (if available)
 } 
