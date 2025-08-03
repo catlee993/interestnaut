@@ -3,6 +3,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../services/sqlite_db.dart';
 import '../music/spotify_service.dart';
 import 'standard_close_button.dart';
+import 'spotify_branding.dart';
 
 /// Preview buttons for media items (YouTube/Spotify for music, YouTube for others)
 class MediaPreviewButtons extends StatelessWidget {
@@ -67,35 +68,41 @@ class MediaPreviewButtons extends StatelessWidget {
   }
 
   Widget _buildYouTubeButton(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () => _handleYouTubePreview(context),
-        borderRadius: BorderRadius.circular(4),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          decoration: BoxDecoration(
-            color: const Color(0xFFFF0000).withOpacity(0.8),
-            borderRadius: BorderRadius.circular(4),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(
-                Icons.play_arrow,
-                color: Colors.white,
-                size: 16,
-              ),
-              const SizedBox(width: 4),
-              const Text(
-                'YouTube',
-                style: TextStyle(
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFFFF0000), // YouTube Red
+        borderRadius: BorderRadius.circular(9999), // Fully rounded like Spotify
+        border: Border.all(
+          color: const Color(0xFFFF0000).withOpacity(0.3),
+          width: 1,
+        ),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () => _handleYouTubePreview(context),
+          borderRadius: BorderRadius.circular(9999),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.play_arrow,
                   color: Colors.white,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
+                  size: 16,
                 ),
-              ),
-            ],
+                const SizedBox(width: 8),
+                const Text(
+                  'Play',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -103,38 +110,11 @@ class MediaPreviewButtons extends StatelessWidget {
   }
 
   Widget _buildSpotifyButton(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () => _handleSpotifyPlay(context),
-        borderRadius: BorderRadius.circular(4),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          decoration: BoxDecoration(
-            color: const Color(0xFF1DB954).withOpacity(0.8),
-            borderRadius: BorderRadius.circular(4),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(
-                Icons.play_arrow,
-                color: Colors.white,
-                size: 16,
-              ),
-              const SizedBox(width: 4),
-              const Text(
-                'Spotify',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+    return SpotifyButton(
+      onPressed: () => _handleSpotifyPlay(context),
+      label: 'Play',
+      iconSize: SpotifyBrandingSize.small,
+      roundedCorners: true,
     );
   }
 
@@ -165,13 +145,26 @@ class MediaPreviewButtons extends StatelessWidget {
       if (success) {
         debugPrint('✅ Playing track on Spotify: $title');
         
-        // Show a brief confirmation
+        // Show a brief confirmation with Spotify attribution
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Playing "$title" on Spotify'),
+              content: Row(
+                children: [
+                  SpotifyBranding(
+                    type: SpotifyBrandingType.iconOnly,
+                    size: SpotifyBrandingSize.small,
+                    color: SpotifyBrandingColor.white,
+                    showAttribution: false,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text('Playing "$title" on Spotify'),
+                  ),
+                ],
+              ),
               duration: const Duration(seconds: 2),
-              backgroundColor: const Color(0xFF1DB954),
+              backgroundColor: const Color(0xFF1ED760), // Official Spotify Green
             ),
           );
         }

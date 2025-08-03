@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../theme.dart';
+import '../common/spotify_branding.dart';
 
 class SpotifyUserControl extends StatelessWidget {
   final Map<String, dynamic>? user;
@@ -50,14 +51,21 @@ class SpotifyUserControl extends StatelessWidget {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
+                SpotifyBranding(
+                  type: SpotifyBrandingType.iconOnly,
+                  size: SpotifyBrandingSize.small,
+                  color: SpotifyBrandingColor.green,
+                  showAttribution: false,
+                ),
+                const SizedBox(width: 6),
                 Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     const Text(
                       'Logged in as',
                       style: TextStyle(
-                        color: Color(0xFF1DB954),
+                        color: Color(0xFF1ED760), // Official Spotify Green
                         fontSize: 8.5, 
                         fontWeight: FontWeight.w300,
                         fontFamily: 'Inter, Roboto, -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif',
@@ -67,7 +75,7 @@ class SpotifyUserControl extends StatelessWidget {
                     Text(
                       displayName,
                       style: const TextStyle(
-                        color: Color(0xFF1DB954),
+                        color: Color(0xFF1ED760), // Official Spotify Green
                         fontSize: 9.5, 
                         fontWeight: FontWeight.w600, 
                         fontFamily: 'Inter, Roboto, -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif',
@@ -79,7 +87,7 @@ class SpotifyUserControl extends StatelessWidget {
                 const SizedBox(width: 6),
                 CircleAvatar(
                   radius: 12,
-                  backgroundColor: hasAvatar ? null : const Color(0xFF1DB954),
+                  backgroundColor: hasAvatar ? null : const Color(0xFF1ED760), // Official Spotify Green
                   backgroundImage: hasAvatar ? NetworkImage(user!['images'][0]['url']) : null,
                   child: hasAvatar
                       ? null

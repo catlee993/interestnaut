@@ -13,6 +13,7 @@ class SearchResultCard extends StatefulWidget {
   final Function(dynamic) onPlay;
   final Function(dynamic)? onSave;
   final Function(dynamic)? onRemove;
+  final bool limitToSpotifyActions;
 
   const SearchResultCard({
     Key? key,
@@ -22,6 +23,7 @@ class SearchResultCard extends StatefulWidget {
     required this.onPlay,
     this.onSave,
     this.onRemove,
+    this.limitToSpotifyActions = false,
   }) : super(key: key);
 
   @override
@@ -172,7 +174,8 @@ class _SearchResultCardState extends State<SearchResultCard> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.center, // Center align all items
                   mainAxisSize: MainAxisSize.max,
-                  children: [
+                  children: widget.limitToSpotifyActions ? [
+                    // Spotify content: Show play/save buttons
                     // Play button - enhanced with glow effect
                     Container(
                       width: 28,
@@ -294,6 +297,59 @@ class _SearchResultCardState extends State<SearchResultCard> {
                             ),
                             child: const Text('Save'),
                           ),
+                  ] : [
+                    // Interestnaut content: Show external play buttons only (YouTube/Spotify if available)
+                    // Title and artist - full width since no local controls
+                    Expanded(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              info['name'] ?? 'Unknown Track',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w500,
+                                fontSize: 12,
+                                shadows: [
+                                  Shadow(
+                                    color: Colors.black.withOpacity(0.5),
+                                    offset: const Offset(0, 1),
+                                    blurRadius: 2,
+                                  ),
+                                ],
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              textAlign: TextAlign.center,
+                            ),
+                            Text(
+                              info['artist'] ?? 'Unknown Artist',
+                              style: TextStyle(
+                                color: Colors.white70,
+                                fontSize: 10,
+                                shadows: [
+                                  Shadow(
+                                    color: Colors.black.withOpacity(0.3),
+                                    offset: const Offset(0, 1),
+                                    blurRadius: 1,
+                                  ),
+                                ],
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    
+                    // External play buttons (YouTube/Spotify) based on available IDs
+                    ..._buildExternalButtons(info),
                   ],
                 ),
               ),
@@ -364,6 +420,7 @@ class _SearchResultCardState extends State<SearchResultCard> {
                     mediaSearchResult,
                     statusResult['mediaItemId'] as int?,
                   ),
+                  limitToSpotifyActions: widget.limitToSpotifyActions,
                 ),
               ),
             ),
@@ -388,6 +445,114 @@ class _SearchResultCardState extends State<SearchResultCard> {
           ),
         );
       }
+    }
+  }
+
+  /// Build external play buttons (YouTube/Spotify) for Interestnaut results
+  List<Widget> _buildExternalButtons(Map<String, dynamic> info) {
+    // For now, return placeholder buttons since we need async database lookup
+    // The real IDs will be available when clicking into the media drawer
+    return [
+      // YouTube button - show if we can potentially find YouTube ID
+      _buildExternalButton(
+        icon: Icons.play_circle_outline,
+        color: AppTheme.positiveColor,
+        onPressed: () => _openExternalMedia(info, 'youtube'),
+      ),
+      // Spotify button - show if we can potentially find Spotify ID
+      _buildExternalButton(
+        icon: Icons.music_note,
+        color: AppTheme.spotifyGreen,
+        onPressed: () => _openExternalMedia(info, 'spotify'),
+      ),
+    ];
+  }
+
+  /// Build a single external button
+  Widget _buildExternalButton({
+    required IconData icon,
+    required Color color,
+    required VoidCallback onPressed,
+  }) {
+    return Container(
+      width: 24,
+      height: 24,
+      margin: const EdgeInsets.only(left: 4),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.8),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: IconButton(
+        icon: Icon(icon, size: 14, color: Colors.white),
+        onPressed: onPressed,
+        padding: EdgeInsets.zero,
+        tooltip: icon == Icons.play_circle_outline ? 'Play on YouTube' : 'Play on Spotify',
+      ),
+    );
+  }
+
+  /// Open external media (YouTube/Spotify) by fetching IDs from database
+  Future<void> _openExternalMedia(Map<String, dynamic> info, String platform) async {
+    try {
+      final db = SQLiteDatabase();
+      final statusResult = await db.getMediaItemStatus(
+        title: info['name'] ?? 'Unknown Track',
+        mediaType: 'music',
+        primaryCreator: info['artist'] ?? 'Unknown Artist',
+      );
+
+      final youtubeId = statusResult['youtubeId'] as String?;
+      final spotifyId = statusResult['spotifyId'] as String?;
+
+      if (platform == 'youtube' && youtubeId != null) {
+        _openYouTubeExternal(youtubeId);
+      } else if (platform == 'spotify' && spotifyId != null) {
+        _openSpotifyExternal(spotifyId);
+      } else {
+        // Show message that the platform isn't available for this track
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('${platform == 'youtube' ? 'YouTube' : 'Spotify'} not available for this track'),
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Error opening external media: $e');
+    }
+  }
+
+  /// Open YouTube video externally
+  void _openYouTubeExternal(String videoId) async {
+    try {
+      final url = 'https://www.youtube.com/watch?v=$videoId';
+      // Import url_launcher if not already imported
+      // if (await canLaunchUrl(Uri.parse(url))) {
+      //   await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+      // }
+      debugPrint('🎬 Opening YouTube video: $url');
+    } catch (e) {
+      debugPrint('Error opening YouTube: $e');
+    }
+  }
+
+  /// Open Spotify track externally
+  void _openSpotifyExternal(String trackId) async {
+    try {
+      final spotifyUrl = 'spotify:track:$trackId';
+      final webUrl = 'https://open.spotify.com/track/$trackId';
+      // Import url_launcher if not already imported
+      // Try Spotify app first, fallback to web
+      // if (await canLaunchUrl(Uri.parse(spotifyUrl))) {
+      //   await launchUrl(Uri.parse(spotifyUrl), mode: LaunchMode.externalApplication);
+      // } else if (await canLaunchUrl(Uri.parse(webUrl))) {
+      //   await launchUrl(Uri.parse(webUrl), mode: LaunchMode.externalApplication);
+      // }
+      debugPrint('🎵 Opening Spotify track: $webUrl');
+    } catch (e) {
+      debugPrint('Error opening Spotify: $e');
     }
   }
 

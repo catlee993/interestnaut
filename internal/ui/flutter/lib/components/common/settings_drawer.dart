@@ -8,15 +8,20 @@ import '../../services/sqlite_db.dart';
 import '../../services/continuous_playback_service.dart';
 import 'media_history_screen.dart';
 import 'standard_close_button.dart';
+import 'spotify_branding.dart';
 
 class SettingsDrawer extends StatefulWidget {
   final String mediaType;
   final VoidCallback onClose;
+  final bool? spotifySearchEnabled;
+  final ValueChanged<bool>? onSpotifySearchToggle;
 
   const SettingsDrawer({
     Key? key,
     required this.mediaType,
     required this.onClose,
+    this.spotifySearchEnabled,
+    this.onSpotifySearchToggle,
   }) : super(key: key);
 
   @override
@@ -26,7 +31,7 @@ class SettingsDrawer extends StatefulWidget {
 class _SettingsDrawerState extends State<SettingsDrawer> with SingleTickerProviderStateMixin {
   late TabController _tabController;
   bool _continuousPlayback = false;
-  bool _youTubePreviews = false;
+  bool _spotifySearchEnabled = false;
   final SQLiteDatabase _db = SQLiteDatabase();
   final ContinuousPlaybackService _continuousPlaybackService = ContinuousPlaybackService();
 
@@ -34,6 +39,7 @@ class _SettingsDrawerState extends State<SettingsDrawer> with SingleTickerProvid
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
+    _spotifySearchEnabled = widget.spotifySearchEnabled ?? false;
     _loadSettings();
   }
 
@@ -56,13 +62,8 @@ class _SettingsDrawerState extends State<SettingsDrawer> with SingleTickerProvid
         });
       }
 
-      // Load YouTube previews setting (all media types)
-      debugPrint('📱 Loading YouTube previews setting from general_settings...');
-      final youTubePreviews = await _db.getYouTubePreviewsSetting();
-      debugPrint('📱 YouTube previews value: $youTubePreviews');
-      setState(() {
-        _youTubePreviews = youTubePreviews;
-      });
+      // Spotify search is managed by parent widget state
+      // YouTube previews are always enabled now
     } catch (e) {
       debugPrint('❌ Error loading settings: $e');
     }
@@ -90,23 +91,12 @@ class _SettingsDrawerState extends State<SettingsDrawer> with SingleTickerProvid
     }
   }
 
-  /// Save the YouTube previews setting to database
-  Future<void> _saveYouTubePreviewsSetting(bool value) async {
-    try {
-      debugPrint('💾 Saving YouTube previews setting: $value');
-      final success = await _db.setYouTubePreviewsSetting(value);
-      debugPrint('💾 Save result: $success');
-      
-      setState(() {
-        _youTubePreviews = value;
-      });
-      
-      // Verify it was saved
-      final savedValue = await _db.getYouTubePreviewsSetting();
-      debugPrint('💾 Verification - YouTube previews after save: $savedValue');
-    } catch (e) {
-      debugPrint('❌ Error saving YouTube previews setting: $e');
-    }
+  /// Toggle Spotify search setting
+  void _toggleSpotifySearch(bool value) {
+    setState(() {
+      _spotifySearchEnabled = value;
+    });
+    widget.onSpotifySearchToggle?.call(value);
   }
 
   String get _mediaDisplayName {
@@ -298,22 +288,69 @@ class _SettingsDrawerState extends State<SettingsDrawer> with SingleTickerProvid
                   ),
                   const SizedBox(height: 12),
                   
-                  // YouTube Previews (all media types)
-                  SwitchListTile(
-                    value: _youTubePreviews,
-                    onChanged: _saveYouTubePreviewsSetting,
-                    title: const Text(
-                      'Enable YouTube previews if available',
-                      style: TextStyle(color: Colors.white, fontSize: 14),
+                  // Spotify Search (music only)
+                  if (widget.mediaType == 'music') ...[
+                    Row(
+                      children: [
+                        Switch(
+                          value: _spotifySearchEnabled,
+                          onChanged: _toggleSpotifySearch,
+                          activeColor: const Color(0xFF1ED760), // Spotify green
+                          activeTrackColor: const Color(0x881ED760),
+                          inactiveThumbColor: Colors.grey[400],
+                          inactiveTrackColor: Colors.grey[800],
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Row(
+                            children: [
+                              if (_spotifySearchEnabled) ...[
+                                SpotifyBranding(
+                                  type: SpotifyBrandingType.iconOnly,
+                                  size: SpotifyBrandingSize.small,
+                                  color: SpotifyBrandingColor.green,
+                                  showAttribution: false,
+                                ),
+                                const SizedBox(width: 8),
+                                const Text(
+                                  'Use Spotify search',
+                                  style: TextStyle(color: Color(0xFF1ED760), fontSize: 14, fontWeight: FontWeight.w500),
+                                ),
+                              ] else ...[
+                                Container(
+                                  width: 16,
+                                  height: 16,
+                                  decoration: const BoxDecoration(
+                                    gradient: LinearGradient(
+                                      colors: [Color(0xFFC165DD), Color(0xFF9880FF)],
+                                      begin: Alignment.topLeft,
+                                      end: Alignment.bottomRight,
+                                    ),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Center(
+                                    child: Text(
+                                      'I',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 8,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                const Text(
+                                  'Use Interestnaut search',
+                                  style: TextStyle(color: Color(0xFF7B68EE), fontSize: 14, fontWeight: FontWeight.w500),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
-                    activeColor: const Color(0xFF7B68EE),
-                    activeTrackColor: const Color(0x887B68EE),
-                    inactiveThumbColor: Colors.grey[400],
-                    inactiveTrackColor: Colors.grey[800],
-                    contentPadding: EdgeInsets.zero,
-                    controlAffinity: ListTileControlAffinity.leading,
-                    dense: true,
-                  ),
+                  ],
                   
                   // Continuous Playback (music only)
                   if (widget.mediaType == 'music') ...[
@@ -334,7 +371,12 @@ class _SettingsDrawerState extends State<SettingsDrawer> with SingleTickerProvid
 }
 
 /// Shows the media-specific settings drawer as an overlay
-void showMediaSpecificSettingsDrawer(BuildContext context, String mediaType) {
+void showMediaSpecificSettingsDrawer(
+  BuildContext context, 
+  String mediaType, {
+  bool? spotifySearchEnabled,
+  ValueChanged<bool>? onSpotifySearchToggle,
+}) {
   Navigator.of(context).push(
     PageRouteBuilder(
       opaque: false,
@@ -345,6 +387,8 @@ void showMediaSpecificSettingsDrawer(BuildContext context, String mediaType) {
           alignment: Alignment.centerRight,
           child: SettingsDrawer(
             mediaType: mediaType,
+            spotifySearchEnabled: spotifySearchEnabled,
+            onSpotifySearchToggle: onSpotifySearchToggle,
             onClose: () => Navigator.of(context).pop(),
           ),
         );

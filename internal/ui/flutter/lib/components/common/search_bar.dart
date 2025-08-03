@@ -138,6 +138,14 @@ class _SearchBarState extends State<SearchBar> {
               focusNode: _focusNode,
               onChanged: _onChanged,
               onSubmitted: _onSubmitted,
+              onTap: () {
+                // Auto-search when clicking on field with existing text
+                if (_controller.text.isNotEmpty && _controller.text != _lastSearch) {
+                  _debounce?.cancel();
+                  _lastSearch = _controller.text;
+                  widget.onSearch(_controller.text);
+                }
+              },
               decoration: InputDecoration(
                 hintText: widget.placeholder,
                 filled: false,

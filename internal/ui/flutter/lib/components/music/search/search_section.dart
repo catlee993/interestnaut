@@ -3,6 +3,7 @@ import '../../../models.dart';
 import '../tracks/search_result_card.dart';
 import '../../common/media_grid.dart';
 import '../../common/standard_close_button.dart';
+import '../../common/spotify_branding.dart';
 
 class SearchSection extends StatelessWidget {
   final List<SimpleTrack> searchResults;
@@ -14,6 +15,9 @@ class SearchSection extends StatelessWidget {
   final Future<void> Function(SimpleTrack) onRemove;
   final VoidCallback onRetry;
   final VoidCallback onClose;
+  final bool limitToSpotifyActions;
+  final bool? spotifySearchEnabled;
+  final ValueChanged<bool>? onSpotifySearchToggle;
 
   const SearchSection({
     Key? key,
@@ -26,6 +30,9 @@ class SearchSection extends StatelessWidget {
     required this.onRemove,
     required this.onRetry,
     required this.onClose,
+    this.limitToSpotifyActions = false,
+    this.spotifySearchEnabled,
+    this.onSpotifySearchToggle,
   }) : super(key: key);
 
   String _getSearchResultsText(int count) {
@@ -114,24 +121,61 @@ class SearchSection extends StatelessWidget {
     // Display search results with sticky X button at top
     return Column(
       children: [
-        // Sticky header with results count and X button
+        // Sticky header with results count and X button - minimal top padding
         Container(
-          padding: const EdgeInsets.fromLTRB(32.0, 16.0, 16.0, 8.0),
+          padding: const EdgeInsets.fromLTRB(32.0, 4.0, 16.0, 8.0),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Transform.scale(
-                scaleX: 1.15, // Same horizontal stretch as stylized headers
-                child: Text(
-                  _getSearchResultsText(searchResults.length),
-                  style: const TextStyle(
-                    fontFamily: 'Inter',
-                    color: Colors.white,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w300,
-                    letterSpacing: 1.2,
+              Row(
+                children: [
+                  // Spotify search toggle - positioned left
+                  if (onSpotifySearchToggle != null) ...[
+                    _SpotifyToggleButton(
+                      spotifySearchEnabled: spotifySearchEnabled ?? false,
+                      onToggle: onSpotifySearchToggle!,
+                    ),
+                    const SizedBox(width: 24), // More spacing
+                  ],
+                  // Results count text
+                  Transform.scale(
+                    scaleX: 1.15, // Same horizontal stretch as stylized headers
+                    child: Text(
+                      _getSearchResultsText(searchResults.length),
+                      style: const TextStyle(
+                        fontFamily: 'Inter',
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w300,
+                        letterSpacing: 1.2,
+                      ),
+                    ),
                   ),
-                ),
+                  // Info icon with tooltip for Spotify searches - positioned to the right
+                  if (limitToSpotifyActions && searchResults.isNotEmpty) ...[
+                    const SizedBox(width: 16), // Spacing before info icon
+                    Tooltip(
+                      message: 'Spotify content can be added to your Spotify library but cannot be used with Interestnaut reactions',
+                      padding: const EdgeInsets.all(12),
+                      margin: const EdgeInsets.symmetric(horizontal: 32),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.9),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      textStyle: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w300,
+                      ),
+                      preferBelow: false,
+                      child: Icon(
+                        Icons.info_outline,
+                        color: Colors.lightBlue.withOpacity(0.7),
+                        size: 16,
+                      ),
+                    ),
+                  ],
+                ],
               ),
               StandardCloseButton(
                 onPressed: onClose,
@@ -155,6 +199,7 @@ class SearchSection extends StatelessWidget {
                           onPlay: (t) => onPlay(t),
                           onSave: (t) => onSave(t),
                           onRemove: (t) => onRemove(t),
+                          limitToSpotifyActions: limitToSpotifyActions,
                         ))
                     .toList(),
               ),
@@ -162,6 +207,120 @@ class SearchSection extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+// Interactive toggle button with hover effects
+class _SpotifyToggleButton extends StatefulWidget {
+  final bool spotifySearchEnabled;
+  final ValueChanged<bool> onToggle;
+
+  const _SpotifyToggleButton({
+    required this.spotifySearchEnabled,
+    required this.onToggle,
+  });
+
+  @override
+  State<_SpotifyToggleButton> createState() => _SpotifyToggleButtonState();
+}
+
+class _SpotifyToggleButtonState extends State<_SpotifyToggleButton> {
+  bool _isHovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      onEnter: (_) => setState(() => _isHovered = true),
+      onExit: (_) => setState(() => _isHovered = false),
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: () => widget.onToggle(!widget.spotifySearchEnabled),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          transform: _isHovered 
+              ? (Matrix4.identity()..scale(1.05))
+              : Matrix4.identity(),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: widget.spotifySearchEnabled
+                ? const Color(0xFF1ED760).withOpacity(_isHovered ? 0.3 : 0.2)
+                : const Color(0xFF7B68EE).withOpacity(_isHovered ? 0.3 : 0.2),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: widget.spotifySearchEnabled
+                  ? const Color(0xFF1ED760).withOpacity(_isHovered ? 0.7 : 0.5)
+                  : const Color(0xFF7B68EE).withOpacity(_isHovered ? 0.7 : 0.5),
+              width: _isHovered ? 2 : 1,
+            ),
+            boxShadow: _isHovered ? [
+              BoxShadow(
+                color: widget.spotifySearchEnabled
+                    ? const Color(0xFF1ED760).withOpacity(0.3)
+                    : const Color(0xFF7B68EE).withOpacity(0.3),
+                blurRadius: 8,
+                spreadRadius: 1,
+              ),
+            ] : [],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (widget.spotifySearchEnabled) ...[
+                SpotifyBranding(
+                  type: SpotifyBrandingType.iconOnly,
+                  size: SpotifyBrandingSize.small,
+                  color: SpotifyBrandingColor.green,
+                  showAttribution: false,
+                ),
+                const SizedBox(width: 6),
+                const Text(
+                  'SPOTIFY',
+                  style: TextStyle(
+                    color: Color(0xFF1ED760),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 1.0,
+                  ),
+                ),
+              ] else ...[
+                Container(
+                  width: 16,
+                  height: 16,
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [Color(0xFFC165DD), Color(0xFF9880FF)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Center(
+                    child: Text(
+                      'I',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 8,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                const Text(
+                  'INTERESTNAUT',
+                  style: TextStyle(
+                    color: Color(0xFF7B68EE),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 1.0,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

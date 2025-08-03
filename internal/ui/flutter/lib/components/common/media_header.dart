@@ -14,6 +14,8 @@ class MediaHeader extends StatefulWidget {
   final String currentMedia;
   final void Function(String)? onMediaChange;
   final String searchQuery;
+  final bool? spotifySearchEnabled;
+  final ValueChanged<bool>? onSpotifySearchToggle;
 
   const MediaHeader({
     Key? key,
@@ -23,6 +25,8 @@ class MediaHeader extends StatefulWidget {
     this.currentMedia = 'music',
     this.onMediaChange,
     this.searchQuery = '',
+    this.spotifySearchEnabled,
+    this.onSpotifySearchToggle,
   }) : super(key: key);
 
   @override
@@ -381,7 +385,12 @@ class _MediaHeaderState extends State<MediaHeader> {
                               icon: const Icon(Icons.settings, color: Color(0xFF7b68ee), size: 20),
                               onPressed: () {
                                 // Use the showMediaSpecificSettingsDrawer function to display drawer as overlay
-                                showMediaSpecificSettingsDrawer(context, widget.currentMedia);
+                                showMediaSpecificSettingsDrawer(
+                                  context, 
+                                  widget.currentMedia,
+                                  spotifySearchEnabled: widget.spotifySearchEnabled,
+                                  onSpotifySearchToggle: widget.onSpotifySearchToggle,
+                                );
                               },
                               padding: const EdgeInsets.all(2),
                               splashRadius: 18,

@@ -3,6 +3,7 @@ import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'music_section_controller.dart';
 import 'library/library_section.dart';
 import '../../theme.dart';
+import '../common/spotify_branding.dart';
 
 class SpotifySection extends StatelessWidget {
   final MusicSectionController controller;
@@ -23,7 +24,26 @@ class SpotifySection extends StatelessWidget {
       children: [
         const SizedBox(height: 32.0), // Add spacing before the title
         Center(
-          child: AppTheme.themedLibraryHeader('SPOTIFY LIBRARY'),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SpotifyBranding(
+                type: SpotifyBrandingType.fullLogo,
+                size: SpotifyBrandingSize.small,
+                color: SpotifyBrandingColor.green,
+                showAttribution: false,
+              ),
+              const SizedBox(width: 12),
+              Text(
+                'LIBRARY',
+                style: AppTheme.suggestionHeaderSmall.copyWith(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w200,
+                  letterSpacing: 2.0,
+                ),
+              ),
+            ],
+          ),
         ),
         const SizedBox(height: 24.0), // Add spacing between title and content
         _buildSpotifyContent(context),

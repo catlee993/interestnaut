@@ -23,6 +23,7 @@ import 'components/tv/tv_show_section.dart';
 import 'components/common/media_header.dart';
 import 'components/common/media_grid.dart';
 import 'components/common/media_detail_drawer.dart';
+import 'components/common/spotify_branding.dart';
 import 'components/music/spotify_service.dart';
 import 'components/music/player/spotify_player_view.dart';
 import 'components/music/player/spotify_web_player.dart';
@@ -230,6 +231,7 @@ class _InterestnautAppState extends State<InterestnautApp> {
   String _currentMediaType = 'music'; // Default media type
   String _searchQuery = '';
   bool _isSearchActive = false;
+  bool _isSpotifySearchEnabled = false; // Toggle for Spotify vs Interestnaut search
 
   void _handleSearch(String query) {
     setState(() {
@@ -237,7 +239,8 @@ class _InterestnautAppState extends State<InterestnautApp> {
       _isSearchActive = query.isNotEmpty;
     });
 
-    debugPrint('Searching for "$query" in $_currentMediaType');
+    String searchType = _currentMediaType == 'music' && _isSpotifySearchEnabled ? 'spotify' : _currentMediaType;
+    debugPrint('Searching for "$query" in $searchType (media: $_currentMediaType, spotify: $_isSpotifySearchEnabled)');
   }
 
   void _clearSearch() {
@@ -247,6 +250,23 @@ class _InterestnautAppState extends State<InterestnautApp> {
     });
   }
 
+  void _closeSearchResults() {
+    setState(() {
+      _isSearchActive = false;
+      // Keep _searchQuery so text stays in search field
+    });
+  }
+
+  void _toggleSearchType() {
+    setState(() {
+      _isSpotifySearchEnabled = !_isSpotifySearchEnabled;
+    });
+    // Re-perform search with the new type without clearing
+    if (_searchQuery.isNotEmpty) {
+      _handleSearch(_searchQuery);
+    }
+  }
+
   void _handleMediaChange(String media) {
     // Clear any active focus when switching media types to prevent keyboard conflicts
     FocusScope.of(context).unfocus();
@@ -254,6 +274,11 @@ class _InterestnautAppState extends State<InterestnautApp> {
     setState(() {
       _currentMediaType = media;
     });
+  }
+
+  Widget? _buildSearchToggle() {
+    // Moved to settings drawer for music section
+    return null;
   }
 
   @override
@@ -279,6 +304,9 @@ class _InterestnautAppState extends State<InterestnautApp> {
               currentMedia: _currentMediaType,
               onMediaChange: _handleMediaChange,
               searchQuery: _searchQuery,
+              additionalControl: _buildSearchToggle(),
+              spotifySearchEnabled: _isSpotifySearchEnabled,
+              onSpotifySearchToggle: (value) => _toggleSearchType(),
             ),
           ),
           // Global Spotify Player Bar - positioned at bottom, shows when music is playing
@@ -393,7 +421,10 @@ class _InterestnautAppState extends State<InterestnautApp> {
             child: _UnifiedSearchHandler(
               searchQuery: _searchQuery,
               mediaType: _currentMediaType,
-              onClearSearch: _clearSearch,
+              searchType: _currentMediaType == 'music' && _isSpotifySearchEnabled ? 'spotify' : _currentMediaType,
+              onClearSearch: _closeSearchResults,
+              spotifySearchEnabled: _isSpotifySearchEnabled,
+              onSpotifySearchToggle: (value) => _toggleSearchType(),
             ),
           ),
         ),
@@ -439,13 +470,19 @@ class MediaSearchResult {
 class _UnifiedSearchHandler extends StatefulWidget {
   final String searchQuery;
   final String mediaType;
+  final String searchType;
   final VoidCallback onClearSearch;
+  final bool? spotifySearchEnabled;
+  final ValueChanged<bool>? onSpotifySearchToggle;
 
   const _UnifiedSearchHandler({
     Key? key,
     required this.searchQuery,
     required this.mediaType,
+    required this.searchType,
     required this.onClearSearch,
+    this.spotifySearchEnabled,
+    this.onSpotifySearchToggle,
   }) : super(key: key);
 
   @override
@@ -472,7 +509,10 @@ class _UnifiedSearchHandlerState extends State<_UnifiedSearchHandler> {
   @override
   void didUpdateWidget(_UnifiedSearchHandler oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.searchQuery != oldWidget.searchQuery || widget.mediaType != oldWidget.mediaType) {
+    if (widget.searchQuery != oldWidget.searchQuery || 
+        widget.mediaType != oldWidget.mediaType ||
+        widget.searchType != oldWidget.searchType ||
+        widget.spotifySearchEnabled != oldWidget.spotifySearchEnabled) {
       _checkSpotifyStatus();
       _performSearch(widget.searchQuery);
     }
@@ -512,11 +552,12 @@ class _UnifiedSearchHandlerState extends State<_UnifiedSearchHandler> {
       setState(() {
         _isLoading = true;
         _error = null;
+        _searchResults = []; // Clear previous results when starting new search
       });
 
       try {
-        if (widget.mediaType == 'music' && _isSpotifyActive) {
-          // Use Spotify for music when authenticated
+        if (widget.searchType == 'spotify' && _isSpotifyActive) {
+          // Use Spotify search when toggle is enabled and authenticated
           final results = await _spotifyService.searchTracks(query);
           if (mounted) {
             setState(() {
@@ -911,10 +952,79 @@ class _UnifiedSearchHandlerState extends State<_UnifiedSearchHandler> {
 
   @override
   Widget build(BuildContext context) {
-    if (widget.mediaType == 'music' && _isSpotifyActive) {
-      // Use existing SearchSection for Spotify results
+    if (widget.searchType == 'spotify') {
+      if (_isSpotifyActive) {
+        // Use existing SearchSection for Spotify results with limited actions
+        return SearchSection(
+          searchResults: _searchResults.whereType<SimpleTrack>().toList(),
+          isLoading: _isLoading,
+          error: _error,
+          onSearch: _performSearch,
+          onPlay: _handlePlay,
+          onSave: _handleSave,
+          onRemove: (track) async {}, // TODO: Implement remove functionality
+          onRetry: () => _performSearch(widget.searchQuery),
+          onClose: widget.onClearSearch,
+          limitToSpotifyActions: true, // Limit actions for Spotify content
+          spotifySearchEnabled: widget.spotifySearchEnabled,
+          onSpotifySearchToggle: widget.onSpotifySearchToggle,
+        );
+      } else {
+        // Show authentication required message
+        return Container(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              SpotifyBranding(
+                type: SpotifyBrandingType.fullLogo,
+                size: SpotifyBrandingSize.medium,
+                color: SpotifyBrandingColor.green,
+                showAttribution: false,
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Connect to Spotify to search music',
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontSize: 16,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Use the Spotify button in the header to connect',
+                style: TextStyle(
+                  color: Colors.white54,
+                  fontSize: 14,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        );
+      }
+    } else if (widget.mediaType == 'music') {
+      // Convert WikidataSearchResult to SimpleTrack for music searches
+      final simpleTracks = _searchResults.map((result) {
+        if (result is WikidataSearchResult) {
+          final spotifyId = result.additionalData?['spotifyId'] as String?;
+          return SimpleTrack(
+            id: result.id,
+            name: result.title,
+            artist: result.artist ?? 'Unknown Artist',
+            album: result.description ?? '',
+            albumArtUrl: result.imageUrl ?? '',
+            previewUrl: null,
+            uri: spotifyId ?? '',
+          );
+        }
+        return result as SimpleTrack;
+      }).toList();
+      
+      // Use SearchSection for Interestnaut music search results  
       return SearchSection(
-        searchResults: _searchResults.cast<SimpleTrack>(),
+        searchResults: simpleTracks,
         isLoading: _isLoading,
         error: _error,
         onSearch: _performSearch,
@@ -923,6 +1033,9 @@ class _UnifiedSearchHandlerState extends State<_UnifiedSearchHandler> {
         onRemove: (track) async {}, // TODO: Implement remove functionality
         onRetry: () => _performSearch(widget.searchQuery),
         onClose: widget.onClearSearch,
+        limitToSpotifyActions: false, // Full actions for Interestnaut content
+        spotifySearchEnabled: widget.spotifySearchEnabled,
+        onSpotifySearchToggle: widget.onSpotifySearchToggle,
       );
     } else {
       // Create a new search section for Wikipedia results

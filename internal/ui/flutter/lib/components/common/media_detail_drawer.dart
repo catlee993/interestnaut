@@ -4,6 +4,8 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:youtube_player_flutter/youtube_player_flutter.dart';
 import '../../theme.dart';
 import '../../services/sqlite_db.dart';
+import '../../services/grpc_client.dart'; // For Interestnaut search
+import '../../services/wikidata_service.dart'; // For WikidataSearchResult
 import 'media_action_icons.dart';
 import '../../models.dart'; // For MediaDisplayHelper
 import '../music/spotify_service.dart'; // For Spotify playback
@@ -126,6 +128,7 @@ class MediaDetailDrawer extends StatefulWidget {
   final bool isInWatchlist;
   final bool hasSkipped;
   final Function(String) onAction;
+  final bool limitToSpotifyActions;
 
   const MediaDetailDrawer({
     Key? key,
@@ -144,6 +147,7 @@ class MediaDetailDrawer extends StatefulWidget {
     required this.isInWatchlist,
     required this.hasSkipped,
     required this.onAction,
+    this.limitToSpotifyActions = false,
   }) : super(key: key);
 
   @override
@@ -334,7 +338,7 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
                                   fontFamily: 'Inter',
                                   fontSize: 11,
                                   fontWeight: FontWeight.w500,
-                                  letterSpacing: 1.8,
+                                  letterSpacing: 1.0,
                                 ),
                               ),
                               textDirection: TextDirection.ltr,
@@ -366,7 +370,7 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
                                 fontWeight: FontWeight.w200,
                                 color: Colors.white,
                               ),
-                              letterSpacing: 4.0, // Wide letter spacing effect
+                              letterSpacing: 2.8, // More compact letter spacing
                               scaleX: 1.15, // 15% horizontal expansion with proper constraint handling
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
@@ -604,52 +608,108 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
               ),
             ),
             
-            // Centralized action icons at bottom with YouTube/Spotify on left - fixed height
+            // Action section - different for Spotify vs regular content
             Container(
               padding: const EdgeInsets.all(AppTheme.spacingMD),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              child: Column(
                 children: [
-                  // YouTube icon on far left if available
-                  if (widget.youtubeId != null) ...[
-                    _buildExternalMediaButton(
-                      icon: Icons.play_circle_outline,
-                      color: AppTheme.positiveColor,
-                      onPressed: () => _openYouTube(widget.youtubeId!),
+                  // Spotify limitation note for Spotify content
+                  if (widget.limitToSpotifyActions) ...[
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.info_outline,
+                            color: Colors.lightBlue.withOpacity(0.7),
+                            size: 14,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Spotify content can be saved to your library but cannot be reacted to with Interestnaut',
+                              style: TextStyle(
+                                color: Colors.lightBlue.withOpacity(0.8),
+                                fontSize: 11,
+                                fontWeight: FontWeight.w400,
+                                letterSpacing: 0.5,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ],
-                  // Spotify icon next to YouTube if available
-                  if (widget.spotifyId != null) ...[
-                    _buildExternalMediaButton(
-                      icon: Icons.music_note,
-                      color: AppTheme.spotifyGreen,
-                      onPressed: () => _openSpotify(widget.spotifyId!),
-                    ),
-                  ],
-                  // Main action buttons
-                  MediaActionButton(
-                    type: MediaActionType.like,
-                    isActive: _currentLiked,
-                    onPressed: () => _handleAction('like'),
-                    iconSize: 28,
-                  ),
-                  MediaActionButton(
-                    type: MediaActionType.dislike,
-                    isActive: _currentDisliked,
-                    onPressed: () => _handleAction('dislike'),
-                    iconSize: 28,
-                  ),
-                  MediaActionButton(
-                    type: MediaActionType.favorite,
-                    isActive: _currentFavorited,
-                    onPressed: () => _handleAction('favorite'),
-                    iconSize: 28,
-                  ),
-                  MediaActionButton(
-                    type: MediaActionType.watchlist,
-                    isActive: _currentWatchlisted,
-                    onPressed: () => _handleAction('watchlist'),
-                    iconSize: 28,
+                  // Action buttons row
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      // YouTube icon on far left if available
+                      if (widget.youtubeId != null) ...[
+                        _buildExternalMediaButton(
+                          icon: Icons.play_circle_outline,
+                          color: AppTheme.positiveColor,
+                          onPressed: () => _openYouTube(widget.youtubeId!),
+                        ),
+                      ],
+                      
+                      // Spotify content: Show only Spotify actions, no Interestnaut reactions
+                      if (widget.limitToSpotifyActions) ...[
+                        // Spotify play button
+                        if (widget.spotifyId != null) ...[
+                          _buildExternalMediaButton(
+                            icon: Icons.music_note,
+                            color: AppTheme.spotifyGreen,
+                            onPressed: () => _openSpotify(widget.spotifyId!),
+                          ),
+                          _buildExternalMediaButton(
+                            icon: Icons.add_circle_outline,
+                            color: AppTheme.spotifyGreen,
+                            onPressed: () => _saveToSpotify(widget.spotifyId!),
+                          ),
+                        ],
+                        // Special button to find Interestnaut match
+                        _buildExternalMediaButton(
+                          icon: Icons.search,
+                          color: AppTheme.primaryColor,
+                          onPressed: () => _findInterestnatMatch(),
+                        ),
+                      ] else ...[
+                        // Regular content: Show Spotify play if available + full Interestnaut reactions
+                        if (widget.spotifyId != null) ...[
+                          _buildExternalMediaButton(
+                            icon: Icons.music_note,
+                            color: AppTheme.spotifyGreen,
+                            onPressed: () => _openSpotify(widget.spotifyId!),
+                          ),
+                        ],
+                        // Main action buttons for regular content
+                        MediaActionButton(
+                          type: MediaActionType.like,
+                          isActive: _currentLiked,
+                          onPressed: () => _handleAction('like'),
+                          iconSize: 28,
+                        ),
+                        MediaActionButton(
+                          type: MediaActionType.dislike,
+                          isActive: _currentDisliked,
+                          onPressed: () => _handleAction('dislike'),
+                          iconSize: 28,
+                        ),
+                        MediaActionButton(
+                          type: MediaActionType.favorite,
+                          isActive: _currentFavorited,
+                          onPressed: () => _handleAction('favorite'),
+                          iconSize: 28,
+                        ),
+                        MediaActionButton(
+                          type: MediaActionType.watchlist,
+                          isActive: _currentWatchlisted,
+                          onPressed: () => _handleAction('watchlist'),
+                          iconSize: 28,
+                        ),
+                      ],
+                    ],
                   ),
                 ],
             ),
@@ -713,7 +773,7 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
           fontFamily: 'Inter', // Match the primary font family
           fontSize: 11, // Skinnier/smaller
           fontWeight: FontWeight.w500, // Slightly bolder than w400 but not too heavy
-          letterSpacing: 1.8, // Wide letter spacing for that sleek look
+          letterSpacing: 1.2, // More compact letter spacing for sleek look
           color: color,
         ),
         textAlign: TextAlign.right,
@@ -871,6 +931,375 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
       debugPrint('Could not launch Spotify URL: $webUrl');
     }
   }
+
+  void _saveToSpotify(String trackId) async {
+    try {
+      final spotifyService = SpotifyService();
+      
+      // Check if user is authenticated
+      final isAuthenticated = await spotifyService.checkAuthentication();
+      
+      if (!isAuthenticated) {
+        // Show authentication dialog
+        if (mounted) {
+          showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              backgroundColor: const Color(0xFF1E1E1E),
+              title: Row(
+                children: [
+                  Icon(Icons.add_circle_outline, color: AppTheme.spotifyGreen),
+                  const SizedBox(width: 8),
+                  const Text('Spotify Login Required', style: TextStyle(color: AppTheme.textPrimary)),
+                ],
+              ),
+              content: const Text(
+                'Please log in to Spotify to save tracks to your library.',
+                style: TextStyle(color: AppTheme.textSecondary),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: Text('Cancel', style: TextStyle(color: AppTheme.textSecondary)),
+                ),
+                TextButton(
+                  onPressed: () async {
+                    Navigator.of(context).pop();
+                    // Attempt authentication
+                    try {
+                      await spotifyService.authenticate(context);
+                      // Retry saving after authentication
+                      _saveToSpotify(trackId);
+                    } catch (e) {
+                      debugPrint('Authentication failed: $e');
+                    }
+                  },
+                  child: Text('Login to Spotify', style: TextStyle(color: AppTheme.spotifyGreen)),
+                ),
+              ],
+            ),
+          );
+        }
+        return;
+      }
+
+      // Try to save the track to the user's library
+      final success = await spotifyService.saveTrack(trackId);
+      
+      if (success) {
+        debugPrint('✅ Successfully saved track to Spotify library: $trackId');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Track saved to your Spotify library'),
+              backgroundColor: AppTheme.spotifyGreen,
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
+      } else {
+        debugPrint('❌ Failed to save track to Spotify library');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Failed to save track to library'),
+              backgroundColor: AppTheme.dislikeColor,
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Error saving track to Spotify: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error saving track: $e'),
+            backgroundColor: AppTheme.dislikeColor,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    }
+  }
+
+  void _findInterestnatMatch() async {
+    if (!widget.limitToSpotifyActions) return;
+    
+    try {
+      // Show loading state
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation(Colors.white),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Text('Searching for Interestnaut match...'),
+              ],
+            ),
+            backgroundColor: AppTheme.primaryColor,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+
+      // Prepare search queries with fallback strategy
+      final List<String> searchQueries = [];
+      
+      // Primary: "artist album title"
+      if (widget.artist != null && widget.artist!.isNotEmpty) {
+        final albumFromDescription = _extractAlbumFromDescription();
+        if (albumFromDescription != null && albumFromDescription.isNotEmpty) {
+          searchQueries.add('${widget.artist!} $albumFromDescription ${widget.title}');
+        }
+        // Secondary: "artist title" 
+        searchQueries.add('${widget.artist!} ${widget.title}');
+        // Tertiary: "artist" only
+        searchQueries.add(widget.artist!);
+      }
+      // Fallback: just title
+      searchQueries.add(widget.title);
+
+      debugPrint('🔍 Searching for Interestnaut matches with queries: $searchQueries');
+
+      // Try each search query until we find results
+      final grpcClient = GrpcRecommendationClient();
+      WikidataSearchResult? firstMatch;
+      String? usedQuery;
+
+      // Initialize gRPC client if needed
+      if (!grpcClient.isInitialized) {
+        await grpcClient.init();
+      }
+
+      for (final query in searchQueries) {
+        if (query.trim().isEmpty) continue;
+        
+        debugPrint('🔍 Trying query: "$query"');
+        try {
+          // Use searchMedia endpoint with query as constraint like in main.dart
+          final results = await grpcClient.searchMedia(
+            mediaType: 'music',
+            constraints: [query],
+            limit: 5, // Only need a few results to get the first match
+          );
+          
+          if (results.isNotEmpty) {
+            // Convert MediaSuggestion to WikidataSearchResult for compatibility
+            final result = results.first;
+            firstMatch = WikidataSearchResult(
+              id: result.mediaId ?? 'media_${result.id}',
+              title: result.title ?? 'Unknown Track',
+              artist: result.artist,
+              description: result.description,
+              imageUrl: result.coverArtUrl,
+              releaseDate: null,
+              genre: null,
+              additionalData: {
+                'youtubeId': result.youtubeId,
+                'spotifyId': result.spotifyId,
+                'wikiUrl': result.wikiUrl,
+                'wikidataId': result.wikidataId,
+                'themes': result.themes,
+              },
+            );
+            usedQuery = query;
+            debugPrint('✅ Found match: ${firstMatch.title} by ${firstMatch.artist}');
+            break;
+          }
+        } catch (e) {
+          debugPrint('❌ Query "$query" failed: $e');
+          continue;
+        }
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        
+        if (firstMatch != null) {
+          // Show the first match as a new media detail drawer
+          await _showInterestnatMatchDrawer(firstMatch, usedQuery!);
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('No Interestnaut matches found for this track'),
+              backgroundColor: AppTheme.dislikeColor,
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Error finding Interestnaut match: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error searching for match: $e'),
+            backgroundColor: AppTheme.dislikeColor,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    }
+  }
+
+  /// Show the found Interestnaut match as a new drawer
+  Future<void> _showInterestnatMatchDrawer(WikidataSearchResult match, String usedQuery) async {
+    try {
+      // Get comprehensive status from database for the match
+      final db = SQLiteDatabase();
+      final statusResult = await db.getMediaItemStatus(
+        title: match.title,
+        mediaType: 'music',
+        primaryCreator: match.artist ?? 'Unknown Artist',
+      );
+
+      if (mounted) {
+        showModalBottomSheet(
+          context: context,
+          isScrollControlled: true,
+          backgroundColor: Colors.transparent,
+          enableDrag: true,
+          isDismissible: true,
+          barrierColor: Colors.black54,
+          builder: (context) => GestureDetector(
+            onTap: () => Navigator.of(context).pop(),
+            child: Container(
+              color: Colors.transparent,
+              child: GestureDetector(
+                onTap: () {}, // Prevent tap-through
+                child: MediaDetailDrawer(
+                  title: match.title,
+                  artist: match.artist ?? 'Unknown Artist',
+                  description: match.description,
+                  themes: match.additionalData?['themes'] as String?,
+                  genres: statusResult['genres'] as String?,
+                  youtubeId: statusResult['youtubeId'] as String?,
+                  spotifyId: statusResult['spotifyId'] as String?,
+                  coverArtUrl: match.imageUrl,
+                  mediaType: 'music',
+                  hasLiked: statusResult['hasLiked'] as bool? ?? false,
+                  hasDisliked: statusResult['hasDisliked'] as bool? ?? false,
+                  hasFavorited: statusResult['hasFavorited'] as bool? ?? false,
+                  isInWatchlist: statusResult['isInWatchlist'] as bool? ?? false,
+                  hasSkipped: statusResult['hasSkipped'] as bool? ?? false,
+                  onAction: (action) => _handleMatchDrawerAction(
+                    context,
+                    action,
+                    match,
+                    statusResult['mediaItemId'] as int?,
+                  ),
+                  limitToSpotifyActions: false, // Full Interestnaut reactions
+                ),
+              ),
+            ),
+          ),
+        );
+
+        // Show success message
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Found Interestnaut match: "${match.title}" (query: "$usedQuery")'),
+            backgroundColor: AppTheme.primaryColor,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error showing Interestnaut match drawer: $e');
+    }
+  }
+
+  /// Handle actions from the Interestnaut match drawer
+  Future<void> _handleMatchDrawerAction(
+    BuildContext context,
+    String action,
+    WikidataSearchResult match,
+    int? existingMediaItemId,
+  ) async {
+    try {
+      final db = SQLiteDatabase();
+      
+      // Create or get the media item if it doesn't exist
+      int mediaItemId;
+      if (existingMediaItemId != null) {
+        mediaItemId = existingMediaItemId;
+      } else {
+        mediaItemId = await db.createOrGetMediaItem(
+          mediaType: 'music',
+          vectorMediaId: match.id ?? 'wikidata_${DateTime.now().millisecondsSinceEpoch}',
+          title: match.title,
+          primaryCreator: match.artist ?? 'Unknown Artist',
+          coverArtUrl: match.imageUrl,
+          description: match.description,
+          wikiUrl: match.additionalData?['wikiUrl'] as String?,
+          wikidataId: match.additionalData?['wikidataId'] as String?,
+          themes: match.additionalData?['themes'] as String?,
+          genres: null,
+          youtubeId: null,
+          spotifyId: null,
+        );
+        debugPrint('🔍 [INTERESTNAUT-MATCH] Created new media item with ID: $mediaItemId');
+      }
+
+      switch (action) {
+        case 'like':
+          await db.addToFavorites(mediaItemId);
+          break;
+        case 'dislike':
+          // Handle dislike action
+          break;
+        case 'favorite':
+          await db.addToFavorites(mediaItemId);
+          break;
+        case 'watchlist':
+          await db.addToWatchlist(mediaItemId);
+          break;
+        case 'skip':
+          // Handle skip action
+          break;
+        case 'clear_all':
+          // Handle clearing all reactions
+          break;
+      }
+      
+      debugPrint('✅ [INTERESTNAUT-MATCH] Handled action: $action for ${match.title}');
+    } catch (e) {
+      debugPrint('❌ [INTERESTNAUT-MATCH] Error handling match drawer action: $e');
+    }
+  }
+
+  String? _extractAlbumFromDescription() {
+    // Try to extract album name from description if it contains album info
+    if (widget.description == null || widget.description!.isEmpty) return null;
+    
+    final description = widget.description!.toLowerCase();
+    
+    // Look for common album indicators
+    final albumPatterns = [
+      RegExp(r'from the album[:\s]+"([^"]+)"'),
+      RegExp(r'album[:\s]+"([^"]+)"'),
+      RegExp(r'from[:\s]+"([^"]+)"'),
+    ];
+    
+    for (final pattern in albumPatterns) {
+      final match = pattern.firstMatch(description);
+      if (match != null && match.group(1) != null) {
+        return match.group(1)!.trim();
+      }
+    }
+    
+    return null;
+  }
 }
 
 /// Custom widget for transformed title text that can calculate proper spacing
@@ -919,7 +1348,7 @@ class _TransformedTitleTextState extends State<_TransformedTitleText> {
                 fontFamily: 'Inter',
                 fontSize: 11,
                 fontWeight: FontWeight.w500,
-                letterSpacing: 1.8,
+                letterSpacing: 1.0,
               ),
             ),
             textDirection: TextDirection.ltr,
