@@ -1,13 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../../theme.dart';
-import '../../../models.dart';
+import '../../../models/track_models.dart';
 import '../../common/icons.dart';
-import '../../common/media_detail_drawer.dart';
+import '../../common/media_detail_drawer.dart'; // Contains YouTubePlayerDialog
 import '../../../services/sqlite_db.dart';
 import '../../../main.dart'; // For MediaSearchResult
+import '../spotify_service.dart'; // For Spotify playback
 
 class SearchResultCard extends StatefulWidget {
-  final dynamic track; // SimpleTrack or full Track
+  final BaseTrack track;
   final bool isSaved;
   final bool isPlaying;
   final Function(dynamic) onPlay;
@@ -36,38 +38,15 @@ class _SearchResultCardState extends State<SearchResultCard> {
   Map<String, dynamic> _getTrackInfo() {
     final track = widget.track;
     
-    // Handle null case
-    if (track == null) {
-      return {
-        'name': 'Unknown Track',
-        'artist': 'Unknown Artist',
-        'album': '',
-        'albumArtUrl': '',
-        'previewUrl': null,
-        'uri': null,
-      };
-    }
-    
-    // Handle SimpleTrack or full MediaItem
-    if (track is MediaItem) {
-      return {
-        'name': track.title,
-        'artist': track.overview,
-        'album': '',
-        'albumArtUrl': track.posterPath,
-        'previewUrl': track.previewUrl,
-        'uri': track.uri,
-      };
-    }
-    
-    // Default case - direct access to properties we might have
+    // Handle BaseTrack (InterestnautTrack or SpotifyTrack)
     return {
-      'name': track.name ?? 'Unknown Track',
-      'artist': track.artist ?? 'Unknown Artist',
+      'name': track.name,
+      'artist': track.artist,
       'album': track.album ?? '',
       'albumArtUrl': track.albumArtUrl ?? '',
       'previewUrl': track.previewUrl,
-      'uri': track.uri,
+      'youtubeId': track.youtubeId,
+      'spotifyId': track.spotifyId,
     };
   }
 
@@ -459,18 +438,15 @@ class _SearchResultCardState extends State<SearchResultCard> {
     // Only show for Interestnaut results
     if (widget.limitToSpotifyActions) return false;
     
-    // For Interestnaut search results, we need to check in the database
-    // The YouTube ID isn't passed through SimpleTrack, but we can still
-    // show the button if we have valid track info to search with
-    final name = info['name'] as String?;
-    final artist = info['artist'] as String?;
+    // Check if we have a valid track with YouTube access
+    if (widget.track is InterestnautTrack) {
+      final track = widget.track as InterestnautTrack;
+      // Only show if we actually have a YouTube ID
+      return track.hasYouTubeId;
+    }
     
-    // Don't show button if we don't have meaningful data
-    if (name == null || name.isEmpty || name == 'Unknown Track') return false;
-    if (artist == null || artist.isEmpty || artist == 'Unknown Artist') return false;
-    
-    // Show button - when clicked it will search for the YouTube ID
-    return true;
+    // Fallback: don't show button for other track types
+    return false;
   }
 
   /// Determine if Spotify button should be shown  
@@ -478,18 +454,15 @@ class _SearchResultCardState extends State<SearchResultCard> {
     // Only show for Interestnaut results
     if (widget.limitToSpotifyActions) return false;
     
-    // For Interestnaut search results, we need to check in the database
-    // The Spotify ID isn't passed through SimpleTrack, but we can still
-    // show the button if we have valid track info to search with
-    final name = info['name'] as String?;
-    final artist = info['artist'] as String?;
+    // Check if we have a valid track with Spotify access
+    if (widget.track is InterestnautTrack) {
+      final track = widget.track as InterestnautTrack;
+      // Only show if we actually have a Spotify ID
+      return track.hasSpotifyId;
+    }
     
-    // Don't show button if we don't have meaningful data
-    if (name == null || name.isEmpty || name == 'Unknown Track') return false;
-    if (artist == null || artist.isEmpty || artist == 'Unknown Artist') return false;
-    
-    // Show button - when clicked it will search for the Spotify ID
-    return true;
+    // Fallback: don't show button for other track types
+    return false;
   }
 
   /// Build title and artist text widgets with proper fallback
@@ -605,23 +578,18 @@ class _SearchResultCardState extends State<SearchResultCard> {
     );
   }
 
-  /// Open external media (YouTube/Spotify) by fetching IDs from database
+  /// Open external media (YouTube/Spotify) using appropriate handlers
   Future<void> _openExternalMedia(Map<String, dynamic> info, String platform) async {
     try {
-      final db = SQLiteDatabase();
-      final statusResult = await db.getMediaItemStatus(
-        title: info['name'] ?? 'Unknown Track',
-        mediaType: 'music',
-        primaryCreator: info['artist'] ?? 'Unknown Artist',
-      );
+      // Use the track model's built-in IDs instead of database lookup
+      final youtubeId = widget.track.youtubeId;
+      final spotifyId = widget.track.spotifyId;
 
-      final youtubeId = statusResult['youtubeId'] as String?;
-      final spotifyId = statusResult['spotifyId'] as String?;
-
-      if (platform == 'youtube' && youtubeId != null) {
-        _openYouTubeExternal(youtubeId);
-      } else if (platform == 'spotify' && spotifyId != null) {
-        _openSpotifyExternal(spotifyId);
+      if (platform == 'youtube' && youtubeId != null && youtubeId.isNotEmpty) {
+        _openYouTube(youtubeId);
+      } else if (platform == 'spotify' && spotifyId != null && spotifyId.isNotEmpty) {
+        // For Interestnaut tracks with Spotify IDs, use the same logic as media detail drawer
+        _openSpotify(spotifyId);
       } else {
         // Show message that the platform isn't available for this track
         if (mounted) {
@@ -638,35 +606,133 @@ class _SearchResultCardState extends State<SearchResultCard> {
     }
   }
 
-  /// Open YouTube video externally
-  void _openYouTubeExternal(String videoId) async {
+  /// Open YouTube using existing service (reused from media detail drawer)
+  void _openYouTube(String videoId) async {
     try {
-      final url = 'https://www.youtube.com/watch?v=$videoId';
-      // Import url_launcher if not already imported
-      // if (await canLaunchUrl(Uri.parse(url))) {
-      //   await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
-      // }
-      debugPrint('🎬 Opening YouTube video: $url');
+      // Show internal YouTube player
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (context) => YouTubePlayerDialog(videoId: videoId),
+        );
+      }
     } catch (e) {
-      debugPrint('Error opening YouTube: $e');
+      debugPrint('Error opening YouTube player: $e');
+      // Fallback to external app
+      _openYouTubeExternal(videoId);
     }
   }
 
-  /// Open Spotify track externally
-  void _openSpotifyExternal(String trackId) async {
+  /// Open Spotify using existing service (identical to media detail drawer)
+  void _openSpotify(String trackId) async {
     try {
-      final spotifyUrl = 'spotify:track:$trackId';
-      final webUrl = 'https://open.spotify.com/track/$trackId';
-      // Import url_launcher if not already imported
-      // Try Spotify app first, fallback to web
-      // if (await canLaunchUrl(Uri.parse(spotifyUrl))) {
-      //   await launchUrl(Uri.parse(spotifyUrl), mode: LaunchMode.externalApplication);
-      // } else if (await canLaunchUrl(Uri.parse(webUrl))) {
-      //   await launchUrl(Uri.parse(webUrl), mode: LaunchMode.externalApplication);
-      // }
-      debugPrint('🎵 Opening Spotify track: $webUrl');
+      final spotifyService = SpotifyService();
+      
+      // Check if user is authenticated
+      final isAuthenticated = await spotifyService.checkAuthentication();
+      
+      if (!isAuthenticated) {
+        // Show authentication dialog
+        if (mounted) {
+          showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              backgroundColor: const Color(0xFF1E1E1E),
+              title: Row(
+                children: [
+                  Icon(Icons.music_note, color: AppTheme.primaryColor),
+                  const SizedBox(width: 8),
+                  const Text('Spotify Login Required', style: TextStyle(color: AppTheme.textPrimary)),
+                ],
+              ),
+              content: const Text(
+                'Please log in to Spotify to play tracks internally.',
+                style: TextStyle(color: AppTheme.textSecondary),
+              ),
+              actions: [
+                OutlinedButton(
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    _openSpotifyExternal(trackId);
+                  },
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppTheme.primaryColor,
+                    side: BorderSide(color: AppTheme.primaryColor),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    textStyle: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w400,
+                      fontFamily: 'Inter',
+                    ),
+                  ),
+                  child: const Text('Open Externally'),
+                ),
+                OutlinedButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppTheme.primaryColor,
+                    side: BorderSide(color: AppTheme.primaryColor),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    textStyle: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w400,
+                      fontFamily: 'Inter',
+                    ),
+                  ),
+                  child: const Text('Cancel'),
+                ),
+              ],
+            ),
+          );
+        }
+        return;
+      }
+
+      // Try to play the track using the internal Spotify service
+      final trackUri = 'spotify:track:$trackId';
+      final success = await spotifyService.playTrack(trackUri);
+      
+      if (success) {
+        debugPrint('✅ Successfully started Spotify playback for track: $trackId');
+        // The existing Spotify playbar should now show the playing track
+      } else {
+        debugPrint('❌ Failed to start Spotify playback, falling back to external app');
+        _openSpotifyExternal(trackId);
+      }
     } catch (e) {
-      debugPrint('Error opening Spotify: $e');
+      debugPrint('Error playing Spotify track: $e');
+      _openSpotifyExternal(trackId);
+    }
+  }
+
+  /// Fallback to external Spotify app (identical to media detail drawer)
+  void _openSpotifyExternal(String trackId) async {
+    final spotifyUrl = 'spotify:track:$trackId';
+    final webUrl = 'https://open.spotify.com/track/$trackId';
+    
+    // Try Spotify app first, fallback to web
+    if (await canLaunchUrl(Uri.parse(spotifyUrl))) {
+      await launchUrl(Uri.parse(spotifyUrl), mode: LaunchMode.externalApplication);
+    } else if (await canLaunchUrl(Uri.parse(webUrl))) {
+      await launchUrl(Uri.parse(webUrl), mode: LaunchMode.externalApplication);
+    } else {
+      debugPrint('Could not launch Spotify URL: $webUrl');
+    }
+  }
+
+  /// Fallback to external YouTube app (reused from media detail drawer)
+  void _openYouTubeExternal(String videoId) async {
+    final url = 'https://www.youtube.com/watch?v=$videoId';
+    if (await canLaunchUrl(Uri.parse(url))) {
+      await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+    } else {
+      debugPrint('Could not launch YouTube URL: $url');
     }
   }
 

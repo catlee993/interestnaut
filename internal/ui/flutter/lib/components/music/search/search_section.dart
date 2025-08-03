@@ -1,18 +1,18 @@
 import 'package:flutter/material.dart';
-import '../../../models.dart';
+import '../../../models/track_models.dart';
 import '../tracks/search_result_card.dart';
 import '../../common/media_grid.dart';
 import '../../common/standard_close_button.dart';
 import '../../common/spotify_branding.dart';
 
 class SearchSection extends StatelessWidget {
-  final List<SimpleTrack> searchResults;
+  final List<BaseTrack> searchResults;
   final bool isLoading;
   final String? error;
   final Future<void> Function(String) onSearch;
-  final Future<void> Function(SimpleTrack) onPlay;
-  final Future<void> Function(SimpleTrack) onSave;
-  final Future<void> Function(SimpleTrack) onRemove;
+  final Future<void> Function(BaseTrack) onPlay;
+  final Future<void> Function(BaseTrack) onSave;
+  final Future<void> Function(BaseTrack) onRemove;
   final VoidCallback onRetry;
   final VoidCallback onClose;
   final bool limitToSpotifyActions;

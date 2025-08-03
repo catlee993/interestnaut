@@ -37,6 +37,7 @@ import 'services/continuous_playback_service.dart';
 import 'services/ffi_init.dart';
 import 'services/go_bindings.dart';
 import 'models.dart';
+import 'models/track_models.dart';
 import 'theme.dart';
 // Removed VectorDatabase - now using gRPC backend only
 
@@ -684,6 +685,31 @@ class _UnifiedSearchHandlerState extends State<_UnifiedSearchHandler> {
           );
         }
       }
+    } else if (item is SpotifyTrack) {
+      try {
+        // For SpotifyTrack objects, create a Track object for playback
+        final track = Track(
+          id: item.id,
+          name: item.name,
+          artists: [Artist(name: item.artist)],
+          album: Album(name: item.album ?? 'Unknown Album', images: item.albumArtUrl != null ? [
+            ImageData(url: item.albumArtUrl!, height: 300, width: 300)
+          ] : []),
+          uri: item.uri,
+          previewUrl: item.previewUrl ?? '',
+        );
+        await _spotifyService.playTrack(track.uri);
+      } catch (e) {
+        debugPrint('Error playing Spotify track: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Failed to play track: $e'),
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
+      }
     }
     // For Wikipedia results, we don't have play functionality
   }
@@ -702,6 +728,31 @@ class _UnifiedSearchHandlerState extends State<_UnifiedSearchHandler> {
         }
       } catch (e) {
         debugPrint('Error saving track: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Failed to save track: $e'),
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
+      }
+    } else if (item is SpotifyTrack) {
+      try {
+        await _spotifyService.saveTrack(item.id);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Added "${item.name}" to your library'),
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
+        // Trigger a refresh of the Spotify library to show the newly saved track
+        // Note: This would need to be implemented to refresh the liked tracks section
+        debugPrint('🔄 Track saved to Spotify library - should refresh likes section');
+      } catch (e) {
+        debugPrint('Error saving Spotify track: $e');
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -956,7 +1007,10 @@ class _UnifiedSearchHandlerState extends State<_UnifiedSearchHandler> {
       if (_isSpotifyActive) {
         // Use existing SearchSection for Spotify results with limited actions
         return SearchSection(
-          searchResults: _searchResults.whereType<SimpleTrack>().toList(),
+          searchResults: _searchResults.whereType<SimpleTrack>()
+              .map((track) => SpotifyTrack.fromSimpleTrack(track))
+              .cast<BaseTrack>()
+              .toList(),
           isLoading: _isLoading,
           error: _error,
           onSearch: _performSearch,
@@ -1005,26 +1059,22 @@ class _UnifiedSearchHandlerState extends State<_UnifiedSearchHandler> {
         );
       }
     } else if (widget.mediaType == 'music') {
-      // Convert WikidataSearchResult to SimpleTrack for music searches
-      final simpleTracks = _searchResults.map((result) {
+      // Convert WikidataSearchResult to InterestnautTrack for music searches
+      final interestnautTracks = _searchResults.map((result) {
         if (result is WikidataSearchResult) {
-          final spotifyId = result.additionalData?['spotifyId'] as String?;
-          return SimpleTrack(
-            id: result.id,
-            name: result.title,
-            artist: result.artist ?? 'Unknown Artist',
-            album: result.description ?? '',
-            albumArtUrl: result.imageUrl ?? '',
-            previewUrl: null,
-            uri: spotifyId ?? '',
-          );
+          return InterestnautTrack.fromWikidataResult(result);
         }
-        return result as SimpleTrack;
+        // Handle SimpleTrack from Spotify results
+        if (result is SimpleTrack) {
+          return SpotifyTrack.fromSimpleTrack(result);
+        }
+        // This shouldn't happen, but provide a fallback
+        throw Exception('Unknown result type: ${result.runtimeType}');
       }).toList();
       
       // Use SearchSection for Interestnaut music search results  
       return SearchSection(
-        searchResults: simpleTracks,
+        searchResults: interestnautTracks,
         isLoading: _isLoading,
         error: _error,
         onSearch: _performSearch,
