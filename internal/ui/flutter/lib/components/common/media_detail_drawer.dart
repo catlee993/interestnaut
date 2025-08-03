@@ -196,6 +196,22 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
     }
   }
 
+  String _getQueuedStatusText() {
+    switch (widget.mediaType) {
+      case 'movie':
+      case 'tv_show':
+        return 'WATCHLISTED';
+      case 'book':
+        return 'READLISTED';
+      case 'music':
+        return 'PLAYLISTED';
+      case 'video_game':
+        return 'PLAYLISTED';
+      default:
+        return 'WATCHLISTED';
+    }
+  }
+
   void _handleAction(String action) {
     setState(() {
       switch (action) {
@@ -753,7 +769,7 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
     } else if (_currentLiked) {
       return _buildStyledStatusText('LIKED', AppTheme.likeColor);
     } else if (_currentWatchlisted) {
-      return _buildStyledStatusText('WATCHLISTED', AppTheme.watchlistColor);
+      return _buildStyledStatusText(_getQueuedStatusText(), AppTheme.watchlistColor);
     } else if (_currentDisliked) {
       return _buildStyledStatusText('DISLIKED', AppTheme.dislikeColor);
     }
@@ -883,16 +899,42 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
                 style: TextStyle(color: AppTheme.textSecondary),
               ),
               actions: [
-                TextButton(
+                OutlinedButton(
                   onPressed: () {
                     Navigator.of(context).pop();
                     _openSpotifyExternal(trackId);
                   },
-                  child: Text('Open Spotify App', style: TextStyle(color: AppTheme.primaryColor)),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppTheme.primaryColor,
+                    side: BorderSide(color: AppTheme.primaryColor),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    textStyle: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w400,
+                      fontFamily: 'Inter',
+                    ),
+                  ),
+                  child: const Text('Open Spotify App'),
                 ),
-                TextButton(
+                OutlinedButton(
                   onPressed: () => Navigator.of(context).pop(),
-                  child: Text('Cancel', style: TextStyle(color: AppTheme.textSecondary)),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppTheme.textSecondary,
+                    side: BorderSide(color: AppTheme.textSecondary),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    textStyle: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w400,
+                      fontFamily: 'Inter',
+                    ),
+                  ),
+                  child: const Text('Cancel'),
                 ),
               ],
             ),
@@ -958,11 +1000,24 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
                 style: TextStyle(color: AppTheme.textSecondary),
               ),
               actions: [
-                TextButton(
+                OutlinedButton(
                   onPressed: () => Navigator.of(context).pop(),
-                  child: Text('Cancel', style: TextStyle(color: AppTheme.textSecondary)),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppTheme.textSecondary,
+                    side: BorderSide(color: AppTheme.textSecondary),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    textStyle: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w400,
+                      fontFamily: 'Inter',
+                    ),
+                  ),
+                  child: const Text('Cancel'),
                 ),
-                TextButton(
+                OutlinedButton(
                   onPressed: () async {
                     Navigator.of(context).pop();
                     // Attempt authentication
@@ -974,7 +1029,20 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
                       debugPrint('Authentication failed: $e');
                     }
                   },
-                  child: Text('Login to Spotify', style: TextStyle(color: AppTheme.spotifyGreen)),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppTheme.spotifyGreen,
+                    side: BorderSide(color: AppTheme.spotifyGreen),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    textStyle: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w400,
+                      fontFamily: 'Inter',
+                    ),
+                  ),
+                  child: const Text('Login to Spotify'),
                 ),
               ],
             ),

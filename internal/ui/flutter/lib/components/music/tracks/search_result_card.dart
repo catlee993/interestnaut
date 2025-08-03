@@ -182,7 +182,7 @@ class _SearchResultCardState extends State<SearchResultCard> {
                       height: 28,
                       decoration: BoxDecoration(
                         color: AppTheme.primaryColor,
-                        borderRadius: BorderRadius.circular(14),
+                        borderRadius: BorderRadius.circular(12),
                         boxShadow: [
                           BoxShadow(
                             color: AppTheme.primaryColor.withOpacity(0.3),
@@ -298,58 +298,51 @@ class _SearchResultCardState extends State<SearchResultCard> {
                             child: const Text('Save'),
                           ),
                   ] : [
-                    // Interestnaut content: Show external play buttons only (YouTube/Spotify if available)
-                    // Title and artist - full width since no local controls
+                    // Interestnaut content: Centered title/artist with corner buttons
                     Expanded(
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.center,
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              info['name'] ?? 'Unknown Track',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w500,
-                                fontSize: 12,
-                                shadows: [
-                                  Shadow(
-                                    color: Colors.black.withOpacity(0.5),
-                                    offset: const Offset(0, 1),
-                                    blurRadius: 2,
-                                  ),
-                                ],
+                      child: Stack(
+                        children: [
+                          // Centered title and artist text
+                          Positioned.fill(
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 30.0, vertical: 2.0),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.center,
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                mainAxisSize: MainAxisSize.min,
+                                children: _buildTitleAndArtist(info),
                               ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              textAlign: TextAlign.center,
                             ),
-                            Text(
-                              info['artist'] ?? 'Unknown Artist',
-                              style: TextStyle(
-                                color: Colors.white70,
-                                fontSize: 10,
-                                shadows: [
-                                  Shadow(
-                                    color: Colors.black.withOpacity(0.3),
-                                    offset: const Offset(0, 1),
-                                    blurRadius: 1,
-                                  ),
-                                ],
+                          ),
+                          
+                          // YouTube button (left corner)
+                          if (_shouldShowYouTubeButton(info))
+                            Positioned(
+                              left: 2,
+                              bottom: 2,
+                              child: _buildCornerButton(
+                                icon: Icons.play_arrow,
+                                color: const Color(0xFF4285F4), // YouTube blue
+                                onPressed: () => _openExternalMedia(info, 'youtube'),
+                                tooltip: 'Play on YouTube',
                               ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              textAlign: TextAlign.center,
                             ),
-                          ],
-                        ),
+                          
+                          // Spotify button (right corner) - only for music
+                          if (_shouldShowSpotifyButton(info))
+                            Positioned(
+                              right: 2,
+                              bottom: 2,
+                              child: _buildCornerButton(
+                                icon: Icons.music_note,
+                                color: const Color(0xFF1DB954), // Spotify green
+                                onPressed: () => _openExternalMedia(info, 'spotify'),
+                                tooltip: 'Play on Spotify',
+                              ),
+                            ),
+                        ],
                       ),
                     ),
-                    
-                    // External play buttons (YouTube/Spotify) based on available IDs
-                    ..._buildExternalButtons(info),
                   ],
                 ),
               ),
@@ -437,9 +430,22 @@ class _SearchResultCardState extends State<SearchResultCard> {
             title: Text('Error'),
             content: Text('Failed to load track details: $e'),
             actions: [
-              TextButton(
+              OutlinedButton(
                 onPressed: () => Navigator.of(context).pop(),
-                child: Text('OK'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFF7B68EE),
+                  side: const BorderSide(color: Color(0xFF7B68EE)),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  textStyle: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w400,
+                    fontFamily: 'Inter',
+                  ),
+                ),
+                child: const Text('OK'),
               ),
             ],
           ),
@@ -448,45 +454,153 @@ class _SearchResultCardState extends State<SearchResultCard> {
     }
   }
 
-  /// Build external play buttons (YouTube/Spotify) for Interestnaut results
-  List<Widget> _buildExternalButtons(Map<String, dynamic> info) {
-    // For now, return placeholder buttons since we need async database lookup
-    // The real IDs will be available when clicking into the media drawer
+  /// Determine if YouTube button should be shown
+  bool _shouldShowYouTubeButton(Map<String, dynamic> info) {
+    // Only show for Interestnaut results
+    if (widget.limitToSpotifyActions) return false;
+    
+    // For Interestnaut search results, we need to check in the database
+    // The YouTube ID isn't passed through SimpleTrack, but we can still
+    // show the button if we have valid track info to search with
+    final name = info['name'] as String?;
+    final artist = info['artist'] as String?;
+    
+    // Don't show button if we don't have meaningful data
+    if (name == null || name.isEmpty || name == 'Unknown Track') return false;
+    if (artist == null || artist.isEmpty || artist == 'Unknown Artist') return false;
+    
+    // Show button - when clicked it will search for the YouTube ID
+    return true;
+  }
+
+  /// Determine if Spotify button should be shown  
+  bool _shouldShowSpotifyButton(Map<String, dynamic> info) {
+    // Only show for Interestnaut results
+    if (widget.limitToSpotifyActions) return false;
+    
+    // For Interestnaut search results, we need to check in the database
+    // The Spotify ID isn't passed through SimpleTrack, but we can still
+    // show the button if we have valid track info to search with
+    final name = info['name'] as String?;
+    final artist = info['artist'] as String?;
+    
+    // Don't show button if we don't have meaningful data
+    if (name == null || name.isEmpty || name == 'Unknown Track') return false;
+    if (artist == null || artist.isEmpty || artist == 'Unknown Artist') return false;
+    
+    // Show button - when clicked it will search for the Spotify ID
+    return true;
+  }
+
+  /// Build title and artist text widgets with proper fallback
+  List<Widget> _buildTitleAndArtist(Map<String, dynamic> info) {
+    final title = info['name'];
+    final artist = info['artist'];
+    
+    // If no title but has artist, use artist as title with title styling
+    if ((title == null || title.isEmpty) && artist != null && artist.isNotEmpty) {
+      return [
+        Text(
+          artist,
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w500,
+            fontSize: 12,
+            letterSpacing: -0.2,
+            shadows: [
+              Shadow(
+                color: Colors.black54,
+                offset: Offset(0, 1),
+                blurRadius: 2,
+              ),
+            ],
+          ),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          textAlign: TextAlign.center,
+        ),
+      ];
+    }
+    
+    // Normal case: show title and artist
     return [
-      // YouTube button - show if we can potentially find YouTube ID
-      _buildExternalButton(
-        icon: Icons.play_circle_outline,
-        color: AppTheme.positiveColor,
-        onPressed: () => _openExternalMedia(info, 'youtube'),
+      Text(
+        title ?? 'Unknown Track',
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.w500,
+          fontSize: 12,
+          letterSpacing: -0.2,
+          shadows: [
+            Shadow(
+              color: Colors.black54,
+              offset: Offset(0, 1),
+              blurRadius: 2,
+            ),
+          ],
+        ),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        textAlign: TextAlign.center,
       ),
-      // Spotify button - show if we can potentially find Spotify ID
-      _buildExternalButton(
-        icon: Icons.music_note,
-        color: AppTheme.spotifyGreen,
-        onPressed: () => _openExternalMedia(info, 'spotify'),
-      ),
+      if (artist != null && artist.isNotEmpty) ...[
+        const SizedBox(height: 2),
+        Text(
+          artist,
+          style: const TextStyle(
+            color: Colors.white70,
+            fontSize: 10,
+            letterSpacing: -0.1,
+            shadows: [
+              Shadow(
+                color: Colors.black38,
+                offset: Offset(0, 1),
+                blurRadius: 1,
+              ),
+            ],
+          ),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          textAlign: TextAlign.center,
+        ),
+      ],
     ];
   }
 
-  /// Build a single external button
-  Widget _buildExternalButton({
+  /// Build a corner button with consistent styling
+  Widget _buildCornerButton({
     required IconData icon,
     required Color color,
     required VoidCallback onPressed,
+    required String tooltip,
   }) {
-    return Container(
-      width: 24,
-      height: 24,
-      margin: const EdgeInsets.only(left: 4),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.8),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: IconButton(
-        icon: Icon(icon, size: 14, color: Colors.white),
-        onPressed: onPressed,
-        padding: EdgeInsets.zero,
-        tooltip: icon == Icons.play_circle_outline ? 'Play on YouTube' : 'Play on Spotify',
+    return Material(
+      color: Colors.transparent,
+      child: Container(
+        width: 24,
+        height: 24,
+        decoration: BoxDecoration(
+          color: Colors.black.withOpacity(0.7),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: color.withOpacity(0.8),
+            width: 1.5,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: color.withOpacity(0.3),
+              offset: const Offset(0, 1),
+              blurRadius: 4,
+            ),
+          ],
+        ),
+        child: IconButton(
+          icon: Icon(icon, size: 14, color: color),
+          onPressed: onPressed,
+          padding: EdgeInsets.zero,
+          tooltip: tooltip,
+          splashRadius: 12,
+        ),
       ),
     );
   }

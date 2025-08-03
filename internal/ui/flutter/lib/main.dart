@@ -1140,8 +1140,22 @@ class _WikidataSearchSection extends StatelessWidget {
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 16),
-              ElevatedButton(
+              OutlinedButton(
                 onPressed: onRetry,
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFF7B68EE),
+                  side: const BorderSide(color: Color(0xFF7B68EE)),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  textStyle: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w400,
+                    letterSpacing: 0.5,
+                    fontFamily: 'Inter',
+                  ),
+                ),
                 child: const Text('Retry'),
               ),
             ],

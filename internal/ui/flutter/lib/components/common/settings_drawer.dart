@@ -116,7 +116,7 @@ class _SettingsDrawerState extends State<SettingsDrawer> with SingleTickerProvid
       color: Colors.transparent,
       child: Container(
         width: 400,
-        height: MediaQuery.of(context).size.height * 0.85,
+        height: MediaQuery.of(context).size.height,
         decoration: BoxDecoration(
           color: const Color(0xFF0A0A0A), // Deeper black for modern look
           borderRadius: const BorderRadius.only(
@@ -384,7 +384,7 @@ void showMediaSpecificSettingsDrawer(
       barrierColor: Colors.black.withOpacity(0.3),
       pageBuilder: (context, _, __) {
         return Align(
-          alignment: Alignment.centerRight,
+          alignment: Alignment.topRight,
           child: SettingsDrawer(
             mediaType: mediaType,
             spotifySearchEnabled: spotifySearchEnabled,
