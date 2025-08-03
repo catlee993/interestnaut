@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
+import 'standard_close_button.dart';
 
 class SearchBar extends StatefulWidget {
   final String placeholder;
@@ -74,6 +75,10 @@ class _SearchBarState extends State<SearchBar> {
   void _onChanged(String value) {
     if (_debounce?.isActive ?? false) _debounce!.cancel();
     if (value == _lastSearch) return;
+    
+    // Update UI to show/hide clear button
+    setState(() {});
+    
     if (value.isEmpty) {
       _lastSearch = '';
       widget.onSearch('');
@@ -162,9 +167,19 @@ class _SearchBarState extends State<SearchBar> {
               ),
             ),
           ),
-
+          // Clear button (X) - only show when there's text
+          if (_controller.text.isNotEmpty)
+            Positioned(
+              right: 0,
+              child: StandardCloseButton(
+                onPressed: _handleClear,
+                size: 16,
+                padding: const EdgeInsets.all(4),
+              ),
+            ),
         ],
       ),
     );
   }
 }
+

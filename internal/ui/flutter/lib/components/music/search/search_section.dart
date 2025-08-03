@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../models.dart';
 import '../tracks/search_result_card.dart';
 import '../../common/media_grid.dart';
+import '../../common/standard_close_button.dart';
 
 class SearchSection extends StatelessWidget {
   final List<SimpleTrack> searchResults;
@@ -96,17 +97,12 @@ class SearchSection extends StatelessWidget {
               ),
               // X button positioned in top right
               Positioned(
-                top: 0,
-                right: 0,
-                child: GestureDetector(
-                  onTap: onClose, // This should clear the search and close overlay
-                  child: Container(
-                    width: 24,
-                    height: 24,
-                    child: CustomPaint(
-                      painter: _SearchXButtonPainter(),
-                    ),
-                  ),
+                top: -6,
+                right: -6,
+                child: StandardCloseButton(
+                  onPressed: onClose,
+                  size: 18,
+                  padding: const EdgeInsets.all(6),
                 ),
               ),
             ],
@@ -137,15 +133,10 @@ class SearchSection extends StatelessWidget {
                   ),
                 ),
               ),
-              GestureDetector(
-                onTap: onClose,
-                child: Container(
-                  width: 28, // Slightly larger for easier tapping
-                  height: 28,
-                  child: CustomPaint(
-                    painter: _SearchXButtonPainter(),
-                  ),
-                ),
+              StandardCloseButton(
+                onPressed: onClose,
+                size: 20,
+                padding: const EdgeInsets.all(4),
               ),
             ],
           ),
@@ -175,47 +166,3 @@ class SearchSection extends StatelessWidget {
   }
 }
 
-/// Custom painter for the search X button - matches watchlist X styling
-class _SearchXButtonPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    // Purple outline paint (thicker)
-    final outlinePaint = Paint()
-      ..color = const Color(0xFFA855F7)
-      ..strokeWidth = 4.0
-      ..strokeCap = StrokeCap.round;
-
-    // White X paint (thinner, on top)
-    final xPaint = Paint()
-      ..color = Colors.white.withOpacity(0.8)
-      ..strokeWidth = 2.0
-      ..strokeCap = StrokeCap.round;
-
-    // Draw purple outline first (behind)
-    canvas.drawLine(
-      Offset(size.width * 0.25, size.height * 0.25),
-      Offset(size.width * 0.75, size.height * 0.75),
-      outlinePaint,
-    );
-    canvas.drawLine(
-      Offset(size.width * 0.75, size.height * 0.25),
-      Offset(size.width * 0.25, size.height * 0.75),
-      outlinePaint,
-    );
-
-    // Draw white X on top
-    canvas.drawLine(
-      Offset(size.width * 0.25, size.height * 0.25),
-      Offset(size.width * 0.75, size.height * 0.75),
-      xPaint,
-    );
-    canvas.drawLine(
-      Offset(size.width * 0.75, size.height * 0.25),
-      Offset(size.width * 0.25, size.height * 0.75),
-      xPaint,
-    );
-  }
-
-  @override
-  bool shouldRepaint(CustomPainter oldDelegate) => false;
-}

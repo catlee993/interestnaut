@@ -8,6 +8,7 @@ import 'media_action_icons.dart';
 import '../../models.dart'; // For MediaDisplayHelper
 import '../music/spotify_service.dart'; // For Spotify playback
 import 'standard_close_button.dart';
+import 'wide_text.dart';
 
 /// Reusable media display area component with side-by-side layout
 class MediaDisplayArea extends StatelessWidget {
@@ -356,16 +357,17 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
                           
                           debugPrint('🔧 [WITH-TRANSFORM] availableSpace=$availableSpace textContainerWidth=$textContainerWidth willExpandTo=${textContainerWidth * 1.15}');
                           
-                          return SizedBox(
+                          return Container(
                             width: availableSpace,
-                            child: Text(
-                              displayInfo.displayTitle.toUpperCase(),
+                            child: WideText(
+                              text: displayInfo.displayTitle.toUpperCase(),
                               style: AppTheme.suggestionHeaderSmall.copyWith(
                                 fontSize: 16,
-                                letterSpacing: 4.0, // Increased letter spacing for wide effect
                                 fontWeight: FontWeight.w200,
                                 color: Colors.white,
                               ),
+                              letterSpacing: 4.0, // Wide letter spacing effect
+                              scaleX: 1.15, // 15% horizontal expansion with proper constraint handling
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                             ),

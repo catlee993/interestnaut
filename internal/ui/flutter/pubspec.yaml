@@ -77,6 +77,9 @@ dependencies:
 
   # YouTube player for internal video playback
   youtube_player_flutter: ^9.0.3
+  
+  # SVG support for Spotify assets
+  flutter_svg: ^2.0.10+1
 
 dev_dependencies:
   flutter_test:
@@ -105,6 +108,7 @@ flutter:
     - assets/
     - assets/images/logo/interestnaut-mascot.png
     - assets/web/spotify_player.html
+    - assets/spotify/
 
   # fonts:
   #   - family: Inter
