@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:ffi' as ffi;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:window_size/window_size.dart' as window_package;
 import 'package:path_provider/path_provider.dart';
@@ -587,6 +588,7 @@ class _UnifiedSearchHandlerState extends State<_UnifiedSearchHandler> {
                 additionalData: {
                   'source': 'grpc_backend',
                   'themes': result.themes,
+                  'genres': result.genres?.join(', '), // Convert List<String> to comma-separated string
                   'wikiUrl': result.wikiUrl,
                   'wikidataId': result.wikidataId,
                   'youtubeId': result.youtubeId,
@@ -689,6 +691,9 @@ class _UnifiedSearchHandlerState extends State<_UnifiedSearchHandler> {
         wikiUrl: item.additionalData?['wikiUrl'],
         wikidataId: item.additionalData?['wikidataId'],
         themes: item.additionalData?['themes'],
+        genres: item.additionalData?['genres'],
+        youtubeId: item.additionalData?['youtubeId'],
+        spotifyId: item.additionalData?['spotifyId'],
       );
       
       if (mounted) {
@@ -840,6 +845,9 @@ class _UnifiedSearchHandlerState extends State<_UnifiedSearchHandler> {
           wikiUrl: item.additionalData?['wikiUrl'],
           wikidataId: item.additionalData?['wikidataId'],
           themes: item.additionalData?['themes'],
+          genres: item.additionalData?['genres'],
+          youtubeId: item.additionalData?['youtubeId'],
+          spotifyId: item.additionalData?['spotifyId'],
         );
         
         String watchlistTerm = _getWatchlistTerminology();
@@ -1208,248 +1216,129 @@ class _WikidataCardState extends State<_WikidataCard> {
   @override
   Widget build(BuildContext context) {
     return MouseRegion(
+      cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _isHovered = true),
       onExit: (_) => setState(() => _isHovered = false),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
         curve: Curves.easeInOut,
-        transform: _isHovered 
-            ? Matrix4.translationValues(0, -4, 0)
+        transform: _isHovered
+            ? Matrix4.translationValues(0, -6, 0)
             : Matrix4.translationValues(0, 0, 0),
         decoration: BoxDecoration(
-          // Uniform gradient background like SearchResultCard
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              const Color.fromRGBO(28, 28, 28, 0.98), // Darker at top
-              const Color.fromRGBO(40, 40, 40, 0.95), // Lighter at bottom
-            ],
-          ),
           borderRadius: BorderRadius.circular(AppTheme.cardBorderRadius),
           border: Border.all(
-            color: _isHovered 
-                ? const Color.fromRGBO(123, 104, 238, 0.5)
+            color: _isHovered
+                ? const Color.fromRGBO(123, 104, 238, 0.8)
                 : const Color.fromRGBO(123, 104, 238, 0.3),
-            width: 2,
+            width: _isHovered ? 3 : 2,
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.3),
-              blurRadius: 8,
-              offset: const Offset(0, 4),
+              color: _isHovered
+                  ? const Color.fromRGBO(123, 104, 238, 0.3)
+                  : Colors.black.withOpacity(0.3),
+              blurRadius: _isHovered ? 16 : 8,
+              offset: _isHovered ? const Offset(0, 8) : const Offset(0, 4),
             ),
           ],
         ),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            // Reserve space for controls at bottom (~65px) and calculate artwork size
-            final controlsHeight = 65.0;
-            final availableHeight = constraints.maxHeight - controlsHeight;
-            final maxArtworkSize = constraints.maxWidth * 0.75; // Reduced from 85% to 75%
-            final artworkSize = availableHeight > maxArtworkSize ? maxArtworkSize : availableHeight;
-            
+        child: GestureDetector(
+          onTap: () => _openMediaDetailDrawer(context),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              // Reserve space for title/artist at bottom (~45px) and calculate artwork size
+              final titleHeight = 45.0;
+              final availableHeight = constraints.maxHeight - titleHeight;
+              final maxArtworkSize = constraints.maxWidth; // Fill width
+              final artworkSize = availableHeight > maxArtworkSize ? maxArtworkSize : availableHeight;
+
             return Column(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                // Media artwork - size calculated to fit properly with click handler
+                // Media artwork - fills most of the card
                 Expanded(
                   child: Container(
-                    margin: const EdgeInsets.only(top: 6.0),
-                    child: Center(
-                      child: GestureDetector(
-                        onTap: () => _openMediaDetailDrawer(context),
-                        child: SizedBox(
-                          width: artworkSize,
-                          height: artworkSize,
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(4), // 4px for large devices per Spotify guidelines
-                            child: widget.result.imageUrl != null && widget.result.imageUrl!.isNotEmpty
-                                ? Image.network(
-                                    widget.result.imageUrl!,
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (context, error, stackTrace) {
-                                      return Container(
-                                        color: AppTheme.cardBackgroundColor,
-                                        child: Center(
-                                          child: Icon(_getMediaIcon(), size: 48, color: Colors.white54),
-                                        ),
-                                      );
-                                    },
-                                  )
-                                : Container(
-                                    color: AppTheme.cardBackgroundColor,
-                                    child: Center(
-                                      child: Icon(_getMediaIcon(), size: 48, color: Colors.white54),
-                                    ),
-                                  ),
-                          ),
-                        ),
+                    width: double.infinity,
+                    child: ClipRRect(
+                      borderRadius: const BorderRadius.only(
+                        topLeft: Radius.circular(AppTheme.cardBorderRadius),
+                        topRight: Radius.circular(AppTheme.cardBorderRadius),
                       ),
+                      child: widget.result.imageUrl != null && widget.result.imageUrl!.isNotEmpty
+                          ? Image.network(
+                              widget.result.imageUrl!,
+                              fit: BoxFit.contain, // Fit naturally without cropping
+                              width: double.infinity,
+                              height: double.infinity,
+                              errorBuilder: (context, error, stackTrace) {
+                                return Container(
+                                  color: AppTheme.cardBackgroundColor,
+                                  child: Center(
+                                    child: Icon(_getMediaIcon(), size: 48, color: Colors.white54),
+                                  ),
+                                );
+                              },
+                            )
+                          : Container(
+                              color: AppTheme.cardBackgroundColor,
+                              child: Center(
+                                child: Icon(_getMediaIcon(), size: 48, color: Colors.white54),
+                              ),
+                            ),
                     ),
                   ),
                 ),
-                
-                // Controls panel at bottom - Spotify-style layout with buttons flanking text
-                SizedBox(
-                  height: controlsHeight,
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(4.0, 4.0, 4.0, 4.0),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      mainAxisSize: MainAxisSize.max,
-                      children: [
-                        // YouTube button (if available)
-                        if (widget.result.additionalData?['youtubeId'] != null) ...[
-                          Container(
-                            decoration: BoxDecoration(
-                              color: AppTheme.positiveColor.withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(14),
-                            ),
-                            child: IconButton(
-                              icon: const Icon(
-                                Icons.play_circle_outline,
-                                color: AppTheme.positiveColor,
-                                size: 16,
-                              ),
-                              padding: const EdgeInsets.all(4),
-                              constraints: const BoxConstraints(
-                                minWidth: 26,
-                                minHeight: 26,
-                              ),
-                              onPressed: () => _openYouTube(widget.result.additionalData!['youtubeId'] as String),
-                              tooltip: 'Play on YouTube',
-                            ),
-                          ),
-                          const SizedBox(width: 4),
-                        ],
-                        
-                        // Spotify button (if available)
-                        if (widget.result.additionalData?['spotifyId'] != null) ...[
-                          Container(
-                            decoration: BoxDecoration(
-                              color: AppTheme.primaryColor.withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(14),
-                            ),
-                            child: IconButton(
-                              icon: const Icon(
-                                Icons.music_note,
-                                color: AppTheme.primaryColor,
-                                size: 16,
-                              ),
-                              padding: const EdgeInsets.all(4),
-                              constraints: const BoxConstraints(
-                                minWidth: 26,
-                                minHeight: 26,
-                              ),
-                              onPressed: () => _openSpotify(widget.result.additionalData!['spotifyId'] as String),
-                              tooltip: 'Play on Spotify',
-                            ),
-                          ),
-                          const SizedBox(width: 4),
-                        ],
-                        
-                        // Add to Watchlist button - blue bookmark
-                        Container(
-                          decoration: BoxDecoration(
-                            color: Colors.blue.withOpacity(0.2),
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          child: IconButton(
-                            icon: const Icon(
-                              Icons.bookmark_add,
-                              color: Colors.blue,
-                              size: 16,
-                            ),
-                            padding: const EdgeInsets.all(4),
-                            constraints: const BoxConstraints(
-                              minWidth: 28,
-                              minHeight: 28,
-                            ),
-                            onPressed: widget.onAddToWatchlist,
-                            tooltip: 'Add to ${_getWatchlistTerminology()}',
-                          ),
+
+                // Title and artist at bottom - clean and simple
+                Container(
+                  height: titleHeight,
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+                  decoration: const BoxDecoration(
+                    borderRadius: BorderRadius.only(
+                      bottomLeft: Radius.circular(AppTheme.cardBorderRadius),
+                      bottomRight: Radius.circular(AppTheme.cardBorderRadius),
+                    ),
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Color.fromRGBO(28, 28, 28, 0.98),
+                        Color.fromRGBO(35, 35, 35, 0.98),
+                      ],
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.center, // Center the text
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      // Display logic: if title is empty/null, show artist as title
+                      Flexible(
+                        child: Text(
+                          (widget.result.title?.isNotEmpty == true) 
+                              ? widget.result.title! 
+                              : widget.result.artist ?? 'Unknown',
+                          style: InterestFonts.searchCardTitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.center,
                         ),
-                        
-                        // Title and artist/director centered between controls
-                        Expanded(
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 4.0),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.center,
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  widget.result.title,
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.w500,
-                                    fontSize: 11,
-                                    shadows: [
-                                      Shadow(
-                                        color: Colors.black.withOpacity(0.5),
-                                        offset: const Offset(0, 1),
-                                        blurRadius: 2,
-                                      ),
-                                    ],
-                                  ),
-                                  maxLines: widget.result.artist != null ? 1 : 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  textAlign: TextAlign.center,
-                                ),
-                                if (widget.result.artist != null) ...[
-                                  const SizedBox(height: 1),
-                                  Text(
-                                    widget.result.artist!,
-                                    style: TextStyle(
-                                      color: Colors.white70,
-                                      fontSize: 9,
-                                      shadows: [
-                                        Shadow(
-                                          color: Colors.black.withOpacity(0.3),
-                                          offset: const Offset(0, 1),
-                                          blurRadius: 1,
-                                        ),
-                                      ],
-                                    ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    textAlign: TextAlign.center,
-                                  ),
-                                ],
-                              ],
-                            ),
-                          ),
-                        ),
-                        
-                        
-                        const SizedBox(width: 4),
-                        
-                        // Add to Favorites button - purple heart
-                        Container(
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF7B68EE).withOpacity(0.2),
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          child: IconButton(
-                            icon: const Icon(
-                              Icons.favorite,
-                              color: Color(0xFF7B68EE), // Primary purple color
-                              size: 16,
-                            ),
-                            padding: const EdgeInsets.all(4),
-                            constraints: const BoxConstraints(
-                              minWidth: 28,
-                              minHeight: 28,
-                            ),
-                            onPressed: widget.onAddToFavorites,
-                            tooltip: 'Add to Favorites',
+                      ),
+                      // Only show artist as subtitle if we have both title and artist
+                      if (widget.result.title?.isNotEmpty == true && widget.result.artist != null) ...[
+                        const SizedBox(height: 2),
+                        Flexible(
+                          child: Text(
+                            widget.result.artist!,
+                            style: InterestFonts.searchCardArtist,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.center,
                           ),
                         ),
                       ],
-                    ),
+                    ],
                   ),
                 ),
               ],
@@ -1457,19 +1346,30 @@ class _WikidataCardState extends State<_WikidataCard> {
           },
         ),
       ),
+    ),
     );
+  }
+
+  /// Helper method to filter out invalid string values from gRPC responses
+  /// Returns null if the value is null, empty, or the string "null"
+  String? _getValidString(String? value) {
+    if (value == null || value.isEmpty || value.toLowerCase() == 'null') {
+      return null;
+    }
+    return value;
   }
 
   /// Opens the media detail drawer when cover art is clicked
   Future<void> _openMediaDetailDrawer(BuildContext context) async {
     try {
-      // Get comprehensive status from database
+      // Get comprehensive status using single source of truth lookup
       final db = SQLiteDatabase();
-      final statusResult = await db.getMediaItemStatusByProperties(
-        title: widget.result.title,
-        mediaType: widget.mediaType,
-        primaryCreator: widget.result.artist ?? '',
-      );
+      final statusResult = await db.getMediaItemStatus(vectorMediaId: widget.result.id);
+      
+      // Debug what data we have available
+      debugPrint('🔧 [DRAWER-DATA] additionalData keys: ${widget.result.additionalData?.keys.toList()}');
+      debugPrint('🔧 [DRAWER-DATA] genres from additionalData: "${widget.result.additionalData?['genres']}" (filtered: "${_getValidString(widget.result.additionalData?['genres'] as String?)}")');
+      debugPrint('🔧 [DRAWER-DATA] genres from statusResult: "${statusResult['genres']}"');
 
       if (mounted) {
         showModalBottomSheet(
@@ -1489,8 +1389,8 @@ class _WikidataCardState extends State<_WikidataCard> {
                   title: widget.result.title,
                   artist: widget.result.artist,
                   description: widget.result.description,
-                  themes: widget.result.additionalData?['themes'] as String?,
-                  genres: widget.result.additionalData?['genres'] as String? ?? statusResult['genres'] as String?,
+                  themes: _getValidString(widget.result.additionalData?['themes'] as String?),
+                  genres: _getValidString(widget.result.additionalData?['genres'] as String?) ?? statusResult['genres'] as String?,
                   youtubeId: widget.result.additionalData?['youtubeId'] as String? ?? statusResult['youtubeId'] as String?,
                   spotifyId: widget.result.additionalData?['spotifyId'] as String? ?? statusResult['spotifyId'] as String?,
                   coverArtUrl: widget.result.imageUrl,
@@ -1572,9 +1472,9 @@ class _WikidataCardState extends State<_WikidataCard> {
           wikiUrl: item.wikiUrl,
           wikidataId: item.wikidataId,
           themes: item.themes,
-          genres: null, // TODO: Extract from item if available
-          youtubeId: null, // TODO: Extract from item if available  
-          spotifyId: null, // TODO: Extract from item if available
+          genres: item.genres,
+          youtubeId: item.youtubeId,
+          spotifyId: item.spotifyId
         );
         debugPrint('🔍 [SEARCH-DRAWER] Created new media item with ID: $mediaItemId');
       }

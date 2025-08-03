@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../services/sqlite_db.dart';
 import '../music/spotify_service.dart';
+import 'standard_close_button.dart';
 
 /// Preview buttons for media items (YouTube/Spotify for music, YouTube for others)
 class MediaPreviewButtons extends StatelessWidget {
@@ -266,8 +267,7 @@ class YouTubePreviewModal extends StatelessWidget {
                     ],
                   ),
                 ),
-                IconButton(
-                  icon: const Icon(Icons.close, color: Colors.white),
+                StandardCloseButton(
                   onPressed: () => Navigator.of(context).pop(),
                 ),
               ],

@@ -1654,6 +1654,7 @@ class MediaItem extends $pb.GeneratedMessage {
     $core.String? reasoning,
     $core.String? youtubeId,
     $core.String? spotifyId,
+    $core.String? genres,
   }) {
     final result = create();
     if (mediaId != null) result.mediaId = mediaId;
@@ -1670,6 +1671,7 @@ class MediaItem extends $pb.GeneratedMessage {
     if (reasoning != null) result.reasoning = reasoning;
     if (youtubeId != null) result.youtubeId = youtubeId;
     if (spotifyId != null) result.spotifyId = spotifyId;
+    if (genres != null) result.genres = genres;
     return result;
   }
 
@@ -1701,6 +1703,7 @@ class MediaItem extends $pb.GeneratedMessage {
     ..aOS(12, _omitFieldNames ? '' : 'reasoning')
     ..aOS(13, _omitFieldNames ? '' : 'youtubeId')
     ..aOS(14, _omitFieldNames ? '' : 'spotifyId')
+    ..aOS(15, _omitFieldNames ? '' : 'genres')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -1850,6 +1853,16 @@ class MediaItem extends $pb.GeneratedMessage {
   $core.bool hasSpotifyId() => $_has(13);
   @$pb.TagNumber(14)
   void clearSpotifyId() => $_clearField(14);
+
+  /// Additional metadata
+  @$pb.TagNumber(15)
+  $core.String get genres => $_getSZ(14);
+  @$pb.TagNumber(15)
+  set genres($core.String value) => $_setString(14, value);
+  @$pb.TagNumber(15)
+  $core.bool hasGenres() => $_has(14);
+  @$pb.TagNumber(15)
+  void clearGenres() => $_clearField(15);
 }
 
 const $core.bool _omitFieldNames =

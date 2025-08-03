@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:url_launcher/url_launcher.dart';
 import '../../theme.dart';
+import '../common/standard_close_button.dart';
 
 /// Dialog showing Spotify track info for non-authenticated users
 class SpotifyPreviewDialog extends StatefulWidget {
@@ -136,11 +137,9 @@ class _SpotifyPreviewDialogState extends State<SpotifyPreviewDialog> {
                     ),
                   ),
                   const Spacer(),
-                  IconButton(
-                    icon: const Icon(Icons.close, color: AppTheme.textSecondary),
+                  StandardCloseButton(
                     onPressed: () => Navigator.of(context).pop(),
                     padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
                   ),
                 ],
               ),

@@ -626,7 +626,7 @@ class _MediaHistoryScreenState extends State<MediaHistoryScreen> {
 
   Future<void> _showMediaDrawer(MediaSuggestion item) async {
     // Get comprehensive status from database
-    final status = await _db.getMediaItemStatusByProperties(
+    final status = await _db.getMediaItemStatus(
       title: item.title ?? 'Unknown',
       mediaType: _currentMediaType,
       primaryCreator: item.artist ?? '',
@@ -686,127 +686,57 @@ class _MediaHistoryScreenState extends State<MediaHistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: MediaQuery.of(context).size.height * 0.65,
-      margin: const EdgeInsets.only(top: 20),
-      decoration: BoxDecoration(
-        color: const Color(0xFF0A0A0A), // Very dark background like select from history modal
-        borderRadius: const BorderRadius.only(
-          topLeft: Radius.circular(20),
-          topRight: Radius.circular(20),
+    return Column(
+      children: [
+          
+        // Clean text tabs
+        Container(
+          margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              _buildTextTab('favorited', 'Favorited'),
+              _buildTextTab('liked', 'Liked'),
+              _buildTextTab('watchlisted', AppTheme.getMediaListName(_currentMediaType)),
+              _buildTextTab('disliked', 'Disliked'),
+              _buildTextTab('skipped', 'Skipped'),
+            ],
+          ),
         ),
-        border: Border.all(
-          color: AppTheme.primaryColor.withOpacity(0.3),
-          width: 1,
+          
+        // Content list
+        Expanded(
+          child: _isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : _getCurrentItems().isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            _getCategoryIcon(_selectedCategory),
+                            size: 48,
+                            color: AppTheme.textSecondary.withOpacity(0.5),
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            'No ${_selectedCategory} ${AppTheme.getMediaPluralDisplayName(_currentMediaType).toLowerCase()} yet',
+                            style: const TextStyle(
+                              fontSize: 14,
+                              color: AppTheme.textSecondary,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  : ListView.builder(
+                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+                      itemCount: _getCurrentItems().length,
+                      itemBuilder: (context, index) => _buildActionableMediaCard(_getCurrentItems()[index]),
+                    ),
         ),
-      ),
-      child: Column(
-        children: [
-          // Header with drag handle and title
-          Container(
-            padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  AppTheme.primaryColor.withOpacity(0.1),
-                  Colors.transparent,
-                ],
-              ),
-              borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(20),
-                topRight: Radius.circular(20),
-              ),
-            ),
-            child: Column(
-              children: [
-                // Drag handle
-                Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.3),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                // Title with media icon
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      AppTheme.getMediaIcon(_currentMediaType),
-                      color: AppTheme.primaryColor,
-                      size: 16,
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      '${AppTheme.getMediaDisplayName(_currentMediaType)} History',
-                      style: const TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w400,
-                        letterSpacing: 1.0,
-                        color: AppTheme.textPrimary,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          
-          // Clean text tabs
-          Container(
-            margin: const EdgeInsets.symmetric(horizontal: 12),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                _buildTextTab('favorited', 'Favorited'),
-                _buildTextTab('liked', 'Liked'),
-                _buildTextTab('watchlisted', AppTheme.getMediaListName(_currentMediaType)),
-                _buildTextTab('disliked', 'Disliked'),
-                _buildTextTab('skipped', 'Skipped'),
-              ],
-            ),
-          ),
-          
-          const SizedBox(height: 12),
-          
-          // Content list
-          Expanded(
-            child: _isLoading
-                ? const Center(child: CircularProgressIndicator())
-                : _getCurrentItems().isEmpty
-                    ? Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              _getCategoryIcon(_selectedCategory),
-                              size: 48,
-                              color: AppTheme.textSecondary.withOpacity(0.5),
-                            ),
-                            const SizedBox(height: 16),
-                            Text(
-                              'No ${_selectedCategory} ${AppTheme.getMediaPluralDisplayName(_currentMediaType).toLowerCase()} yet',
-                              style: const TextStyle(
-                                fontSize: 14,
-                                color: AppTheme.textSecondary,
-                                letterSpacing: 0.5,
-                              ),
-                            ),
-                          ],
-                        ),
-                      )
-                    : ListView.builder(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                        itemCount: _getCurrentItems().length,
-                        itemBuilder: (context, index) => _buildActionableMediaCard(_getCurrentItems()[index]),
-                      ),
-          ),
-        ],
-      ),
+      ],
     );
   }
 }

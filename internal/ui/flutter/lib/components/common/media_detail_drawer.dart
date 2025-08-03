@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:youtube_player_flutter/youtube_player_flutter.dart';
@@ -6,6 +7,7 @@ import '../../services/sqlite_db.dart';
 import 'media_action_icons.dart';
 import '../../models.dart'; // For MediaDisplayHelper
 import '../music/spotify_service.dart'; // For Spotify playback
+import 'standard_close_button.dart';
 
 /// Reusable media display area component with side-by-side layout
 class MediaDisplayArea extends StatelessWidget {
@@ -38,9 +40,14 @@ class MediaDisplayArea extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            // Static image - 1/3 of width
+            // Dynamic image sizing with proportional scaling
             Container(
-              width: MediaQuery.of(context).size.width * 0.95 * 0.33 * 0.8,
+              constraints: BoxConstraints(
+                maxWidth: MediaQuery.of(context).size.width * 0.95 * 0.30, // Max 30% of available width
+                maxHeight: MediaQuery.of(context).size.height * 0.25, // Max 25% of screen height
+                minWidth: 80, // Minimum width to ensure visibility
+                minHeight: 80, // Minimum height to ensure visibility
+              ),
               child: Container(
                 decoration: BoxDecoration(
                   color: Colors.transparent,
@@ -51,9 +58,7 @@ class MediaDisplayArea extends StatelessWidget {
                   child: coverArtUrl != null && coverArtUrl!.isNotEmpty
                       ? Image.network(
                           coverArtUrl!,
-                          fit: BoxFit.contain,
-                          width: double.infinity,
-                          height: double.infinity,
+                          fit: BoxFit.contain, // Proportional scaling without cropping
                           errorBuilder: (context, error, stackTrace) =>
                               _buildPlaceholderIcon(),
                         )
@@ -64,22 +69,27 @@ class MediaDisplayArea extends StatelessWidget {
             
             const SizedBox(width: AppTheme.spacingMD),
             
-            // Scrollable summary area - 2/3 of width
+            // Scrollable summary area - flexible width with constraints
             Expanded(
-              child: SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (description != null && description!.isNotEmpty) ...[
-                      Text(
-                        description!,
-                        style: AppTheme.bodyStyle.copyWith(
-                          fontSize: 13,
-                          height: 1.4,
+              child: Container(
+                constraints: const BoxConstraints(
+                  maxWidth: 350, // Max width for summary to prevent it from being too wide
+                ),
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (description != null && description!.isNotEmpty) ...[
+                        Text(
+                          description!,
+                          style: AppTheme.bodyStyle.copyWith(
+                            fontSize: 13,
+                            height: 1.4,
+                          ),
                         ),
-                      ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
               ),
             ),
@@ -265,9 +275,9 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
               final dynamicHeight = baseHeight.clamp(minHeight, maxHeight);
               
               return Container(
-                width: MediaQuery.of(context).size.width * 0.95,
+                width: MediaQuery.of(context).size.width * 1.0, // Full width minus margins
                 height: dynamicHeight,
-                margin: const EdgeInsets.all(AppTheme.spacingMD),
+                margin: const EdgeInsets.all(AppTheme.spacingSM), // Smaller margins for more space
             decoration: BoxDecoration(
           color: const Color(0xFF0A0A0A), // Very dark background to match select from history modal
           borderRadius: BorderRadius.circular(AppTheme.cardBorderRadius),
@@ -301,25 +311,66 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
                         artist: widget.artist,
                         fallbackTitle: 'Unknown Media',
                       );
-                      final reactionStatus = _getReactionStatus();
-                      final titleText = reactionStatus.isNotEmpty 
-                          ? '${displayInfo.displayTitle} • $reactionStatus'
-                          : displayInfo.displayTitle;
                       
-                      return Transform(
-                        transform: Matrix4.identity()..scale(1.15, 1.0),
-                        alignment: Alignment.centerLeft,
-                        child: Text(
-                          titleText.toUpperCase(),
-                          style: AppTheme.suggestionHeaderSmall.copyWith(
-                            fontSize: 18,
-                            letterSpacing: 2.5,
-                            fontWeight: FontWeight.w200,
-                            color: Colors.white,
-                          ),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
+                      // Simplified approach: Just aggressively constrain the title and let it ellipsis
+                      final statusText = _getReactionStatus();
+                      final hasStatus = statusText.isNotEmpty;
+                      
+                      debugPrint('🚨 [TITLE-WIDGET] This code is being executed for title: "${displayInfo.displayTitle}"');
+                      
+                      return LayoutBuilder(
+                        builder: (context, constraints) {
+                          final statusText = _getReactionStatus();
+                          final hasStatus = statusText.isNotEmpty;
+                          
+                          // Measure actual status width and position
+                          double statusWidth = 0.0;
+                          if (hasStatus) {
+                            final statusPainter = TextPainter(
+                              text: TextSpan(
+                                text: statusText,
+                                style: AppTheme.bodyStyle.copyWith(
+                                  fontFamily: 'Inter',
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w500,
+                                  letterSpacing: 1.8,
+                                ),
+                              ),
+                              textDirection: TextDirection.ltr,
+                            );
+                            statusPainter.layout();
+                            statusWidth = statusPainter.width * 1.08; // Status scale
+                          }
+                          
+                          final spacingWidth = hasStatus ? AppTheme.spacingMD : 0.0;
+                          final statusStartPosition = constraints.maxWidth - statusWidth;
+                          
+                          // Simple approach: constrain textbox width to prevent overlap
+                          final safeTextWidth = math.max(100.0, (statusStartPosition - spacingWidth - 80.0) / 1.15); // Ensure minimum width
+                          
+                          debugPrint('🔧 [SIMPLE] statusStart=$statusStartPosition safeTextWidth=$safeTextWidth willTransformTo=${safeTextWidth * 1.15}');
+                          
+                          // Now add transform back with correct width calculation
+                          final availableSpace = statusStartPosition - spacingWidth - 50.0;
+                          final textContainerWidth = availableSpace / 2; // Account for 1.15x transform
+                          
+                          debugPrint('🔧 [WITH-TRANSFORM] availableSpace=$availableSpace textContainerWidth=$textContainerWidth willExpandTo=${textContainerWidth * 1.15}');
+                          
+                          return SizedBox(
+                            width: availableSpace,
+                            child: Text(
+                              displayInfo.displayTitle.toUpperCase(),
+                              style: AppTheme.suggestionHeaderSmall.copyWith(
+                                fontSize: 16,
+                                letterSpacing: 4.0, // Increased letter spacing for wide effect
+                                fontWeight: FontWeight.w200,
+                                color: Colors.white,
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          );
+                        },
                       );
                     }(),
                   ),
@@ -348,49 +399,64 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      // Static image - reduced width for better space allocation
-                      Container(
-                        width: MediaQuery.of(context).size.width * 0.95 * 0.25, // Reduced from 0.33 * 0.8 to 0.25
-                        height: 140, // Fixed height to prevent image from being too tall
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: Colors.transparent,
-                            borderRadius: BorderRadius.circular(AppTheme.borderRadius),
-                          ),
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(AppTheme.borderRadius),
-                            child: widget.coverArtUrl != null && widget.coverArtUrl!.isNotEmpty
-                                ? Image.network(
-                                    widget.coverArtUrl!,
-                                    fit: BoxFit.contain,
-                                    width: double.infinity,
-                                    height: double.infinity,
-                                    errorBuilder: (context, error, stackTrace) =>
-                                        _buildPlaceholderIcon(),
-                                  )
-                                : _buildPlaceholderIcon(),
-                  ),
-                ),
-              ),
+                      // Dynamic image sizing with max constraints
+                      LayoutBuilder(
+                        builder: (context, constraints) {
+                          // Calculate max dimensions for image area
+                          final maxImageWidth = MediaQuery.of(context).size.width * 0.95 * 0.30; // 30% of available width
+                          final maxImageHeight = constraints.maxHeight - (AppTheme.spacingSM * 2); // Available height minus padding
+                          
+                          return Container(
+                            constraints: BoxConstraints(
+                              maxWidth: maxImageWidth,
+                              maxHeight: maxImageHeight,
+                              minWidth: 80, // Minimum width to ensure visibility
+                              minHeight: 80, // Minimum height to ensure visibility
+                            ),
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: Colors.transparent,
+                                borderRadius: BorderRadius.circular(AppTheme.borderRadius),
+                              ),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(AppTheme.borderRadius),
+                                child: widget.coverArtUrl != null && widget.coverArtUrl!.isNotEmpty
+                                    ? Image.network(
+                                        widget.coverArtUrl!,
+                                        fit: BoxFit.contain, // Use contain to prevent cropping while utilizing space
+                                        errorBuilder: (context, error, stackTrace) =>
+                                            _buildPlaceholderIcon(),
+                                      )
+                                    : _buildPlaceholderIcon(),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
               
                       const SizedBox(width: AppTheme.spacingMD),
               
-                      // Scrollable summary area - 2/3 of width
-              Expanded(
-                        child: SingleChildScrollView(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              if (widget.description != null && widget.description!.isNotEmpty) ...[
-                                Text(
-                                  widget.description!,
-                                  style: AppTheme.bodyStyle.copyWith(
-                                    fontSize: 13,
-                                    height: 1.4,
+                      // Scrollable summary area - flexible width based on image size
+                      Expanded(
+                        child: Container(
+                          constraints: const BoxConstraints(
+                            maxWidth: 300, // Max width for summary to prevent it from being too wide
+                          ),
+                          child: SingleChildScrollView(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                if (widget.description != null && widget.description!.isNotEmpty) ...[
+                                  Text(
+                                    widget.description!,
+                                    style: AppTheme.bodyStyle.copyWith(
+                                      fontSize: 13,
+                                      height: 1.4,
+                                    ),
                                   ),
-                                ),
+                                ],
                               ],
-                            ],
+                            ),
                           ),
                         ),
                       ),
@@ -412,6 +478,9 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
                           final hasArtist = widget.artist != null && widget.artist!.isNotEmpty;
                           final hasThemes = widget.themes != null && widget.themes!.isNotEmpty;
                           final hasGenres = widget.genres != null && widget.genres!.isNotEmpty;
+                          
+                          // Debug genres visibility
+                          debugPrint('MediaDetailDrawer genres debug: hasGenres=$hasGenres genres="${widget.genres}" themes="${widget.themes}"');
                           
                           // Use available height efficiently
                           final availableHeight = constraints.maxHeight - 24; // Account for padding
@@ -512,31 +581,6 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
                                 ),
                               ],
                               
-                              // Play buttons for YouTube/Spotify
-                              if (widget.youtubeId != null || widget.spotifyId != null) ...[
-                                const SizedBox(height: AppTheme.spacingXS),
-                                Row(
-                                  children: [
-                                    if (widget.youtubeId != null) ...[
-                                      _buildPlayButton(
-                                        icon: Icons.play_circle_outline,
-                                        label: 'YouTube',
-                                        color: AppTheme.positiveColor, // Turquoise for YouTube
-                                        onPressed: () => _openYouTube(widget.youtubeId!),
-                                      ),
-                                      if (widget.spotifyId != null) const SizedBox(width: 8),
-                                    ],
-                                    if (widget.spotifyId != null) ...[
-                                      _buildPlayButton(
-                                        icon: Icons.music_note,
-                                        label: 'Spotify',
-                                        color: AppTheme.primaryColor, // Purple for Spotify to match brand
-                                        onPressed: () => _openSpotify(widget.spotifyId!),
-                                      ),
-                                    ],
-                                  ],
-                                ),
-                              ],
                             ],
                           );
                           
@@ -558,12 +602,29 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
               ),
             ),
             
-            // Centralized action icons at bottom - fixed height
+            // Centralized action icons at bottom with YouTube/Spotify on left - fixed height
             Container(
               padding: const EdgeInsets.all(AppTheme.spacingMD),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
+                  // YouTube icon on far left if available
+                  if (widget.youtubeId != null) ...[
+                    _buildExternalMediaButton(
+                      icon: Icons.play_circle_outline,
+                      color: AppTheme.positiveColor,
+                      onPressed: () => _openYouTube(widget.youtubeId!),
+                    ),
+                  ],
+                  // Spotify icon next to YouTube if available
+                  if (widget.spotifyId != null) ...[
+                    _buildExternalMediaButton(
+                      icon: Icons.music_note,
+                      color: AppTheme.spotifyGreen,
+                      onPressed: () => _openSpotify(widget.spotifyId!),
+                    ),
+                  ],
+                  // Main action buttons
                   MediaActionButton(
                     type: MediaActionType.like,
                     isActive: _currentLiked,
@@ -626,88 +687,88 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
 
   Widget _buildStatusText() {
     if (_currentFavorited) {
-      return Text(
-        'FAVORITED',
-        style: AppTheme.bodyStyle.copyWith(
-          fontSize: 12,
-          fontWeight: FontWeight.w600,
-          color: AppTheme.favoriteColor,
-        ),
-      );
+      return _buildStyledStatusText('FAVORITED', AppTheme.favoriteColor);
     } else if (_currentLiked) {
-      return Text(
-        'LIKED',
-        style: AppTheme.bodyStyle.copyWith(
-          fontSize: 12,
-          fontWeight: FontWeight.w600,
-          color: AppTheme.likeColor,
-        ),
-      );
+      return _buildStyledStatusText('LIKED', AppTheme.likeColor);
     } else if (_currentWatchlisted) {
-      return Text(
-        'WATCHLISTED',
-        style: AppTheme.bodyStyle.copyWith(
-          fontSize: 12,
-          fontWeight: FontWeight.w600,
-          color: AppTheme.watchlistColor,
-        ),
-      );
+      return _buildStyledStatusText('WATCHLISTED', AppTheme.watchlistColor);
     } else if (_currentDisliked) {
-      return Text(
-        'DISLIKED',
-        style: AppTheme.bodyStyle.copyWith(
-          fontSize: 12,
-          fontWeight: FontWeight.w600,
-          color: AppTheme.dislikeColor,
-        ),
-      );
+      return _buildStyledStatusText('DISLIKED', AppTheme.dislikeColor);
     }
     return const SizedBox.shrink();
   }
-
-  Widget _buildPlayButton({
-    required IconData icon,
-    required String label,
-    required Color color,
-    required VoidCallback onPressed,
-  }) {
-    return Container(
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: color.withOpacity(0.3), width: 1),
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onPressed,
-          borderRadius: BorderRadius.circular(6),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  icon,
-                  color: color,
-                  size: 16,
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  label,
-                  style: TextStyle(
-                    color: color,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-          ),
+  
+  Widget _buildStyledStatusText(String text, Color color) {
+    // Apply thin, wide, sleek styling to status text with slight transform
+    const statusScale = 1.08; // Slightly less scaling than title for contrast
+    
+    return Transform(
+      transform: Matrix4.identity()..scale(statusScale, 1.0),
+      alignment: Alignment.centerRight,
+      child: Text(
+        text,
+        style: AppTheme.bodyStyle.copyWith(
+          fontFamily: 'Inter', // Match the primary font family
+          fontSize: 11, // Skinnier/smaller
+          fontWeight: FontWeight.w500, // Slightly bolder than w400 but not too heavy
+          letterSpacing: 1.8, // Wide letter spacing for that sleek look
+          color: color,
         ),
+        textAlign: TextAlign.right,
       ),
     );
   }
+
+  Widget _buildExternalMediaButton({
+    required IconData icon,
+    required Color color,
+    required VoidCallback onPressed,
+  }) {
+    return StatefulBuilder(
+      builder: (context, setState) {
+        bool isHovered = false;
+        
+        return MouseRegion(
+          onEnter: (_) => setState(() => isHovered = true),
+          onExit: (_) => setState(() => isHovered = false),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeInOut,
+            transform: isHovered
+                ? (Matrix4.translationValues(0, -2, 0)..scale(1.1))
+                : Matrix4.identity(),
+            child: Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: isHovered
+                    ? color.withOpacity(0.1)
+                    : Colors.transparent,
+                borderRadius: BorderRadius.circular(24),
+              ),
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: onPressed,
+                  borderRadius: BorderRadius.circular(24),
+                  child: Center(
+                    child: Icon(
+                      icon,
+                      color: isHovered
+                          ? color
+                          : color.withOpacity(0.7), // Slightly dimmed when not hovered
+                      size: 28, // Match other action button icon size
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
 
   void _openYouTube(String videoId) async {
     try {
@@ -810,6 +871,122 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
   }
 }
 
+/// Custom widget for transformed title text that can calculate proper spacing
+/// to prevent overlap with status indicators
+class _TransformedTitleText extends StatefulWidget {
+  final String text;
+  final String statusText;
+  final TextStyle style;
+  final double transformScale;
+  final double statusScale;
+
+  const _TransformedTitleText({
+    required this.text,
+    required this.statusText,
+    required this.style,
+    required this.transformScale,
+    required this.statusScale,
+  });
+
+  @override
+  State<_TransformedTitleText> createState() => _TransformedTitleTextState();
+}
+
+class _TransformedTitleTextState extends State<_TransformedTitleText> {
+  double? _calculatedWidth;
+  double? _overflowAmount;
+  bool _hasCalculated = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (!_hasCalculated) {
+          _calculateOptimalWidth(constraints.maxWidth);
+        }
+
+        final hasStatus = widget.statusText.isNotEmpty;
+        
+        // Calculate status width using TextPainter
+        double statusWidth = 0.0;
+        if (hasStatus) {
+          final statusPainter = TextPainter(
+            text: TextSpan(
+              text: widget.statusText,
+              style: AppTheme.bodyStyle.copyWith(
+                fontFamily: 'Inter',
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+                letterSpacing: 1.8,
+              ),
+            ),
+            textDirection: TextDirection.ltr,
+          );
+          statusPainter.layout();
+          statusWidth = (statusPainter.width * widget.statusScale) + 40.0; // More conservative margin
+        }
+
+        final spacingWidth = hasStatus ? AppTheme.spacingMD : 0.0;
+        final availableWidth = constraints.maxWidth - statusWidth - spacingWidth;
+        
+        // Calculate the maximum width the text container can be before transformation
+        final maxContainerWidth = availableWidth / widget.transformScale;
+        
+        // Use more aggressive constraint to prevent any possibility of overflow
+        // We need to ensure: (finalWidth × transformScale) + statusWidth + spacingWidth <= constraints.maxWidth
+        final maxAllowedTransformedWidth = constraints.maxWidth - statusWidth - spacingWidth - 20.0; // Extra 20px safety
+        final maxAllowedContainerWidth = maxAllowedTransformedWidth / widget.transformScale;
+        
+        final finalWidth = _calculatedWidth != null 
+            ? math.min(_calculatedWidth!, maxAllowedContainerWidth)
+            : maxAllowedContainerWidth;
+            
+        // Debug output for troubleshooting
+        debugPrint('TransformedTitleText FINAL: maxAllowedTransformedWidth=$maxAllowedTransformedWidth maxAllowedContainerWidth=$maxAllowedContainerWidth finalWidth=$finalWidth willTransformTo=${finalWidth * widget.transformScale}');
+
+        return SizedBox(
+          width: finalWidth,
+          child: Transform(
+            transform: Matrix4.identity()..scale(widget.transformScale, 1.0),
+            alignment: Alignment.centerLeft,
+            child: Text(
+              widget.text,
+              style: widget.style,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _calculateOptimalWidth(double maxWidth) {
+    // Calculate the natural width of the text without transformation
+    final textPainter = TextPainter(
+      text: TextSpan(text: widget.text, style: widget.style),
+      textDirection: TextDirection.ltr,
+      maxLines: 2,
+    );
+    textPainter.layout();
+    
+    // Store the calculated width and overflow info
+    _calculatedWidth = textPainter.width;
+    _overflowAmount = (_calculatedWidth! * widget.transformScale) - maxWidth;
+    _hasCalculated = true;
+    
+    // Debug output
+    debugPrint('TransformedTitleText: text="${widget.text}" naturalWidth=${_calculatedWidth} transformedWidth=${_calculatedWidth! * widget.transformScale} maxWidth=$maxWidth overflow=$_overflowAmount');
+  }
+
+  /// Public getter for overflow amount (can be used by parent widgets)
+  double? get overflowAmount => _overflowAmount;
+  
+  /// Public getter for calculated width
+  double? get calculatedWidth => _calculatedWidth;
+}
+
+
 /// YouTube Player Dialog - Public for reuse across components
 class YouTubePlayerDialog extends StatefulWidget {
   final String videoId;
@@ -884,11 +1061,9 @@ class _YouTubePlayerDialogState extends State<YouTubePlayerDialog> {
                     ),
                   ),
                   const Spacer(),
-                  IconButton(
-                    icon: const Icon(Icons.close, color: AppTheme.textSecondary),
+                  StandardCloseButton(
                     onPressed: () => Navigator.of(context).pop(),
                     padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
                   ),
                 ],
               ),

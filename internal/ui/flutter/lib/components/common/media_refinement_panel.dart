@@ -3,6 +3,7 @@ import '../../theme.dart';
 import '../../services/sqlite_db.dart';
 import '../../enums/media_type.dart';
 import 'autocomplete_search.dart';
+import 'standard_close_button.dart';
 
 /// Panel for refining media recommendations with advanced controls
 class MediaRefinementPanel extends StatefulWidget {
@@ -940,12 +941,7 @@ class _TitleSelectionModalState extends State<TitleSelectionModal> {
                           letterSpacing: 2.0,
                         ),
                       ),
-                      IconButton(
-                        icon: Icon(
-                          Icons.close,
-                          color: AppTheme.primaryColor.withOpacity(0.8),
-                          size: 20,
-                        ),
+                      StandardCloseButton(
                         onPressed: () => Navigator.of(context).pop(),
                       ),
                     ],

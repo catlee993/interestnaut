@@ -6,6 +6,8 @@ import 'media_refinement_panel.dart';
 import 'media_blend_panel.dart';
 import '../../services/sqlite_db.dart';
 import '../../services/continuous_playback_service.dart';
+import 'media_history_screen.dart';
+import 'standard_close_button.dart';
 
 class SettingsDrawer extends StatefulWidget {
   final String mediaType;
@@ -198,23 +200,8 @@ class _SettingsDrawerState extends State<SettingsDrawer> with SingleTickerProvid
                                 ),
                               ],
                             ),
-                            IconButton(
-                              icon: Icon(
-                                Icons.close,
-                                color: AppTheme.primaryColor.withOpacity(0.8),
-                                size: 20,
-                                shadows: [
-                                  Shadow(
-                                    color: AppTheme.primaryColor.withOpacity(0.6),
-                                    offset: const Offset(0, 0),
-                                    blurRadius: 1,
-                                  ),
-                                ],
-                              ),
+                            StandardCloseButton(
                               onPressed: widget.onClose,
-                              style: IconButton.styleFrom(
-                                padding: const EdgeInsets.all(6),
-                              ),
                             ),
                           ],
                         ),
@@ -259,7 +246,7 @@ class _SettingsDrawerState extends State<SettingsDrawer> with SingleTickerProvid
                 tabs: const [
                   Tab(text: 'REFINE'),
                   Tab(text: 'BLEND'),
-                  Tab(text: 'DATABASE'),
+                  Tab(text: 'HISTORY'),
                 ],
               ),
             ),
@@ -276,8 +263,12 @@ class _SettingsDrawerState extends State<SettingsDrawer> with SingleTickerProvid
                   MediaBlendPanel(currentMediaType: widget.mediaType),
                   
                   // History Panel (replaces Database Panel)
-                  // TODO: Replace with History tab as requested by user
-                  const SizedBox.shrink(),
+                  Container(
+                    padding: const EdgeInsets.all(24),
+                    child: MediaHistoryScreen(
+                      initialMediaType: widget.mediaType,
+                    ),
+                  ),
                 ],
               ),
             ),

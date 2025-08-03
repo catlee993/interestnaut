@@ -569,6 +569,9 @@ class SQLiteDatabase {
     String? wikiUrl,
     String? wikidataId,
     String? themes,
+    String? genres,
+    String? youtubeId,
+    String? spotifyId,
   }) async {
     await _ensureInitialized();
 
@@ -584,9 +587,9 @@ class SQLiteDatabase {
         wikiUrl: wikiUrl,
         wikidataId: wikidataId,
         themes: themes,
-        genres: null,
-        youtubeId: null,
-        spotifyId: null,
+        genres: genres,
+        youtubeId: youtubeId,
+        spotifyId: spotifyId,
       );
 
       // Add to favorites
@@ -611,6 +614,9 @@ class SQLiteDatabase {
     String? wikiUrl,
     String? wikidataId,
     String? themes,
+    String? genres,
+    String? youtubeId,
+    String? spotifyId,
   }) async {
     await _ensureInitialized();
 
@@ -626,9 +632,9 @@ class SQLiteDatabase {
         wikiUrl: wikiUrl,
         wikidataId: wikidataId,
         themes: themes,
-        genres: null,
-        youtubeId: null,
-        spotifyId: null,
+        genres: genres,
+        youtubeId: youtubeId,
+        spotifyId: spotifyId,
       );
 
       // Add to watchlist
@@ -1031,36 +1037,70 @@ class SQLiteDatabase {
     }
   }
 
-  /// Get comprehensive media item status by properties (title, artist, media type)
+  /// Single source of truth for media item status lookup
+  /// Supports multiple lookup methods: primary key (fastest), vector ID (precise), or fuzzy title/artist (fallback)
   /// This checks ALL tables - favorites, watchlist, recommendations - regardless of how the item was added
-  Future<Map<String, dynamic>> getMediaItemStatusByProperties({
-    required String title,
-    required String mediaType,
-    String? primaryCreator,
+  Future<Map<String, dynamic>> getMediaItemStatus({
+    int? id,                    // Primary key lookup (fastest)
+    String? vectorMediaId,      // Vector ID lookup (precise)
+    String? title,              // Fuzzy lookup (fallback)
+    String? mediaType,          // Required for fuzzy lookup
+    String? primaryCreator,     // Required for fuzzy lookup
   }) async {
     await _ensureInitialized();
 
     try {
-      debugPrint('🔍 [STATUS-LOOKUP] Looking up status for: "$title" by "$primaryCreator" ($mediaType)');
+      String lookupMethod;
+      String whereClause;
+      List<dynamic> params;
+
+      // Determine lookup strategy based on available parameters
+      if (id != null) {
+        // Primary key lookup (fastest)
+        lookupMethod = 'ID';
+        whereClause = 'WHERE mi.id = ?';
+        params = [id];
+        debugPrint('🔍 [STATUS-LOOKUP-ID] Looking up status for media item ID: $id');
+      } else if (vectorMediaId != null) {
+        // Vector ID lookup (precise)
+        lookupMethod = 'VECTOR';
+        whereClause = 'WHERE mi.vector_media_id = ?';
+        params = [vectorMediaId];
+        debugPrint('🔍 [STATUS-LOOKUP-VECTOR] Looking up status for vector ID: "$vectorMediaId"');
+      } else if (title != null && mediaType != null) {
+        // Fuzzy lookup (fallback)
+        lookupMethod = 'FUZZY';
+        whereClause = '''WHERE mt.name = ? 
+          AND LOWER(mi.title) = LOWER(?)
+          AND (? IS NULL OR LOWER(COALESCE(mi.primary_creator, '')) = LOWER(?))
+        ORDER BY 
+          CASE WHEN mi.youtube_id IS NOT NULL AND mi.youtube_id != '' THEN 0 ELSE 1 END,
+          CASE WHEN mi.spotify_id IS NOT NULL AND mi.spotify_id != '' THEN 0 ELSE 1 END,
+          mi.updated_at DESC,
+          mi.id DESC''';
+        params = [mediaType, title, primaryCreator, primaryCreator ?? ''];
+        debugPrint('🔍 [STATUS-LOOKUP-FUZZY] Looking up status for: "$title" by "$primaryCreator" ($mediaType)');
+      } else {
+        throw ArgumentError('Must provide either id, vectorMediaId, or title+mediaType');
+      }
       
-      // First, try to find the media item
+      // Build the query
+      String joinClause = lookupMethod == 'FUZZY' ? 'JOIN media_types mt ON mi.media_type_id = mt.id' : '';
       final findMediaQuery = '''
       SELECT mi.id, mi.title, mi.primary_creator, mi.cover_art_url, mi.description, 
              mi.wiki_url, mi.wikidata_id, mi.themes, mi.genres, mi.youtube_id, mi.spotify_id, mi.vector_media_id,
              CASE WHEN f.media_item_id IS NOT NULL THEN 1 ELSE 0 END as is_favorited,
              CASE WHEN w.media_item_id IS NOT NULL THEN 1 ELSE 0 END as is_in_watchlist
       FROM media_items mi
-      JOIN media_types mt ON mi.media_type_id = mt.id
+      $joinClause
       LEFT JOIN favorites f ON mi.id = f.media_item_id
       LEFT JOIN watchlist w ON mi.id = w.media_item_id
-      WHERE mt.name = ? 
-        AND LOWER(mi.title) = LOWER(?)
-        AND (? IS NULL OR LOWER(COALESCE(mi.primary_creator, '')) = LOWER(?))
+      $whereClause
       LIMIT 1
       ''';
 
       final stmt = _db!.prepare(findMediaQuery);
-      final result = stmt.select([mediaType, title, primaryCreator, primaryCreator ?? '']);
+      final result = stmt.select(params);
       stmt.dispose();
 
       if (result.isEmpty) {

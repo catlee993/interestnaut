@@ -139,8 +139,8 @@ class MediaActionIconData {
   });
 }
 
-/// Widget for consistent media action buttons
-class MediaActionButton extends StatelessWidget {
+/// Widget for consistent media action buttons with hover effects
+class MediaActionButton extends StatefulWidget {
   final MediaActionType type;
   final bool isActive;
   final VoidCallback onPressed;
@@ -157,33 +157,49 @@ class MediaActionButton extends StatelessWidget {
   }) : super(key: key);
 
   @override
+  State<MediaActionButton> createState() => _MediaActionButtonState();
+}
+
+class _MediaActionButtonState extends State<MediaActionButton> {
+  bool _isHovered = false;
+
+  @override
   Widget build(BuildContext context) {
     final iconData = MediaActionIcons.getIconData(
-      type: type,
-      isActive: isActive,
+      type: widget.type,
+      isActive: widget.isActive,
     );
 
-    return IconButton(
-      onPressed: isLoading ? null : onPressed,
-      icon: isLoading
-          ? SizedBox(
-              width: iconSize,
-              height: iconSize,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                color: iconData.activeColor,
-              ),
-            )
-          : Icon(
-              iconData.icon,
-              color: iconData.color,
-              size: iconSize,
-            ),
-      constraints: BoxConstraints(
-        minWidth: iconSize + 8,
-        minHeight: iconSize + 8,
+    // Temporarily removed hover effects to fix mouse tracker errors
+    return Container(
+      width: 48,
+      height: 48,
+      decoration: BoxDecoration(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(24),
       ),
-      padding: const EdgeInsets.all(4),
+      child: IconButton(
+        onPressed: widget.isLoading ? null : widget.onPressed,
+        icon: widget.isLoading
+            ? SizedBox(
+                width: widget.iconSize,
+                height: widget.iconSize,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: iconData.activeColor,
+                ),
+              )
+            : Icon(
+                iconData.icon,
+                color: iconData.color,
+                size: widget.iconSize,
+              ),
+        constraints: BoxConstraints(
+          minWidth: widget.iconSize + 8,
+          minHeight: widget.iconSize + 8,
+        ),
+        padding: const EdgeInsets.all(4),
+      ),
     );
   }
 } 

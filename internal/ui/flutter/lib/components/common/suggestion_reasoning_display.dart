@@ -250,6 +250,16 @@ class _SuggestionReasoningDisplayState extends State<SuggestionReasoningDisplay>
   }
 
   Widget _buildMatchSourcesSection(List<Map<String, String>> sources, BuildContext context) {
+    // Deduplicate sources by title to avoid showing the same movie multiple times
+    final Map<String, Map<String, String>> uniqueSources = {};
+    for (final source in sources) {
+      final title = source['title'] ?? '';
+      if (title.isNotEmpty && !uniqueSources.containsKey(title)) {
+        uniqueSources[title] = source;
+      }
+    }
+    final deduplicatedSources = uniqueSources.values.toList();
+
     return Container(
       width: double.infinity,
       child: Column(
@@ -267,7 +277,7 @@ class _SuggestionReasoningDisplayState extends State<SuggestionReasoningDisplay>
           Wrap(
             spacing: 12.0,
             runSpacing: 4.0,
-            children: sources.map((source) {
+            children: deduplicatedSources.map((source) {
               final title = source['title'] ?? '';
               final mediaItemId = source['mediaItemId'] ?? '';
               

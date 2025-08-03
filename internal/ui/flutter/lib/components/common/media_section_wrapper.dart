@@ -578,14 +578,10 @@ class MediaSectionWrapper extends StatelessWidget {
   /// Show item drawer with direct MediaSearchResult (most reliable)
   Future<void> _showItemDrawerDirect(BuildContext context, MediaSearchResult item) async {
     try {
-      // Get comprehensive status from all tables (recommendations, favorites, watchlist)
+      // Get comprehensive status using single source of truth lookup
       final db = SQLiteDatabase();
       final bestTitle = _getBestDisplayName(item);
-      final statusResult = await db.getMediaItemStatusByProperties(
-        title: bestTitle, 
-        mediaType: mediaType,
-        primaryCreator: item.artist ?? '', // Handle nullable artist
-      );
+      final statusResult = await db.getMediaItemStatus(vectorMediaId: item.mediaId);
       
       debugPrint('🔍 [DRAWER-DIRECT] Status for "$bestTitle": $statusResult');
       

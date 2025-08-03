@@ -203,4 +203,7 @@ message MediaItem {
   // External service IDs
   string youtube_id = 13;     // YouTube video ID (if available)
   string spotify_id = 14;     // Spotify track ID (if available)
+  
+  // Additional metadata
+  string genres = 15;         // Comma-separated list of genres
 } 

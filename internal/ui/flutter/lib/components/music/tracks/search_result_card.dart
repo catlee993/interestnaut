@@ -323,7 +323,7 @@ class _SearchResultCardState extends State<SearchResultCard> {
 
       // Get comprehensive status from database
       final db = SQLiteDatabase();
-      final statusResult = await db.getMediaItemStatusByProperties(
+      final statusResult = await db.getMediaItemStatus(
         title: info['name'] ?? 'Unknown Track',
         mediaType: 'music',
         primaryCreator: info['artist'] ?? 'Unknown Artist',

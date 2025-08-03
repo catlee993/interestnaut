@@ -321,6 +321,7 @@ class GrpcRecommendationClient {
       wikiUrl: item.wikiUrl.isEmpty ? null : item.wikiUrl,
       wikidataId: item.wikidataId.isEmpty ? null : item.wikidataId,
       themes: item.themes.isEmpty ? null : item.themes,
+      genres: item.genres.isEmpty ? null : item.genres.split(',').map((e) => e.trim()).toList(),
       botReasoning: item.reasoning.isEmpty ? 'Recommended based on your preferences' : item.reasoning,
       mediaId: item.mediaId, // Store the vector database media ID
       youtubeId: item.youtubeId.isEmpty ? null : item.youtubeId,
