@@ -125,7 +125,7 @@ Future<void> main() async {
     try {
       window_package.setWindowTitle('Interestnaut');
       Size maxSize = const Size(1920, 1080);
-      Size initialSize = const Size(1024, 800);
+      Size initialSize = const Size(1060, 800);
       window_package.setWindowMaxSize(maxSize);
       window_package.setWindowMinSize(const Size(400, 300));
       window_package.setWindowFrame(
@@ -762,9 +762,67 @@ class _UnifiedSearchHandlerState extends State<_UnifiedSearchHandler> {
           );
         }
       }
+    } else if (item is InterestnautTrack) {
+      // For Interestnaut tracks, save to local database with YouTube/Spotify IDs
+      await _addInterestnautTrackToFavorites(item);
     } else if (item is WikidataSearchResult) {
       // For vector database results, add to favorites
       await _addToFavorites(item);
+    }
+  }
+
+  Future<void> _addInterestnautTrackToFavorites(InterestnautTrack track) async {
+    try {
+      final db = SQLiteDatabase();
+      
+      // Create media item with YouTube/Spotify IDs preserved
+      final mediaItemId = await db.createOrGetMediaItem(
+        mediaType: 'music',
+        vectorMediaId: 'music_${track.id}', // Use track ID as vector media ID
+        title: track.name,
+        primaryCreator: track.artist,
+        coverArtUrl: track.albumArtUrl,
+        description: track.album != null ? 'Album: ${track.album}' : null,
+        wikiUrl: null,
+        wikidataId: null,
+        themes: null,
+        genres: null, // TODO: Extract genres if available
+        youtubeId: track.youtubeId, // Preserve YouTube ID
+        spotifyId: track.spotifyId, // Preserve Spotify ID
+      );
+      
+      // Add to favorites
+      await db.addToFavorites(mediaItemId);
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Added "${track.name}" to favorites'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+      
+      debugPrint('✅ Added Interestnaut track to favorites: ${track.name} (YouTube: ${track.youtubeId}, Spotify: ${track.spotifyId})');
+      
+      // Refresh favorites list
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        MusicSection.refreshFavoritesFromSearch(
+          title: track.name,
+          primaryCreator: track.artist,
+        );
+      });
+    } catch (e) {
+      debugPrint('❌ Error adding Interestnaut track to favorites: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to add track to favorites: $e'),
+            backgroundColor: AppTheme.errorColor,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
     }
   }
 

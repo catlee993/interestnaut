@@ -11,6 +11,7 @@ import '../../models.dart'; // For MediaDisplayHelper
 import '../music/spotify_service.dart'; // For Spotify playback
 import 'standard_close_button.dart';
 import 'wide_text.dart';
+import 'play_selector_button.dart';
 
 /// Reusable media display area component with side-by-side layout
 class MediaDisplayArea extends StatelessWidget {
@@ -253,7 +254,9 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
       if (!_currentLiked && !_currentFavorited && !_currentWatchlisted && !_currentDisliked) {
         // No reactions left - trigger clear_all action to set to skipped
         Future.delayed(Duration.zero, () {
-          widget.onAction('clear_all');
+          if (mounted) {
+            widget.onAction('clear_all');
+          }
         });
       }
     });
@@ -660,24 +663,20 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
-                      // YouTube icon on far left if available
-                      if (widget.youtubeId != null) ...[
-                        _buildExternalMediaButton(
-                          icon: Icons.play_circle_outline,
-                          color: AppTheme.positiveColor,
-                          onPressed: () => _openYouTube(widget.youtubeId!),
+                      // Smart play selector button on far left if available
+                      if (widget.youtubeId != null || widget.spotifyId != null) ...[
+                        PlaySelectorButton(
+                          youtubeId: widget.youtubeId,
+                          spotifyId: widget.spotifyId,
+                          onYouTubePressed: widget.youtubeId != null ? () => _openYouTube(widget.youtubeId!) : null,
+                          onSpotifyPressed: widget.spotifyId != null ? () => _playSpotify(widget.spotifyId!) : null,
                         ),
                       ],
                       
                       // Spotify content: Show only Spotify actions, no Interestnaut reactions
                       if (widget.limitToSpotifyActions) ...[
-                        // Spotify play button
+                        // Save to Spotify button
                         if (widget.spotifyId != null) ...[
-                          _buildExternalMediaButton(
-                            icon: Icons.music_note,
-                            color: AppTheme.spotifyGreen,
-                            onPressed: () => _openSpotify(widget.spotifyId!),
-                          ),
                           _buildExternalMediaButton(
                             icon: Icons.add_circle_outline,
                             color: AppTheme.spotifyGreen,
@@ -691,14 +690,7 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
                           onPressed: () => _findInterestnatMatch(),
                         ),
                       ] else ...[
-                        // Regular content: Show Spotify play if available + full Interestnaut reactions
-                        if (widget.spotifyId != null) ...[
-                          _buildExternalMediaButton(
-                            icon: Icons.music_note,
-                            color: AppTheme.spotifyGreen,
-                            onPressed: () => _openSpotify(widget.spotifyId!),
-                          ),
-                        ],
+                        // Regular content: Full Interestnaut reactions (play selector already shown above)
                         // Main action buttons for regular content
                         MediaActionButton(
                           type: MediaActionType.like,
@@ -873,7 +865,7 @@ class _MediaDetailDrawerState extends State<MediaDetailDrawer> {
     }
   }
 
-  void _openSpotify(String trackId) async {
+  void _playSpotify(String trackId) async {
     try {
       final spotifyService = SpotifyService();
       

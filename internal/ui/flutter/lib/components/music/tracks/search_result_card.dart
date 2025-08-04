@@ -7,6 +7,8 @@ import '../../common/media_detail_drawer.dart'; // Contains YouTubePlayerDialog
 import '../../../services/sqlite_db.dart';
 import '../../../main.dart'; // For MediaSearchResult
 import '../spotify_service.dart'; // For Spotify playback
+import '../../common/play_selector_button.dart';
+import '../music_section.dart';
 
 class SearchResultCard extends StatefulWidget {
   final BaseTrack track;
@@ -155,37 +157,25 @@ class _SearchResultCardState extends State<SearchResultCard> {
                   mainAxisSize: MainAxisSize.max,
                   children: widget.limitToSpotifyActions ? [
                     // Spotify content: Show play/save buttons
-                    // Play button - enhanced with glow effect
-                    Container(
-                      width: 28,
-                      height: 28,
-                      decoration: BoxDecoration(
-                        color: AppTheme.primaryColor,
-                        borderRadius: BorderRadius.circular(12),
-                        boxShadow: [
-                          BoxShadow(
-                            color: AppTheme.primaryColor.withOpacity(0.3),
-                            blurRadius: 8,
-                            spreadRadius: 0,
-                          ),
-                        ],
+                    // Play button - white play arrow without circle (like dual-option selector)
+                    IconButton(
+                      icon: Icon(
+                        widget.isPlaying ? AppIcons.pause : AppIcons.play,
+                        size: 20,
+                        color: Colors.white.withOpacity(0.8),
                       ),
-                      child: IconButton(
-                        icon: Icon(
-                          widget.isPlaying ? AppIcons.pause : AppIcons.play,
-                          size: 12,
-                          color: Colors.white,
-                        ),
-                        onPressed: canPlay ? () => widget.onPlay(widget.track) : null,
-                        tooltip: !canPlay
-                            ? "Playback unavailable"
-                            : widget.isPlaying
-                                ? "Pause"
-                                : info['uri'] != null
-                                    ? "Play full song"
-                                    : "Play preview",
-                        color: Colors.white,
-                        padding: EdgeInsets.zero,
+                      onPressed: canPlay ? () => widget.onPlay(widget.track) : null,
+                      tooltip: !canPlay
+                          ? "Playback unavailable"
+                          : widget.isPlaying
+                              ? "Pause"
+                              : info['uri'] != null
+                                  ? "Play full song"
+                                  : "Play preview",
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(
+                        minWidth: 28,
+                        minHeight: 28,
                       ),
                     ),
                     
@@ -250,31 +240,39 @@ class _SearchResultCardState extends State<SearchResultCard> {
                       ),
                     ),
                     
-                    // Save/Remove button - clean text only
+                    // Save/Remove button - circular Spotify-style
                     widget.isSaved
-                        ? TextButton(
+                        ? IconButton(
                             onPressed: widget.onRemove != null 
                                 ? () => widget.onRemove!(widget.track)
                                 : null,
-                            style: TextButton.styleFrom(
-                              foregroundColor: AppTheme.errorColor,
-                              minimumSize: const Size(8, 8),
-                              padding: const EdgeInsets.symmetric(horizontal: 3),
-                              textStyle: const TextStyle(fontSize: 10, fontWeight: FontWeight.w500),
+                            icon: const Icon(
+                              Icons.check_circle,
+                              size: 20,
+                              color: AppTheme.spotifyGreen,
                             ),
-                            child: const Text('Remove'),
+                            tooltip: 'Remove from saved',
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(
+                              minWidth: 28,
+                              minHeight: 28,
+                            ),
                           )
-                        : TextButton(
+                        : IconButton(
                             onPressed: widget.onSave != null 
                                 ? () => widget.onSave!(widget.track)
                                 : null,
-                            style: TextButton.styleFrom(
-                              foregroundColor: Colors.white,
-                              minimumSize: const Size(8, 8),
-                              padding: const EdgeInsets.symmetric(horizontal: 3),
-                              textStyle: const TextStyle(fontSize: 10, fontWeight: FontWeight.w500),
+                            icon: Icon(
+                              Icons.add_circle_outline,
+                              size: 20,
+                              color: Colors.white.withOpacity(0.8),
                             ),
-                            child: const Text('Save'),
+                            tooltip: 'Save to library',
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(
+                              minWidth: 28,
+                              minHeight: 28,
+                            ),
                           ),
                   ] : [
                     // Interestnaut content: Centered title/artist with corner buttons
@@ -294,29 +292,22 @@ class _SearchResultCardState extends State<SearchResultCard> {
                             ),
                           ),
                           
-                          // YouTube button (left corner)
-                          if (_shouldShowYouTubeButton(info))
+                          // Play selector button for external media
+                          if (!widget.limitToSpotifyActions && 
+                              (_shouldShowYouTubeButton(info) || _shouldShowSpotifyButton(info)))
                             Positioned(
-                              left: 2,
-                              bottom: 2,
-                              child: _buildCornerButton(
-                                icon: Icons.play_arrow,
-                                color: const Color(0xFF4285F4), // YouTube blue
-                                onPressed: () => _openExternalMedia(info, 'youtube'),
-                                tooltip: 'Play on YouTube',
-                              ),
-                            ),
-                          
-                          // Spotify button (right corner) - only for music
-                          if (_shouldShowSpotifyButton(info))
-                            Positioned(
-                              right: 2,
-                              bottom: 2,
-                              child: _buildCornerButton(
-                                icon: Icons.music_note,
-                                color: const Color(0xFF1DB954), // Spotify green
-                                onPressed: () => _openExternalMedia(info, 'spotify'),
-                                tooltip: 'Play on Spotify',
+                              left: 4,
+                              bottom: 4,
+                              child: PlaySelectorButton(
+                                youtubeId: _shouldShowYouTubeButton(info) ? widget.track.youtubeId : null,
+                                spotifyId: _shouldShowSpotifyButton(info) ? widget.track.spotifyId : null,
+                                onYouTubePressed: widget.track.youtubeId != null 
+                                    ? () => _openYouTube(widget.track.youtubeId!) 
+                                    : null,
+                                onSpotifyPressed: widget.track.spotifyId != null 
+                                    ? () => _openSpotify(widget.track.spotifyId!) 
+                                    : null,
+                                size: 20, // Smaller size for corner placement
                               ),
                             ),
                         ],
@@ -377,8 +368,8 @@ class _SearchResultCardState extends State<SearchResultCard> {
                   description: info['album'] != null ? 'Album: ${info['album']}' : null,
                   themes: null, // Music tracks typically don't have themes
                   genres: statusResult['genres'] as String?,
-                  youtubeId: statusResult['youtubeId'] as String?,
-                  spotifyId: statusResult['spotifyId'] as String?,
+                  youtubeId: widget.track.youtubeId ?? statusResult['youtubeId'] as String?,
+                  spotifyId: widget.track.spotifyId ?? statusResult['spotifyId'] as String?,
                   coverArtUrl: info['albumArtUrl'],
                   mediaType: 'music',
                   hasLiked: statusResult['hasLiked'] as bool? ?? false,
@@ -762,8 +753,8 @@ class _SearchResultCardState extends State<SearchResultCard> {
           wikidataId: item.wikidataId,
           themes: item.themes,
           genres: null, // TODO: Extract from item if available
-          youtubeId: null, // TODO: Extract from item if available
-          spotifyId: null, // TODO: Extract from item if available
+          youtubeId: widget.track.youtubeId, // Use track's YouTube ID
+          spotifyId: widget.track.spotifyId, // Use track's Spotify ID
         );
         debugPrint('🔍 [MUSIC-SEARCH-DRAWER] Created new media item with ID: $mediaItemId');
       }
@@ -772,6 +763,13 @@ class _SearchResultCardState extends State<SearchResultCard> {
         case 'like':
           // Add to favorites and handle other logic as needed
           await db.addToFavorites(mediaItemId);
+          // Refresh favorites list
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            MusicSection.refreshFavoritesFromSearch(
+              title: item.title,
+              primaryCreator: item.artist,
+            );
+          });
           break;
           
         case 'dislike':
@@ -782,11 +780,25 @@ class _SearchResultCardState extends State<SearchResultCard> {
         case 'favorite':
           // Add to favorites table
           await db.addToFavorites(mediaItemId);
+          // Refresh favorites list
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            MusicSection.refreshFavoritesFromSearch(
+              title: item.title,
+              primaryCreator: item.artist,
+            );
+          });
           break;
           
         case 'watchlist':
           // Add to watchlist table (playlist for music)
           await db.addToWatchlist(mediaItemId);
+          // Refresh playlist/watchlist
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            MusicSection.refreshPlaylistFromSearch(
+              title: item.title,
+              primaryCreator: item.artist,
+            );
+          });
           break;
           
         case 'skip':

@@ -163,7 +163,7 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
       final htmlContent = await _loadHtmlContent();
       await controller.loadHtmlString(htmlContent);
       
-      if (!_isDisposed) {
+      if (!_isDisposed && mounted) {
         setState(() {
           _controller = controller;
         });
@@ -259,11 +259,13 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
     
     _addToDebugLog('Device ready: $deviceId');
     
-    setState(() {
-      _deviceId = deviceId!;
-      _isReady = true;
-      _errorMessage = '';
-    });
+    if (mounted) {
+      setState(() {
+        _deviceId = deviceId!;
+        _isReady = true;
+        _errorMessage = '';
+      });
+    }
     
     // Mark successful connection
     _lastSuccessfulConnection = DateTime.now();
@@ -318,13 +320,15 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
         }
       }
       
-      setState(() {
-        _isPlaying = isPlaying;
-        _isBuffering = isBuffering;
-        if (track != null) {
-          _currentTrack = track;
-        }
-      });
+      if (mounted) {
+        setState(() {
+          _isPlaying = isPlaying;
+          _isBuffering = isBuffering;
+          if (track != null) {
+            _currentTrack = track;
+          }
+        });
+      }
       
       // Create playback state object using the SpotifyPlaybackState from spotify_player_view.dart
       final playbackState = SpotifyPlaybackState(
@@ -351,9 +355,11 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
   void _handleError(String message) {
     _addToDebugLog('Error: $message');
     
-    setState(() {
-      _errorMessage = message;
-    });
+    if (mounted) {
+      setState(() {
+        _errorMessage = message;
+      });
+    }
     
     // Notify parent if callback is provided
     widget.onError?.call(message);
@@ -477,10 +483,12 @@ class SpotifyWebPlayerState extends State<SpotifyWebPlayer> {
   // Reconnect the player
   void _reconnectPlayer() {
     // Reset state
-    setState(() {
-      _isReady = false;
-      _deviceId = '';
-    });
+    if (mounted) {
+      setState(() {
+        _isReady = false;
+        _deviceId = '';
+      });
+    }
     
     // Reinitialize WebView
     _initializeWebView();

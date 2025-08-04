@@ -50,17 +50,25 @@ class _ApiCredentialsManagerState extends State<ApiCredentialsManager> {
   }
 
   Future<void> _handleChange(String value) async {
-    setState(() => _loading = true);
+    if (mounted) {
+      setState(() => _loading = true);
+    }
     await widget.onChange(value);
-    setState(() => _loading = false);
+    if (mounted) {
+      setState(() => _loading = false);
+    }
     if (widget.refreshHandler != null) await widget.refreshHandler!();
   }
 
   Future<void> _handleClear() async {
-    setState(() => _loading = true);
+    if (mounted) {
+      setState(() => _loading = true);
+    }
     await widget.onClear();
     _controller.clear();
-    setState(() => _loading = false);
+    if (mounted) {
+      setState(() => _loading = false);
+    }
     if (widget.refreshHandler != null) await widget.refreshHandler!();
   }
 
@@ -99,7 +107,11 @@ class _ApiCredentialsManagerState extends State<ApiCredentialsManager> {
         ),
         IconButton(
           icon: Icon(_showApiKey ? Icons.visibility_off : Icons.visibility, color: Colors.white),
-          onPressed: widget.disabled ? null : () => setState(() => _showApiKey = !_showApiKey),
+          onPressed: widget.disabled ? null : () {
+            if (mounted) {
+              setState(() => _showApiKey = !_showApiKey);
+            }
+          },
         ),
         IconButton(
           icon: Icon(Icons.clear, color: Colors.purple[300]),

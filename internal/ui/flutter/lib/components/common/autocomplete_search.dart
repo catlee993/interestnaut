@@ -53,20 +53,24 @@ class _AutocompleteSearchState extends State<AutocompleteSearch> {
   /// Search for themes or genres using FTS
   Future<void> _searchItems(String query) async {
     if (query.length < 2) {
-      setState(() {
-        _suggestions = [];
-        _showSuggestions = false;
-      });
+      if (mounted) {
+        setState(() {
+          _suggestions = [];
+          _showSuggestions = false;
+        });
+      }
       return;
     }
 
     if (query == _lastQuery) return; // Avoid duplicate searches
     _lastQuery = query;
 
-    setState(() {
-      _isLoading = true;
-      _showSuggestions = true;
-    });
+    if (mounted) {
+      setState(() {
+        _isLoading = true;
+        _showSuggestions = true;
+      });
+    }
 
     try {
       final grpcClient = GrpcRecommendationClient();
@@ -95,16 +99,20 @@ class _AutocompleteSearchState extends State<AutocompleteSearch> {
           .where((item) => !widget.existingItems.contains(item))
           .toList();
 
-      setState(() {
-        _suggestions = filteredResults;
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _suggestions = filteredResults;
+          _isLoading = false;
+        });
+      }
     } catch (e) {
       debugPrint('Search error: $e');
-      setState(() {
-        _suggestions = [];
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _suggestions = [];
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -112,11 +120,13 @@ class _AutocompleteSearchState extends State<AutocompleteSearch> {
     widget.onSelected(item);
     _controller.clear();
     _focusNode.unfocus();
-    setState(() {
-      _suggestions = [];
-      _showSuggestions = false;
-      _lastQuery = '';
-    });
+    if (mounted) {
+      setState(() {
+        _suggestions = [];
+        _showSuggestions = false;
+        _lastQuery = '';
+      });
+    }
   }
 
   /// Get the correct icon for the current media type and search type
@@ -186,7 +196,9 @@ class _AutocompleteSearchState extends State<AutocompleteSearch> {
           onChanged: _searchItems,
           onTap: () {
             if (_controller.text.length >= 2) {
-              setState(() => _showSuggestions = true);
+              if (mounted) {
+                setState(() => _showSuggestions = true);
+              }
             }
           },
         ),

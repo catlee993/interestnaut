@@ -306,15 +306,15 @@ class _MediaRefinementPanelState extends State<MediaRefinementPanel> {
     
     switch (currentLabel) {
       case 'Bohemian':
-        return 'Surprise me with unexpected gems! Casts a wide net for diverse discoveries.';
+        return 'Surprise me with unexpected gems! Casts a wide net for diverse discoveries across genres and themes.';
       case 'Eclectic':
-        return 'Keep things interesting with varied but related picks from different corners.';
+        return 'Keep things interesting with varied but related picks. Explores different corners while staying connected.';
       case 'Versatile':
-        return 'Mix it up! Balanced recommendations that explore while staying grounded.';
+        return 'Balanced recommendations that mix familiar and fresh. The perfect middle ground for discovery.';
       case 'Discerning':
-        return 'Stay on theme with focused picks that match your current vibe closely.';
+        return 'Stay on theme with focused picks that closely match your current mood and preferences.';
       case 'Meticulous':
-        return 'Laser-focused precision. Only the most perfectly matched suggestions.';
+        return 'Laser-focused precision matching. Only suggestions that align perfectly with your exact tastes.';
       default:
         return 'Custom similarity setting for personalized matching precision.';
     }
@@ -405,41 +405,20 @@ class _MediaRefinementPanelState extends State<MediaRefinementPanel> {
               ),
             ),
           ),
-          const SizedBox(height: 8),
-          // Warning for high similarity thresholds
-          if (_similarityThreshold >= 0.7) ...[
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                                    color: AppTheme.warningColor.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                                      color: AppTheme.warningColor.withOpacity(0.3),
-                  width: 1,
-                ),
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.lightbulb_outline,
-                    color: AppTheme.primaryColor.withOpacity(0.8),
-                    size: 16,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      _getCurrentSimilarityDescription(),
-                      style: TextStyle(
-                        color: AppTheme.primaryColor.withOpacity(0.9),
-                        fontSize: 11,
-                        fontWeight: FontWeight.w400,
-                      ),
-                    ),
-                  ),
-                ],
+          const SizedBox(height: 12),
+          // Simple description blurb for current similarity level
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: Text(
+              _getCurrentSimilarityDescription(),
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.7),
+                fontSize: 12,
+                fontWeight: FontWeight.w400,
+                height: 1.3,
               ),
             ),
-          ],
+          ),
         ],
       ),
     );

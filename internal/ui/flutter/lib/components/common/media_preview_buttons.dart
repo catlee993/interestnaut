@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:youtube_player_flutter/youtube_player_flutter.dart';
 import '../../services/sqlite_db.dart';
 import '../music/spotify_service.dart';
 import 'standard_close_button.dart';
+import '../../theme.dart';
+import 'play_selector_button.dart';
 
 /// Preview buttons for media items (YouTube/Spotify for music, YouTube for others)
 class MediaPreviewButtons extends StatelessWidget {
@@ -12,6 +15,7 @@ class MediaPreviewButtons extends StatelessWidget {
   final String? spotifyId; // For music: spotify track ID
   final String? youtubeId; // YouTube video ID
   final String? youtubeUrl; // Direct YouTube URL if available
+  final bool alignLeft; // Whether to align buttons to the left
 
   const MediaPreviewButtons({
     Key? key,
@@ -21,6 +25,7 @@ class MediaPreviewButtons extends StatelessWidget {
     this.spotifyId,
     this.youtubeId,
     this.youtubeUrl,
+    this.alignLeft = false,
   }) : super(key: key);
 
   @override
@@ -32,21 +37,43 @@ class MediaPreviewButtons extends StatelessWidget {
           return const SizedBox.shrink();
         }
 
-        return Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // YouTube Preview Button
-            if (_shouldShowYouTube())
-              _buildYouTubeButton(context),
-            
-            if (_shouldShowYouTube() && _shouldShowSpotify())
-              const SizedBox(width: 8),
-            
-            // Spotify Play Button (music only)
-            if (_shouldShowSpotify())
-              _buildSpotifyButton(context),
-          ],
+        // Use smart play selector button
+        final playSelector = PlaySelectorButton(
+          youtubeId: _shouldShowYouTube() ? youtubeId : null,
+          spotifyId: _shouldShowSpotify() ? spotifyId : null,
+          onYouTubePressed: _shouldShowYouTube() ? () => _openYouTube(context) : null,
+          onSpotifyPressed: _shouldShowSpotify() ? () => _openSpotify(context) : null,
         );
+
+        // If no external media buttons needed, return empty
+        if (!_shouldShowYouTube() && !_shouldShowSpotify()) {
+          return const SizedBox.shrink();
+        }
+
+        // Return play selector with optional spacing
+        if (alignLeft) {
+          return Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: playSelector,
+          );
+        } else {
+          // Add divider for non-aligned layout
+          return Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                height: 30,
+                width: 1,
+                color: Colors.white.withOpacity(0.3),
+                margin: const EdgeInsets.symmetric(horizontal: 8),
+              ),
+              Padding(
+                padding: const EdgeInsets.only(left: 8),
+                child: playSelector,
+              ),
+            ],
+          );
+        }
       },
     );
   }
@@ -66,225 +93,180 @@ class MediaPreviewButtons extends StatelessWidget {
     return mediaType == 'music' && spotifyId != null;
   }
 
-  Widget _buildYouTubeButton(BuildContext context) {
-    return OutlinedButton(
-      onPressed: () => _handleYouTubePreview(context),
-      style: OutlinedButton.styleFrom(
-        backgroundColor: Colors.transparent,
-        side: const BorderSide(color: Color(0xFFFF0000), width: 1),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-        ),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      ).copyWith(
-        overlayColor: WidgetStateProperty.resolveWith<Color?>((states) {
-          if (states.contains(WidgetState.hovered)) {
-            return const Color(0xFFFF0000).withOpacity(0.1);
-          }
-          return null;
-        }),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(
-            Icons.play_arrow,
-            color: Color(0xFFFF0000),
-            size: 16,
-          ),
-          const SizedBox(width: 6),
-          const Text(
-            'YouTube',
-            style: TextStyle(
-              color: Color(0xFFFF0000),
-              fontSize: 13,
-              fontWeight: FontWeight.w400,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSpotifyButton(BuildContext context) {
-    return OutlinedButton(
-      onPressed: () => _handleSpotifyPlay(context),
-      style: OutlinedButton.styleFrom(
-        backgroundColor: Colors.transparent,
-        side: const BorderSide(color: Color(0xFF1ED760), width: 1),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-        ),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      ).copyWith(
-        overlayColor: WidgetStateProperty.resolveWith<Color?>((states) {
-          if (states.contains(WidgetState.hovered)) {
-            return const Color(0xFF1ED760).withOpacity(0.1);
-          }
-          return null;
-        }),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(
-            Icons.music_note,
-            color: Color(0xFF1ED760),
-            size: 16,
-          ),
-          const SizedBox(width: 6),
-          const Text(
-            'Spotify',
-            style: TextStyle(
-              color: Color(0xFF1ED760),
-              fontSize: 13,
-              fontWeight: FontWeight.w400,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _handleYouTubePreview(BuildContext context) {
-    if (youtubeId != null && youtubeId!.isNotEmpty) {
-      // Use YouTube ID to create direct URL
-      final videoUrl = 'https://www.youtube.com/watch?v=$youtubeId';
-      _showYouTubeModal(context, videoUrl);
-    } else if (youtubeUrl != null && youtubeUrl!.isNotEmpty) {
-      // Use provided YouTube URL
-      _showYouTubeModal(context, youtubeUrl!);
-    } else {
-      // Generate search URL as fallback
-      final query = artist != null ? '$title $artist' : title;
-      final searchUrl = 'https://www.youtube.com/results?search_query=${Uri.encodeQueryComponent(query)}';
-      _launchUrl(searchUrl);
+  void _openYouTube(BuildContext context) async {
+    final videoId = youtubeId ?? '';
+    try {
+      // Show internal YouTube player
+      showDialog(
+        context: context,
+        builder: (context) => YouTubePlayerDialog(videoId: videoId),
+      );
+    } catch (e) {
+      debugPrint('Error opening YouTube player: $e');
+      // Fallback to external app
+      _openYouTubeExternal(videoId);
     }
   }
 
-  void _handleSpotifyPlay(BuildContext context) async {
-    if (spotifyId == null) return;
-    
+  void _openYouTubeExternal(String videoId) async {
+    final url = 'https://www.youtube.com/watch?v=$videoId';
+    if (await canLaunchUrl(Uri.parse(url))) {
+      await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+    } else {
+      debugPrint('Could not launch YouTube URL: $url');
+    }
+  }
+
+  void _openSpotify(BuildContext context) async {
+    final trackId = spotifyId ?? '';
     try {
       final spotifyService = SpotifyService();
-      final trackUri = 'spotify:track:$spotifyId';
       
-      final success = await spotifyService.playTrack(trackUri);
-      if (success) {
-        debugPrint('✅ Playing track on Spotify: $title');
-        
-        // Show a brief confirmation with Spotify attribution
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Row(
+      // Check if user is authenticated
+      final isAuthenticated = await spotifyService.checkAuthentication();
+      
+      if (!isAuthenticated) {
+        // Show authentication dialog
+          showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              backgroundColor: const Color(0xFF1E1E1E),
+              title: Row(
                 children: [
-                  const Icon(
-                    Icons.music_note,
-                    color: Colors.white,
-                    size: 20,
-                  ),
+                  Icon(Icons.music_note, color: AppTheme.primaryColor),
                   const SizedBox(width: 8),
-                  Expanded(
-                    child: Text('Playing "$title" on Spotify'),
-                  ),
+                  const Text('Spotify Login Required', style: TextStyle(color: AppTheme.textPrimary)),
                 ],
               ),
-              duration: const Duration(seconds: 2),
-              backgroundColor: const Color(0xFF1ED760), // Official Spotify Green
+              content: const Text(
+                'You need to be logged into Spotify to play tracks.',
+                style: TextStyle(color: AppTheme.textSecondary),
+              ),
+              actions: [
+                OutlinedButton(
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    _openSpotifyExternal(trackId);
+                  },
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppTheme.primaryColor,
+                    side: BorderSide(color: AppTheme.primaryColor),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    textStyle: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w400,
+                      fontFamily: 'Inter',
+                    ),
+                  ),
+                  child: const Text('Open Spotify App'),
+                ),
+                OutlinedButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppTheme.textSecondary,
+                    side: BorderSide(color: AppTheme.textSecondary),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    textStyle: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w400,
+                      fontFamily: 'Inter',
+                    ),
+                  ),
+                  child: const Text('Cancel'),
+                ),
+              ],
             ),
           );
-        }
-      } else {
-        debugPrint('❌ Failed to play track on Spotify: $title');
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Failed to play track on Spotify'),
-              duration: Duration(seconds: 2),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
+        return;
+      }
+
+      // Try to play the track
+      final trackUri = 'spotify:track:$trackId';
+      final success = await spotifyService.playTrack(trackUri);
+      
+      if (!success) {
+        _openSpotifyExternal(trackId);
       }
     } catch (e) {
       debugPrint('Error playing Spotify track: $e');
+      _openSpotifyExternal(trackId);
     }
   }
 
-  void _showYouTubeModal(BuildContext context, String url) {
-    showDialog(
-      context: context,
-      builder: (context) => YouTubePreviewModal(
-        title: title,
-        artist: artist,
-        youtubeUrl: url,
+  void _openSpotifyExternal(String trackId) async {
+    final spotifyUrl = 'spotify:track:$trackId';
+    final webUrl = 'https://open.spotify.com/track/$trackId';
+    
+    // Try Spotify app first, fallback to web
+    if (await canLaunchUrl(Uri.parse(spotifyUrl))) {
+      await launchUrl(Uri.parse(spotifyUrl), mode: LaunchMode.externalApplication);
+    } else if (await canLaunchUrl(Uri.parse(webUrl))) {
+      await launchUrl(Uri.parse(webUrl), mode: LaunchMode.externalApplication);
+    } else {
+      debugPrint('Could not launch Spotify URL: $webUrl');
+    }
+  }
+
+}
+
+// YouTube Player Dialog
+class YouTubePlayerDialog extends StatefulWidget {
+  final String videoId;
+
+  const YouTubePlayerDialog({Key? key, required this.videoId}) : super(key: key);
+
+  @override
+  State<YouTubePlayerDialog> createState() => _YouTubePlayerDialogState();
+}
+
+class _YouTubePlayerDialogState extends State<YouTubePlayerDialog> {
+  late YoutubePlayerController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = YoutubePlayerController(
+      initialVideoId: widget.videoId,
+      flags: const YoutubePlayerFlags(
+        autoPlay: true,
+        mute: false,
       ),
     );
   }
 
-  void _launchUrl(String url) async {
-    try {
-      final uri = Uri.parse(url);
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
-      }
-    } catch (e) {
-      debugPrint('Error launching URL: $e');
-    }
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
   }
-}
-
-/// Modal dialog for YouTube video preview
-class YouTubePreviewModal extends StatelessWidget {
-  final String title;
-  final String? artist;
-  final String youtubeUrl;
-
-  const YouTubePreviewModal({
-    Key? key,
-    required this.title,
-    this.artist,
-    required this.youtubeUrl,
-  }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
     return Dialog(
       backgroundColor: Colors.black,
       child: Container(
-        width: MediaQuery.of(context).size.width * 0.9,
-        height: MediaQuery.of(context).size.height * 0.7,
-        padding: const EdgeInsets.all(16),
+        width: MediaQuery.of(context).size.width * 0.8,
+        height: MediaQuery.of(context).size.height * 0.6,
         child: Column(
           children: [
-            // Header
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      if (artist != null)
-                        Text(
-                          artist!,
-                          style: TextStyle(
-                            color: Colors.white.withOpacity(0.7),
-                            fontSize: 14,
-                          ),
-                        ),
-                    ],
+                const Padding(
+                  padding: EdgeInsets.all(16.0),
+                  child: Text(
+                    'YouTube Player',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
                 StandardCloseButton(
@@ -292,71 +274,16 @@ class YouTubePreviewModal extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 16),
-            
-            // YouTube embed or web view
             Expanded(
-              child: Container(
-                decoration: BoxDecoration(
-                  color: Colors.grey[900],
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(
-                        Icons.play_circle_outline,
-                        color: Colors.white,
-                        size: 64,
-                      ),
-                      const SizedBox(height: 16),
-                      const Text(
-                        'YouTube Preview',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Video preview will be implemented here',
-                        style: TextStyle(
-                          color: Colors.white.withOpacity(0.7),
-                          fontSize: 14,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      ElevatedButton(
-                        onPressed: () => _launchYouTube(),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFFFF0000),
-                        ),
-                        child: const Text(
-                          'Open in YouTube',
-                          style: TextStyle(color: Colors.white),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+              child: YoutubePlayer(
+                controller: _controller,
+                showVideoProgressIndicator: true,
+                progressIndicatorColor: AppTheme.primaryColor,
               ),
             ),
           ],
         ),
       ),
     );
-  }
-
-  void _launchYouTube() async {
-    try {
-      final uri = Uri.parse(youtubeUrl);
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
-      }
-    } catch (e) {
-      debugPrint('Error launching YouTube URL: $e');
-    }
   }
 }

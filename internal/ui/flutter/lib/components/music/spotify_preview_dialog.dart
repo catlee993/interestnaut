@@ -43,26 +43,32 @@ class _SpotifyPreviewDialogState extends State<SpotifyPreviewDialog> {
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         
-        setState(() {
-          _trackName = data['title'] ?? widget.trackName ?? 'Unknown Track';
-          _albumArtUrl = data['thumbnail_url'];
-          // Artist name is not in oEmbed response, use provided
-          _artistName = widget.artistName ?? 'Unknown Artist';
-          _isLoading = false;
-        });
+        if (mounted) {
+          setState(() {
+            _trackName = data['title'] ?? widget.trackName ?? 'Unknown Track';
+            _albumArtUrl = data['thumbnail_url'];
+            // Artist name is not in oEmbed response, use provided
+            _artistName = widget.artistName ?? 'Unknown Artist';
+            _isLoading = false;
+          });
+        }
       } else {
+        if (mounted) {
+          setState(() {
+            _trackName = widget.trackName ?? 'Unknown Track';
+            _artistName = widget.artistName ?? 'Unknown Artist';
+            _isLoading = false;
+          });
+        }
+      }
+    } catch (e) {
+      if (mounted) {
         setState(() {
           _trackName = widget.trackName ?? 'Unknown Track';
           _artistName = widget.artistName ?? 'Unknown Artist';
           _isLoading = false;
         });
       }
-    } catch (e) {
-      setState(() {
-        _trackName = widget.trackName ?? 'Unknown Track';
-        _artistName = widget.artistName ?? 'Unknown Artist';
-        _isLoading = false;
-      });
       debugPrint('Error fetching track info: $e');
     }
   }

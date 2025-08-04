@@ -298,39 +298,52 @@ class MediaSectionWrapper extends StatelessWidget {
                     ),
                   ),
                   
-                  // Preview buttons (YouTube/Spotify)
-                  if (suggestion.youtubeId != null || suggestion.spotifyId != null)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 16.0),
-                      child: MediaPreviewButtons(
-                        title: suggestion.title ?? '',
-                        artist: suggestion.artist,
-                        mediaType: mediaType,
-                        spotifyId: suggestion.spotifyId,
-                        youtubeId: suggestion.youtubeId,
-                        youtubeUrl: null, // Could be added later if available in the database
-                      ),
+                  // Centered button layout with external media buttons on left, action buttons on right
+                  Center(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min, // Shrink to content size for centering
+                      children: [
+                        // External media buttons (YouTube/Spotify) on the left
+                        if (suggestion.youtubeId != null || suggestion.spotifyId != null) ...[
+                          MediaPreviewButtons(
+                            title: suggestion.title ?? '',
+                            artist: suggestion.artist,
+                            mediaType: mediaType,
+                            spotifyId: suggestion.spotifyId,
+                            youtubeId: suggestion.youtubeId,
+                            youtubeUrl: null,
+                            alignLeft: true, // Remove internal divider since we have our own
+                          ),
+                          // Divider between preview and action buttons
+                          Container(
+                            height: 30,
+                            width: 1,
+                            color: Colors.white.withOpacity(0.3),
+                            margin: const EdgeInsets.symmetric(horizontal: 16),
+                          ),
+                        ],
+                        // Action buttons (no Expanded needed since Row shrinks to content)
+                        SuggestionActionButtons(
+                          mediaType: mediaType,
+                          hasLikedCurrentSuggestion: controller.hasLikedCurrentSuggestion,
+                          hasFavoritedCurrentSuggestion: controller.hasFavoritedCurrentSuggestion,
+                          isInWatchlist: controller.isInWatchlistCurrentSuggestion,
+                          isProcessing: controller.isLoadingDbSuggestion,
+                          onLike: controller.likeDbSuggestion,
+                          onDislike: controller.dislikeDbSuggestion,
+                          onFavorite: controller.addToFavorites,
+                          onUnfavorite: controller.unfavoriteCurrentSuggestion,
+                          onAddToWatchlist: () {
+                            if (controller.isInWatchlistCurrentSuggestion) {
+                              controller.removeCurrentSuggestionFromWatchlist();
+                            } else {
+                              controller.addDbSuggestionToWatchlist();
+                            }
+                          },
+                          onSkip: controller.skipDbSuggestion,
+                        ),
+                      ],
                     ),
-                  
-                  // Action buttons using generic component (INSIDE the suggestion pane)
-                  SuggestionActionButtons(
-                    mediaType: mediaType,
-                    hasLikedCurrentSuggestion: controller.hasLikedCurrentSuggestion,
-                    hasFavoritedCurrentSuggestion: controller.hasFavoritedCurrentSuggestion,
-                    isInWatchlist: controller.isInWatchlistCurrentSuggestion,
-                    isProcessing: controller.isLoadingDbSuggestion,
-                    onLike: controller.likeDbSuggestion,
-                    onDislike: controller.dislikeDbSuggestion,
-                    onFavorite: controller.addToFavorites,
-                    onUnfavorite: controller.unfavoriteCurrentSuggestion,
-                    onAddToWatchlist: () {
-                      if (controller.isInWatchlistCurrentSuggestion) {
-                        controller.removeCurrentSuggestionFromWatchlist();
-                      } else {
-                        controller.addDbSuggestionToWatchlist();
-                      }
-                    },
-                    onSkip: controller.skipDbSuggestion,
                   ),
                 ],
               ),

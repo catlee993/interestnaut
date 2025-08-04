@@ -77,7 +77,9 @@ class _SearchBarState extends State<SearchBar> {
     if (value == _lastSearch) return;
     
     // Update UI to show/hide clear button
-    setState(() {});
+    if (mounted) {
+      setState(() {});
+    }
     
     if (value.isEmpty) {
       _lastSearch = '';
@@ -103,7 +105,9 @@ class _SearchBarState extends State<SearchBar> {
     if (mounted && !_focusNode.hasFocus) {
       _focusNode.requestFocus();
     }
-    setState(() {});
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   void _onSubmitted(String value) {

@@ -52,7 +52,9 @@ class _MediaHistoryScreenState extends State<MediaHistoryScreen> {
   }
 
   Future<void> _loadData() async {
-    setState(() => _isLoading = true);
+    if (mounted) {
+      setState(() => _isLoading = true);
+    }
 
     try {
       await _db.init();
@@ -80,7 +82,9 @@ class _MediaHistoryScreenState extends State<MediaHistoryScreen> {
       _skippedItems = <MediaSuggestion>[];
     }
 
-    setState(() => _isLoading = false);
+    if (mounted) {
+      setState(() => _isLoading = false);
+    }
   }
 
   List<MediaSuggestion> _getCurrentItems() {

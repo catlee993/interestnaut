@@ -26,6 +26,15 @@ class MediaActionIcons {
     return isInWatchlist ? Icons.bookmark_added : Icons.bookmark_border;
   }
 
+  /// Get icon for external link actions
+  static IconData getYouTubeIcon() {
+    return Icons.play_arrow;
+  }
+
+  static IconData getSpotifyIcon() {
+    return Icons.music_note;
+  }
+
   /// Get color for like action based on state
   static Color getLikeColor(bool isLiked) {
     return isLiked ? AppTheme.likeColor : AppTheme.textSecondary;
@@ -44,6 +53,15 @@ class MediaActionIcons {
   /// Get color for watchlist action based on state
   static Color getWatchlistColor(bool isInWatchlist) {
     return isInWatchlist ? AppTheme.watchlistColor : AppTheme.textSecondary;
+  }
+
+  /// Get color for external link actions
+  static Color getYouTubeColor() {
+    return const Color(0xFFFF0000); // YouTube Red
+  }
+
+  static Color getSpotifyColor() {
+    return const Color(0xFF1ED760); // Spotify Green
   }
 
   /// Get icon for action type (used in history screens, etc.)
