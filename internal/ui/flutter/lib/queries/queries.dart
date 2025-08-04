@@ -370,6 +370,7 @@ SELECT r.id, r.media_item_id, r.query, r.bot_reasoning, rs.name as status,
        r.created_at, r.updated_at,
        mi.vector_media_id, mi.title, mi.primary_creator, mi.cover_art_url,
        mi.description, mi.wiki_url, mi.wikidata_id, mi.themes, mi.genres,
+       mi.youtube_id, mi.spotify_id,
        mt.name as media_type
 FROM recommendations r
 JOIN media_items mi ON r.media_item_id = mi.id
@@ -400,6 +401,7 @@ SELECT r.id, r.media_item_id, r.query, r.bot_reasoning, rs.name as status,
        r.created_at, r.updated_at,
        mi.vector_media_id, mi.title, mi.primary_creator, mi.cover_art_url,
        mi.description, mi.wiki_url, mi.wikidata_id, mi.themes, mi.genres,
+       mi.youtube_id, mi.spotify_id,
        mt.name as media_type
 FROM recommendations r
 JOIN media_items mi ON r.media_item_id = mi.id
@@ -504,6 +506,7 @@ SELECT r.id, r.media_item_id, r.query, r.bot_reasoning, rs.name as status,
        r.created_at, r.updated_at,
        mi.vector_media_id, mi.title, mi.primary_creator, mi.cover_art_url,
        mi.description, mi.wiki_url, mi.wikidata_id, mi.themes, mi.genres,
+       mi.youtube_id, mi.spotify_id,
        mt.name as media_type
 FROM recommendations r
 JOIN media_items mi ON r.media_item_id = mi.id
@@ -519,6 +522,7 @@ SELECT r.id, r.media_item_id, r.query, r.bot_reasoning, rs.name as status,
        r.created_at, r.updated_at,
        mi.vector_media_id, mi.title, mi.primary_creator, mi.cover_art_url,
        mi.description, mi.wiki_url, mi.wikidata_id, mi.themes, mi.genres,
+       mi.youtube_id, mi.spotify_id,
        mt.name as media_type
 FROM recommendations r
 JOIN media_items mi ON r.media_item_id = mi.id
@@ -537,6 +541,7 @@ SELECT r.id, r.media_item_id, r.query, r.bot_reasoning, rs.name as status,
        r.created_at, r.updated_at,
        mi.vector_media_id, mi.title, mi.primary_creator, mi.cover_art_url,
        mi.description, mi.wiki_url, mi.wikidata_id, mi.themes, mi.genres,
+       mi.youtube_id, mi.spotify_id,
        mt.name as media_type
 FROM recommendations r
 JOIN media_items mi ON r.media_item_id = mi.id
@@ -664,6 +669,7 @@ const String getPendingSuggestionsNotInWatchlistQuery = '''
 SELECT r.id, r.media_item_id, r.query, r.bot_reasoning,
        mi.vector_media_id, mi.title, mi.primary_creator, mi.cover_art_url,
        mi.description, mi.wiki_url, mi.wikidata_id, mi.themes, mi.genres,
+       mi.youtube_id, mi.spotify_id,
        mt.name as media_type, rs.name as status,
        r.created_at, r.updated_at
 FROM recommendations r
@@ -685,6 +691,7 @@ SELECT
   COALESCE(r.bot_reasoning, 'Added from search') as bot_reasoning,
   mi.vector_media_id, mi.title, mi.primary_creator, mi.cover_art_url,
   mi.description, mi.wiki_url, mi.wikidata_id, mi.themes, mi.genres,
+  mi.youtube_id, mi.spotify_id,
   mt.name as media_type, 
   COALESCE(rs.name, 'added') as status,
   COALESCE(r.created_at, w.created_at) as created_at, 
@@ -711,6 +718,7 @@ SELECT
   COALESCE(r.bot_reasoning, 'Added from search') as bot_reasoning,
   mi.vector_media_id, mi.title, mi.primary_creator, mi.cover_art_url,
   mi.description, mi.wiki_url, mi.wikidata_id, mi.themes, mi.genres,
+  mi.youtube_id, mi.spotify_id,
   mt.name as media_type, 
   COALESCE(rs.name, 'added') as status,
   COALESCE(r.created_at, f.created_at) as created_at, 

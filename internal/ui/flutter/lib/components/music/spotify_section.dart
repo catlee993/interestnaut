@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'music_section_controller.dart';
 import 'library/library_section.dart';
 import '../../theme.dart';
@@ -29,17 +28,18 @@ class SpotifySection extends StatelessWidget {
             children: [
               SpotifyBranding(
                 type: SpotifyBrandingType.fullLogo,
-                size: SpotifyBrandingSize.small,
+                size: SpotifyBrandingSize.medium,
                 color: SpotifyBrandingColor.green,
                 showAttribution: false,
               ),
-              const SizedBox(width: 12),
-              Text(
-                'LIBRARY',
-                style: AppTheme.suggestionHeaderSmall.copyWith(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w200,
-                  letterSpacing: 2.0,
+              const SizedBox(width: 16),
+              Transform(
+                transform: Matrix4.identity()..scale(AppTheme.libraryHeaderScaleX, 1.0),
+                alignment: Alignment.center,
+                child: Text(
+                  'LIBRARY',
+                  style: AppTheme.libraryHeaderMedium,
+                  textAlign: TextAlign.center,
                 ),
               ),
             ],

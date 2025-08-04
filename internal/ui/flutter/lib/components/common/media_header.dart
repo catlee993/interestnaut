@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'dart:ui';
 import 'search_bar.dart' as custom;
 import 'settings_drawer.dart';  // Import for showMediaSpecificSettingsDrawer
-import '../../theme.dart';
 import '../music/spotify_service.dart';
 import '../music/spotify_connect_button.dart';
 import '../music/spotify_user_control.dart';
@@ -153,6 +152,23 @@ class _MediaHeaderState extends State<MediaHeader> {
     }
   }
 
+  String _getMediaHeaderImage(String mediaType) {
+    switch (mediaType) {
+      case 'music':
+        return 'assets/images/media-headers/interestnaut-music.png';
+      case 'movies':
+        return 'assets/images/media-headers/interestnaut-movies.png';
+      case 'tv':
+        return 'assets/images/media-headers/interestnaut-shows.png';
+      case 'games':
+        return 'assets/images/media-headers/interestnaut-games.png';
+      case 'books':
+        return 'assets/images/media-headers/interestnaut-books.png';
+      default:
+        return 'assets/images/media-headers/interestnaut.png';
+    }
+  }
+
   void _showMediaMenu() {
     final RenderBox button = _menuKey.currentContext!.findRenderObject() as RenderBox;
     final RenderBox overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
@@ -250,6 +266,16 @@ class _MediaHeaderState extends State<MediaHeader> {
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
+                              // Media-specific icon on the left
+                              Container(
+                                height: 32,
+                                width: 32,
+                                margin: const EdgeInsets.only(right: 16),
+                                child: Image.asset(
+                                  _getMediaHeaderImage(activeMedia),
+                                  fit: BoxFit.contain,
+                                ),
+                              ),
                               // Gradient text for interestnaut
                               Transform(
                                 transform: Matrix4.identity()..scale(1.2, 1.0),
@@ -277,16 +303,6 @@ class _MediaHeaderState extends State<MediaHeader> {
                                       decoration: TextDecoration.none,
                                     ),
                                   ),
-                                ),
-                              ),
-                              const SizedBox(width: 10), // More space between text and icon
-                              Container(
-                                height: 28,
-                                width: 28,
-                                margin: const EdgeInsets.only(bottom: 4),
-                                child: Image.asset(
-                                  'assets/images/logo/interestnaut-mascot.png',
-                                  fit: BoxFit.contain,
                                 ),
                               ),
                             ],

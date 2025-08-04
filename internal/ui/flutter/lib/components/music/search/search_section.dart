@@ -269,26 +269,12 @@ class _SpotifyToggleButtonState extends State<_SpotifyToggleButton> {
               const SizedBox(width: 6),
               const Text('SPOTIFY'),
             ] else ...[
-              Container(
-                width: 14,
-                height: 14,
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [Color(0xFFC165DD), Color(0xFF9880FF)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  shape: BoxShape.circle,
-                ),
-                child: const Center(
-                  child: Text(
-                    'I',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 7,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
+              SizedBox(
+                width: 21,
+                height: 21,
+                child: Image.asset(
+                  'assets/images/logo/interestnaut-icon.png',
+                  fit: BoxFit.contain,
                 ),
               ),
               const SizedBox(width: 6),

@@ -1494,7 +1494,7 @@ class _WikidataCardState extends State<_WikidataCard> {
                       Flexible(
                         child: Text(
                           (widget.result.title?.isNotEmpty == true) 
-                              ? widget.result.title! 
+                              ? widget.result.title 
                               : widget.result.artist ?? 'Unknown',
                           style: InterestFonts.searchCardTitle,
                           maxLines: 1,

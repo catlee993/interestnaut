@@ -3,7 +3,6 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../services/sqlite_db.dart';
 import '../music/spotify_service.dart';
 import 'standard_close_button.dart';
-import 'spotify_branding.dart';
 
 /// Preview buttons for media items (YouTube/Spotify for music, YouTube for others)
 class MediaPreviewButtons extends StatelessWidget {
@@ -68,53 +67,82 @@ class MediaPreviewButtons extends StatelessWidget {
   }
 
   Widget _buildYouTubeButton(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: const Color(0xFFFF0000), // YouTube Red
-        borderRadius: BorderRadius.circular(9999), // Fully rounded like Spotify
-        border: Border.all(
-          color: const Color(0xFFFF0000).withOpacity(0.3),
-          width: 1,
+    return OutlinedButton(
+      onPressed: () => _handleYouTubePreview(context),
+      style: OutlinedButton.styleFrom(
+        backgroundColor: Colors.transparent,
+        side: const BorderSide(color: Color(0xFFFF0000), width: 1),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
         ),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      ).copyWith(
+        overlayColor: WidgetStateProperty.resolveWith<Color?>((states) {
+          if (states.contains(WidgetState.hovered)) {
+            return const Color(0xFFFF0000).withOpacity(0.1);
+          }
+          return null;
+        }),
       ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: () => _handleYouTubePreview(context),
-          borderRadius: BorderRadius.circular(9999),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(
-                  Icons.play_arrow,
-                  color: Colors.white,
-                  size: 16,
-                ),
-                const SizedBox(width: 8),
-                const Text(
-                  'Play',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(
+            Icons.play_arrow,
+            color: Color(0xFFFF0000),
+            size: 16,
+          ),
+          const SizedBox(width: 6),
+          const Text(
+            'YouTube',
+            style: TextStyle(
+              color: Color(0xFFFF0000),
+              fontSize: 13,
+              fontWeight: FontWeight.w400,
             ),
           ),
-        ),
+        ],
       ),
     );
   }
 
   Widget _buildSpotifyButton(BuildContext context) {
-    return SpotifyButton(
+    return OutlinedButton(
       onPressed: () => _handleSpotifyPlay(context),
-      label: 'Play',
-      iconSize: SpotifyBrandingSize.small,
-      roundedCorners: true,
+      style: OutlinedButton.styleFrom(
+        backgroundColor: Colors.transparent,
+        side: const BorderSide(color: Color(0xFF1ED760), width: 1),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      ).copyWith(
+        overlayColor: WidgetStateProperty.resolveWith<Color?>((states) {
+          if (states.contains(WidgetState.hovered)) {
+            return const Color(0xFF1ED760).withOpacity(0.1);
+          }
+          return null;
+        }),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(
+            Icons.music_note,
+            color: Color(0xFF1ED760),
+            size: 16,
+          ),
+          const SizedBox(width: 6),
+          const Text(
+            'Spotify',
+            style: TextStyle(
+              color: Color(0xFF1ED760),
+              fontSize: 13,
+              fontWeight: FontWeight.w400,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -151,11 +179,10 @@ class MediaPreviewButtons extends StatelessWidget {
             SnackBar(
               content: Row(
                 children: [
-                  SpotifyBranding(
-                    type: SpotifyBrandingType.iconOnly,
-                    size: SpotifyBrandingSize.small,
-                    color: SpotifyBrandingColor.white,
-                    showAttribution: false,
+                  const Icon(
+                    Icons.music_note,
+                    color: Colors.white,
+                    size: 20,
                   ),
                   const SizedBox(width: 8),
                   Expanded(

@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'media_type_config.dart';
 import 'enums/media_type.dart';
-import 'fonts.dart';
 
 /// Interestnaut app theme - all values are easily editable here
 class AppTheme {

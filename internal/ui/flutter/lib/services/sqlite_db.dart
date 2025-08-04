@@ -678,9 +678,9 @@ class SQLiteDatabase {
           wikiUrl: suggestion.wikiUrl,
           wikidataId: suggestion.wikidataId,
           themes: suggestion.themes,
-          genres: null, // TODO: Extract from suggestion if available
-          youtubeId: null, // TODO: Extract from suggestion if available
-          spotifyId: null, // TODO: Extract from suggestion if available
+          genres: suggestion.genres?.join(', '),
+          youtubeId: suggestion.youtubeId,
+          spotifyId: suggestion.spotifyId
         );
 
         // Then create the recommendation that references the media item
@@ -783,7 +783,8 @@ class SQLiteDatabase {
         SELECT r.id, r.media_item_id, r.query, r.bot_reasoning, rs.name as status,
                r.created_at, r.updated_at,
                mi.vector_media_id, mi.title, mi.primary_creator, mi.cover_art_url,
-               mi.description, mi.wiki_url, mi.wikidata_id, mi.themes,
+               mi.description, mi.wiki_url, mi.wikidata_id, mi.themes, mi.genres,
+               mi.youtube_id, mi.spotify_id,
                mt.name as media_type
         FROM recommendations r
         JOIN media_items mi ON r.media_item_id = mi.id

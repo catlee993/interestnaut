@@ -267,7 +267,7 @@ class MediaLibraryCard extends StatelessWidget {
               bottom: () {
                 // Check if we're showing artist as title (because original title was "Unknown")
                 final originalTitle = suggestion.title?.trim();
-                final hasArtist = suggestion.artist?.trim()?.isNotEmpty == true;
+                final hasArtist = suggestion.artist?.trim().isNotEmpty == true;
                 final isGenericTitle = originalTitle == null || 
                                      originalTitle.isEmpty || 
                                      originalTitle.toLowerCase() == 'unknown' ||

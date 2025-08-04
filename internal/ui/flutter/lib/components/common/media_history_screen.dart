@@ -512,7 +512,7 @@ class _MediaHistoryScreenState extends State<MediaHistoryScreen> {
       // If removing watchlisted and item is still favorited or liked, keep as pending  
       if (removingAction == 'watchlisted') {
         final isCurrentlyLiked = _isItemInCategory(
-          _getCurrentItems().firstWhere((item) => item.mediaItemId == mediaItemId, 
+          _getCurrentItems().firstWhere((item) => item.mediaItemId?.toString() == mediaItemId.toString(), 
             orElse: () => _getCurrentItems().first), 'liked'
         );
         if (isFavorited || isCurrentlyLiked) {
@@ -536,7 +536,7 @@ class _MediaHistoryScreenState extends State<MediaHistoryScreen> {
       // First, find the existing recommendation record for this media item
       final allSuggestions = await _db.getAllMediaSuggestions(_currentMediaType);
       final existingRecommendation = allSuggestions.firstWhere(
-        (suggestion) => suggestion.mediaItemId == mediaItemId,
+        (suggestion) => suggestion.mediaItemId?.toString() == mediaItemId.toString(),
         orElse: () => MediaSuggestion(
           id: 0,
           query: 'User action',

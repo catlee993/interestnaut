@@ -14,7 +14,6 @@ import 'suggestion_reasoning_display.dart'; // New reasoning component
 import 'media_preview_buttons.dart'; // Preview buttons
 import '../../theme.dart';
 import '../../utils/text_utils.dart';
-import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import '../../models.dart';
 
 class MediaSectionWrapper extends StatelessWidget {
@@ -126,6 +125,19 @@ class MediaSectionWrapper extends StatelessWidget {
         ),
       );
     } else if (controller.currentDbSuggestion == null) {
+      // If we're loading, show loading indicator instead of "Get a Suggestion" button
+      if (controller.isLoadingDbSuggestion) {
+        return const Center(
+          child: Padding(
+            padding: EdgeInsets.symmetric(vertical: 24),
+            child: CircularProgressIndicator(
+              color: Color.fromRGBO(123, 104, 238, 0.7),
+            ),
+          ),
+        );
+      }
+      
+      // Only show "Get a Suggestion" button if we're not loading and have no suggestion
       return Center(
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 24),
@@ -238,6 +250,38 @@ class MediaSectionWrapper extends StatelessWidget {
                       return const SizedBox(height: 0);
                     }
                   }(),
+                  
+                  // Genres display - only show if genres are available
+                  if (suggestion.genres != null && suggestion.genres!.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8.0),
+                      child: Wrap(
+                        alignment: WrapAlignment.center,
+                        spacing: 6.0,
+                        runSpacing: 4.0,
+                        children: suggestion.genres!.map((genre) => 
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 3.0),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF8C86E2).withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: const Color(0xFF8C86E2).withOpacity(0.4),
+                                width: 1,
+                              ),
+                            ),
+                            child: Text(
+                              genre.trim(),
+                              style: const TextStyle(
+                                color: Color(0xFF8C86E2),
+                                fontSize: 11,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        ).toList(),
+                      ),
+                    ),
                   const SizedBox(height: 16),
                   
                   // Flexible content area for description and reasoning with dynamic height allocation
@@ -394,11 +438,11 @@ class MediaSectionWrapper extends StatelessWidget {
     
     // If only one type of content, give it full height
     if (hasDescription && !hasReasoning) {
-      return _buildDescriptionOnlyLayout(description!, availableHeight);
+      return _buildDescriptionOnlyLayout(description, availableHeight);
     }
     
     if (hasReasoning && !hasDescription) {
-      return _buildReasoningOnlyLayout(reasoning!, availableHeight, context);
+      return _buildReasoningOnlyLayout(reasoning, availableHeight, context);
     }
     
     // Both description and reasoning exist - smart allocation
@@ -412,12 +456,12 @@ class MediaSectionWrapper extends StatelessWidget {
   }
 
   /// Build layout with description only (full height)
-  Widget _buildDescriptionOnlyLayout(String description, double availableHeight) {
+  Widget _buildDescriptionOnlyLayout(String? description, double availableHeight) {
     return Container(
       height: availableHeight,
       child: SingleChildScrollView(
         child: Text(
-          description,
+          description ?? '',
           style: AppTheme.mediaDescriptionStyle.copyWith(
             fontSize: 14,
             height: 1.5,
@@ -429,11 +473,11 @@ class MediaSectionWrapper extends StatelessWidget {
   }
 
   /// Build layout with reasoning only (full height)
-  Widget _buildReasoningOnlyLayout(String reasoning, double availableHeight, BuildContext context) {
+  Widget _buildReasoningOnlyLayout(String? reasoning, double availableHeight, BuildContext context) {
     return Container(
       height: availableHeight,
       child: SuggestionReasoningDisplay(
-        reasoning: reasoning,
+        reasoning: reasoning ?? '',
         mediaType: mediaType,
         onMatchSourceTap: _showItemDrawerByMediaItemId,
         onMatchSourceFallback: _showItemDrawer,
@@ -857,7 +901,7 @@ class MediaSectionWrapper extends StatelessWidget {
       // Check if a recommendation already exists for this media item
       final existingRecommendations = await db.getAllMediaSuggestions(mediaType);
       final existingRec = existingRecommendations.where((rec) => 
-        rec.mediaItemId == mediaItemId ||
+        rec.mediaItemId?.toString() == mediaItemId.toString() ||
         (rec.title == item.title && rec.artist == item.artist)
       ).firstOrNull;
 
@@ -1225,7 +1269,7 @@ class MediaSectionWrapper extends StatelessWidget {
       // Check if a recommendation already exists for this media item
       final existingRecommendations = await db.getAllMediaSuggestions(mediaType);
       final existingRec = existingRecommendations.where((rec) => 
-        rec.mediaItemId == mediaItemId ||
+        rec.mediaItemId?.toString() == mediaItemId.toString() ||
         (rec.title == title && rec.artist == artist)
       ).firstOrNull;
 

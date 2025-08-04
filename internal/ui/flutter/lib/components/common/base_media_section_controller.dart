@@ -31,6 +31,8 @@ abstract class BaseMediaSectionController extends ChangeNotifier {
   
   BaseMediaSectionController(this.mediaType, this._recommendationService) {
     _initializeEventListener();
+    // Set initial loading state to prevent "Get a Suggestion" button from showing
+    _isLoadingDbSuggestion = true;
     _loadInitialData();
   }
   
@@ -73,10 +75,55 @@ abstract class BaseMediaSectionController extends ChangeNotifier {
   
   Future<void> _loadInitialData() async {
     await Future.wait([
-      loadDbSuggestion(),
+      _loadInitialSuggestionWithRetry(),
       loadDbLibrary(),
       loadDbWatchlist(),
     ]);
+  }
+
+  /// Load initial suggestion with retry mechanism for backend availability
+  Future<void> _loadInitialSuggestionWithRetry() async {
+    int retryCount = 0;
+    const maxRetries = 5;
+    const retryDelay = Duration(seconds: 2);
+
+    while (retryCount < maxRetries) {
+      try {
+        debugPrint('🔄 [${mediaType.toUpperCase()}] Attempt ${retryCount + 1}/$maxRetries - checking backend availability');
+        final databaseStatus = await _recommendationService.getMediaTypeStatus(mediaType);
+        
+        // Handle both Map and String responses from getMediaTypeStatus
+        bool isDatabaseAvailable;
+        if (databaseStatus is Map<String, dynamic>) {
+          isDatabaseAvailable = databaseStatus['available'] == true;
+        } else {
+          isDatabaseAvailable = databaseStatus == 'available';
+        }
+
+        if (isDatabaseAvailable) {
+          debugPrint('✅ [${mediaType.toUpperCase()}] Backend available, loading initial suggestions');
+          await loadDbSuggestion();
+          return; // Success, exit retry loop
+        } else {
+          debugPrint('⏳ [${mediaType.toUpperCase()}] Backend not ready, retrying in ${retryDelay.inSeconds}s... (${retryCount + 1}/$maxRetries)');
+          if (retryCount < maxRetries - 1) {
+            await Future.delayed(retryDelay);
+          }
+        }
+      } catch (e) {
+        debugPrint('❌ [${mediaType.toUpperCase()}] Error checking backend availability: $e');
+        if (retryCount < maxRetries - 1) {
+          await Future.delayed(retryDelay);
+        }
+      }
+      
+      retryCount++;
+    }
+
+    // If we get here, all retries failed
+    debugPrint('❌ [${mediaType.toUpperCase()}] Backend unavailable after $maxRetries attempts, will show Get Suggestion button');
+    _isLoadingDbSuggestion = false;
+    notifyListeners();
   }
 
   /// Update the state flags for the current suggestion based on database status
@@ -643,9 +690,12 @@ abstract class BaseMediaSectionController extends ChangeNotifier {
       loadDbLibrary();
       
       // Check if this affects the current suggestion
-      if (_currentDbSuggestion?.mediaItemId == mediaItemId) {
-        await _updateCurrentSuggestionState();
-        notifyListeners();
+      if (_currentDbSuggestion != null) {
+        final currentMediaItemId = await _db.getMediaItemIdByVectorId(_currentDbSuggestion!.mediaItemId!);
+        if (currentMediaItemId == mediaItemId) {
+          await _updateCurrentSuggestionState();
+          notifyListeners();
+        }
       }
     } catch (e) {
       debugPrint('Error removing from favorites: $e');
@@ -659,9 +709,12 @@ abstract class BaseMediaSectionController extends ChangeNotifier {
       loadDbWatchlist();
       
       // Check if this affects the current suggestion
-      if (_currentDbSuggestion?.mediaItemId == mediaItemId) {
-        await _updateCurrentSuggestionState();
-        notifyListeners();
+      if (_currentDbSuggestion != null) {
+        final currentMediaItemId = await _db.getMediaItemIdByVectorId(_currentDbSuggestion!.mediaItemId!);
+        if (currentMediaItemId == mediaItemId) {
+          await _updateCurrentSuggestionState();
+          notifyListeners();
+        }
       }
     } catch (e) {
       debugPrint('Error removing from watchlist: $e');

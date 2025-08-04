@@ -317,26 +317,12 @@ class _SettingsDrawerState extends State<SettingsDrawer> with SingleTickerProvid
                                   style: TextStyle(color: Color(0xFF1ED760), fontSize: 14, fontWeight: FontWeight.w500),
                                 ),
                               ] else ...[
-                                Container(
+                                SizedBox(
                                   width: 16,
                                   height: 16,
-                                  decoration: const BoxDecoration(
-                                    gradient: LinearGradient(
-                                      colors: [Color(0xFFC165DD), Color(0xFF9880FF)],
-                                      begin: Alignment.topLeft,
-                                      end: Alignment.bottomRight,
-                                    ),
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: const Center(
-                                    child: Text(
-                                      'I',
-                                      style: TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 8,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
+                                  child: Image.asset(
+                                    'assets/images/logo/interestnaut-icon.png',
+                                    fit: BoxFit.contain,
                                   ),
                                 ),
                                 const SizedBox(width: 8),

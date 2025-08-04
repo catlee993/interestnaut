@@ -301,6 +301,25 @@ class _MediaRefinementPanelState extends State<MediaRefinementPanel> {
     return _similarityLabels[closestKey] ?? 'Versatile';
   }
 
+  String _getCurrentSimilarityDescription() {
+    final currentLabel = _getCurrentSimilarityLabel();
+    
+    switch (currentLabel) {
+      case 'Bohemian':
+        return 'Surprise me with unexpected gems! Casts a wide net for diverse discoveries.';
+      case 'Eclectic':
+        return 'Keep things interesting with varied but related picks from different corners.';
+      case 'Versatile':
+        return 'Mix it up! Balanced recommendations that explore while staying grounded.';
+      case 'Discerning':
+        return 'Stay on theme with focused picks that match your current vibe closely.';
+      case 'Meticulous':
+        return 'Laser-focused precision. Only the most perfectly matched suggestions.';
+      default:
+        return 'Custom similarity setting for personalized matching precision.';
+    }
+  }
+
   void _showTitleSelectionModal() {
     showDialog(
       context: context,
@@ -402,16 +421,16 @@ class _MediaRefinementPanelState extends State<MediaRefinementPanel> {
               child: Row(
                 children: [
                   Icon(
-                    Icons.warning_outlined,
-                    color: AppTheme.warningColor.withOpacity(0.8),
+                    Icons.lightbulb_outline,
+                    color: AppTheme.primaryColor.withOpacity(0.8),
                     size: 16,
                   ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'Higher similarity matching may take longer, especially with more themes and constraints.',
+                      _getCurrentSimilarityDescription(),
                       style: TextStyle(
-                        color: AppTheme.warningColor.withOpacity(0.9),
+                        color: AppTheme.primaryColor.withOpacity(0.9),
                         fontSize: 11,
                         fontWeight: FontWeight.w400,
                       ),
