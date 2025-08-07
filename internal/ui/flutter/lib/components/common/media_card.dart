@@ -268,7 +268,7 @@ class MediaCard extends StatelessWidget {
   String _getImageUrl(MediaItem item) {
     if (item.mediaType == 'book' || item.mediaType == 'audiobook') {
       return item.posterPath;
-    } else if (item.mediaType == 'movie' || item.mediaType == 'tv') {
+    } else if (item.mediaType == 'movie' || item.mediaType == 'tv_show') {
       return 'https://image.tmdb.org/t/p/w500${item.posterPath}';
     } else {
       return item.posterPath;

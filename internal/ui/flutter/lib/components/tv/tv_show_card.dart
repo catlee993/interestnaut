@@ -64,7 +64,7 @@ class TVShowCard extends StatelessWidget {
       title: show.name,
       overview: show.overview ?? '',
       posterPath: show.posterPath ?? '',
-      mediaType: 'tv',
+      mediaType: 'tv_show',
       voteAverage: show.voteAverage,
       releaseDate: show.firstAirDate,
     );

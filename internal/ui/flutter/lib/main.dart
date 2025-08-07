@@ -935,6 +935,52 @@ class _UnifiedSearchHandlerState extends State<_UnifiedSearchHandler> {
     }
   }
 
+  void _refreshFavoritesForMediaType(String mediaType, {String? title, String? primaryCreator}) {
+    try {
+      switch (mediaType.toLowerCase()) {
+        case 'music':
+          MusicSection.refreshFavoritesFromSearch(
+            title: title,
+            primaryCreator: primaryCreator,
+          );
+          break;
+        case 'movie':
+        case 'movies':
+          MovieSection.refreshFavoritesFromSearch(
+            title: title,
+            primaryCreator: primaryCreator,
+          );
+          break;
+        case 'tv':
+        case 'show':
+        case 'shows':
+        case 'tv_show':
+          TVShowSection.refreshFavoritesFromSearch(
+            title: title,
+            primaryCreator: primaryCreator,
+          );
+          break;
+        case 'book':
+        case 'books':
+          BookSection.refreshFavoritesFromSearch(
+            title: title,
+            primaryCreator: primaryCreator,
+          );
+          break;
+        case 'game':
+        case 'games':
+        case 'video_game':
+          GameSection.refreshFavoritesFromSearch(
+            title: title,
+            primaryCreator: primaryCreator,
+          );
+          break;
+      }
+    } catch (e) {
+      debugPrint('❌ Error refreshing favorites: $e');
+    }
+  }
+
   void _refreshWatchlistForMediaType(String mediaType, {String? title, String? primaryCreator}) {
     try {
       switch (mediaType.toLowerCase()) {
@@ -954,6 +1000,7 @@ class _UnifiedSearchHandlerState extends State<_UnifiedSearchHandler> {
         case 'tv':
         case 'show':
         case 'shows':
+        case 'tv_show':
           TVShowSection.refreshWatchlistFromSearch(
             title: title,
             primaryCreator: primaryCreator,
@@ -968,6 +1015,7 @@ class _UnifiedSearchHandlerState extends State<_UnifiedSearchHandler> {
           break;
         case 'game':
         case 'games':
+        case 'video_game':
           GameSection.refreshPlaylistFromSearch(
             title: title,
             primaryCreator: primaryCreator,
@@ -1423,6 +1471,120 @@ class _WikidataCardState extends State<_WikidataCard> {
     }
   }
 
+  String _convertMediaTypeToDb(String mediaType) {
+    switch (mediaType.toLowerCase()) {
+      case 'music':
+        return 'music';
+      case 'movie':
+      case 'movies':
+        return 'movie';
+      case 'tv':
+      case 'show':
+      case 'shows':
+        return 'tv_show';
+      case 'book':
+      case 'books':
+        return 'book';
+      case 'game':
+      case 'games':
+        return 'video_game';
+      default:
+        return mediaType;
+    }
+  }
+
+  void _refreshFavoritesForMediaType(String mediaType, {String? title, String? primaryCreator}) {
+    try {
+      switch (mediaType.toLowerCase()) {
+        case 'music':
+          MusicSection.refreshFavoritesFromSearch(
+            title: title,
+            primaryCreator: primaryCreator,
+          );
+          break;
+        case 'movie':
+        case 'movies':
+          MovieSection.refreshFavoritesFromSearch(
+            title: title,
+            primaryCreator: primaryCreator,
+          );
+          break;
+        case 'tv':
+        case 'show':
+        case 'shows':
+        case 'tv_show':
+          TVShowSection.refreshFavoritesFromSearch(
+            title: title,
+            primaryCreator: primaryCreator,
+          );
+          break;
+        case 'book':
+        case 'books':
+          BookSection.refreshFavoritesFromSearch(
+            title: title,
+            primaryCreator: primaryCreator,
+          );
+          break;
+        case 'game':
+        case 'games':
+        case 'video_game':
+          GameSection.refreshFavoritesFromSearch(
+            title: title,
+            primaryCreator: primaryCreator,
+          );
+          break;
+      }
+    } catch (e) {
+      debugPrint('❌ Error refreshing favorites: $e');
+    }
+  }
+
+  void _refreshWatchlistForMediaType(String mediaType, {String? title, String? primaryCreator}) {
+    try {
+      switch (mediaType.toLowerCase()) {
+        case 'music':
+          MusicSection.refreshPlaylistFromSearch(
+            title: title,
+            primaryCreator: primaryCreator,
+          );
+          break;
+        case 'movie':
+        case 'movies':
+          MovieSection.refreshWatchlistFromSearch(
+            title: title,
+            primaryCreator: primaryCreator,
+          );
+          break;
+        case 'tv':
+        case 'show':
+        case 'shows':
+        case 'tv_show':
+          TVShowSection.refreshWatchlistFromSearch(
+            title: title,
+            primaryCreator: primaryCreator,
+          );
+          break;
+        case 'book':
+        case 'books':
+          BookSection.refreshReadingListFromSearch(
+            title: title,
+            primaryCreator: primaryCreator,
+          );
+          break;
+        case 'game':
+        case 'games':
+        case 'video_game':
+          GameSection.refreshPlaylistFromSearch(
+            title: title,
+            primaryCreator: primaryCreator,
+          );
+          break;
+      }
+    } catch (e) {
+      debugPrint('❌ Error refreshing watchlist: $e');
+    }
+  }
+
   String _getWatchlistTerminology() {
     switch (widget.mediaType.toLowerCase()) {
       case 'music':
@@ -1698,7 +1860,7 @@ class _WikidataCardState extends State<_WikidataCard> {
         mediaItemId = existingMediaItemId;
       } else {
         mediaItemId = await db.createOrGetMediaItem(
-          mediaType: widget.mediaType,
+          mediaType: _convertMediaTypeToDb(widget.mediaType),
           vectorMediaId: item.mediaId,
           title: item.title ?? 'Unknown',
           primaryCreator: item.artist ?? '',
@@ -1718,6 +1880,10 @@ class _WikidataCardState extends State<_WikidataCard> {
         case 'like':
           // Add to favorites and handle other logic as needed
           await db.addToFavorites(mediaItemId);
+          // Refresh favorites list
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _refreshFavoritesForMediaType(widget.mediaType, title: item.title, primaryCreator: item.artist);
+          });
           break;
           
         case 'dislike':
@@ -1728,11 +1894,19 @@ class _WikidataCardState extends State<_WikidataCard> {
         case 'favorite':
           // Add to favorites table
           await db.addToFavorites(mediaItemId);
+          // Refresh favorites list
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _refreshFavoritesForMediaType(widget.mediaType, title: item.title, primaryCreator: item.artist);
+          });
           break;
           
         case 'watchlist':
           // Add to watchlist table
           await db.addToWatchlist(mediaItemId);
+          // Refresh watchlist
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _refreshWatchlistForMediaType(widget.mediaType, title: item.title, primaryCreator: item.artist);
+          });
           break;
           
         case 'skip':

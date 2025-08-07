@@ -199,6 +199,7 @@ enum MediaType {
       case 'shows':
       case 'tv show':
       case 'tv shows':
+      case 'tv_show':  // Database name support
         return MediaType.tvShow;
       case 'book':
       case 'books':
@@ -209,6 +210,7 @@ enum MediaType {
       case 'video games':
       case 'videogame':
       case 'videogames':
+      case 'video_game':  // Database name support
         return MediaType.videoGame;
       default:
         throw ArgumentError('Unknown header media type: $headerName');
