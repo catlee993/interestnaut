@@ -74,6 +74,9 @@ dependencies:
   # Add gRPC dependencies
   grpc: ^4.0.1
   protobuf: ^4.1.1
+  
+  # YouTube iframe player
+  youtube_player_iframe: ^5.1.3
 
   
   # SVG support for Spotify assets

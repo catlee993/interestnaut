@@ -23,7 +23,7 @@ import 'components/tv/tv_show_section.dart';
 import 'components/common/media_header.dart';
 import 'components/common/media_grid.dart';
 import 'components/common/media_detail_drawer.dart';
-import 'components/common/youtube_player_webview.dart';
+import 'components/common/youtube_player_platform.dart';
 import 'components/common/spotify_branding.dart';
 import 'components/music/spotify_service.dart';
 import 'components/music/player/spotify_player_view.dart';

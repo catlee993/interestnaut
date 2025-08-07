@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'youtube_player_webview.dart';
+import 'youtube_player_platform.dart';
 import '../../services/sqlite_db.dart';
 import '../music/spotify_service.dart';
 import 'standard_close_button.dart';

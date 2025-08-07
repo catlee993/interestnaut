@@ -1,7 +1,7 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'youtube_player_webview.dart';
+import 'youtube_player_platform.dart';
 import '../../theme.dart';
 import '../../services/sqlite_db.dart';
 import '../../services/grpc_client.dart'; // For Interestnaut search
