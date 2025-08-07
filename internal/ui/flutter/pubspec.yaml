@@ -68,7 +68,7 @@ dependencies:
   oauth2: ^2.0.2          # For OAuth2 authentication flows
   
   # Legacy dependencies (can be removed in future cleanup)
-  flutter_web_auth: ^0.5.0  # For integrated authentication flows
+  flutter_web_auth: ^0.6.0  # For integrated authentication flows
   app_links: ^6.3.2        # For handling custom URI schemes (replaces uni_links)
 
   # Add gRPC dependencies
