@@ -21,7 +21,9 @@ import 'components/movies/movie_section.dart';
 import 'components/books/book_section.dart';
 import 'components/tv/tv_show_section.dart';
 import 'components/common/media_header.dart';
+import 'components/common/adaptive_media_header.dart';
 import 'components/common/media_grid.dart';
+import 'utils/responsive.dart';
 import 'components/common/media_detail_drawer.dart';
 import 'components/common/youtube_player_platform.dart';
 import 'components/common/spotify_branding.dart';
@@ -288,6 +290,7 @@ class _InterestnautAppState extends State<InterestnautApp> {
     // Main app UI
     return Scaffold(
       backgroundColor: AppTheme.backgroundColor,
+      drawer: Responsive.isMobile(context) ? _buildMobileDrawer() : null,
       body: Stack(
         children: [
           // Main content area
@@ -299,7 +302,7 @@ class _InterestnautAppState extends State<InterestnautApp> {
             top: 0,
             left: 0,
             right: 0,
-            child: MediaHeader(
+            child: AdaptiveMediaHeader(
               key: _searchBarKey,
               onSearch: _handleSearch,
               onClearSearch: _clearSearch,
@@ -431,6 +434,83 @@ class _InterestnautAppState extends State<InterestnautApp> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildMobileDrawer() {
+    return Drawer(
+      backgroundColor: const Color.fromRGBO(18, 18, 18, 0.95),
+      child: SafeArea(
+        child: Column(
+          children: [
+            // App header in drawer
+            Container(
+              padding: const EdgeInsets.all(24),
+              child: Row(
+                children: [
+                  Container(
+                    height: 28,
+                    width: 28,
+                    margin: const EdgeInsets.only(right: 12),
+                    child: Image.asset(
+                      'assets/images/logo/interestnaut-icon.png',
+                      fit: BoxFit.contain,
+                    ),
+                  ),
+                  const Text(
+                    'INTERESTNAUT',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w200,
+                      letterSpacing: 1.5,
+                      fontFamily: 'Inter',
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(color: Colors.white24, height: 1),
+            // Media type navigation
+            Expanded(
+              child: ListView(
+                children: [
+                  _buildDrawerItem('music', 'Music', Icons.music_note),
+                  _buildDrawerItem('movies', 'Movies', Icons.movie),
+                  _buildDrawerItem('tv', 'TV Shows', Icons.tv),
+                  _buildDrawerItem('games', 'Games', Icons.games),
+                  _buildDrawerItem('books', 'Books', Icons.book),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDrawerItem(String mediaType, String title, IconData icon) {
+    final isSelected = _currentMediaType == mediaType;
+    return ListTile(
+      leading: Icon(
+        icon,
+        color: isSelected ? const Color(0xFF7b68ee) : Colors.white70,
+      ),
+      title: Text(
+        title,
+        style: TextStyle(
+          color: isSelected ? const Color(0xFF7b68ee) : Colors.white70,
+          fontSize: 16,
+          fontWeight: isSelected ? FontWeight.w400 : FontWeight.w300,
+          fontFamily: 'Inter',
+        ),
+      ),
+      onTap: () {
+        _handleMediaChange(mediaType);
+        Navigator.of(context).pop(); // Close drawer
+      },
+      selected: isSelected,
+      selectedTileColor: const Color(0xFF7b68ee).withOpacity(0.1),
     );
   }
 }

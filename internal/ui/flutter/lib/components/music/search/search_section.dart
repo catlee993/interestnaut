@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../models/track_models.dart';
 import '../tracks/search_result_card.dart';
-import '../../common/media_grid.dart';
+import '../../common/adaptive_media_grid.dart';
 import '../../common/standard_close_button.dart';
 import '../../common/spotify_branding.dart';
 
@@ -190,8 +190,7 @@ class SearchSection extends StatelessWidget {
           child: Padding(
             padding: const EdgeInsets.fromLTRB(16.0, 0, 16.0, 24.0),
             child: SingleChildScrollView(
-              child: MediaGrid(
-                columns: 3,  // Using 3 columns for better readability
+              child: AdaptiveMediaGrid(
                 children: searchResults
                     .map((track) => SearchResultCard(
                           track: track,

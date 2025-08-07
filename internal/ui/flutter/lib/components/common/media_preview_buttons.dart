@@ -64,7 +64,7 @@ class MediaPreviewButtons extends StatelessWidget {
               Container(
                 height: 30,
                 width: 1,
-                color: Colors.white.withOpacity(0.3),
+                color: Colors.white.withValues(alpha: 0.3),
                 margin: const EdgeInsets.symmetric(horizontal: 8),
               ),
               Padding(
@@ -95,17 +95,75 @@ class MediaPreviewButtons extends StatelessWidget {
 
   void _openYouTube(BuildContext context) async {
     final videoId = youtubeId ?? '';
-    try {
-      // Show internal YouTube player
-      showDialog(
-        context: context,
-        builder: (context) => YouTubePlayerDialog(videoId: videoId),
-      );
-    } catch (e) {
-      debugPrint('Error opening YouTube player: $e');
-      // Fallback to external app
-      _openYouTubeExternal(videoId);
-    }
+    
+    // Always try in-app player first, with custom error handling
+    showDialog(
+      context: context,
+      builder: (context) => YouTubePlayerDialog(videoId: videoId),
+    );
+  }
+
+  void _showYouTubeChoiceDialog(BuildContext context, String videoId) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1E1E),
+        title: const Row(
+          children: [
+            Icon(Icons.play_circle_outline, color: Colors.red, size: 24),
+            SizedBox(width: 8),
+            Text(
+              'Play Video',
+              style: TextStyle(color: Colors.white, fontSize: 18),
+            ),
+          ],
+        ),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'YouTube recently changed their API which affects in-app video playback.',
+              style: TextStyle(color: Colors.white70, fontSize: 14),
+            ),
+            SizedBox(height: 12),
+            Text(
+              'Choose your preferred method:',
+              style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w500),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton.icon(
+            onPressed: () {
+              Navigator.of(context).pop();
+              // Try embedded player (may not work due to YouTube API changes)
+              showDialog(
+                context: context,
+                builder: (context) => YouTubePlayerDialog(videoId: videoId),
+              );
+            },
+            icon: const Icon(Icons.play_arrow, size: 18),
+            label: const Text('Try In-App (May Fail)'),
+            style: TextButton.styleFrom(
+              foregroundColor: Colors.orange,
+            ),
+          ),
+          TextButton.icon(
+            onPressed: () {
+              Navigator.of(context).pop();
+              _openYouTubeExternal(videoId);
+            },
+            icon: const Icon(Icons.open_in_new, size: 18),
+            label: const Text('Open YouTube (Recommended)'),
+            style: TextButton.styleFrom(
+              backgroundColor: Colors.red.withValues(alpha: 0.3),
+              foregroundColor: Colors.white,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   void _openYouTubeExternal(String videoId) async {
