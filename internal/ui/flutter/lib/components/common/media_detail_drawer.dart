@@ -1,7 +1,7 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:youtube_player_flutter/youtube_player_flutter.dart';
+import 'youtube_player_webview.dart';
 import '../../theme.dart';
 import '../../services/sqlite_db.dart';
 import '../../services/grpc_client.dart'; // For Interestnaut search
@@ -1478,108 +1478,4 @@ class _TransformedTitleTextState extends State<_TransformedTitleText> {
 }
 
 
-/// YouTube Player Dialog - Public for reuse across components
-class YouTubePlayerDialog extends StatefulWidget {
-  final String videoId;
-
-  const YouTubePlayerDialog({required this.videoId});
-
-  @override
-  State<YouTubePlayerDialog> createState() => _YouTubePlayerDialogState();
-}
-
-class _YouTubePlayerDialogState extends State<YouTubePlayerDialog> {
-  late YoutubePlayerController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = YoutubePlayerController(
-      initialVideoId: widget.videoId,
-      flags: const YoutubePlayerFlags(
-        autoPlay: true,
-        mute: false,
-        enableCaption: true,
-        captionLanguage: 'en',
-      ),
-    );
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Dialog(
-      backgroundColor: Colors.black,
-      insetPadding: const EdgeInsets.all(16),
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.black,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: AppTheme.primaryColor.withOpacity(0.3)),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Header with close button
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: const Color(0xFF1E1E1E),
-                borderRadius: const BorderRadius.only(
-                  topLeft: Radius.circular(12),
-                  topRight: Radius.circular(12),
-                ),
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.play_circle_outline,
-                    color: AppTheme.positiveColor,
-                    size: 20,
-                  ),
-                  const SizedBox(width: 8),
-                  const Text(
-                    'YouTube Player',
-                    style: TextStyle(
-                      color: AppTheme.textPrimary,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  const Spacer(),
-                  StandardCloseButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    padding: EdgeInsets.zero,
-                  ),
-                ],
-              ),
-            ),
-            // YouTube Player
-            ClipRRect(
-              borderRadius: const BorderRadius.only(
-                bottomLeft: Radius.circular(12),
-                bottomRight: Radius.circular(12),
-              ),
-              child: YoutubePlayer(
-                controller: _controller,
-                showVideoProgressIndicator: true,
-                progressIndicatorColor: AppTheme.positiveColor,
-                progressColors: ProgressBarColors(
-                  playedColor: AppTheme.positiveColor,
-                  handleColor: AppTheme.positiveColor,
-                  bufferedColor: AppTheme.positiveColor.withOpacity(0.3),
-                  backgroundColor: AppTheme.textSecondary.withOpacity(0.3),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
+// YouTubePlayerDialog is now imported from youtube_player_new.dart

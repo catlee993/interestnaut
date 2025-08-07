@@ -4,6 +4,7 @@ import '../../../theme.dart';
 import '../../../models/track_models.dart';
 import '../../common/icons.dart';
 import '../../common/media_detail_drawer.dart'; // Contains YouTubePlayerDialog
+import '../../common/youtube_player_webview.dart'; // Direct import for YouTubePlayerDialog
 import '../../../services/sqlite_db.dart';
 import '../../../main.dart'; // For MediaSearchResult
 import '../spotify_service.dart'; // For Spotify playback

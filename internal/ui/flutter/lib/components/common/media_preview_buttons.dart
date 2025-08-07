@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:youtube_player_flutter/youtube_player_flutter.dart';
+import 'youtube_player_webview.dart';
 import '../../services/sqlite_db.dart';
 import '../music/spotify_service.dart';
 import 'standard_close_button.dart';
@@ -216,74 +216,3 @@ class MediaPreviewButtons extends StatelessWidget {
 }
 
 // YouTube Player Dialog
-class YouTubePlayerDialog extends StatefulWidget {
-  final String videoId;
-
-  const YouTubePlayerDialog({Key? key, required this.videoId}) : super(key: key);
-
-  @override
-  State<YouTubePlayerDialog> createState() => _YouTubePlayerDialogState();
-}
-
-class _YouTubePlayerDialogState extends State<YouTubePlayerDialog> {
-  late YoutubePlayerController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = YoutubePlayerController(
-      initialVideoId: widget.videoId,
-      flags: const YoutubePlayerFlags(
-        autoPlay: true,
-        mute: false,
-      ),
-    );
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Dialog(
-      backgroundColor: Colors.black,
-      child: Container(
-        width: MediaQuery.of(context).size.width * 0.8,
-        height: MediaQuery.of(context).size.height * 0.6,
-        child: Column(
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Padding(
-                  padding: EdgeInsets.all(16.0),
-                  child: Text(
-                    'YouTube Player',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-                StandardCloseButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                ),
-              ],
-            ),
-            Expanded(
-              child: YoutubePlayer(
-                controller: _controller,
-                showVideoProgressIndicator: true,
-                progressIndicatorColor: AppTheme.primaryColor,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
