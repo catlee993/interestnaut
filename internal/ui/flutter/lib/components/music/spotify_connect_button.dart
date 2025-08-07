@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../theme.dart';
 
 /// A small button for the header to connect to Spotify
 class SpotifyConnectButton extends StatelessWidget {
@@ -14,21 +15,24 @@ class SpotifyConnectButton extends StatelessWidget {
     return OutlinedButton(
       onPressed: onConnect,
       style: OutlinedButton.styleFrom(
-        foregroundColor: const Color(0xFF7B68EE), // Purple primary color
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        foregroundColor: const Color(0xFFA855F7), // Exact same purple as pagination buttons
+        side: const BorderSide(color: Color(0xFFA855F7)), // Exact same border color
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8), // Same padding as pagination
         minimumSize: const Size(10, 32),
         maximumSize: const Size(150, 32),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(24),
-        ),
-        side: const BorderSide(color: Color(0xFF7B68EE), width: 1),
-        textStyle: const TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.w500,
-          letterSpacing: 0.5,
+      ),
+      child: Transform.scale(
+        scaleX: 0.9, // Same horizontal compression as pagination buttons
+        scaleY: 1.05, // Same vertical stretching as pagination buttons
+        child: const Text(
+          'Connect Spotify',
+          style: TextStyle(
+            fontSize: 12, // Same font size as pagination buttons
+            fontWeight: FontWeight.w200, // Same font weight as pagination buttons
+            letterSpacing: 2.0, // Same letter spacing as pagination buttons
+          ),
         ),
       ),
-      child: const Text('Connect Spotify'),
     );
   }
 }

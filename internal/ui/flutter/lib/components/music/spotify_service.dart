@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:math' as math;
 import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
+import 'spotify_constants.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:app_links/app_links.dart';
@@ -355,24 +356,9 @@ class SpotifyService {
         // Parse the URI
         final uri = request.uri;
         
-        // Write a friendly HTML response
+        // Write Interestnaut-branded HTML response
         request.response.headers.set('Content-Type', 'text/html');
-        request.response.write('''
-          <!DOCTYPE html>
-          <html>
-            <head>
-              <title>Authentication Successful</title>
-              <style>
-                body { font-family: Arial, sans-serif; text-align: center; padding: 50px; }
-                h1 { color: #1DB954; }
-              </style>
-            </head>
-            <body>
-              <h1>Authentication Successful</h1>
-              <p>You can close this window and return to the app.</p>
-            </body>
-          </html>
-        ''');
+        request.response.write(getSpotifyCallbackHtml());
         await request.response.close();
         
         // Extract the code
@@ -654,22 +640,8 @@ class SpotifyService {
           final code = uri.queryParameters['code'];
           final error = uri.queryParameters['error'];
           
-          // Write a simple, clean HTML response
-          final htmlResponse = '''<!DOCTYPE html>
-<html>
-<head>
-<title>Authentication Successful</title>
-<meta charset="UTF-8">
-<style>
-body { font-family: Arial, sans-serif; text-align: center; padding: 50px; }
-h1 { color: #1DB954; }
-</style>
-</head>
-<body>
-<h1>Authentication Successful</h1>
-<p>You can close this window and return to the app.</p>
-</body>
-</html>''';
+          // Write Interestnaut-branded HTML response
+          final htmlResponse = getSpotifyCallbackHtml();
           
           final responseBytes = utf8.encode(htmlResponse);
           

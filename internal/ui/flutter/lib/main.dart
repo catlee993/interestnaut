@@ -1,14 +1,11 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:ffi' as ffi;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:window_size/window_size.dart' as window_package;
 import 'package:path_provider/path_provider.dart';
-import 'package:ffi/ffi.dart';
-// Removed llama_cpp_dart - using TensorFlow Lite instead
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'dart:ui';
@@ -31,18 +28,14 @@ import 'components/music/spotify_service.dart';
 import 'components/music/player/spotify_player_view.dart';
 import 'components/music/player/spotify_web_player.dart';
 import 'components/music/spotify_preview_dialog.dart';
-// TFLite LLM service removed - using gRPC backend
 import 'services/wikidata_service.dart';
 import 'services/recommendation_service.dart';
 import 'services/grpc_client.dart';
 import 'services/sqlite_db.dart';
 import 'services/continuous_playback_service.dart';
-import 'services/ffi_init.dart';
-import 'services/go_bindings.dart';
 import 'models.dart';
 import 'models/track_models.dart';
 import 'theme.dart';
-// Removed VectorDatabase - now using gRPC backend only
 
 
 
@@ -58,63 +51,7 @@ Future<void> main() async {
     debugPrint('Error initializing WebView: $e');
   }
 
-  bool goFfiAvailable = false;
-
-  try {
-    // Try to initialize FFI, but don't stop the app if it fails
-    await FFIInitializer.initialize();
-    debugPrint('FFI initialized successfully');
-
-    // Get application support directory for storage
-    final appDir = await getApplicationSupportDirectory();
-    final storagePath = appDir.path;
-    debugPrint('Using Flutter storage path: $storagePath');
-
-    // Try to initialize Go bindings for music auth (but not for LlamaService)
-    try {
-      final goInitFFIBridge =
-      FFIInitializer.dylib.lookupFunction<ffi.Pointer<ffi.Char> Function(ffi.Pointer<ffi.Char>),
-          ffi.Pointer<ffi.Char> Function(ffi.Pointer<ffi.Char>)>('InitializeFFIBridge');
-      debugPrint('Dart: Calling Go InitializeFFIBridge()...');
-
-      // Convert Dart string to C string
-      final storagePathC = storagePath.toNativeUtf8().cast<ffi.Char>();
-
-      // Call the function with the storage path
-      final resultPtr = goInitFFIBridge(storagePathC);
-
-      // Free the C string after use
-      calloc.free(storagePathC);
-
-      // Parse the result (optional)
-      final result = resultPtr.cast<Utf8>().toDartString();
-      debugPrint('Dart: Go InitializeFFIBridge() called successfully. Result: $result');
-
-      // Initialize GoBindings (Dart wrapper for FFI calls)
-      await GoBindings.initialize();
-      debugPrint('Dart: GoBindings.initialize() complete. Status: ${GoBindings.ffiAvailable}');
-
-      goFfiAvailable = GoBindings.ffiAvailable;
-
-      if (goFfiAvailable) {
-        // Register shutdown hooks only if FFI is available
-        registerShutdownHooks();
-
-        // Register the app lifecycle observer
-        final binding = WidgetsBinding.instance;
-        binding.addObserver(_AppLifecycleObserver());
-      }
-    } catch (e) {
-      debugPrint('Error initializing Go FFI Bridge: $e');
-      // Continue without FFI
-    }
-  } catch (e) {
-    debugPrint('Error initializing FFI: $e');
-    // Continue anyway, the app will handle missing FFI gracefully
-  }
-
-  // --- TensorFlow Lite LLM Service removed ---
-  // Using gRPC backend instead of local LLM models
+  debugPrint('✅ Starting Interestnaut with pure Flutter implementation');
 
   // --- Initialize RecommendationService ---
   // Create the gRPC-based recommendation service
@@ -144,7 +81,6 @@ Future<void> main() async {
     MultiProvider(
       providers: [
         // Provide GrpcRecommendationService
-        // TensorFlow Lite LLM Service removed - using gRPC backend
         ChangeNotifierProvider.value(value: recommendationService),
         // If SpotifyService needs to be a provider:
         Provider.value(value: SpotifyService()),
@@ -176,36 +112,6 @@ Future<void> main() async {
   }
 }
 
-/// Register hooks to signal Go app to shut down
-void registerShutdownHooks() {
-  debugPrint('Registering shutdown hooks for Go interop');
-
-  // Catch SIGTERM on macOS/Linux
-  if (Platform.isLinux || Platform.isMacOS) {
-    ProcessSignal.sigterm.watch().listen((_) {
-      debugPrint('Received SIGTERM, shutting down Go runtime...');
-      GoBindings.signalShutdown();
-    });
-  }
-
-  // Catch ctrl+c in terminal for debugging
-  ProcessSignal.sigint.watch().listen((_) {
-    debugPrint('Received SIGINT, shutting down Go runtime...');
-    GoBindings.signalShutdown();
-  });
-}
-
-/// Observer for app lifecycle events
-class _AppLifecycleObserver with WidgetsBindingObserver {
-  /// Handle app lifecycle state changes
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.detached) {
-      debugPrint('App is detached, shutting down Go runtime...');
-      GoBindings.signalShutdown();
-    }
-  }
-}
 
 class MyApp extends StatelessWidget {
   const MyApp({Key? key}) : super(key: key);
